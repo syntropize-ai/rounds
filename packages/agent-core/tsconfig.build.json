@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "noImplicitAny": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src"],
+  "exclude": ["dist", "node_modules", "src/**/__tests__", "src/**/*.test.ts", "src/**/*.spec.ts"],
+  "references": [
+    { "path": "../common/tsconfig.build.json" },
+    { "path": "../llm-gateway/tsconfig.build.json" },
+    { "path": "../data-layer/tsconfig.build.json" }
+  ]
+}

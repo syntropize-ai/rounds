@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.js",
+  "sourceRoot": "",
+  "sources": ["../../src/change-event/index.ts"],
+  "names": [],
+  "mappings": "AAAA, OAAO, EAAE, kBAAkB, EAAE, MAAM, cAAc; AACjD, OAAO, EAAE, gBAAgB, EAAE, MAAM, YAAY; AAC7C, OAAO, EAAE, gBAAgB, EAAE, MAAM,iBAAiB"
+}

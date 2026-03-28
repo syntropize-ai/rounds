@@ -1,0 +1,11 @@
+server:
+  corsOrigins:
+    - https://your-domain.com
+
+database:
+  ssl: true
+  poolSize: 20
+
+logging:
+  level: warn
+  format: json

@@ -1,0 +1,171 @@
+import { randomUUID } from 'node:crypto';
+import { LLMUnavailableError } from '@agentic-obs/common';
+// Templates are used ONLY as hint sources for the LLM prompt.
+// They do NOT generate hypotheses directly - the LLM does that.
+const HYPOTHESIS_TEMPLATES = [
+    {
+        matches: (f) => f.some((x) => x.stepType === 'correlate_deployments' && x.isAnomaly) &&
+            f.some((x) => x.stepType === 'compare_latency_vs_baseline' && x.isAnomaly),
+        hint: (f) => {
+            const latency = f.find((x) => x.stepType === 'compare_latency_vs_baseline' && x.isAnomaly);
+            return `A recent deployment may have caused a latency regression (deviation: ${((latency?.deviationRatio ?? 0) * 100).toFixed(0)}%)`;
+        },
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'inspect_downstream' && x.isAnomaly),
+        hint: () => 'A downstream dependency may be degraded, causing elevated latency.',
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'check_error_rate' && x.isAnomaly) &&
+            !f.some((x) => x.stepType === 'correlate_deployments' && x.isAnomaly),
+        hint: () => 'Error rate elevated with no recent deployment - possible external dependency failure or transient issue.',
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'compare_latency_vs_baseline' && x.isAnomaly) &&
+            !f.some((x) => x.stepType === 'correlate_deployments' && x.isAnomaly),
+        hint: () => 'Latency spike with no correlated deployment - possible resource saturation or unexpected traffic surge.',
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'check_saturation' && x.isAnomaly),
+        hint: () => 'Resource saturation (CPU/memory) is likely causing the observed latency increase.',
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'check_traffic_pattern' && x.isAnomaly),
+        hint: (f) => {
+            const traffic = f.find((x) => x.stepType === 'check_traffic_pattern');
+            const ratio = traffic?.deviationRatio ?? 0;
+            return ratio > 0
+                ? `Traffic surge (${((1 + ratio) * 100).toFixed(0)}% of baseline) may be overwhelming capacity`
+                : `Traffic drop (${Math.abs(ratio * 100).toFixed(0)}% off baseline) possible upstream failure or routing change`;
+        },
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'check_slo_burn_rate' && x.isAnomaly),
+        hint: () => 'Service is burning error budget at an unsustainable rate - root cause needs urgent identification.',
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'check_error_distribution' && x.isAnomaly) &&
+            f.some((x) => x.stepType === 'check_error_rate' && x.isAnomaly),
+        hint: (f) => {
+            const dist = f.find((x) => x.stepType === 'check_error_distribution');
+            const downstream = dist?.summary.toLowerCase().includes('downstream');
+            return downstream
+                ? 'Errors appear to originate from a downstream dependency and propagate upstream'
+                : 'Errors appear to originate locally in the service itself, not from dependencies';
+        },
+    },
+    {
+        matches: (f) => f.some((x) => x.stepType === 'correlate_deployments' && x.isAnomaly) &&
+            !f.some((x) => x.stepType === 'check_error_rate' && x.isAnomaly) &&
+            !f.some((x) => x.stepType === 'compare_latency_vs_baseline' && x.isAnomaly),
+        hint: () => 'A recent deployment occurred before elevated errors without latency impact - possible logic bug or breaking API change.',
+    },
+];
+/**
+ * Returns prompt hint strings from all matching templates.
+ * Used to guide the LLM without constraining its reasoning.
+ */
+export function getMatchingHints(findings) {
+    return HYPOTHESIS_TEMPLATES.filter((t) => t.matches(findings)).map((t) => t.hint(findings));
+}
+function formatHistoricalCasesSection(cases) {
+    if (!cases.length) {
+        return '';
+    }
+    const lines = [
+        'HISTORICAL CASES (similar past incidents for reference):',
+        'These are similar past incidents for reference. Use your own reasoning - do not simply copy conclusions from past cases.',
+        '',
+    ];
+    cases.forEach((sc, i) => {
+        const r = sc.record;
+        lines.push(`Case ${i + 1}: [${r.title}]`);
+        if (r.symptoms.length) {
+            lines.push(`- Symptoms: ${r.symptoms.join(', ')}`);
+        }
+        lines.push(`- Root cause: ${r.rootCause}`);
+        if (r.resolution) {
+            lines.push(`- Resolution: ${r.resolution}`);
+        }
+        if (i < cases.length - 1) {
+            lines.push('');
+        }
+    });
+    return lines.join('\n');
+}
+/**
+ * Calls the LLM with findings + hints, returns parsed Hypothesis[].
+ * Throws on failure - caller should handle accordingly.
+ */
+export async function synthesizeHypotheses(llm, investigationId, findings, hints, historicalCases = []) {
+    const findingsText = findings
+        .map((f) => `- [${f.stepType}] ${f.summary}${f.isAnomaly ? ' | anomaly' : ''}${f.value !== undefined ? ` | value=${f.value}` : ''}${f.deviationRatio !== undefined ? ` | deviation=${(f.deviationRatio * 100).toFixed(0)}%` : ''}`)
+        .join('\n');
+    const hintsText = hints.length > 0 ? hints.join('\n') : '(no directional hints)';
+    const historicalCasesSection = formatHistoricalCasesSection(historicalCases);
+    const userMessage = `You are an expert SRE analyzing observability data to identify root causes.
+
+OBSERVABILITY FINDINGS:
+${findingsText}
+
+INVESTIGATION DIRECTIONS (these are hints only - use your own reasoning and feel free to generate additional hypotheses):
+${hintsText}
+
+${historicalCasesSection ? `${historicalCasesSection}\n\n` : ''}Generate a JSON array of root cause hypotheses. For each hypothesis provide:
+- "description": clear, specific hypothesis about the root cause
+- "confidence": number from 0.0 to 1.0 reflecting likelihood given the evidence
+- "confidenceBasis": 1-2 sentences explaining your confidence assessment
+- "category": one of "deployment", "resource", "dependency", "traffic", "config", "unknown"
+
+Return ONLY a valid JSON array. No markdown, no explanation outside the JSON.`;
+    const response = await llm.complete([
+        { role: 'system', content: 'You are an expert SRE analyzing observability data to identify root causes.' },
+        { role: 'user', content: userMessage },
+    ], { model: 'gpt-4o-mini', temperature: 0.2, maxTokens: 1024, responseFormat: 'json' });
+    const raw = response.content;
+    const parsed = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim());
+    if (!Array.isArray(parsed)) {
+        throw new Error('LLM response is not a JSON array');
+    }
+    return parsed.map((entry) => ({
+        id: randomUUID(),
+        investigationId,
+        description: String(entry.description ?? ''),
+        confidence: Math.max(0, Math.min(1, Number(entry.confidence ?? 0.5))),
+        confidenceBasis: String(entry.confidenceBasis ?? ''),
+        evidenceIds: [],
+        counterEvidenceIds: [],
+        status: 'proposed',
+    }));
+}
+/**
+ * Generates hypotheses from investigation findings.
+ *
+ * Requires an LLMGateway - without it, returns an empty array so callers
+ * that use this for early-stop checks degrade safely without crashing.
+ *
+ * When no anomalies are found, skips the LLM call and returns an empty array.
+ *
+ * On LLM failure or unparseable response, throws LLMUnavailableError.
+ *
+ * @param historicalCases - pre-fetched similar cases to inject as LLM context (optional)
+ */
+export async function generateHypotheses(investigationId, findings, llm, historicalCases = []) {
+    if (!llm) {
+        return [];
+    }
+    const anomalous = findings.filter((f) => f.isAnomaly);
+    if (anomalous.length === 0) {
+        return [];
+    }
+    const hints = getMatchingHints(findings);
+    try {
+        const hypotheses = await synthesizeHypotheses(llm, investigationId, findings, hints, historicalCases);
+        hypotheses.sort((a, b) => b.confidence - a.confidence);
+        return hypotheses;
+    }
+    catch (err) {
+        throw new LLMUnavailableError(err instanceof Error ? err.message : 'LLM hypothesis synthesis failed');
+    }
+}
+//# sourceMappingURL=hypotheses.js.map

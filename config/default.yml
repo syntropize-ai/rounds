@@ -1,0 +1,32 @@
+server:
+  port: 3000
+  host: 0.0.0.0
+  corsOrigins:
+    - http://localhost:3000
+
+database:
+  url: postgres://localhost:5432/agentic_obs
+  poolSize: 10
+  ssl: false
+
+redis:
+  url: redis://localhost:6379
+  prefix: "agentic:"
+
+llm:
+  provider: anthropic
+  apiKey: placeholder
+  model: claude-sonnet-4-6
+
+proactive:
+  checkIntervalMs: 60000
+  historySize: 100
+
+security:
+  jwtSecret: change-me-in-production-must-be-32-chars!!
+  apiKeyHeader: x-api-key
+  sessionTtl: 86400
+
+logging:
+  level: info
+  format: json

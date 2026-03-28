@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "index.d.ts",
+  "sourceRoot": "",
+  "sources": ["../../src/change-event/index.ts"],
+  "names": [],
+  "mappings": "AAAA, OAAO, EAAE, kBAAkB, EAAE, MAAM, cAAc;AACjD,OAAO,EAAE,uBAAuB,EAAE,MAAM,cAAc;AACtD,OAAO,EAAE,gBAAgB,EAAE,MAAM,YAAY;AAC7C,OAAO,EAAE,gBAAgB,EAAE,MAAM,iBAAiB;AAClD,OAAO,EAAE,mBAAmB,EAAE,sBAAsB,EAAE,cAAc,EAAE,WAAW,EAAE,MAAM,YAAY"
+}

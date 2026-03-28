@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "exclude": ["dist", "node_modules"],
+  "references": [
+    { "path": "../common" },
+    { "path": "../llm-gateway" },
+    { "path": "../data-layer" },
+    { "path": "../adapters" }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@agentic-obs/agent-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentic-obs/adapters": "*",
+    "@agentic-obs/common": "*",
+    "@agentic-obs/data-layer": "*",
+    "@agentic-obs/guardrails": "*",
+    "@agentic-obs/llm-gateway": "*",
+    "cron-parser": "^4.9.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

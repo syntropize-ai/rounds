@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "normalizer.d.ts",
+  "sourceRoot": "",
+  "sources": ["../../src/change-event/normalizer.ts"],
+  "names": [],
+  "mappings": "AAAA, OAAO,EAAE,MAAM,EAAE,MAAM,uBAAuB;AAC9C,OAAO,EAAE,cAAc,EAAE,MAAM,YAAY;AAC3C;;;GAGG;AACH,eAAe,cAAc,gBAAgB,CAAC,KAAK,EAAE,cAAc,GAAG,MAAM,GAAG,IAAI"
+}

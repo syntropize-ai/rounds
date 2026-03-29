@@ -1,0 +1,133 @@
+// Dedicated CRUD + connection-test API for datasource management.
+// Reads/writes to the same InMemoryConfig used by setup.ts.
+import { Router } from 'express';
+import { authMiddleware } from '../middleware/auth.js';
+import { getSetupConfig, updateDatasources } from './setup.js';
+// Connection test
+async function testDatasourceConnection(ds) {
+    try {
+        const headers = {};
+        if (ds.apiKey) {
+            headers['Authorization'] = `Bearer ${ds.apiKey}`;
+        }
+        else if (ds.username && ds.password) {
+            headers['Authorization'] = `Basic ${Buffer.from(`${ds.username}:${ds.password}`).toString('base64')}`;
+        }
+        let testUrl;
+        switch (ds.type) {
+            case 'prometheus':
+            case 'victoria-metrics':
+                testUrl = `${ds.url.replace(/\/$/, '')}/api/v1/status/buildinfo`;
+                break;
+            case 'loki':
+                testUrl = `${ds.url.replace(/\/$/, '')}/ready`;
+                break;
+            case 'elasticsearch':
+                testUrl = `${ds.url.replace(/\/$/, '')}/_cluster/health`;
+                break;
+            case 'tempo':
+                testUrl = `${ds.url.replace(/\/$/, '')}/ready`;
+                break;
+            case 'jaeger':
+                testUrl = `${ds.url.replace(/\/$/, '')}/api/services`;
+                break;
+            default:
+                // Generic reachability check
+                testUrl = ds.url.replace(/\/$/, '');
+        }
+        const res = await fetch(testUrl, { headers, signal: AbortSignal.timeout(5_000) });
+        if (res.ok) {
+            return { ok: true, message: 'Connected successfully' };
+        }
+        return { ok: false, message: `HTTP ${res.status}` };
+    }
+    catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : 'Connection failed' };
+    }
+}
+export const datasourcesRouter = Router();
+// GET /api/datasources - list all
+datasourcesRouter.get('/', authMiddleware, (_req, res) => {
+    const config = getSetupConfig();
+    res.json({ datasources: config.datasources });
+});
+// POST /api/datasources/test - test connection without saving
+// Registered BEFORE /:id routes so the literal path "test" is not consumed by /:id.
+datasourcesRouter.post('/test', authMiddleware, async (req, res) => {
+    const body = req.body;
+    if (!body.type || !body.url) {
+        res.status(400).json({ error: { code: 'VALIDATION', message: 'type and url are required' } });
+        return;
+    }
+    const ds = body;
+    const result = await testDatasourceConnection(ds);
+    res.status(result.ok ? 200 : 400).json(result);
+});
+// POST /api/datasources - create
+datasourcesRouter.post('/', authMiddleware, async (req, res) => {
+    const body = req.body;
+    if (!body.type || !body.url || !body.name) {
+        res.status(400).json({ error: { code: 'VALIDATION', message: 'type, name, and url are required' } });
+        return;
+    }
+    const config = getSetupConfig();
+    const id = body.id ?? `${body.type}-${Date.now()}`;
+    if (config.datasources.find(d => d.id === id)) {
+        res.status(409).json({ error: { code: 'CONFLICT', message: `Datasource with id '${id}' already exists` } });
+        return;
+    }
+    const ds = { ...body, id };
+    await updateDatasources([...config.datasources, ds]);
+    res.status(201).json({ datasource: ds });
+});
+// GET /api/datasources/:id - get one
+datasourcesRouter.get('/:id', authMiddleware, (req, res) => {
+    const id = req.params['id'] ?? '';
+    const config = getSetupConfig();
+    const ds = config.datasources.find(d => d.id === id);
+    if (!ds) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource '${id}' not found` } });
+        return;
+    }
+    res.json({ datasource: ds });
+});
+// PUT /api/datasources/:id - update
+datasourcesRouter.put('/:id', authMiddleware, async (req, res) => {
+    const id = req.params['id'] ?? '';
+    const config = getSetupConfig();
+    const idx = config.datasources.findIndex(d => d.id === id);
+    if (idx < 0) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource '${id}' not found` } });
+        return;
+    }
+    const updated = { ...config.datasources[idx], ...req.body, id };
+    const datasources = [...config.datasources];
+    datasources[idx] = updated;
+    await updateDatasources(datasources);
+    res.json({ datasource: updated });
+});
+// DELETE /api/datasources/:id - delete
+datasourcesRouter.delete('/:id', authMiddleware, async (req, res) => {
+    const id = req.params['id'] ?? '';
+    const config = getSetupConfig();
+    const exists = config.datasources.some(d => d.id === id);
+    if (!exists) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource '${id}' not found` } });
+        return;
+    }
+    await updateDatasources(config.datasources.filter(d => d.id !== id));
+    res.json({ ok: true });
+});
+// POST /api/datasources/:id/test - test a saved datasource by id
+datasourcesRouter.post('/:id/test', authMiddleware, async (req, res) => {
+    const id = req.params['id'] ?? '';
+    const config = getSetupConfig();
+    const ds = config.datasources.find(d => d.id === id);
+    if (!ds) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource '${id}' not found` } });
+        return;
+    }
+    const result = await testDatasourceConnection(ds);
+    res.status(result.ok ? 200 : 400).json(result);
+});
+//# sourceMappingURL=datasources.js.map

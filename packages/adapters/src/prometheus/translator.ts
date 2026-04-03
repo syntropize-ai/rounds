@@ -3,7 +3,7 @@
 import type { SemanticQuery, AggregationFunction } from '../types.js';
 
 /** Map semantic metric names to PromQL template functions */
-const METRIC_TEMPLATES: Record
+const METRIC_TEMPLATES: Record<
   string,
   (entity: string, window: string, filters: Record<string, string>) => string
 > = {

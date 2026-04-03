@@ -1,0 +1,277 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { apiClient } from '../api/client.js';
+import FeedItem from '../components/FeedItem.js';
+import type { FeedItemData } from '../components/FeedItem.js';
+import type { FeedSeverity } from '../components/FeedItem.js';
+
+interface FeedPage {
+  items: FeedItemData[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+const PAGE_LIMIT = 20;
+
+const SEVERITY_LEVELS: FeedSeverity[] = ['critical', 'high', 'medium', 'low'];
+
+const SEVERITY_PILL_STYLES: Record<
+  FeedSeverity,
+  { active: string; inactive: string }
+> = {
+  critical: {
+    active: 'bg-[#EF4444] text-white',
+    inactive: 'bg-[#EF4444]/10 text-[#EF4444] hover:bg-[#EF4444]/20',
+  },
+  high: {
+    active: 'bg-[#F97316] text-white',
+    inactive: 'bg-[#F97316]/10 text-[#F97316] hover:bg-[#F97316]/20',
+  },
+  medium: {
+    active: 'bg-[#F59E0B] text-white',
+    inactive: 'bg-[#F59E0B]/10 text-[#F59E0B] hover:bg-[#F59E0B]/20',
+  },
+  low: {
+    active: 'bg-[#8888AA] text-white',
+    inactive: 'bg-[#1C1C2E] text-[#8888AA] hover:bg-[#2A2A3E]',
+  },
+};
+
+export default function Feed() {
+  const [items, setItems] = useState<FeedItemData[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [severity, setSeverity] = useState<FeedSeverity | ''>('');
+  const [statusFilter, setStatusFilter] = useState<'read' | 'unread' | ''>('unread');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchFeed = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_LIMIT) });
+    if (severity) params.set('severity', severity);
+    if (statusFilter) params.set('status', statusFilter);
+
+    const res = await apiClient.get<FeedPage>(`/feed?${params.toString()}`);
+    setLoading(false);
+
+    if (res.error) {
+      setError(res.error.message);
+      return;
+    }
+
+    setItems(res.data.items);
+    setTotal(res.data.total);
+  }, [page, severity, statusFilter]);
+
+  useEffect(() => {
+    void fetchFeed();
+  }, [fetchFeed]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [severity, statusFilter]);
+
+  const handleMarkRead = useCallback(async (id: string) => {
+    const res = await apiClient.post<FeedItemData>(`/feed/${id}/read`, {});
+    if (!res.error) {
+      setItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, status: 'read' } : item))
+      );
+    }
+  }, []);
+
+  const handleMarkAllRead = useCallback(async () => {
+    const unreadIds = items.filter((i) => i.status === 'unread').map((i) => i.id);
+    await Promise.all(unreadIds.map((id) => apiClient.post(`/feed/${id}/read`, {})));
+    setItems((prev) =>
+      prev.map((i) => ({ ...i, status: 'read' as const }))
+    );
+  }, [items]);
+
+  // Count items by severity (for current page for simplicity)
+  const severityCounts = useMemo(() => {
+    const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+    for (const item of items) {
+      counts[item.severity] = (counts[item.severity] ?? 0) + 1;
+    }
+    return counts;
+  }, [items]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_LIMIT));
+  const unreadCount = items.filter((i) => i.status === 'unread').length;
+
+  return (
+    <div className="min-h-full bg-[#0A0A0F]">
+      <div className="max-w-3xl mx-auto px-4 py-6 sm:px-6 sm:py-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-[#E8E8ED]">Feed</h1>
+            <p className="text-xs text-[#555570] mt-0.5">
+              {total} event{total === 1 ? '' : 's'} {unreadCount > 0 ? `• ${unreadCount} unread` : ''}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleMarkAllRead();
+                }}
+                className="text-xs text-[#8888AA] hover:text-[#E8E8ED] px-3 py-1.5 rounded-lg border border-[#2A2A3E] hover:bg-[#1C1C2E] transition-colors"
+              >
+                Mark all read
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                void fetchFeed();
+              }}
+              disabled={loading}
+              className="p-1.5 rounded-lg text-[#555570] hover:text-[#E8E8ED] hover:bg-[#1C1C2E] transition-colors disabled:opacity-40"
+              title="Refresh"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m14.836 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0A8.003 8.003 0 015.163 13M15 15h5" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setSeverity('')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              severity === ''
+                ? 'bg-[#6366F1] text-white'
+                : 'bg-[#1C1C2E] text-[#8888AA] hover:bg-[#2A2A3E]'
+            }`}
+          >
+            All
+          </button>
+
+          {SEVERITY_LEVELS.map((level) => {
+            const count = severityCounts[level] ?? 0;
+            const isActive = severity === level;
+            const styles = SEVERITY_PILL_STYLES[level];
+            return (
+              <button
+                key={level}
+                type="button"
+                onClick={() => setSeverity(isActive ? '' : level)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
+                  isActive ? styles.active : styles.inactive
+                }`}
+              >
+                {level}
+                {count > 0 && <span className="ml-1.5 opacity-80">{count}</span>}
+              </button>
+            );
+          })}
+
+          <div className="flex-1" />
+
+          <div className="flex bg-[#141420] rounded-lg border border-[#2A2A3E]">
+            {([
+              ['', 'All'],
+              ['unread', 'Unread'],
+              ['read', 'Read'],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setStatusFilter(val as typeof statusFilter)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  statusFilter === val
+                    ? 'bg-[#1C1C2E] text-[#E8E8ED]'
+                    : 'text-[#555570] hover:text-[#8888AA]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-[#EF4444]/10 border border-[#EF4444]/20 text-sm text-[#EF4444]">
+            {error}
+          </div>
+        )}
+
+        {loading && items.length === 0 && (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="rounded-xl border border-[#2A2A3E] bg-[#141420] p-4 animate-pulse">
+                <div className="flex gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-[#1C1C2E]" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-[#1C1C2E] rounded w-3/4" />
+                    <div className="h-3 bg-[#1C1C2E] rounded w-1/2" />
+                    <div className="h-3 bg-[#1C1C2E] rounded w-5/6" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && items.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-[#141420] border border-[#2A2A3E] flex items-center justify-center mb-3">
+              <svg className="w-6 h-6 text-[#555570]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 12h18M3 7h12M3 17h8" />
+              </svg>
+            </div>
+            <p className="text-sm text-[#8888AA] mb-1">No events found</p>
+            <p className="text-xs text-[#555570]">
+              {severity || statusFilter
+                ? 'Try changing the filters above'
+                : 'Events will appear here when anomalies are detected'}
+            </p>
+          </div>
+        )}
+
+        {items.length > 0 && (
+          <div className="space-y-2">
+            {items.map((item) => (
+              <FeedItem key={item.id} item={item} onMarkRead={handleMarkRead} />
+            ))}
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-[#2A2A3E]">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="text-xs px-3 py-1.5 rounded-lg border border-[#2A2A3E] text-[#8888AA] hover:bg-[#1C1C2E] hover:text-[#E8E8ED] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Previous
+            </button>
+
+            <span className="text-xs text-[#555570]">
+              Page {page} / {totalPages}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="text-xs px-3 py-1.5 rounded-lg border border-[#2A2A3E] text-[#8888AA] hover:bg-[#1C1C2E] hover:text-[#E8E8ED] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

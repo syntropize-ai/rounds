@@ -341,7 +341,7 @@ export class LLMExecutionAgent {
         const adapterAction: AdapterAction = {
           type: String(actionObj.type ?? 'unknown'),
           targetService: String(actionObj.targetService ?? ''),
-          params: typeof actionObj.params === 'object' && actionObj.params !== null ? actionObj.params : {},
+          params: typeof actionObj.params === 'object' && actionObj.params !== null ? actionObj.params as Record<string, unknown> : {},
           credentialRef: actionObj.credentialRef != null ? String(actionObj.credentialRef) : undefined,
         };
         return {

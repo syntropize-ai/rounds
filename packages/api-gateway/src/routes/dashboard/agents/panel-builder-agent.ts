@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateways'
+import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateway'
 import type {
   PanelConfig,
   PanelQuery,
   PanelVisualization,
   DashboardVariable,
-  DashboardSSEEvent,
+  DashboardSseEvent,
 } from '@agentic-obs/common'
 
 export interface PanelBuilderInput {
@@ -72,7 +72,7 @@ export class PanelBuilderAgent {
     private model: string,
     private prometheusUrl: string | undefined,
     private headers: Record<string, string>,
-    private sendEvent: (event: DashboardSSEEvent) => void,
+    private sendEvent: (event: DashboardSseEvent) => void,
   ) {}
 
   async build(input: PanelBuilderInput): Promise<PanelBuilderOutput> {

@@ -4,11 +4,18 @@ import { promises as fs } from 'fs';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
+import {
+  AnthropicProvider,
+  OpenAIProvider,
+  GeminiProvider,
+  OllamaProvider,
+  type ModelInfo,
+} from '@agentic-obs/llm-gateway';
 
 // -- Types
 
 export interface LlmConfig {
-  provider: 'anthropic' | 'openai' | 'azure-openai' | 'aws-bedrock' | 'ollama' | 'corporate-gateway';
+  provider: 'anthropic' | 'openai' | 'azure-openai' | 'aws-bedrock' | 'ollama' | 'gemini' | 'corporate-gateway';
   apiKey?: string;
   model: string;
   baseUrl?: string;
@@ -129,7 +136,7 @@ async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message
       const key = cfg.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? '';
       if (!key)
         return { ok: false, message: 'API key is required' };
-      const baseUrl = cfg.baseUrl ?? 'https://api.anthropic.com';
+      const baseUrl = cfg.baseUrl || 'https://api.anthropic.com';
       const res = await fetch(`${baseUrl}/v1/models`, {
         headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
       });
@@ -153,11 +160,23 @@ async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message
     }
 
     if (cfg.provider === 'ollama') {
-      const base = cfg.baseUrl ?? 'http://localhost:11434';
+      const base = cfg.baseUrl || 'http://localhost:11434';
       const res = await fetch(`${base}/api/tags`);
       if (res.ok)
         return { ok: true, message: 'Connected successfully' };
       return { ok: false, message: `HTTP ${res.status}` };
+    }
+
+    if (cfg.provider === 'gemini') {
+      const key = cfg.apiKey ?? process.env['GEMINI_API_KEY'] ?? '';
+      if (!key)
+        return { ok: false, message: 'API key is required' };
+      const base = cfg.baseUrl || 'https://generativelanguage.googleapis.com';
+      const res = await fetch(`${base}/v1beta/models?key=${key}`);
+      if (res.ok)
+        return { ok: true, message: 'Connected successfully' };
+      const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      return { ok: false, message: body.error?.message ?? `HTTP ${res.status}` };
     }
 
     if (cfg.provider === 'azure-openai') {
@@ -206,6 +225,35 @@ async function testDatasourceConnection(ds: DatasourceConfig): Promise<{ ok: boo
     return { ok: false, message: `HTTP ${res.status}` };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Connection failed' };
+  }
+}
+
+// -- Model Listing
+
+async function fetchModels(cfg: { provider: string; apiKey?: string; baseUrl?: string }): Promise<ModelInfo[]> {
+  try {
+    switch (cfg.provider) {
+      case 'anthropic': {
+        const provider = new AnthropicProvider({ apiKey: cfg.apiKey ?? '' , baseUrl: cfg.baseUrl });
+        return await provider.listModels();
+      }
+      case 'openai': {
+        const provider = new OpenAIProvider({ apiKey: cfg.apiKey ?? '', baseUrl: cfg.baseUrl });
+        return await provider.listModels();
+      }
+      case 'gemini': {
+        const provider = new GeminiProvider({ apiKey: cfg.apiKey ?? '', baseUrl: cfg.baseUrl });
+        return await provider.listModels();
+      }
+      case 'ollama': {
+        const provider = new OllamaProvider({ baseUrl: cfg.baseUrl });
+        return await provider.listModels();
+      }
+      default:
+        return [];
+    }
+  } catch {
+    return [];
   }
 }
 
@@ -285,6 +333,17 @@ export function createSetupRouter(): Router {
     const cfg = req.body as LlmConfig;
     const result = await testLlmConnection(cfg);
     res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  // POST /api/setup/llm/models — fetch available models from provider
+  router.post('/llm/models', async (req: Request, res: Response) => {
+    const cfg = req.body as { provider: string; apiKey?: string; baseUrl?: string };
+    if (!cfg?.provider) {
+      res.status(400).json({ error: { code: 'VALIDATION', message: 'provider is required' } });
+      return;
+    }
+    const models = await fetchModels(cfg);
+    res.json({ models });
   });
 
   // POST /api/setup/datasource

@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'crypto';
 import cronParser from 'cron-parser';
-import type { WorkerQueue } from '@agentic-obs/common';
+import type { IWorkerQueue } from '@agentic-obs/common';
 import { LLMUnavailableError } from '@agentic-obs/common';
 import type {
   ScheduleConfig,
@@ -72,7 +72,7 @@ export const SCHEDULED_INVESTIGATION_QUEUE = 'scheduled-investigation';
 export interface ScheduledInvestigationDeps {
   llm: ILLMClient;
   orchestrator: IScheduledOrchestrator;
-  queue: WorkerQueue;
+  queue: IWorkerQueue;
   feed: IScheduledFeed;
   metricsCollector?: IMetricsCollector;
 }
@@ -84,7 +84,7 @@ export class ScheduledInvestigation {
 
   private readonly llm: ILLMClient;
   private readonly orchestrator: IScheduledOrchestrator;
-  private readonly queue: WorkerQueue;
+  private readonly queue: IWorkerQueue;
   private readonly feed: IScheduledFeed;
   private readonly metricsCollector: IMetricsCollector;
 

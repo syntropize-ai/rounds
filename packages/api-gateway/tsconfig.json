@@ -9,6 +9,8 @@
   "references": [
     { "path": "../common" },
     { "path": "../data-layer" },
-    { "path": "../agent-core" }
+    { "path": "../agent-core" },
+    { "path": "../llm-gateway" },
+    { "path": "../adapters" }
   ]
 }

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { LLMGateway } from '@agentic-obs/llm-gateways'
+import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import type {
   PanelConfig,
   PanelQuery,
   PanelVisualization,
-  DashboardSSEEvent,
+  DashboardSseEvent,
   InvestigationReport,
   InvestigationReportSection,
 } from '@agentic-obs/common'
@@ -16,7 +16,7 @@ export interface InvestigationDeps {
   model: string
   prometheusUrl: string
   prometheusHeaders: Record<string, string>
-  sendEvent: (event: DashboardSSEEvent) => void
+  sendEvent: (event: DashboardSseEvent) => void
 }
 
 export interface InvestigationInput {

@@ -1,8 +1,8 @@
 export type {
     AdapterAction,
-    ValidataionResult,
+    ValidationResult,
     ExecutionResult,
-    DruRunResult,
+    DryRunResult,
     AdapterCapability,
     ExecutionAdapter,
 } from './types.js';

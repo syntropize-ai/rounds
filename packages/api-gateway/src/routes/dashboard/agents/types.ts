@@ -73,11 +73,11 @@ export interface RawPanelSpec {
 // -- Shared Deps
 
 export interface GeneratorDeps {
-  gateway: import('@agentic-obs/llm-gateways').LLMGateway
+  gateway: import('@agentic-obs/llm-gateway').LLMGateway
   model: string
   prometheusUrl: string | undefined
   prometheusHeaders: Record<string, string>
-  sendEvent: (event: import('@agentic-obs/common').DashboardSSEEvent) => void
+  sendEvent: (event: import('@agentic-obs/common').DashboardSseEvent) => void
 }
 
 export interface GenerateInput {

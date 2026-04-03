@@ -161,7 +161,7 @@ ONLY return the JSON array.`
         { role: 'user', content: `Add panels for: ${input.goal}` },
       ], {
         model: this.deps.model,
-        maxTokens: 2048,
+        maxTokens: 8192,
         temperature: 0.2,
         responseFormat: 'json',
       })

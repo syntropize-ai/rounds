@@ -8,7 +8,7 @@ import type {
   ValidationResult,
   DryRunResult,
   ExecutionResult,
-} from '@agentic-obs/agent-core';
+} from './types.js';
 import type { PagerDutyClient } from './pagerduty-client.js';
 import { HttpPagerDutyClient } from './pagerduty-client.js';
 import type { PagerDutySeverity } from './pagerduty-client.js';
@@ -152,7 +152,7 @@ export class PagerDutyAdapter implements ExecutionAdapter {
 
     try {
       if (op === 'create_incident') {
-        const params = p as CreateIncidentParams;
+        const params = p as unknown as CreateIncidentParams;
         const routingKey = params.routingKey;
         if (!routingKey) {
           return { success: false, output: null, rollbackable: false, executionId, error: 'routingKey is required (populate from credentialRef)' };
@@ -180,7 +180,7 @@ export class PagerDutyAdapter implements ExecutionAdapter {
       }
 
       if (op === 'escalate') {
-        const params = p as EscalateParams;
+        const params = p as unknown as EscalateParams;
         const routingKey = params.routingKey;
         if (!routingKey) {
           return { success: false, output: null, rollbackable: false, executionId, error: 'routingKey is required (populate from credentialRef)' };
@@ -205,7 +205,7 @@ export class PagerDutyAdapter implements ExecutionAdapter {
       }
 
       if (op === 'resolve') {
-        const params = p as ResolveParams;
+        const params = p as unknown as ResolveParams;
         const routingKey = params.routingKey;
         if (!routingKey) {
           return { success: false, output: null, rollbackable: false, executionId, error: 'routingKey is required (populate from credentialRef)' };
@@ -225,7 +225,7 @@ export class PagerDutyAdapter implements ExecutionAdapter {
       }
 
       if (op === 'add_note') {
-        const params = p as AddNoteParams;
+        const params = p as unknown as AddNoteParams;
         if (!params.apiKey) {
           return { success: false, output: null, rollbackable: false, executionId, error: 'apiKey is required for add_note (populate from credentialRef)' };
         }
@@ -255,7 +255,7 @@ export class PagerDutyAdapter implements ExecutionAdapter {
    * Only valid for create_incident executions where rollbackable=true.
    */
   async rollback(action: AdapterAction, _executionId: string): Promise<ExecutionResult> {
-    const p = action.params as CreateIncidentParams;
+    const p = action.params as unknown as CreateIncidentParams;
     const executionId = randomUUID();
 
     if (!p.dedupKey) {

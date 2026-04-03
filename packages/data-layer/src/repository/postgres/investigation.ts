@@ -74,7 +74,7 @@ export class PostgresInvestigationRepository implements IInvestigationRepository
         updatedAt: now,
       })
       .returning();
-    return rowToInvestigation(row);
+    return rowToInvestigation(row!);
   }
 
   async update(

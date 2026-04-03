@@ -4,16 +4,16 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import type { ScheduleInvestigation } from '@agentic-obs/agent-core';
+import type { ScheduledInvestigation } from '@agentic-obs/agent-core';
 import type { ScheduleConfig } from '@agentic-obs/agent-core';
 
 export interface ScheduleRouterDeps {
-  scheduler: ScheduleInvestigation;
+  scheduler: ScheduledInvestigation;
 }
 
 export function createScheduleRouter(deps: ScheduleRouterDeps): Router {
   if (!deps.scheduler) {
-    throw new Error('createScheduleRouter: scheduler is required. Provide a ScheduleInvestigation instance via deps.scheduler');
+    throw new Error('createScheduleRouter: scheduler is required. Provide a ScheduledInvestigation instance via deps.scheduler');
   }
 
   const scheduler = deps.scheduler;

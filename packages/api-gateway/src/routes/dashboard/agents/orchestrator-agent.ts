@@ -2,21 +2,21 @@ import { randomUUID } from 'node:crypto'
 import type {
   LLMGateway,
   CompletionMessage,
-} from '@agentic-obs/llm-gateways'
+} from '@agentic-obs/llm-gateway'
 import type {
-  DashboardSSEEvent,
+  DashboardSseEvent,
   DashboardAction,
   DashboardMessage,
   Dashboard,
   DashboardVariable,
 } from '@agentic-obs/common'
-import type { DatasourceConfig } from '../ui/setup.js'
-import type { defaultInvestigationReportStore } from '../investigation-report-store.js'
+import type { DatasourceConfig } from '../../setup.js'
+import { defaultInvestigationReportStore } from '../investigation-report-store.js'
 import type { IGatewayDashboardStore, IConversationStore } from '../../../repositories/types.js'
 import { DashboardGeneratorAgent } from './dashboard-generator-agent.js'
 import { PanelAdderAgent } from './panel-adder-agent.js'
 import { InvestigationAgent } from './investigation-agent.js'
-import { ActionExecutor } from './action-executor.js'
+import { ActionExecutor } from '../action-executor.js'
 import { AlertRuleAgent } from './alert-rule-agent.js'
 import { defaultAlertRuleStore } from '../../alert-rule-store.js'
 
@@ -31,7 +31,7 @@ export interface OrchestratorDeps {
   prometheusHeaders: Record<string, string>
   /** All configured datasources - used to inform the LLM about available environments */
   allDatasources?: DatasourceConfig[]
-  sendEvent: (event: DashboardSSEEvent) => void
+  sendEvent: (event: DashboardSseEvent) => void
 }
 
 interface ReActStep {

@@ -42,13 +42,13 @@ function buildEnvOverrides(env: Record<string, string | undefined>): Record<stri
   const setNested = (obj: Record<string, unknown>, keys: string[], value: unknown) => {
     let cur = obj;
     for (let i = 0; i < keys.length - 1; i++) {
-      const k = keys[i];
+      const k = keys[i]!;
       if (typeof cur[k] !== 'object' || cur[k] === null) {
         cur[k] = {};
       }
       cur = cur[k] as Record<string, unknown>;
     }
-    const last = keys[keys.length - 1];
+    const last = keys[keys.length - 1]!;
     cur[last] = value;
   };
 

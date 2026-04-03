@@ -1,4 +1,4 @@
-import type { LLMGateway } from '@agentic-obs/llm-gateways'
+import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import type { AlertCondition, AlertSeverity } from '@agentic-obs/common'
 
 interface AlertRuleAgentDeps {

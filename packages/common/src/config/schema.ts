@@ -23,10 +23,10 @@ export const AppConfigSchema = z.object({
   }),
 
   llm: z.object({
-    provider: z.enum(['anthropic', 'openai', 'azure']).default('anthropic'),
+    provider: z.enum(['anthropic', 'openai', 'azure', 'gemini', 'ollama']).default('anthropic'),
     apiKey: z.string().min(1),
     model: z.string().default('claude-sonnet-4-6'),
-    fallbackProvider: z.enum(['anthropic', 'openai', 'azure']).optional(),
+    fallbackProvider: z.enum(['anthropic', 'openai', 'azure', 'gemini', 'ollama']).optional(),
   }),
 
   proactive: z.object({

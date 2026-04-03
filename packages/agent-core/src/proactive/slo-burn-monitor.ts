@@ -165,7 +165,7 @@ function parseWindowMinutes(window: string): number {
   if (!match) return 60;
 
   const [, numStr, unit] = match;
-  const num = parseInt(numStr, 10);
+  const num = parseInt(numStr!, 10);
   switch (unit) {
     case 'm':
       return num;

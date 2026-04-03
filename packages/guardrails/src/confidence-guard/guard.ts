@@ -54,7 +54,7 @@ export class ConfidenceGuard {
 
       const finalConfidence = clamp(minAdjusted, 0, 1);
       const worstAdjustment =
-        adjustments.find(a => a.adjustedConfidence === minAdjusted) ?? adjustments[0];
+        adjustments.find(a => a.adjustedConfidence === minAdjusted) ?? adjustments[0]!;
 
       return {
         ...hypothesis,

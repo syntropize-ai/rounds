@@ -57,7 +57,7 @@ export class PostgresFeedRepository implements IFeedRepository {
         createdAt: new Date(),
       })
       .returning();
-    return rowToFeedEvent(row);
+    return rowToFeedEvent(row!);
   }
 
   async update(id: string, patch: Partial<Omit<FeedEvent, 'id'>>): Promise<FeedEvent | undefined> {

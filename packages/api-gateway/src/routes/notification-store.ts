@@ -86,8 +86,8 @@ function routeIntoTree(
     if (node.contactPointId) {
       collected.push({
         contactPointId: node.contactPointId,
-        groupBy: node.groupBy,
-        muteTimingIds: node.muteTimingIds,
+        groupBy: node.groupBy ?? [],
+        muteTimingIds: node.muteTimingIds ?? [],
       });
     }
   }
@@ -251,7 +251,7 @@ export class NotificationStore implements Persistable {
   ): NotificationPolicyNode | undefined {
     const newNode: NotificationPolicyNode = {
       ...policy,
-      id: policy.id ?? randomUUID().slice(0, 12),
+      id: randomUUID().slice(0, 12),
       children: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

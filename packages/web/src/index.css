@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0A0A0F;
+  --color-surface: #141420;
+  --color-surface-hover: #1C1C2E;
+  --color-border: #2A2A3E;
+  --color-border-active: #4F46E5;
+  --color-text-primary: #E8E8ED;
+  --color-text-secondary: #8888AA;
+  --color-text-muted: #555570;
+  --color-accent: #6366F1;
+  --color-accent-glow: #818CF8;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, "apple-system", BlinkMacSystemFont, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Customize grid layout appearance */
+.react-grid-item.react-grid-placeholder {
+  background: rgba(99, 102, 241, 0.1);
+  border: 2px dashed rgba(99, 102, 241, 0.4);
+  border-radius: 8px;
+  opacity: 1 !important;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-color: #4F46E5;
+}
+
+.react-grid-item.react-draggable-dragging {
+  z-index: 100;
+  box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.5);
+}

@@ -1,0 +1,15 @@
+id: "execution.evaluate"
+version: "1.0.0"
+name: "Execution Result Evaluator"
+variables:
+  - evaluationContext
+systemPrompt: |
+  You are an SRE expert evaluating the outcome of a remediation action.
+  Determine if it succeeded, suggest next steps, and whether rollback is needed.
+  Always respond with valid JSON matching the required schema.
+userPromptTemplate: |
+  {{evaluationContext}}
+metadata:
+  category: "execution"
+  agent: "execution-agent"
+  phase: "evaluate"

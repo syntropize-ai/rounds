@@ -1,0 +1,658 @@
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { apiClient } from '../api/client.js';
+import { queryScheduler } from '../api/query-scheduler.js';
+import TimeSeriesChart from './TimeSeriesChart.js';
+import StatVisualization from './StatVisualization.js';
+import GaugeVisualization from './GaugeVisualization.js';
+import BarVisualization from './BarVisualization.js';
+import PieVisualization from './PieVisualization.js';
+import HistogramVisualization from './HistogramVisualization.js';
+import HeatmapVisualization from './HeatmapVisualization.js';
+import StatusTimelineVisualization from './StatusTimelineVisualization.js';
+
+// Types
+
+export interface PanelQuery {
+  refId: string;
+  expr: string;
+  legendFormat?: string;
+  instant?: boolean;
+  datasourceId?: string;
+}
+
+export interface PanelThreshold {
+  value: number;
+  color: string;
+  label?: string;
+}
+
+export interface PanelConfig {
+  id: string;
+  title: string;
+  description?: string;
+  queries?: PanelQuery[];
+  visualization:
+    | 'time_series'
+    | 'stat'
+    | 'table'
+    | 'gauge'
+    | 'bar'
+    | 'pie'
+    | 'histogram'
+    | 'heatmap'
+    | 'status_timeline';
+  unit?: string;
+  refreshIntervalSec?: number | null;
+  thresholds?: PanelThreshold[];
+  stackMode?: 'normal' | 'percent';
+  fillOpacity?: number;
+  decimals?: number;
+  // Backward compat: v1 panels use single query string
+  query?: string;
+  // Grid placement - backend uses row/col/width/height, frontend aliases gridRow etc.
+  row?: number;
+  col?: number;
+  width?: number;
+  height?: number;
+  gridRow?: number;
+  gridCol?: number;
+  gridWidth?: number;
+  gridHeight?: number;
+  // Section grouping
+  sectionId?: string;
+  sectionLabel?: string;
+}
+
+interface PrometheusRangeResult {
+  metric: Record<string, string>;
+  values: [number, string][];
+}
+
+interface PrometheusInstantResult {
+  metric: Record<string, string>;
+  value: [number, string];
+}
+
+interface RangeResponse {
+  status: string;
+  data: { result: PrometheusRangeResult[] };
+}
+
+interface InstantResponse {
+  status: string;
+  data: { result: PrometheusInstantResult[] };
+}
+
+// Helpers
+
+interface QueryResult {
+  refIds: string;
+  legendFormat?: string;
+  series: Array<{ labels: Record<string, string>; points: Array<{ ts: number; value: number }> }>;
+  totalSeries: number;
+}
+
+function transformQueryResult(data: RangeResponse, pq: PanelQuery): QueryResult {
+  return {
+    refIds: pq.refId,
+    legendFormat: pq.legendFormat,
+    series: data.data.result.map((r) => ({
+      labels: r.metric,
+      points: r.values.map(([ts, val]) => ({ ts: ts * 1000, value: Number.parseFloat(val) })),
+    })),
+    totalSeries: data.data.result.length,
+  };
+}
+
+function transformInstantData(data: InstantResponse, query: string) {
+  return {
+    query,
+    series: data.data.result.map((r) => ({
+      labels: r.metric,
+      points: [{ ts: r.value[0] * 1000, value: Number.parseFloat(r.value[1]) }],
+    })),
+    totalSeries: data.data.result.length,
+  };
+}
+
+function firstInstantValue(data: InstantResponse | null): number {
+  const raw = data?.data?.result?.[0]?.value?.[1];
+  return raw === undefined ? 0 : Number.parseFloat(raw);
+}
+
+function instantToBarItems(data: InstantResponse | null): Array<{ label: string; value: number }> {
+  if (!data) return [];
+  return data.data.result.map((r) => {
+    const labelEntries = Object.entries(r.metric).filter(([k]) => k !== '__name__');
+    const label =
+      labelEntries.length > 0
+        ? labelEntries.slice(0, 2).map(([, v]) => v).join('/')
+        : r.metric['__name__'] ?? 'series';
+    return { label, value: Number.parseFloat(r.value[1]) };
+  });
+}
+
+function instantToPieItems(data: InstantResponse | null): Array<{ label: string; value: number }> {
+  if (!data) return [];
+  return data.data.result.map((r) => {
+    const labelEntries = Object.entries(r.metric).filter(([k]) => k !== '__name__');
+    const label =
+      labelEntries.length > 0
+        ? labelEntries.slice(0, 2).map(([, v]) => v).join('/')
+        : r.metric['__name__'] ?? 'series';
+    return { label, value: Number.parseFloat(r.value[1]) };
+  });
+}
+
+function instantToHistogramBuckets(data: InstantResponse | null): Array<{ le: string; count: number }> {
+  if (!data) return [];
+  return data.data.result
+    .filter((r) => r.metric['le'] != null)
+    .map((r) => ({ le: r.metric['le']!, count: Number.parseFloat(r.value[1]) }))
+    .sort((a, b) => {
+      const an = a.le === '+Inf' ? Infinity : Number.parseFloat(a.le);
+      const bn = b.le === '+Inf' ? Infinity : Number.parseFloat(b.le);
+      return an - bn;
+    });
+}
+
+function rangeToHeatmapPoints(results: QueryResult[]): Array<{ x: number; y: string; value: number }> {
+  const points: Array<{ x: number; y: string; value: number }> = [];
+  for (const qr of results) {
+    for (const s of qr.series) {
+      const le = s.labels['le'];
+      let yLabel: string;
+      if (le != null) {
+        yLabel = le;
+      } else {
+        const entries = Object.entries(s.labels).filter(([k]) => k !== '__name__');
+        yLabel =
+          entries.length > 0
+            ? entries.slice(0, 2).map(([, v]) => v).join('/')
+            : s.labels['__name__'] ?? 'series';
+      }
+      for (const p of s.points) {
+        points.push({ x: p.ts, y: yLabel, value: p.value });
+      }
+    }
+  }
+  return points;
+}
+
+function rangeToStatusSpans(results: QueryResult[]): Array<{ label: string; start: number; end: number; status: string }> {
+  const spans: Array<{ label: string; start: number; end: number; status: string }> = [];
+  for (const qr of results) {
+    for (const s of qr.series) {
+      const labelEntries = Object.entries(s.labels).filter(([k]) => k !== '__name__');
+      const label =
+        labelEntries.length > 0
+          ? labelEntries.slice(0, 2).map(([, v]) => v).join('/')
+          : s.labels['__name__'] ?? 'series';
+      let spanStart = 0;
+      let lastStatus = '';
+      for (let i = 0; i < s.points.length; i += 1) {
+        const p = s.points[i]!;
+        const status = p.value === 1 ? 'up' : p.value === 0 ? 'down' : String(p.value);
+        if (i === 0) {
+          lastStatus = status;
+          spanStart = p.ts;
+        } else if (status !== lastStatus) {
+          spans.push({ label, start: spanStart, end: p.ts, status: lastStatus });
+          spanStart = p.ts;
+          lastStatus = status;
+        }
+      }
+      if (s.points.length > 0) {
+        const last = s.points[s.points.length - 1]!;
+        spans.push({ label, start: spanStart, end: last.ts, status: lastStatus });
+      }
+    }
+  }
+  return spans;
+}
+
+// Error helpers
+
+/** Extract a human-readable message from apiClient's nested error objects */
+function extractErrorMessage(err: unknown): string {
+  if (!err || typeof err !== 'object') return 'Query failed';
+  const obj = err as Record<string, unknown>;
+  if (typeof obj.message === 'string') return obj.message;
+  if (obj.error && typeof obj.error === 'object') {
+    const inner = obj.error as Record<string, unknown>;
+    if (typeof inner.message === 'string') return inner.message;
+  }
+  if (typeof obj.code === 'string') return `${obj.code}: ${String(obj.message ?? 'unknown error')}`;
+  return 'Query failed';
+}
+
+// Spinner
+
+function Spinner() {
+  return (
+    <span className="inline-block w-3.5 h-3.5 border-2 border-[#2C3036] border-t-[#6366F1] rounded-full animate-spin" />
+  );
+}
+
+// PromQL query display
+
+function QueryBadge({ queries }: { queries: PanelQuery[] }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="bg-[#141420] border-t border-[#2A2A3E] px-3 py-1.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="text-[11px] text-[#8888AA] hover:text-[#E8E8ED] flex items-center gap-1 transition-colors"
+      >
+        <span className="font-mono">PromQL</span>
+        {queries.length > 1 && (
+          <span className="text-[10px] bg-[#6366F1]/20 text-[#818CF8] px-1.5 py-0.5 rounded font-mono">
+            {queries.length}
+          </span>
+        )}
+        <svg
+          className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="mt-1.5 space-y-1.5">
+          {queries.map((q) => (
+            <div key={q.refId}>
+              {queries.length > 1 && (
+                <span className="text-[10px] text-[#818CF8] font-medium">{q.refId}</span>
+              )}
+              <pre className="inline-block w-full text-[11px] font-mono text-[#E6E7EB] bg-[#0B0D12] rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+                {q.expr}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface Props {
+  panel: PanelConfig;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  editMode?: boolean;
+}
+
+export default function DashboardPanelCard({
+  panel,
+  onEdit,
+  onDelete,
+  editMode = false,
+}: Props) {
+  const [loading, setLoading] = useState(true);
+  const [hovered, setHovered] = useState(false);
+  const [multiRangeData, setMultiRangeData] = useState<QueryResult[]>([]);
+  const [instantData, setInstantData] = useState<InstantResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isTransientError, setIsTransientError] = useState(false);
+
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const effectiveQueries = useMemo<PanelQuery[]>(
+    () =>
+      panel.queries && panel.queries.length > 0
+        ? panel.queries
+        : panel.query
+          ? [{ refId: 'A', expr: panel.query, instant: panel.visualization !== 'time_series' }]
+          : [],
+    [panel.queries, panel.query, panel.visualization]
+  );
+
+  const isRangeViz = panel.visualization === 'time_series' || panel.visualization === 'status_timeline' || panel.visualization === 'heatmap';
+  const activeQuery = effectiveQueries[0]?.expr ?? '';
+
+  // Build a stable dedup key from queries
+  const queryKey = useMemo(
+    () => effectiveQueries.map((q) => q.expr).join('|'),
+    [effectiveQueries]
+  );
+
+  const cacheMaxAgeMs = (panel.refreshIntervalSec ?? 30) * 1000;
+
+  /** Returns true if the error message / object looks like a transient failure */
+  function isTransientMsg(msg: string): boolean {
+    return /too many requests|rate.?limit|429|503|502|network/i.test(msg);
+  }
+
+  const fetchData = useCallback(
+    async (isRetry = false) => {
+      if (effectiveQueries.length === 0) {
+        setLoading(false);
+        return;
+      }
+
+      if (isRetry) {
+        setError(null);
+        setIsTransientError(false);
+      }
+
+      const hasExistingData = multiRangeData.length > 0 || instantData !== null;
+
+      const handleError = (msg: string) => {
+        const transient = isTransientMsg(msg);
+        // If we already have data, silently ignore transient errors - keep showing stale data.
+        if (transient && hasExistingData) {
+          retryCountRef.current = 0;
+          setLoading(false);
+          return;
+        }
+        if (transient && retryCountRef.current < 4) {
+          const delayMs = Math.min(1000 * 2 ** retryCountRef.current, 16000);
+          retryCountRef.current += 1;
+          retryTimerRef.current = setTimeout(() => void fetchData(true), delayMs);
+          return;
+        }
+        retryCountRef.current = 0;
+        setIsTransientError(transient);
+        setError(msg);
+        setLoading(false);
+      };
+
+      if (isRangeViz) {
+        try {
+          const batchRes = await queryScheduler.schedule<{
+            data: { results: Record<string, { status: string; data: RangeResponse; error?: string }> } | null;
+            error?: unknown;
+          }>(
+            `batch:${queryKey}`,
+            () =>
+              apiClient.post('/query/batch', {
+                queries: effectiveQueries.map((q) => ({ refId: q.refId, expr: q.expr, instant: q.instant })),
+              }) as Promise<{
+                data: { results: Record<string, { status: string; data: RangeResponse; error?: string }> } | null;
+                error?: unknown;
+              }>
+          );
+
+          if (batchRes.error) {
+            handleError(extractErrorMessage(batchRes.error));
+            return;
+          }
+          if (!batchRes.data?.results) {
+            handleError('Empty response from query API');
+            return;
+          }
+
+          retryCountRef.current = 0;
+          const results = effectiveQueries.map((pq) => {
+            const rr = batchRes.data!.results[pq.refId];
+            if (!rr || rr.status === 'error') {
+              return {
+                refIds: pq.refId,
+                legendFormat: pq.legendFormat,
+                series: [],
+                totalSeries: 0,
+              };
+            }
+            return transformQueryResult(rr.data, pq);
+          });
+          setMultiRangeData(results);
+        } catch (err) {
+          handleError(err instanceof Error ? err.message : 'Query failed');
+          return;
+        }
+      } else {
+        try {
+          const res = await queryScheduler.schedule<{ data: InstantResponse | null; error?: unknown }>(
+            `instant:${activeQuery}`,
+            () =>
+              apiClient.post('/query/instant', { query: activeQuery }) as Promise<{
+                data: InstantResponse | null;
+                error?: unknown;
+              }>
+          );
+          if (res.error) {
+            handleError(extractErrorMessage(res.error));
+            return;
+          }
+          retryCountRef.current = 0;
+          setInstantData(res.data);
+        } catch (err) {
+          handleError(err instanceof Error ? err.message : 'Query failed');
+          return;
+        }
+      }
+
+      setLoading(false);
+    },
+    [effectiveQueries, isRangeViz, activeQuery, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec]
+  );
+
+  // Try to restore from cache without fetching
+  const restoreFromCache = useCallback(() => {
+    const cacheKey = isRangeViz ? `batch:${queryKey}` : `instant:${activeQuery}`;
+    const cached = queryScheduler.getCached<unknown>(cacheKey, cacheMaxAgeMs);
+    if (!cached) return false;
+
+    if (isRangeViz) {
+      const batchData = cached as {
+        data: { results: Record<string, { status: string; data: RangeResponse; error?: string }> } | null;
+      };
+      if (!batchData?.data?.results) return false;
+      const results = effectiveQueries.map((pq) => {
+        const rr = batchData.data!.results[pq.refId];
+        if (!rr || rr.status === 'error') {
+          return { refIds: pq.refId, legendFormat: pq.legendFormat, series: [], totalSeries: 0 };
+        }
+        return transformQueryResult(rr.data, pq);
+      });
+      setMultiRangeData(results);
+    } else {
+      const res = cached as { data: InstantResponse };
+      setInstantData(res.data);
+    }
+
+    setLoading(false);
+    return true;
+  }, [isRangeViz, queryKey, activeQuery, cacheMaxAgeMs, effectiveQueries]);
+
+  useEffect(() => {
+    setError(null);
+    setIsTransientError(false);
+    setMultiRangeData([]);
+    setInstantData(null);
+    retryCountRef.current = 0;
+
+    // On mount: use cached data if available - no network request
+    if (!restoreFromCache()) {
+      // First-ever load (no cache) - must fetch
+      setLoading(true);
+      void fetchData();
+    }
+
+    // Interval timer - jitter by +/-20% so panels don't all refresh at the same instant.
+    const intervalSec = panel.refreshIntervalSec ?? 30;
+    const jitter = intervalSec * 1000 * (0.8 + Math.random() * 0.4);
+    intervalRef.current = setInterval(() => {
+      retryCountRef.current = 0;
+      void fetchData();
+    }, jitter);
+
+    // Listen for explicit refresh from workspace
+    const handleRefresh = () => {
+      retryCountRef.current = 0;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      void fetchData();
+    };
+    window.addEventListener('dashboard:refresh-panels', handleRefresh as EventListener);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      window.removeEventListener('dashboard:refresh-panels', handleRefresh as EventListener);
+    };
+  }, [fetchData, restoreFromCache, panel.refreshIntervalSec]);
+
+  // Visualization
+
+  function renderContent() {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-6">
+          <Spinner />
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="px-3 py-4 text-[11px] rounded mx-2 my-2 border flex flex-col gap-2 bg-[#EF4444]/10 border-[#EF4444]/20">
+          <div>{error}</div>
+          {isTransientError && (
+            <button
+              type="button"
+              onClick={() => {
+                retryCountRef.current = 0;
+                setError(null);
+                setIsTransientError(false);
+                setLoading(true);
+                void fetchData();
+              }}
+              className="self-start text-[11px] text-[#6366F1] hover:text-[#818CF8] underline transition-colors"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (effectiveQueries.length === 0) {
+      return <div className="flex items-center justify-center h-full text-xs text-[#555570] italic">No queries configured</div>;
+    }
+
+    switch (panel.visualization) {
+      case 'time_series':
+        return <div className="px-3 pb-2"><TimeSeriesChart result={multiRangeData[0]} stackMode={panel.stackMode === 'normal' ? 'normal' : 'none'} /></div>;
+      case 'stat': {
+        const val = firstInstantValue(instantData);
+        return <StatVisualization value={val} unit={panel.unit} />;
+      }
+      case 'gauge': {
+        const val = firstInstantValue(instantData);
+        return (
+          <div className="flex justify-center py-1">
+            <GaugeVisualization value={val} unit={panel.unit} />
+          </div>
+        );
+      }
+      case 'bar': {
+        const items = instantToBarItems(instantData);
+        return <div className="px-3 pb-2"><BarVisualization items={items} /></div>;
+      }
+      case 'table': {
+        const tsData = isRangeViz ? multiRangeData[0] : transformInstantData(instantData!, activeQuery);
+        return <div className="px-3 pb-2"><TimeSeriesChart result={tsData} /></div>;
+      }
+      case 'pie': {
+        const items = instantToPieItems(instantData);
+        return <div className="px-3 pb-2"><PieVisualization items={items} /></div>;
+      }
+      case 'histogram': {
+        const buckets = instantToHistogramBuckets(instantData);
+        return <div className="px-3 pb-2"><HistogramVisualization buckets={buckets} /></div>;
+      }
+      case 'heatmap': {
+        const points = rangeToHeatmapPoints(multiRangeData);
+        return <div className="px-3 pb-2"><HeatmapVisualization points={points} /></div>;
+      }
+      case 'status_timeline': {
+        const spans = rangeToStatusSpans(multiRangeData);
+        return <div className="py-3 pb-2"><StatusTimelineVisualization spans={spans} /></div>;
+      }
+      default:
+        return (
+          <div className="flex items-center justify-center h-full text-xs text-[#555570] italic">
+            {panel.visualization} visualization not yet supported
+          </div>
+        );
+    }
+  }
+
+  const datasourceIds = Array.from(new Set(effectiveQueries.map((q) => q.datasourceId).filter(Boolean)));
+
+  return (
+    <div
+      className={`bg-[#141420] rounded-2xl border h-full flex flex-col overflow-hidden relative group transition-all duration-200 ${
+        editMode
+          ? 'border-dashed border-[#2A2A3E] hover:border-[#4F46E5]/50'
+          : 'border-[#2A2A3E] hover:border-[#4F46E5]/50'
+      }`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className="panel-drag-handle flex items-center justify-between px-3 py-1.5 bg-[#141420] border-b border-[#2A2A3E] cursor-grab active:cursor-grabbing min-h-[38px]">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="drag-handle text-[#2A2A3E] text-[10px] leading-none select-none" aria-hidden="true">
+            ..
+          </span>
+          {loading && <Spinner />}
+          <span className="text-[13px] font-medium text-[#E8E8ED] truncate">{panel.title}</span>
+          {datasourceIds.length > 0 &&
+            datasourceIds.map((id) => (
+              <span
+                key={id}
+                title={`Datasource ${id}`}
+                className="px-1.5 py-0.5 rounded bg-[#6366F1]/10 text-[#818CF8] text-[10px] font-mono shrink-0 hidden md:inline"
+              >
+                {String(id).slice(0, 8)}
+              </span>
+            ))}
+        </div>
+
+        {hovered && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            {onEdit && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="p-1 rounded hover:bg-[#2A2A3E] text-[#8888AA] hover:text-[#E8E8ED] transition-colors"
+                title="Edit panel"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M13.586 3.586a2 2 0 112.828 2.828l-8.5 8.5L5 15l.086-2.914 8.5-8.5zM4 16h12v1H4z" />
+                </svg>
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="p-1 rounded hover:bg-[#EF5149]/10 text-[#8888AA] hover:text-[#EF5149] transition-colors"
+                title="Delete panel"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M9 2a1 1 0 00-1 1v1H5a1 1 0 100 2h.293l.853 9.386A2 2 0 008.138 17h3.724a2 2 0 001.992-1.614L14.707 6H15a1 1 0 100-2h-3V3a1 1 0 00-1-1H9zM9 4h2V3H9v1z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {panel.description && (
+        <p className="px-3 pt-1 text-[11px] text-[#8888AA] line-clamp-1">{panel.description}</p>
+      )}
+
+      <div className="flex-1 min-h-0 overflow-y-auto">{renderContent()}</div>
+
+      <QueryBadge queries={effectiveQueries} />
+    </div>
+  );
+}

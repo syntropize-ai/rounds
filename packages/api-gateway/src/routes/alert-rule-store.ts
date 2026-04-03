@@ -106,7 +106,7 @@ export class AlertRuleStore implements Persistable {
       value: value ?? 0,
       threshold: rule.condition.threshold,
       timestamp: now,
-      silenced: false,
+      labels: rule.labels ?? {},
     };
     this.history.push(entry);
     if (this.history.length > 10_000)

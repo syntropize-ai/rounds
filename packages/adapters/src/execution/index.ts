@@ -1,4 +1,13 @@
 export type {
+  AdapterAction,
+  AdapterCapability,
+  ValidationResult,
+  DryRunResult,
+  ExecutionResult,
+  ExecutionAdapter,
+} from './types.js';
+
+export type {
   SlackBlock,
   SlackSectionBlock,
   SlackDividerBlock,

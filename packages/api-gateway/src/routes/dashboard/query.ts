@@ -42,8 +42,7 @@ function resolvePrometheusDatasource(
 function buildClientConfig(ds: DatasourceConfig): ConstructorParameters<typeof PrometheusHttpClient>[0] {
   const cfg: ConstructorParameters<typeof PrometheusHttpClient>[0] = { baseUrl: ds.url }
   if (ds.username && ds.password) {
-    cfg.username = ds.username
-    cfg.password = ds.password
+    cfg.auth = { username: ds.username, password: ds.password }
   }
   else if (ds.apiKey) {
     cfg.headers = { Authorization: `Bearer ${ds.apiKey}` }
@@ -295,7 +294,7 @@ export function createQueryRouter(): Router {
 
     const results: Record<string, { status: string, data: unknown, error?: string }> = {}
     queries.forEach((q, i) => {
-      const outcome = settled[i]
+      const outcome = settled[i]!
       if (outcome.status === 'fulfilled') {
         results[q.refId] = { status: 'success', data: outcome.value }
       }

@@ -9,7 +9,7 @@ import {
   type UpdateIncidentParams,
 } from './incident-store.js';
 import { defaultInvestigationStore } from './investigation/store.js';
-import { postmortemStore } from './postmortem-store.js';
+import { postMortemStore as postmortemStore } from './post-mortem-store.js';
 import type { PostMortemInput, PostMortemReport } from '@agentic-obs/agent-core';
 import type { IGatewayIncidentStore } from '../repositories/types.js';
 
@@ -104,7 +104,7 @@ export function createIncidentRouter(
         title: inc.title,
         severity: inc.severity,
         status: inc.status,
-        services: inc.services,
+        serviceIds: inc.serviceIds,
         investigationCount: inc.investigationIds.length,
         createdAt: inc.createdAt,
         updatedAt: inc.updatedAt,
@@ -213,7 +213,7 @@ export function createIncidentRouter(
 
       // Return cached report unless force=true
       const body = req.body as { force?: boolean; executionResults?: unknown[]; verificationOutcomes?: unknown[] } | undefined;
-      if (!body?.force && pmStore.get(id)?.has?.(id)) {
+      if (!body?.force && pmStore.has(id)) {
         res.json(pmStore.get(id));
         return;
       }
@@ -230,10 +230,14 @@ export function createIncidentRouter(
         .filter(Boolean)
         .map((inv) => ({
           id: inv!.id,
-          title: inv!.intent,
-          startedAt: inv!.createdAt,
-          hypothesesSummary: (inv as any).conclusion?.summary ?? '',
-          evidenceSummary: inv!.evidence.map((e: any) => ({
+          intents: inv!.intent,
+          status: inv!.status,
+          conclusionSummary: (inv as any).conclusion?.summary ?? '',
+          hypotheses: inv!.hypotheses.map((h) => ({
+            description: h.description,
+            confidence: h.confidence,
+          })),
+          evidence: inv!.evidence.map((e: any) => ({
             type: e.type,
             summary: e.summary,
           })),
@@ -245,7 +249,7 @@ export function createIncidentRouter(
           title: incident.title,
           severity: incident.severity,
           status: incident.status,
-          services: incident.services,
+          services: incident.serviceIds,
           createdAt: incident.createdAt,
           resolvedAt: incident.resolvedAt,
           timeline: incident.timeline.map((e) => ({
@@ -255,8 +259,8 @@ export function createIncidentRouter(
           })),
         },
         investigations,
-        executionResults: Array.isArray(body?.executionResults) ? body!.executionResults : [],
-        verificationOutcomes: Array.isArray(body?.verificationOutcomes) ? body!.verificationOutcomes : [],
+        executionResults: Array.isArray(body?.executionResults) ? body!.executionResults as PostMortemInput['executionResults'] : [],
+        verificationOutcomes: Array.isArray(body?.verificationOutcomes) ? body!.verificationOutcomes as PostMortemInput['verificationOutcomes'] : [],
       };
 
       const report = await generator.generate(input);

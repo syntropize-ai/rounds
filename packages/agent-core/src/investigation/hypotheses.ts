@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   type Hypothesis,
   LLMUnavailableError,
-  type LLMGateway,
 } from '@agentic-obs/common';
+import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { ScoredCase } from '../case-library/types.js';
 import type { StepFinding } from './types.js';
 

@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { AnthropicProvider, LLMGateway } from '@agentic-obs/llm-gateways'
-import type { CompletionMessage } from '@agentic-obs/llm-gateways'
+import type { CompletionMessage, LLMGateway } from '@agentic-obs/llm-gateway'
 import type { PanelConfig, PanelVisualization } from '@agentic-obs/common'
-import type { getSetupConfig } from '../setup.js'
-import type { LLMConfig } from '../setup.js'
+import { getSetupConfig } from '../setup.js'
+import { createLlmGateway } from '../llm-factory.js'
 import type { IGatewayDashboardStore } from '../../repositories/types.js'
 import type { DashboardGenerator } from './router.js'
 
@@ -339,18 +338,8 @@ Only return the JSON object.`,
   }
 
   // -- Helpers
-  private createGateway(llmConfig: LLMConfig): LLMGateway {
-    const isCorporateGateway = llmConfig.provider === 'corporate-gateway' || !!llmConfig.tokenHelperCommand
-    const provider = new AnthropicProvider({
-      apiKey: llmConfig.apiKey,
-      baseUrl: llmConfig.baseUrl,
-      authType: isCorporateGateway
-        ? (llmConfig.authType ?? 'bearer')
-        : (llmConfig.authType ?? 'api-key'),
-      tokenHelperCommand: llmConfig.tokenHelperCommand,
-    })
-
-    return new LLMGateway({ primary: provider, maxRetries: 2 })
+  private createGateway(llmConfig: Parameters<typeof createLlmGateway>[0]): ReturnType<typeof createLlmGateway> {
+    return createLlmGateway(llmConfig)
   }
 }
 

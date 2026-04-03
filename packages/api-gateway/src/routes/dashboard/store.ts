@@ -2,8 +2,8 @@
 
 import type { Dashboard, DashboardStatus, DashboardVariable, PanelConfig } from '@agentic-obs/common'
 import type { IGatewayDashboardStore } from '../../repositories/types.js'
-import type { Persistable } from '../persistence.js'
-import { markDirty } from '../persistence.js'
+import type { Persistable } from '../../persistence.js'
+import { markDirty } from '../../persistence.js'
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`

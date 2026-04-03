@@ -10,6 +10,7 @@
     { "path": "../common" },
     { "path": "../llm-gateway" },
     { "path": "../data-layer" },
-    { "path": "../adapters" }
+    { "path": "../adapters" },
+    { "path": "../guardrails" }
   ]
 }

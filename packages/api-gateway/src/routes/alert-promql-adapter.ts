@@ -1,10 +1,10 @@
-import type { PromQlEvaluator } from '@agentic-obs/agent-core';
+import type { PromQLEvaluator } from '@agentic-obs/agent-core';
 
 /**
  * Adapter that evaluates PromQL queries against a Prometheus-compatible endpoint.
  * Returns scalar result from instant query.
  */
-export class PrometheusPromQlEvaluator implements PromQlEvaluator {
+export class PrometheusPromQlEvaluator implements PromQLEvaluator {
   constructor(
     private readonly baseUrl: string,
     private readonly headers: Record<string, string> = {},

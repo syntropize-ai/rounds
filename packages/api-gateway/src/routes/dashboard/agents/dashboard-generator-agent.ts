@@ -81,8 +81,8 @@ export class DashboardGeneratorAgent {
       ? (async () => {
           try {
             const discoveryAgent = new DiscoveryAgent(
-              this.deps.prometheusUrl,
-              this.deps.prometheusHeaders,
+              this.deps.prometheusUrl!,
+              this.deps.prometheusHeaders ?? {},
               sendEvent,
             )
             const allMetrics = await discoveryAgent.fetchAllMetricNames()
@@ -163,7 +163,7 @@ export class DashboardGeneratorAgent {
           input,
           researchResult,
           discoveryResult,
-          groupStartRows[i],
+          groupStartRows[i] ?? 0,
         ).then(async (panels) => {
           const tagged = panels.map((p) => ({ ...p, sectionId: group.id, sectionLabel: group.label }))
           completedGroups++

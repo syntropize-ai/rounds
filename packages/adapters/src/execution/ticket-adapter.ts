@@ -6,7 +6,7 @@ import type {
   ValidationResult,
   DryRunResult,
   ExecutionResult,
-} from '@agentic-obs/agent-core';
+} from './types.js';
 
 // -- Client interface --
 
@@ -164,7 +164,7 @@ export class TicketAdapter implements ExecutionAdapter {
 
     try {
       if (op === 'create_ticket') {
-        const params = p as CreateTicketParams;
+        const params = p as unknown as CreateTicketParams;
         const result = await this.client.createTicket(
           params.project,
           params.title,
@@ -182,7 +182,7 @@ export class TicketAdapter implements ExecutionAdapter {
       }
 
       if (op === 'update_ticket') {
-        const params = p as UpdateTicketParams;
+        const params = p as unknown as UpdateTicketParams;
         const result = await this.client.updateTicket(params.ticketId, params.fields);
         return {
           success: result.success,

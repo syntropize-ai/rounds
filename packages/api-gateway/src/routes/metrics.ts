@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { registry } from './metrics.js';
+import { registry } from '../metrics.js';
 
 export const metricsRouter = Router();
 

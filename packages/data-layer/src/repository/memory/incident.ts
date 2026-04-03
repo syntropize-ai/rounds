@@ -93,7 +93,7 @@ export class InMemoryIncidentRepository implements IIncidentRepository {
   }
 
   async findByService(serviceId: string, _tenantId?: string): Promise<Incident[]> {
-    return [...this.active.values()].filter((i) => i.services.includes(serviceId));
+    return [...this.active.values()].filter((i) => i.serviceIds.includes(serviceId));
   }
 
   async archive(id: string): Promise<Incident | undefined> {

@@ -220,7 +220,7 @@ export class AlertRuleEvaluator {
       state: newState,
       value,
       threshold: rule.condition.threshold,
-      labels: rule.labels,
+      labels: rule.labels ?? {},
       timestamp: new Date().toISOString(),
       message: this.buildMessage(rule, newState, value),
     };

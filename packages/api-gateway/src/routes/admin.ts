@@ -160,7 +160,7 @@ export function createAdminRouter(): Router {
       return;
     }
 
-    const team = userStore.createTeam({ name, permissions: permissions ?? [] });
+    const team = userStore.createTeam({ name, permissions: permissions ?? [], members: [] });
     const actorId = (req as AuthenticatedRequest).auth?.sub;
     userStore.addAuditEntry({ action: 'team_created', actorId: actorId ?? undefined, targetId: team.id });
     res.status(201).json(team);

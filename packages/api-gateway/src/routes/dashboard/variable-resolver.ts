@@ -33,8 +33,8 @@ export class VariableResolver {
     if (twoArgMatch) {
       const [, metric, labelName] = twoArgMatch
       const params = new URLSearchParams()
-      params.set('match[]', metric)
-      const url = `${baseUrl}/api/v1/label/${encodeURIComponent(labelName)}/values?${params}`
+      params.set('match[]', metric!)
+      const url = `${baseUrl}/api/v1/label/${encodeURIComponent(labelName!)}/values?${params}`
 
       try {
         const res = await fetch(url, {
@@ -55,7 +55,7 @@ export class VariableResolver {
     // Single-arg form: label_values(labelName)
     const singleArgMatch = query.match(/label_values\(\s*([^)]+?)\s*\)/)
     if (singleArgMatch) {
-      const labelName = singleArgMatch[1].trim()
+      const labelName = singleArgMatch[1]!.trim()
       const url = `${baseUrl}/api/v1/label/${encodeURIComponent(labelName)}/values`
 
       try {

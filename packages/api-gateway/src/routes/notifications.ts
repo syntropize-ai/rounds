@@ -99,14 +99,14 @@ router.post('/contact-points/:id/test', async (req: Request, res: Response, next
           });
 
           results.push({
-            integrationUid: integration.uid,
+            integrationUid: integration.id,
             type: integration.type,
             success: resp.ok,
             message: resp.ok ? 'Test notification sent successfully' : `HTTP ${resp.status}`,
           });
         } catch (err) {
           results.push({
-            integrationUid: integration.uid,
+            integrationUid: integration.id,
             type: integration.type,
             success: false,
             message: err instanceof Error ? err.message : 'Unknown error',
@@ -115,14 +115,14 @@ router.post('/contact-points/:id/test', async (req: Request, res: Response, next
       } else if (integration.type === 'email' || integration.type === 'pagerduty' || integration.type === 'opsgenie' || integration.type === 'telegram') {
         // For email, pagerduty, opsgenie, telegram - mock success (requires external credentials)
         results.push({
-          integrationUid: integration.uid,
+          integrationUid: integration.id,
           type: integration.type,
           success: true,
           message: `Mock test for ${integration.type} - configure credentials for live testing`,
         });
       } else {
         results.push({
-          integrationUid: integration.uid,
+          integrationUid: integration.id,
           type: integration.type,
           success: false,
           message: 'No webhook URL configured',
@@ -266,7 +266,7 @@ router.get('/alert-groups', (_req: Request, res: Response) => {
   const activeRules = rules.list.filter((r) => r.state === 'firing' || r.state === 'pending');
 
   const policyTree = defaultNotificationStore.getPolicyTree();
-  const groupBy = policyTree.groupBy.length > 0 ? policyTree.groupBy : ['alertname'];
+  const groupBy = (policyTree.groupBy?.length ?? 0) > 0 ? policyTree.groupBy! : ['alertname'];
 
   // Group alerts by the root group's label values
   const groupMap = new Map<string, AlertGroup>();
@@ -275,7 +275,7 @@ router.get('/alert-groups', (_req: Request, res: Response) => {
     // Build the group key from the groupby labels
     const groupLabels: Record<string, string> = {};
     for (const label of groupBy) {
-      groupLabels[label] = rule.labels[label] ?? (label === 'alertname' ? rule.name : '');
+      groupLabels[label] = rule.labels?.[label] ?? (label === 'alertname' ? rule.name : '');
     }
 
     const key = groupBy.map((l) => `${l}=${groupLabels[l]}`).join(',');
@@ -289,7 +289,7 @@ router.get('/alert-groups', (_req: Request, res: Response) => {
       ruleName: rule.name,
       state: rule.state,
       severity: rule.severity,
-      labels: rule.labels,
+      labels: rule.labels ?? {},
       startsAt: rule.lastFiredAt ?? rule.stateChangedAt,
     });
   }

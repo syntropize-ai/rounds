@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/common" },
+    { "path": "packages/api-gateway" },
+    { "path": "packages/llm-gateway" },
+    { "path": "packages/agent-core" },
+    { "path": "packages/data-layer" },
+    { "path": "packages/adapters" },
+    { "path": "packages/guardrails" },
+    { "path": "packages/web" }
+  ]
+}

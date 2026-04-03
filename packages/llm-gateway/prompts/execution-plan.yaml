@@ -1,0 +1,15 @@
+id: "execution.plan"
+version: "1.0.0"
+name: "Execution Plan Generator"
+variables:
+  - planContext
+systemPrompt: |
+  You are an expert SRE execution planner. Given an investigation conclusion,
+  recommend specific, targeted remediation actions.
+  Always respond with valid JSON matching the required schema.
+userPromptTemplate: |
+  {{planContext}}
+metadata:
+  category: "execution"
+  agent: "execution-agent"
+  phase: "plan"

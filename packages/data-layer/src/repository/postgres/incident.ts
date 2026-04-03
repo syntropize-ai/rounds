@@ -31,7 +31,7 @@ function rowToIncident(row: IncidentRow, timeline: TimelineRow[] = []): Incident
     title: row.title,
     severity: row.severity as Incident['severity'],
     status: row.status as Incident['status'],
-    services: (row.services as string[]) ?? [],
+    serviceIds: (row.services as string[]) ?? [],
     investigationIds: [],
     timeline: timeline.map(rowToTimelineEntry),
     assignee: row.assignee ?? undefined,
@@ -80,13 +80,13 @@ export class PostgresIncidentRepository implements IIncidentRepository {
         title: data.title,
         severity: data.severity,
         status: data.status,
-        services: data.services,
+        services: data.serviceIds,
         assignee: data.assignee,
         createdAt: now,
         updatedAt: now,
       })
       .returning();
-    return rowToIncident(row);
+    return rowToIncident(row!);
   }
 
   async update(id: string, patch: Partial<Omit<Incident, 'id'>>): Promise<Incident | undefined> {
@@ -96,7 +96,7 @@ export class PostgresIncidentRepository implements IIncidentRepository {
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.status !== undefined ? { status: patch.status } : {}),
         ...(patch.severity !== undefined ? { severity: patch.severity } : {}),
-        ...(patch.services !== undefined ? { services: patch.services } : {}),
+        ...(patch.serviceIds !== undefined ? { services: patch.serviceIds } : {}),
         ...(patch.assignee !== undefined ? { assignee: patch.assignee } : {}),
         updatedAt: new Date(),
       })

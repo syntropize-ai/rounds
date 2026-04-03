@@ -73,7 +73,7 @@ export async function createRedisCacheProvider(
   url: string = process.env['REDIS_URL'] ?? 'redis://localhost:6379',
 ): Promise<RedisCacheProvider> {
   // Dynamic import keeps ioredis optional at module-load time
-  const { default: Redis } = await import('ioredis') as { default: new (url: string) => RedisClient };
+  const { default: Redis } = (await import('ioredis')) as unknown as { default: new (url: string) => RedisClient };
   const client = new Redis(url);
   return new RedisCacheProvider(client);
 }

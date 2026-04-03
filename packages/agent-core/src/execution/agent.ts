@@ -1,4 +1,5 @@
 // ExecutionAgent - rule-based recommended action generator (Phase 0: suggest only)
+import type { Evidence } from '@agentic-obs/common';
 import { DEFAULT_RULES, criticalNotifyRule } from './rules.js';
 import type { ActionRule, ExecutionInput, ExecutionOutput } from './types.js';
 
@@ -25,7 +26,7 @@ export class ExecutionAgent {
       if (actions.length >= this.maxActions) break;
       const { hypothesis } = ranked;
       if (hypothesis.status === 'refuted') continue;
-      const evidence = [];
+      const evidence: Evidence[] = [];
       for (const rule of this.rules) {
         if (actions.length >= this.maxActions) break;
         if (!rule.matches(hypothesis, evidence)) continue;
@@ -48,7 +49,7 @@ export class ExecutionAgent {
       if (actions.length >= this.maxActions) break;
       if (seenTypes.has(rec.action.type)) continue;
       seenTypes.add(rec.action.type);
-      actions.push({ ...rec.action, status: 'proposed' });
+      actions.push({ ...rec.action, status: 'proposed' as const });
     }
 
     const summary = this.buildSummary(actions, context.entity);

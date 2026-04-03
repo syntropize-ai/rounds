@@ -1,6 +1,6 @@
 // Discovery Sub-Agent - probes Prometheus to find metrics, labels, and sample data
 
-import type { DashboardSSEEvent } from '@agentic-obs/common'
+import type { DashboardSseEvent } from '@agentic-obs/common'
 
 export interface DiscoveryResult {
   metrics: string[]
@@ -23,7 +23,7 @@ export class DiscoveryAgent {
   constructor(
     private prometheusUrl: string,
     private headers: Record<string, string>,
-    private sendEvent: (event: DashboardSSEEvent) => void,
+    private sendEvent: (event: DashboardSseEvent) => void,
   ) {}
 
   /** Fetch all metric names from Prometheus (no filtering). */

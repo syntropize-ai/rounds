@@ -5,10 +5,10 @@ export { authMiddleware } from './middleware/auth.js';
 export type { AuthenticatedRequest } from './middleware/auth.js';
 export { createRateLimiter, defaultRateLimiter } from './middleware/rate-limiter.js';
 export { errorHandler, notFoundHandler } from './middleware/error-handler.js';
-export type { ApiError } from './middleware/error-handler.js';
+export type { AppError } from './middleware/error-handler.js';
 export { cors } from './middleware/cors.js';
 export { healthRouter } from './routes/health.js';
-export { metricsRouter } from './routes/metrics.ts';
+export { metricsRouter } from './routes/metrics.js';
 export {
   registry,
   investigationsTotal,

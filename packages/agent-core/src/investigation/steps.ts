@@ -42,7 +42,7 @@ async function safeAdapterQuery(
     const result = await ctx.adapter.query({
       entity: ctx.intent.entity,
       metric,
-      timerange: {
+      timeRange: {
         start: new Date(ctx.intent.timeRange.start),
         end: new Date(ctx.intent.timeRange.end),
       },
@@ -78,7 +78,7 @@ async function safeAdapterQueryRaw(
     const result = await ctx.adapter.query({
       entity: ctx.intent.entity,
       metric,
-      timerange: {
+      timeRange: {
         start: new Date(ctx.intent.timeRange.start),
         end: new Date(ctx.intent.timeRange.end),
       },

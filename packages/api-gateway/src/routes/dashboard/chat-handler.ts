@@ -1,12 +1,12 @@
 import { randomUUID } from 'crypto'
 import type { Request, Response } from 'express'
-import type { DashboardSSEEvent } from '@agentic-obs/common'
-import type { AuthProvider, LLMGateway } from '@agentic-obs/llm-gateways'
+import type { DashboardSseEvent } from '@agentic-obs/common'
 import type { IGatewayDashboardStore, IConversationStore } from '../../repositories/types.js'
 import { getSetupConfig } from '../setup.js'
+import { createLlmGateway } from '../llm-factory.js'
 import { OrchestratorAgent } from './agents/orchestrator-agent.js'
 
-function sendEvent(res: Response, event: DashboardSSEEvent): void {
+function sendEvent(res: Response, event: DashboardSseEvent): void {
   res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
 }
 
@@ -81,21 +81,11 @@ export async function handleChatMessage(
         return
       }
 
-      const isCorporateGateway = config.llm.provider === 'corporate-gateway' || !!config.llm.tokenHelperCommand
-      const provider: AuthProvider = {
-        apiKey: config.llm.apiKey,
-        baseUrl: config.llm.baseUrl,
-        authType: isCorporateGateway
-          ? (config.llm.authType ?? 'bearer')
-          : (config.llm.authType ?? 'api-key'),
-        tokenHelperCommand: config.llm.tokenHelperCommand,
-      }
-
-      const gateway = new LLMGateway({ primary: provider, maxRetries: 2 })
+      const gateway = createLlmGateway(config.llm)
       const model = config.llm.model || 'claude-sonnet-4-5'
 
       // Resolve default/primary prometheus datasource (isDefault first, then first match)
-      const promDatasources = config.datasources.filter((d) => d.type === 'victoriametrics')
+      const promDatasources = config.datasources.filter((d) => d.type === 'prometheus' || d.type === 'victoria-metrics')
       const prom = promDatasources.find((d) => d.isDefault) ?? promDatasources[0]
       const prometheusUrl = prom?.url
       const prometheusHeaders: Record<string, string> = {}
@@ -137,7 +127,9 @@ export async function handleChatMessage(
     })
   }
   catch (err) {
-    res.write(`data: ${JSON.stringify({ type: 'error', message: err instanceof Error ? err.message : 'Internal error' })}\n\n`)
+    console.error('[ChatHandler] Error:', err)
+    const errMsg = err instanceof Error ? err.message : 'Internal error'
+    res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', message: errMsg })}\n\n`)
   }
   finally {
     clearInterval(heartbeat)

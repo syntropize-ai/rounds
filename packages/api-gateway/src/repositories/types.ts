@@ -21,7 +21,7 @@ import type {
   PanelConfig,
   DashboardMessage,
 } from '@agentic-obs/common'
-import type { ExplanationResult } from '@agentic-obs/common'
+import type { ExplanationResult } from '@agentic-obs/agent-core'
 import type {
   FeedItem,
   FeedPage,

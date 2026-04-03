@@ -1,10 +1,10 @@
-import type { DashboardAction, DashboardSSEEvent, PanelConfig } from '@agentic-obs/common'
+import type { DashboardAction, DashboardSseEvent, PanelConfig } from '@agentic-obs/common'
 import type { IGatewayDashboardStore } from '../../repositories/types.js'
 
 export class ActionExecutor {
   constructor(
     private store: IGatewayDashboardStore,
-    private sendEvent: (event: DashboardSSEEvent) => void,
+    private sendEvent: (event: DashboardSseEvent) => void,
   ) {}
 
   async execute(dashboardId: string, actions: DashboardAction[]): Promise<void> {

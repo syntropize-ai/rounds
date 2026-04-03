@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { AlertRule, AlertSilence, NotificationPolicy } from '@agentic-obs/common';
-import { AnthropicProvider, LLMGateway } from '@agentic-obs/llm-gateway';
 import { defaultAlertRuleStore } from './alert-rule-store.js';
+import { createLlmGateway } from './llm-factory.js';
 import { AlertRuleAgent } from './dashboard/agents/alert-rule-agent.js';
 import { getSetupConfig } from './setup.js';
 
@@ -25,17 +25,7 @@ router.post('/generate', async (req: Request, res: Response, next: NextFunction)
       return;
     }
 
-    const isCorporateGateway = config.llm.provider === 'corporate-gateway' || !!config.llm.tokenHelperCommands;
-    const provider = new AnthropicProvider({
-      apiKey: config.llm.apiKey,
-      baseUrl: config.llm.baseUrl,
-      authType: isCorporateGateway
-        ? (config.llm.authType ?? 'bearer')
-        : (config.llm.authType ?? 'api-key'),
-      tokenHelperCommands: config.llm.tokenHelperCommands,
-    });
-
-    const gateway = new LLMGateway({ primary: provider, maxRetries: 2 });
+    const gateway = createLlmGateway(config.llm);
     const model = config.llm.model || 'claude-sonnet-4-6';
 
     const promDs = config.datasources.find((d) => d.type === 'prometheus' || d.type === 'victoria-metrics');
@@ -116,7 +106,6 @@ router.post('/', (req: Request, res: Response) => {
     labels: body.labels ?? {},
     createdBy: body.createdBy ?? 'user',
     notificationPolicyId: body.notificationPolicyId,
-    autoInvestigate: body.autoInvestigate,
   } as unknown as Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>);
 
   res.status(201).json(rule);

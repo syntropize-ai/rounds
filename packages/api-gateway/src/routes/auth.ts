@@ -25,7 +25,7 @@ export function createAuthRouter(): Router {
   // GET /api/auth/login/oidc - 302 to IdP
   router.get('/login/oidc', async (_req: Request, res: Response) => {
     try {
-      const url = authManager.getOidcAuthUrl();
+      const { url } = await authManager.getOidcAuthUrl();
       res.redirect(url);
     } catch (err) {
       res.status(400).json({
@@ -49,9 +49,9 @@ export function createAuthRouter(): Router {
 
     try {
       const meta = { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
-      const tokens = await authManager.handleOidcCallback(code, state, meta);
+      const result = await authManager.handleOidcCallback(code, state, meta);
       res.redirect(
-        `/login/callback?token=${encodeURIComponent(tokens.accessToken)}&refresh=${encodeURIComponent(tokens.refreshToken)}`,
+        `/login/callback?token=${encodeURIComponent(result.tokens.accessToken)}&refresh=${encodeURIComponent(result.tokens.refreshToken)}`,
       );
     } catch (err) {
       res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'auth_failed')}`);
@@ -62,7 +62,7 @@ export function createAuthRouter(): Router {
 
   router.get('/login/github', (_req: Request, res: Response) => {
     try {
-      const url = authManager.getOauthAuthUrl('github');
+      const { url } = authManager.getOAuthAuthUrl('github');
       res.redirect(url);
     } catch (err) {
       res.status(400).json({
@@ -81,9 +81,9 @@ export function createAuthRouter(): Router {
 
     try {
       const meta = { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
-      const tokens = await authManager.handleOauthCallback('github', code, state, meta);
+      const result = await authManager.handleOAuthCallback('github', code, state, meta);
       res.redirect(
-        `/login/callback?token=${encodeURIComponent(tokens.accessToken)}&refresh=${encodeURIComponent(tokens.refreshToken)}`,
+        `/login/callback?token=${encodeURIComponent(result.tokens.accessToken)}&refresh=${encodeURIComponent(result.tokens.refreshToken)}`,
       );
     } catch (err) {
       res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'auth_failed')}`);
@@ -94,7 +94,7 @@ export function createAuthRouter(): Router {
 
   router.get('/login/google', (_req: Request, res: Response) => {
     try {
-      const { url } = authManager.getOauthAuthUrl('google');
+      const { url } = authManager.getOAuthAuthUrl('google');
       res.redirect(url);
     } catch (err) {
       res.status(400).json({
@@ -113,9 +113,9 @@ export function createAuthRouter(): Router {
 
     try {
       const meta = { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
-      const tokens = await authManager.handleOauthCallback('google', code, state, meta);
+      const result = await authManager.handleOAuthCallback('google', code, state, meta);
       res.redirect(
-        `/login/callback?token=${encodeURIComponent(tokens.accessToken)}&refresh=${encodeURIComponent(tokens.refreshToken)}`,
+        `/login/callback?token=${encodeURIComponent(result.tokens.accessToken)}&refresh=${encodeURIComponent(result.tokens.refreshToken)}`,
       );
     } catch (err) {
       res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'auth_failed')}`);

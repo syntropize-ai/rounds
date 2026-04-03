@@ -41,7 +41,7 @@ export function createEvidenceRouter(store: EvidenceStore = new EvidenceStore())
       }
 
       // Omit the raw `result` field - callers use /raw for that
-      const { result, ...summary } = evidence as Record<string, unknown>;
+      const { result, ...summary } = evidence as unknown as Record<string, unknown>;
       void result;
       res.json(summary);
     } catch (err) {

@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 
 import type { Evidence, Hypothesis, InvestigationStep } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/agent-core';
-import { AnthropicProvider, LLMGateway } from '@agentic-obs/llm-gateway';
-import type { CompletionMessage } from '@agentic-obs/llm-gateway';
+import type { CompletionMessage, LLMGateway } from '@agentic-obs/llm-gateway';
 import { PrometheusHttpClient } from '@agentic-obs/adapters';
 
 import { getSetupConfig } from '../setup.js';
-import type { LlmConfig, DatasourceConfig } from '../setup.js';
+import type { DatasourceConfig } from '../setup.js';
+import { createLlmGateway } from '../llm-factory.js';
 import type { IGatewayInvestigationStore, IGatewayFeedStore } from '../../repositories/types.js';
 import type { OrchestratorRunner, OrchestratorRunInput } from './orchestrator-runner.js';
 
@@ -55,21 +55,21 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
 
       const gateway = this.createGateway(config.llm);
       const model = config.llm.model || 'claude-sonnet-4';
-      const promDatasources = config.datasources.filter((d) => d.type === 'prometheus');
+      const promDatasources = config.datasources.filter((d) => d.type === 'prometheus' || d.type === 'victoria-metrics');
 
       await this.store.updateStatus(investigationId, 'planning');
       const steps = await this.planInvestigation(gateway, model, question, promDatasources);
 
       await this.store.updatePlan(investigationId, {
         entity: '',
-        objectives: question,
+        objective: question,
         steps: steps.map((s) => ({
           id: s.id,
           type: 'metric_query',
           description: s.description,
           status: 'pending' as const,
-          stopConditions: [],
         })),
+        stopConditions: [],
       });
 
       await this.store.updateStatus(investigationId, 'investigating');
@@ -101,7 +101,8 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
         completedSteps.push(stepRecord);
 
         await this.store.updatePlan(investigationId, {
-          objectives: question,
+          entity: '',
+          objective: question,
           steps: completedSteps.concat(
             steps.slice(completedSteps.length).map((s) => ({
               id: s.id,
@@ -136,12 +137,13 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
       });
 
       await this.store.updateStatus(investigationId, 'completed');
-      await this.feed.add({
+      await this.feed.add(
+        'investigation_complete',
+        question.length > 50 ? `${question.slice(0, 57)}...` : question,
+        conclusion.summary,
+        conclusion.confidence >= 0.7 ? 'medium' : 'low',
         investigationId,
-        question: question.length > 50 ? `${question.slice(0, 57)}...` : question,
-        conclusion_summary: conclusion.summary,
-        conclusion_confidence: conclusion.confidence >= 0.7 ? 'medium' : 'low',
-      });
+      );
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`[LiveOrchestratorRunner] Investigation ${investigationId} failed`, errorMsg);
@@ -209,7 +211,7 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
     ];
 
     try {
-      const resp = await gateway.complete({ messages, model, maxTokens: 2048, temperature: 0 });
+      const resp = await gateway.complete(messages, { model, maxTokens: 2048, temperature: 0 });
       const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
       const raw = JSON.parse(cleaned) as Array<{
         description: string;
@@ -405,7 +407,7 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
       },
     ];
 
-    const resp = await gateway.complete({ messages, model, maxTokens: 2048, temperature: 0.1 });
+    const resp = await gateway.complete(messages, { model, maxTokens: 2048, temperature: 0.1 });
     const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
 
     try {
@@ -454,17 +456,8 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
     }
   }
 
-  private createGateway(llmConfig: LlmConfig): LLMGateway {
-    const isCorporateGateway = llmConfig.provider === 'corporate-gateway' || !!llmConfig.tokenHelperCommands;
-
-    const provider = new AnthropicProvider({
-      apiKey: llmConfig.apiKey,
-      baseUrl: llmConfig.baseUrl,
-      authType: isCorporateGateway ? (llmConfig.authType ?? 'bearer') : (llmConfig.authType ?? 'api-key'),
-      tokenHelperCommands: llmConfig.tokenHelperCommands,
-    });
-
-    return new LLMGateway({ primary: provider, maxRetries: 2 });
+  private createGateway(llmConfig: Parameters<typeof createLlmGateway>[0]) {
+    return createLlmGateway(llmConfig);
   }
 }
 

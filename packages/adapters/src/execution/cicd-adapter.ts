@@ -8,7 +8,7 @@ import type {
   ValidationResult,
   DryRunResult,
   ExecutionResult,
-} from '@agentic-obs/agent-core';
+} from './types.js';
 
 // -- Client interface --
 
@@ -126,7 +126,7 @@ export class CICDAdapter implements ExecutionAdapter {
 
   async execute(action: AdapterAction): Promise<ExecutionResult> {
     const op = action.type as CICDOperation;
-    const p = action.params as TriggerPipelineParams | RollbackDeployParams;
+    const p = action.params as unknown as TriggerPipelineParams | RollbackDeployParams;
     const executionId = randomUUID();
 
     try {

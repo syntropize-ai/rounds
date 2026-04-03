@@ -1,8 +1,8 @@
 // In-memory store for saved investigation reports
 
 import type { SavedInvestigationReport } from '@agentic-obs/common'
-import type { Persistable } from '../persistence.js'
-import { markDirty } from '../persistence.js'
+import type { Persistable } from '../../persistence.js'
+import { markDirty } from '../../persistence.js'
 
 export class InvestigationReportStore implements Persistable {
   private readonly reports = new Map<string, SavedInvestigationReport>()

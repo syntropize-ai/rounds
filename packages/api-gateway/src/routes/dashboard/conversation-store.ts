@@ -1,7 +1,7 @@
 import type { DashboardMessage } from '@agentic-obs/common'
 import type { IConversationStore } from '../../repositories/types.js'
-import type { Persistable } from '../persistence.js'
-import { markDirty } from '../persistence.js'
+import type { Persistable } from '../../persistence.js'
+import { markDirty } from '../../persistence.js'
 
 export class ConversationStore implements IConversationStore, Persistable {
   private readonly messages = new Map<string, DashboardMessage[]>()

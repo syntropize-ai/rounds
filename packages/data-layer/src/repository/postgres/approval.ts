@@ -70,7 +70,7 @@ export class PostgresApprovalRepository implements IApprovalRepository {
         createdAt: new Date(),
       })
       .returning();
-    return rowToRecord(row);
+    return rowToRecord(row!);
   }
 
   async update(

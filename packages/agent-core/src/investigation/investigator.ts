@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DataAdapter } from '@agentic-obs/adapters';
-import type { LLMGateway } from '@agentic-obs/common';
+import type { LLMGateway } from '@agentic-obs/llm-gateway';
+import type { InvestigationStep } from '@agentic-obs/common';
 import type { Agent, AgentContext, AgentResult } from '../index.js';
 import type { CaseRetriever } from '../case-library/types.js';
 import type {
@@ -82,11 +83,11 @@ export class InvestigationAgent implements Agent<InvestigationInput, Investigati
       (s) => !this.config.skipSteps.includes(s),
     );
 
-    const planSteps = stepTypes.map((type) => ({
+    const planSteps: InvestigationStep[] = stepTypes.map((type) => ({
       id: randomUUID(),
       type,
       description: stepTypeDescription(type),
-      status: 'pending',
+      status: 'pending' as const,
     }));
 
     const findings = [];
@@ -101,14 +102,14 @@ export class InvestigationAgent implements Agent<InvestigationInput, Investigati
     };
 
     for (let i = 0; i < planSteps.length; i++) {
-      const step = planSteps[i];
-      const stepType = stepTypes[i];
+      const step = planSteps[i]!;
+      const stepType = stepTypes[i]!;
 
       if (Date.now() - startMs >= this.config.timeBudgetMs) {
         step.status = 'skipped';
         stopReason = 'time_budget';
         for (let j = i + 1; j < planSteps.length; j++) {
-          planSteps[j].status = 'skipped';
+          planSteps[j]!.status = 'skipped';
         }
         break;
       }
@@ -117,7 +118,7 @@ export class InvestigationAgent implements Agent<InvestigationInput, Investigati
         step.status = 'skipped';
         stopReason = 'max_cost';
         for (let j = i + 1; j < planSteps.length; j++) {
-          planSteps[j].status = 'skipped';
+          planSteps[j]!.status = 'skipped';
         }
         break;
       }
@@ -139,11 +140,11 @@ export class InvestigationAgent implements Agent<InvestigationInput, Investigati
 
         if (
           partialHypotheses.length > 0 &&
-          partialHypotheses[0].confidence >= this.config.highConfidenceThreshold
+          partialHypotheses[0]!.confidence >= this.config.highConfidenceThreshold
         ) {
           stopReason = 'high_confidence_hypothesis';
           for (let j = i + 1; j < planSteps.length; j++) {
-            planSteps[j].status = 'skipped';
+            planSteps[j]!.status = 'skipped';
           }
           break;
         }

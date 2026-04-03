@@ -61,7 +61,7 @@ export class PostgresCaseRepository implements ICaseRepository {
         createdAt: new Date(),
       })
       .returning();
-    return rowToCase(row);
+    return rowToCase(row!);
   }
 
   async update(id: string, patch: Partial<Omit<Case, 'id'>>): Promise<Case | undefined> {

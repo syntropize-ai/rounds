@@ -1,5 +1,5 @@
-import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateways'
-import type { DashboardSSEEvent } from '@agentic-obs/common'
+import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateway'
+import type { DashboardSseEvent } from '@agentic-obs/common'
 
 export interface ResearchResult {
   topic: string
@@ -31,7 +31,7 @@ export class ResearchAgent {
   constructor(
     private gateway: LLMGateway,
     private model: string,
-    private sendEvent: (event: DashboardSSEEvent) => void,
+    private sendEvent: (event: DashboardSseEvent) => void,
   ) {}
 
   async research(topic: string): Promise<ResearchResult> {

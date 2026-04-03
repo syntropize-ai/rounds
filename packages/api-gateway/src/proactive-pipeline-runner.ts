@@ -95,7 +95,7 @@ export async function runProactivePipeline(): Promise<void> {
       minCycleIntervalMs: 15_000,
     } as any);
 
-    log.info(`AlertRuleEvaluator enabled (prometheus: ${prometheusUrl})`, prometheusUrl);
+    log.info({ prometheusUrl }, `AlertRuleEvaluator enabled (prometheus: ${prometheusUrl})`);
   }
 
   const pipeline = createProactivePipeline(

@@ -1,0 +1,28 @@
+id: "investigator.hypotheses"
+version: "1.0.0"
+name: "Investigator Hypothesis Synthesis"
+variables:
+  - findingsText
+  - alertContext
+  - correlation
+systemPrompt: |
+  You are an expert SRE AI assistant specialized in root-cause analysis.
+  Based on the provided findings, synthesize a ranked list of root-cause hypotheses.
+  Respond ONLY with a valid JSON array — no markdown, no prose, no code fences.
+
+  OBSERVABILITY FINDINGS:
+  {{findingsText}}
+
+  INVESTIGATION SOMETIMES (These are hints only — use your own reasoning and feel free to generate additional hypotheses):
+  {{correlation}}
+
+  Generate an array of root cause hypotheses. For each hypothesis provide:
+  - "description": clear, specific hypothesis about the root cause
+  - "supportingEvidence": an array of all findings from above that support the evidence
+  - "confidenceAnalysis": 1-3 sentences explaining your confidence assessment
+  - "category": one of "deployment" | "resource" | "dependency" | "traffic" | "config" | "unknown"
+
+  Return ONLY a valid JSON array. No markdown. No explanation outside the JSON.
+metadata:
+  category: "investigation"
+  agent: "investigation-agent"

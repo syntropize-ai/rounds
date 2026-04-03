@@ -8,7 +8,7 @@ import type {
   ValidationResult,
   DryRunResult,
   ExecutionResult,
-} from '@agentic-obs/agent-core';
+} from './types.js';
 import type { NotificationClient } from './notification-client.js';
 import {
   HttpNotificationClient,
@@ -78,7 +78,7 @@ export class NotificationAdapter implements ExecutionAdapter {
   }
 
   async dryRun(action: AdapterAction): Promise<DryRunResult> {
-    const params = action.params as NotificationParams;
+    const params = action.params as unknown as NotificationParams;
     const platform = params.platform ?? 'slack';
     const title = params.title ?? action.targetService ?? 'Notification';
 
@@ -105,11 +105,11 @@ export class NotificationAdapter implements ExecutionAdapter {
       willAffect: [params.channel],
       // Attach preview as extra metadata (not in DryRunResult type, but accessible via spread)
       ...({ preview } as object),
-    } as DryRunResult & { preview: unknown };
+    } as unknown as DryRunResult & { preview: unknown };
   }
 
   async execute(action: AdapterAction): Promise<ExecutionResult> {
-    const params = action.params as NotificationParams;
+    const params = action.params as unknown as NotificationParams;
     const executionId = randomUUID();
 
     const webhookUrl = params.webhookUrl;

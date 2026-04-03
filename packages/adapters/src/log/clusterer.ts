@@ -84,8 +84,8 @@ export function clusterLogs(lines: LogLine[], maxSamples = 3): LogCluster[] {
         count: clusterLines.length,
         sampleLines: sorted.slice(0, maxSamples),
         level: dominantLevel(clusterLines),
-        firstSeen: sorted[0].timestamp,
-        lastSeen: sorted[sorted.length - 1].timestamp,
+        firstSeen: sorted[0]!.timestamp,
+        lastSeen: sorted[sorted.length - 1]!.timestamp,
       };
     })
     .sort((a, b) => b.count - a.count); // most frequent first

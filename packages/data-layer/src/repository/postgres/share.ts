@@ -58,7 +58,7 @@ export class PostgresShareRepository implements IShareRepository {
         createdAt: new Date(),
       })
       .returning();
-    return rowToRecord(row);
+    return rowToRecord(row!);
   }
 
   async update(id: string, patch: Partial<Omit<ShareLink, 'id'>>): Promise<ShareLink | undefined> {

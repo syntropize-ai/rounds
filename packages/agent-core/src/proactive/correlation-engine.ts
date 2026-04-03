@@ -169,7 +169,7 @@ export class CorrelationEngine {
     );
     const serviceIds = [...new Set(remainingSymptoms.map((s) => symptomMeta(s).serviceId))];
     for (let i = 0; i < serviceIds.length; i++) {
-      const svcA = serviceIds[i];
+      const svcA = serviceIds[i]!;
       const related = this.topology.getRelatedServices(svcA);
       const linkedServices = serviceIds.filter((svcB) => related.includes(svcB));
       if (linkedServices.length > 0) {
@@ -205,9 +205,10 @@ export class CorrelationEngine {
     const severity = this.deriveSeverity(symptoms);
     const uniqueServices = [...new Set(affectedServices)];
     const primaryService = uniqueServices[0] ?? 'unknown';
+    const firstChange = changes[0];
     const title =
-      changes.length > 0
-        ? `${primaryService}: ${changes[0].type} may have caused ${symptoms.length} symptom(s)`
+      firstChange
+        ? `${primaryService}: ${firstChange.type} may have caused ${symptoms.length} symptom(s)`
         : `${primaryService}: ${symptoms.length} correlated symptom(s) detected`;
 
     return {
@@ -282,7 +283,7 @@ export class CorrelationEngine {
     const cutoff = Date.now() - this.correlationWindowMs;
 
     for (let i = this.symptoms.length - 1; i >= 0; i--) {
-      const s = this.symptoms[i];
+      const s = this.symptoms[i]!;
       if (new Date(symptomMeta(s).timestamp).getTime() < cutoff) {
         this.usedSymptomIds.delete(this.symptomId(s));
         this.symptoms.splice(i, 1);
@@ -290,7 +291,7 @@ export class CorrelationEngine {
     }
 
     for (let i = this.changes.length - 1; i >= 0; i--) {
-      const c = this.changes[i];
+      const c = this.changes[i]!;
       if (new Date(c.timestamp).getTime() < cutoff) {
         this.usedChangeIds.delete(c.id);
         this.changes.splice(i, 1);

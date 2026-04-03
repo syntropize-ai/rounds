@@ -1,0 +1,56 @@
+# Stage 1: build Vite app
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy monorepo root context needed by workspace
+COPY package.json package-lock.json ./
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages/common/package.json ./packages/common/
+COPY packages/web/package.json ./packages/web/
+
+RUN npm ci
+
+COPY packages/common/src ./packages/common/src
+COPY packages/common/tsconfig.json ./packages/common/
+COPY packages/web/src ./packages/web/src
+COPY packages/web/index.html ./packages/web/
+COPY packages/web/vite.config.ts ./packages/web/
+COPY packages/web/tsconfig.json ./packages/web/
+
+# Build common (needed as dep)
+RUN npx tsc --build packages/common/tsconfig.json
+
+# Build web
+WORKDIR /app/packages/web
+RUN npx vite build
+
+# Stage 2: serve with nginx
+FROM nginx:1.27-alpine AS runner
+
+COPY --from=builder /app/packages/web/dist /usr/share/nginx/html
+
+# Nginx config for SPA routing (all paths -> index.html)
+RUN printf 'server {\n\
+  listen 80;\n\
+  root /usr/share/nginx/html;\n\
+  index index.html;\n\
+  location / {\n\
+    try_files $uri $uri/ /index.html;\n\
+  }\n\
+  location /api/ {\n\
+    proxy_pass http://api-gateway:3000;\n\
+    proxy_set_header Host $host;\n\
+    proxy_set_header X-Real-IP $remote_addr;\n\
+  }\n\
+}\n' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+# Stage: dev (hot reload with Vite dev server)
+FROM node:20-alpine AS dev
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+EXPOSE 5173

@@ -2,19 +2,19 @@ import type { DbClient } from '../../db/client.js';
 import type { IShareRepository, FindAllOptions } from '../interfaces.js';
 import type { ShareLink } from '../types.js';
 export declare class PostgresShareRepository implements IShareRepository {
-  private readonly db;
-  constructor(db: DbClient);
-  findById(id: string): Promise<ShareLink | undefined>;
-  findByToken(token: string): Promise<ShareLink | undefined>;
-  findAll(opts?: FindAllOptions<ShareLink>): Promise<ShareLink[]>;
-  create(data: Omit<ShareLink, 'id' | 'createdAt'> & {
-    id?: string;
-  }): Promise<ShareLink>;
-  update(id: string, patch: Partial<Omit<ShareLink, 'id'>>): Promise<ShareLink | undefined>;
-  delete(id: string): Promise<boolean>;
-  count(): Promise<number>;
-  findByInvestigation(investigationId: string): Promise<ShareLink[]>;
-  revoke(token: string): Promise<boolean>;
-  private checkExpiry;
+    private readonly db;
+    constructor(db: DbClient);
+    findById(id: string): Promise<ShareLink | undefined>;
+    findByToken(token: string): Promise<ShareLink | undefined>;
+    findAll(opts?: FindAllOptions<ShareLink>): Promise<ShareLink[]>;
+    create(data: Omit<ShareLink, 'id' | 'createdAt'> & {
+        id?: string;
+    }): Promise<ShareLink>;
+    update(id: string, patch: Partial<Omit<ShareLink, 'id'>>): Promise<ShareLink | undefined>;
+    delete(id: string): Promise<boolean>;
+    count(): Promise<number>;
+    findByInvestigation(investigationId: string): Promise<ShareLink[]>;
+    revoke(token: string): Promise<boolean>;
+    private checkExpiry;
 }
 //# sourceMappingURL=share.d.ts.map

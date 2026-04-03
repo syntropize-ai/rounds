@@ -1,11 +1,11 @@
-import type { ConnectionOptions } from 'bullmq';
+import { type ConnectionOptions } from 'bullmq';
 import type { IWorkerQueue, JobOptions, JobHandler, QueueStats } from './interface.js';
 export interface BullMQWorkerQueueOptions {
     /** Redis connection URL, e.g. redis://localhost:6379 */
     url?: string;
     /** Pre-built ioredis ConnectionOptions (takes precedence over url) */
     connection?: ConnectionOptions;
-    /** Default number of job attempts (default: 3) */
+    /** Default number of job attempts (default 3) */
     defaultAttempts?: number;
 }
 export declare class BullMQWorkerQueue implements IWorkerQueue {

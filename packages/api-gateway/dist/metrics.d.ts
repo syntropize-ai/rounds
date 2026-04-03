@@ -1,10 +1,3 @@
-/**
- * Prometheus metrics registry for the Agentic Observability Platform.
- *
- * All custom metrics are defined here as module-level singletons so they can be
- * imported and incremented from any module (investigation routes, LLM gateway
- * wrappers, adapter calls, proactive pipeline, etc.).
- */
 import { Registry, Counter, Histogram, Gauge } from 'prom-client';
 export declare const registry: Registry<"text/plain; version=0.0.4; charset=utf-8">;
 export declare const investigationsTotal: Counter<"status">;

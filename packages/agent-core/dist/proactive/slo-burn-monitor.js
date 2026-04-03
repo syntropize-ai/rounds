@@ -26,11 +26,9 @@ export class SloBurnMonitor {
         this.thresholds = config.thresholds ?? DEFAULT_THRESHOLDS;
         this.checkIntervalMs = config.checkIntervalMs ?? 60_000;
     }
-    /** Register a listener for burn rate findings */
     onFinding(listener) {
         this.listeners.push(listener);
     }
-    /** Start periodic monitoring */
     start() {
         if (this.timer) {
             return;
@@ -38,14 +36,12 @@ export class SloBurnMonitor {
         void this.check();
         this.timer = setInterval(() => void this.check(), this.checkIntervalMs);
     }
-    /** Stop periodic monitoring */
     stop() {
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
         }
     }
-    /** Run a single check cycle across all SLOs and windows */
     async check() {
         const findings = [];
         for (const slo of this.slos) {
@@ -57,7 +53,7 @@ export class SloBurnMonitor {
                 }
                 const burnRate = errorBudget > 0 ? errorRate / errorBudget : 0;
                 if (burnRate >= threshold.burnRateThreshold) {
-                    const budgetRemaining = Math.max(0, 1 - burnRate / this.estimateWindowFactor(threshold.window) * 100);
+                    const budgetRemaining = Math.max(0, 1 - (burnRate / this.estimateWindowFactor(threshold.window)) * 100);
                     const finding = {
                         id: `burn-${++this.findingCounter}`,
                         serviceId: slo.serviceId,
@@ -79,17 +75,10 @@ export class SloBurnMonitor {
         }
         return findings;
     }
-    /**
-     * Calculate burn rate from raw error rate and SLO target.
-     * Exported for use by other components.
-     */
     static calculateBurnRate(errorRate, sloTarget) {
         const errorBudget = 1 - sloTarget;
         return errorBudget > 0 ? errorRate / errorBudget : 0;
     }
-    /**
-     * Determine severity from burn rate using default thresholds.
-     */
     static severityFromBurnRate(burnRate) {
         if (burnRate >= 14.4)
             return 'critical';
@@ -109,9 +98,8 @@ export class SloBurnMonitor {
 }
 function parseWindowMinutes(window) {
     const match = window.match(/^(\d+)([mhd])$/);
-    if (!match) {
+    if (!match)
         return 60;
-    }
     const [, numStr, unit] = match;
     const num = parseInt(numStr, 10);
     switch (unit) {

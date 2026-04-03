@@ -2,20 +2,13 @@
  * K8s Execution Adapter
  *
  * Implements ExecutionAdapter for Kubernetes operations:
- *   - k8s:scale   - adjust deployment replica count
- *   - k8s:restart - rolling restart of a deployment
- *   - k8s:rollback - rollback to a prior revision (or the previous one)
- *
- * The adapter accepts a `KubeClient` dependency so it can be tested with mocks
- * without requiring the @kubernetes/client-node SDK at test time.
- *
- * This class contains ZERO decision logic.
- * It executes exactly what the caller requests - no heuristics, no policies.
+ *   - k8s:scale
+ *   - k8s:restart
+ *   - k8s:rollback
  */
 import { randomUUID } from 'crypto';
-// — Adapter implementation ————————————————————————————————
 const SNAPSHOT_MAX_SIZE = 1000;
-const SNAPSHOT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
 export class K8sExecutionAdapter {
     client;
     /** In-memory store of pre-execution snapshots keyed by executionId */
@@ -32,17 +25,15 @@ export class K8sExecutionAdapter {
         }
         if (this.snapshots.size >= SNAPSHOT_MAX_SIZE) {
             const sorted = [...this.snapshots.entries()].sort((a, b) => a[1].storedAt - b[1].storedAt);
-            const excess = this.snapshots.size - SNAPSHOT_MAX_SIZE + 1; // +1 to make room for the incoming entry
+            const excess = this.snapshots.size - SNAPSHOT_MAX_SIZE + 1;
             for (let i = 0; i < excess; i++) {
                 this.snapshots.delete(sorted[i][0]);
             }
         }
     }
-    // — capabilities ————————————————————————————————
     capabilities() {
         return ['k8s:scale', 'k8s:restart', 'k8s:rollback'];
     }
-    // — validate ————————————————————————————————
     async validate(action) {
         const p = action.params;
         if (!p['namespace'] || typeof p['namespace'] !== 'string') {
@@ -56,11 +47,9 @@ export class K8sExecutionAdapter {
                 return { valid: false, reason: 'params.replicas must be a non-negative integer' };
             }
         }
-        if (action.type === 'k8s:rollback') {
-            if (p['toRevision'] !== undefined) {
-                if (typeof p['toRevision'] !== 'number' || p['toRevision'] < 0 || !Number.isInteger(p['toRevision'])) {
-                    return { valid: false, reason: 'params.toRevision must be a non-negative integer when provided' };
-                }
+        if (action.type === 'k8s:rollback' && p['toRevision'] !== undefined) {
+            if (typeof p['toRevision'] !== 'number' || p['toRevision'] < 0 || !Number.isInteger(p['toRevision'])) {
+                return { valid: false, reason: 'params.toRevision must be a non-negative integer when provided' };
             }
         }
         const supported = this.capabilities();
@@ -69,7 +58,6 @@ export class K8sExecutionAdapter {
         }
         return { valid: true };
     }
-    // — dryRun ————————————————————————————————
     async dryRun(action) {
         const p = action.params;
         const namespace = p['namespace'];
@@ -85,7 +73,7 @@ export class K8sExecutionAdapter {
                     willAffect: [`${namespace}/${deployment}`],
                 };
             }
-            case 'k8s:restart': {
+            case 'k8s:restart':
                 return {
                     estimatedImpact: `Rolling restart of ${deployment} (${current.readyReplicas} pods will be cycled)`,
                     warnings: current.readyReplicas < current.replicas
@@ -93,7 +81,6 @@ export class K8sExecutionAdapter {
                         : [],
                     willAffect: [`${namespace}/${deployment}`],
                 };
-            }
             case 'k8s:rollback': {
                 const toRevision = p['toRevision'];
                 const target = toRevision !== undefined ? `revision ${toRevision}` : 'previous revision';
@@ -111,13 +98,11 @@ export class K8sExecutionAdapter {
                 };
         }
     }
-    // — execute ————————————————————————————————
     async execute(action) {
         const p = action.params;
         const namespace = p['namespace'];
         const deployment = p['deployment'];
         const executionId = randomUUID();
-        // Capture pre-execution state for potential rollback
         this.pruneSnapshots();
         const preState = await this.client.getDeployment(namespace, deployment);
         this.snapshots.set(executionId, { action, preState, storedAt: Date.now() });
@@ -133,22 +118,21 @@ export class K8sExecutionAdapter {
                         executionId,
                     };
                 }
-                case 'k8s:restart': {
+                case 'k8s:restart':
                     await this.client.restartDeployment(namespace, deployment);
                     return {
                         success: true,
                         output: { namespace, deployment, previousRevision: preState.revision },
-                        rollbackable: false, // restart is not directly reversible
+                        rollbackable: false,
                         executionId,
                     };
-                }
                 case 'k8s:rollback': {
                     const toRevision = p['toRevision'];
                     await this.client.rollbackDeployment(namespace, deployment, toRevision);
                     return {
                         success: true,
                         output: { namespace, deployment, rolledBackFrom: preState.revision, toRevision },
-                        rollbackable: true, // can re-rollback to the revision we came from
+                        rollbackable: true,
                         executionId,
                     };
                 }
@@ -173,7 +157,6 @@ export class K8sExecutionAdapter {
             };
         }
     }
-    // — rollback ————————————————————————————————
     async rollback(action, executionId) {
         const snapshot = this.snapshots.get(executionId);
         const p = action.params;

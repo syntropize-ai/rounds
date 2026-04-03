@@ -2,7 +2,7 @@
 import { ExplanationParseError } from './types.js';
 import { getSystemPrompt, buildExplanationUserMessage } from './prompts.js';
 import { structuredConclusionSchema } from './schema.js';
-// — Helpers —
+// -- Helpers --------------------------------------------------------------
 function stripCodeFences(raw) {
     const trimmed = raw.trim();
     const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
@@ -13,7 +13,7 @@ const DEFAULT_OPTIONS = {
     temperature: 0.1,
     maxTokens: 2048,
 };
-// — Agent —
+// -- Agent ----------------------------------------------------------------
 export class ExplanationAgent {
     name = 'explanation';
     gateway;
@@ -60,7 +60,7 @@ export class ExplanationAgent {
             return { success: false, error: err instanceof Error ? err.message : String(err) };
         }
     }
-    // — Parsing —
+    // -- Parsing ------------------------------------------------------------
     parseResponse(raw, input) {
         let parsed;
         try {

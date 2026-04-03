@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-export const DEFAULT_TTL_MS = 24 * 60 * 1000; // 24 hours
+const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export class ApprovalStore {
     requests = new Map();
     callbacks = new Set();
@@ -19,21 +19,19 @@ export class ApprovalStore {
     }
     findById(id) {
         const req = this.requests.get(id);
-        if (!req) {
+        if (!req)
             return undefined;
-        }
         return this.markExpiredIfNeeded(req);
     }
-    /* Returns only pending, non-expired requests */
+    /** Returns only pending, non-expired requests */
     listPending() {
         const results = [];
         for (const req of this.requests.values()) {
             const current = this.markExpiredIfNeeded(req);
-            if (current.status === 'pending') {
+            if (current.status === 'pending')
                 results.push(current);
-            }
         }
-        return results.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        return results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     }
     approve(id, by, roles) {
         return this.resolve(id, 'approved', by, roles);
@@ -41,14 +39,14 @@ export class ApprovalStore {
     reject(id, by, roles) {
         return this.resolve(id, 'rejected', by, roles);
     }
-    /* Admin override: force-approve a request regardless of current status
-     * (e.g., re-approve a previously rejected request).
+    /**
+     * Admin override: force-approve a request regardless of current status
+     * e.g. approve a previously rejected request.
      */
     override(id, by, roles) {
         const req = this.requests.get(id);
-        if (!req) {
+        if (!req)
             return undefined;
-        }
         const updated = {
             ...req,
             status: 'approved',
@@ -60,7 +58,7 @@ export class ApprovalStore {
         this.notify(updated);
         return updated;
     }
-    /* Register a callback invoked whenever a request is approved or rejected */
+    /** Register a callback invoked whenever a request is approved or rejected */
     onResolved(callback) {
         this.callbacks.add(callback);
         return () => this.callbacks.delete(callback);
@@ -68,17 +66,15 @@ export class ApprovalStore {
     get size() {
         return this.requests.size;
     }
-    // -- Private helpers --
+    // -- Private helpers
     resolve(id, status, by, roles) {
         const req = this.requests.get(id);
-        if (!req) {
+        if (!req)
             return undefined;
-        }
-        // Expire first to check if it'll still countable
+        // Expire first to check if it's still actionable
         const current = this.markExpiredIfNeeded(req);
-        if (current.status !== 'pending') {
+        if (current.status !== 'pending')
             return undefined; // already resolved or expired
-        }
         const updated = {
             ...current,
             status,
@@ -91,9 +87,8 @@ export class ApprovalStore {
         return updated;
     }
     markExpiredIfNeeded(req) {
-        if (req.status !== 'pending') {
+        if (req.status !== 'pending')
             return req;
-        }
         if (new Date(req.expiresAt) <= new Date()) {
             const expired = { ...req, status: 'expired' };
             this.requests.set(req.id, expired);
@@ -102,9 +97,8 @@ export class ApprovalStore {
         return req;
     }
     notify(request) {
-        for (const cb of this.callbacks) {
+        for (const cb of this.callbacks)
             cb(request);
-        }
     }
 }
 export const approvalStore = new ApprovalStore();

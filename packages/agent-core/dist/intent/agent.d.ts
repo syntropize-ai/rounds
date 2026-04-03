@@ -1,7 +1,6 @@
 import type { StructuredIntent } from '@agentic-obs/common';
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { IntentInput } from './types.js';
-
 export interface IntentAgentOptions {
     model?: string;
     temperature?: number;

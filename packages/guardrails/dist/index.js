@@ -17,9 +17,7 @@ export class GuardChain {
 }
 export * from './cost-guard/index.js';
 export * from './query-guard/index.js';
-export * from './audit/index.js';
 export * from './confidence-guard/index.js';
 export { ActionGuard } from './action-guard/index.js';
 export * from './credential/index.js';
-export * from './scope-guard/index.js';
 //# sourceMappingURL=index.js.map

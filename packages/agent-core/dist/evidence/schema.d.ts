@@ -1,5 +1,4 @@
 import { z } from 'zod';
-
 export declare const evidenceOutputSchema: z.ZodObject<{
     hypotheses: z.ZodArray<z.ZodObject<{
         id: z.ZodString;
@@ -41,21 +40,21 @@ export declare const evidenceOutputSchema: z.ZodObject<{
         reproducible: z.ZodBoolean;
     }, "strip", z.ZodTypeAny, {
         id: string;
-        summary: string;
-        type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-        hypothesisId: string;
         query: string;
         queryLanguage: string;
+        summary: string;
+        type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+        hypothesisId: string;
         timestamp: string;
         reproducible: boolean;
         result?: unknown;
     }, {
         id: string;
-        summary: string;
-        type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-        hypothesisId: string;
         query: string;
         queryLanguage: string;
+        summary: string;
+        type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+        hypothesisId: string;
         timestamp: string;
         reproducible: boolean;
         result?: unknown;
@@ -74,25 +73,25 @@ export declare const evidenceOutputSchema: z.ZodObject<{
             reproducible: z.ZodBoolean;
         }, "strip", z.ZodTypeAny, {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
         }, {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
-        }>>;
+        }>, "many">;
         counterEvidence: z.ZodArray<z.ZodObject<{
             id: z.ZodString;
             hypothesisId: z.ZodString;
@@ -105,47 +104,47 @@ export declare const evidenceOutputSchema: z.ZodObject<{
             reproducible: z.ZodBoolean;
         }, "strip", z.ZodTypeAny, {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
         }, {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
-        }>>;
+        }>, "many">;
         confidenceDelta: z.ZodNumber;
         isConclusive: z.ZodBoolean;
     }, "strip", z.ZodTypeAny, {
         hypothesisId: string;
         supportingEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
         }[];
         counterEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
@@ -156,22 +155,22 @@ export declare const evidenceOutputSchema: z.ZodObject<{
         hypothesisId: string;
         supportingEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
         }[];
         counterEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
@@ -192,11 +191,11 @@ export declare const evidenceOutputSchema: z.ZodObject<{
     }[];
     evidence: {
         id: string;
-        summary: string;
-        type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-        hypothesisId: string;
         query: string;
         queryLanguage: string;
+        summary: string;
+        type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+        hypothesisId: string;
         timestamp: string;
         reproducible: boolean;
         result?: unknown;
@@ -205,22 +204,22 @@ export declare const evidenceOutputSchema: z.ZodObject<{
         hypothesisId: string;
         supportingEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
         }[];
         counterEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
@@ -241,11 +240,11 @@ export declare const evidenceOutputSchema: z.ZodObject<{
     }[];
     evidence: {
         id: string;
-        summary: string;
-        type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-        hypothesisId: string;
         query: string;
         queryLanguage: string;
+        summary: string;
+        type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+        hypothesisId: string;
         timestamp: string;
         reproducible: boolean;
         result?: unknown;
@@ -254,22 +253,22 @@ export declare const evidenceOutputSchema: z.ZodObject<{
         hypothesisId: string;
         supportingEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
         }[];
         counterEvidence: {
             id: string;
-            summary: string;
-            type: "metric" | "log" | "trace" | "event" | "change" | "log_cluster" | "trace_waterfall";
-            hypothesisId: string;
             query: string;
             queryLanguage: string;
+            summary: string;
+            type: "trace" | "change" | "metric" | "log" | "event" | "log_cluster" | "trace_waterfall";
+            hypothesisId: string;
             timestamp: string;
             reproducible: boolean;
             result?: unknown;
@@ -278,6 +277,5 @@ export declare const evidenceOutputSchema: z.ZodObject<{
         isConclusive: boolean;
     }[];
 }>;
-
 export type EvidenceOutputValidated = z.infer<typeof evidenceOutputSchema>;
 //# sourceMappingURL=schema.d.ts.map

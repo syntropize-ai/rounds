@@ -7,12 +7,11 @@ export function setPipelineRunning(value) {
 }
 const startedAt = Date.now();
 function checkLlm() {
-    const apiKey = process.env.ANTHROPIC_API_KEY ??
-        process.env.OPENAI_API_KEY ??
-        process.env.LLM_API_KEY;
-    if (!apiKey) {
+    const apiKey = process.env['ANTHROPIC_API_KEY']
+        ?? process.env['OPENAI_API_KEY']
+        ?? process.env['LLM_API_KEY'];
+    if (!apiKey)
         return { status: 'fail', message: 'No LLM API key configured' };
-    }
     return { status: 'ok', message: 'API key present' };
 }
 function checkProactive() {
@@ -20,14 +19,14 @@ function checkProactive() {
         ? { status: 'ok' }
         : { status: 'fail', message: 'Proactive pipeline not running' };
 }
-// GET /api/health/live - K8S liveness probe (simple alive check)
+// GET /api/health/live - K8s liveness probe (simple alive check)
 healthRouter.get('/live', (_req, res) => {
     res.json({ status: 'alive' });
 });
 // GET /api/health/startup - K8s startup probe (ready after brief warm-up)
 healthRouter.get('/startup', (_req, res) => {
     const uptimeMs = Date.now() - startedAt;
-    const WARM_UP_MS = 5_000;
+    const WARM_UP_MS = 10_000;
     if (uptimeMs >= WARM_UP_MS) {
         res.json({ status: 'started', uptimeMs });
     }
@@ -35,7 +34,7 @@ healthRouter.get('/startup', (_req, res) => {
         res.status(503).json({ status: 'starting', uptimeMs });
     }
 });
-// GET /api/health/ready - K8S readiness probe (deep dependency check)
+// GET /api/health/ready - K8s readiness probe (deep dependency check)
 healthRouter.get('/ready', (_req, res) => {
     // DB and Redis are not configured in this deployment (in-memory stores)
     const db = { status: 'skip', message: 'No DB configured' };

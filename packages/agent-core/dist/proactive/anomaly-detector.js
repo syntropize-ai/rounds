@@ -52,10 +52,9 @@ function severityFromPopChange(ratio, threshold) {
     return 'low';
 }
 class RingBuffer {
-    buf;
+    buf = [];
     max;
     constructor(maxSize) {
-        this.buf = [];
         this.max = maxSize;
     }
     push(value) {
@@ -67,10 +66,6 @@ class RingBuffer {
     get values() {
         return [...this.buf];
     }
-    get length() {
-        return this.buf.length;
-    }
-    /** Previous value (second-to-last) */
     get previous() {
         return this.buf.length >= 2 ? this.buf[this.buf.length - 2] : undefined;
     }
@@ -88,25 +83,21 @@ export class AnomalyDetector {
         this.provider = provider;
         this.cfg = { ...DEFAULTS, ...config };
     }
-    /** Register a callback invoked whenever an anomaly finding is generated. */
     onFinding(listener) {
         this.listeners.push(listener);
     }
-    /** Start periodic detection. Runs an immediate check then polls on interval. */
     start() {
         if (this.timer)
             return;
         void this.check();
         this.timer = setInterval(() => void this.check(), this.cfg.checkIntervalMs);
     }
-    /** Stop periodic detection. */
     stop() {
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
         }
     }
-    /** Run one detection cycle across all registered metrics. */
     async check() {
         const findings = [];
         for (const descriptor of this.metrics) {
@@ -133,8 +124,6 @@ export class AnomalyDetector {
         }
         return findings;
     }
-    // Detection algorithms
-    /** Evaluate all algorithms for one metric observation. */
     evaluate(descriptor, value, history, previousValue) {
         const findings = [];
         const direction = descriptor.direction ?? 'both';
@@ -163,9 +152,7 @@ export class AnomalyDetector {
         }
         const sorted = [...history].sort((a, b) => a - b);
         const p99 = percentile(sorted, this.cfg.percentileThreshold);
-        if (p99 > 0 &&
-            (direction === 'both' || direction === 'up') &&
-            value > p99) {
+        if (p99 > 0 && (direction === 'both' || direction === 'up') && value > p99) {
             findings.push({
                 id: `anomaly-${++this.findingCounter}`,
                 serviceId: descriptor.serviceId,
@@ -194,18 +181,16 @@ export class AnomalyDetector {
                     severity: severityFromPopChange(changeRatio, this.cfg.popThreshold),
                     value,
                     threshold: previousValue * (1 + this.cfg.popThreshold * Math.sign(changeRatio)),
-                    message: `${descriptor.serviceId}/${descriptor.metricName} changed ${((changeRatio) * 100).toFixed(1)}% vs previous value ${previousValue.toFixed(4)} (threshold=${(this.cfg.popThreshold * 100).toFixed(0)}%)`,
+                    message: `${descriptor.serviceId}/${descriptor.metricName} changed ${(changeRatio * 100).toFixed(1)}% vs previous value ${previousValue.toFixed(4)} (threshold=${(this.cfg.popThreshold * 100).toFixed(0)}%)`,
                     timestamp: new Date().toISOString(),
                 });
             }
         }
         return findings;
     }
-    /** Return the current history snapshot for a metric (useful in tests). */
     getHistory(serviceId, metricName) {
         return this.history.get(`${serviceId}:${metricName}`)?.values ?? [];
     }
-    /** Return how many metrics are being monitored. */
     getMetricCount() {
         return this.metrics.length;
     }

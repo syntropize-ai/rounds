@@ -1,4 +1,3 @@
-// Types
 // NoiseReducer
 export class NoiseReducer {
     llmEvaluator;
@@ -9,15 +8,6 @@ export class NoiseReducer {
         this.llmEvaluator = config.llmEvaluator;
         this.dismissThreshold = config.dismissThreshold ?? 0.3;
     }
-    /**
-     * Evaluate a finding and decide whether to keep, downgrade, or suppress it.
-     *
-     * Without an LLM evaluator, all findings are kept (no hardcoded filtering).
-     * With an LLM evaluator:
-     * - confidence >= dismissThreshold                 -> keep
-     * - confidence in [dismissThreshold/2, dismissThreshold) -> downgrade
-     * - confidence < dismissThreshold/2                -> suppress
-     */
     async evaluate(finding) {
         this.totalEvaluated++;
         if (!this.llmEvaluator) {
@@ -49,7 +39,6 @@ export class NoiseReducer {
         }
         return { action, assessment };
     }
-    /** Record that a user dismissed a finding. */
     recordDismissal(findingType, serviceId) {
         this.dismissals.push({
             findingType,
@@ -57,14 +46,12 @@ export class NoiseReducer {
             dismissedAt: new Date().toISOString(),
         });
     }
-    /** Return overall noise statistics. */
     getNoiseRate() {
         const total = this.totalEvaluated;
         const dismissed = this.dismissals.length;
         const rate = total === 0 ? 0 : dismissed / total;
         return { total, dismissed, rate };
     }
-    // Private
     buildServiceHistory(serviceId) {
         const serviceDismissals = this.dismissals.filter((d) => d.serviceId === serviceId);
         return {

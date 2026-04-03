@@ -4,7 +4,7 @@
  *
  * When REDIS_URL is set, proactive findings are enqueued via BullMQ so that
  * a separate worker process can process them independently. When REDIS_URL is
- * absent the InMemoryWorkerQueue is used, dispatching jobs in-process.
+ * absent the in-memory/workerQueue is used, dispatching jobs in-process.
  *
  * This module is imported lazily by startServer() so it does not run during
  * tests (which only call createApp()).
@@ -23,16 +23,16 @@ import { getSetupConfig, ensureConfigLoaded } from './routes/setup.js';
 const log = createLogger('proactive-pipeline-runner');
 let started = false;
 export async function runProactivePipeline() {
-    if (started) {
+    if (started)
         return;
-    }
     started = true;
     // Wait for persisted config (LLM, datasources) to load from disk
     await ensureConfigLoaded();
     const queue = createWorkerQueueFromEnv();
-    // Register job handlers
+    // -- Register job handlers
     queue.process('anomaly-check', async (job) => {
         log.debug({ serviceId: job.data.serviceId }, 'processing anomaly-check job');
+        // Intentional: the pipeline callbacks below enqueue receipts as the signal.
     });
     queue.process('slo-check', async (job) => {
         log.debug({ sloId: job.data.sloId }, 'processing slo-check job');
@@ -41,20 +41,20 @@ export async function runProactivePipeline() {
         log.debug({ changeId: job.data.changeId }, 'processing change-correlate job');
     });
     queue.process('correlate', async (job) => {
-        log.debug({ symptomCount: job.data.symptoms.length }, 'processing correlate job');
+        log.debug({ symptomCount: job.data.symptoms?.length ?? 0 }, 'processing correlate job');
     });
-    // Build pipeline and wire queue enqueue into callbacks
+    // -- Build pipeline and wire queue enqueue into callbacks
     const correlationEngine = new CorrelationEngine({
-        correlationWindowMs: 30 * 60_000,
+        correlationWindowMs: 5 * 60_000,
         checkIntervalMs: 60_000,
     });
     // -- AlertRuleEvaluator (optional - requires Prometheus datasource)
-    const prometheusUrl = process.env['PROMETHEUS_URL'];
+    const envPrometheusUrl = process.env['PROMETHEUS_URL'];
     const config = getSetupConfig();
-    const promDs = config.datasources.find(d => d.type === 'prometheus' || d.type === 'victoria-metrics');
-    const prometheusUri = prometheusUrl || promDs?.url;
+    const promDs = config.datasources.find((d) => d.type === 'prometheus' || d.type === 'victoria-metrics');
+    const prometheusUrl = envPrometheusUrl || promDs?.url;
     let alertRuleEvaluator;
-    if (prometheusUri) {
+    if (prometheusUrl) {
         const headers = {};
         if (promDs?.username && promDs?.password) {
             headers['Authorization'] = `Basic ${Buffer.from(`${promDs.username}:${promDs.password}`).toString('base64')}`;
@@ -62,24 +62,23 @@ export async function runProactivePipeline() {
         else if (promDs?.apiKey) {
             headers['Authorization'] = `Bearer ${promDs.apiKey}`;
         }
-        const provider = new PrometheusPromQlEvaluator(prometheusUri, headers);
-        const storeProvider = new AlertRuleStoreProvider(defaultAlertRuleStore);
-        alertRuleEvaluator = new AlertRuleEvaluator(provider, storeProvider);
-        log.info('AlertRuleEvaluator enabled (PROMETHEUS_URL)', prometheusUri);
+        const promQl = new PrometheusPromQlEvaluator(prometheusUrl, headers);
+        const provider = new AlertRuleStoreProvider(defaultAlertRuleStore);
+        alertRuleEvaluator = new AlertRuleEvaluator(promQl, provider, {
+            minCycleIntervalMs: 15_000,
+        });
+        log.info({ prometheusUrl }, `AlertRuleEvaluator enabled (prometheus: ${prometheusUrl})`);
     }
     const pipeline = createProactivePipeline({ correlationEngine, alertRuleEvaluator }, { feed: feedStore, incidents: incidentStore });
-    // Override finding callbacks to also queue
+    // Override finding callbacks to also enqueue for worker processing
     correlationEngine.onIncident((draft) => {
-        queue.add('correlate', {
+        void queue.enqueue('correlate', {
             symptoms: draft.symptoms,
             changes: draft.changes,
-        }, {
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 1000 },
-        });
+        }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
     });
     pipeline.start();
     setPipelineRunning(true);
-    log.info(`proactive pipeline started (queue backend: ${process.env['REDIS_URL'] ? 'bullmq' : 'memory'})`);
+    log.info(`Proactive pipeline started (queue backend: ${process.env['REDIS_URL'] ? 'bullmq' : 'memory'})`);
 }
 //# sourceMappingURL=proactive-pipeline-runner.js.map

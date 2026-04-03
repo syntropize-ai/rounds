@@ -45,6 +45,7 @@ export interface OidcConfig {
     groupRoleMapping?: Record<string, UserRole>;
 }
 export interface SamlConfig {
+    endpoint?: string;
     issuer: string;
     cert: string;
     callbackUrl: string;
@@ -98,7 +99,7 @@ export interface UserInfoClaims {
 export interface AuditLogEntry {
     id: string;
     timestamp: string;
-    action: 'login' | 'logout' | 'login_failed' | 'user_created' | 'user_updated' | 'role_changed' | 'team_created' | 'team_updated' | 'team_deleted';
+    action: 'login' | 'logout' | 'login_failed' | 'user_created' | 'user_updated' | 'user_deleted' | 'role_changed' | 'team_created' | 'team_updated' | 'team_deleted';
     actorId?: string;
     actorEmail?: string;
     targetId?: string;

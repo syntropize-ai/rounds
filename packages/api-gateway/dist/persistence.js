@@ -2,7 +2,7 @@
 // Like Grafana's default SQLite - zero-config, data survives restarts
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-const DATA_DIR = process.env['DATA_DIR'] || join(process.cwd(), 'uname-data');
+const DATA_DIR = process.env['DATA_DIR'] || join(process.cwd(), '.uname-data');
 const STORE_FILE = join(DATA_DIR, 'stores.json');
 const registry = new Map();
 let flushTimer = null;
@@ -20,7 +20,7 @@ export async function loadAll() {
                     store.loadJSON(data[name]);
                 }
                 catch (err) {
-                    console.error(`[persistence] Failed to load store ${name}:`, err);
+                    console.error(`[persistence] Failed to load store "${name}":`, err);
                 }
             }
         }
@@ -36,21 +36,18 @@ export async function loadAll() {
     }
 }
 async function flush() {
-    if (!dirty) {
+    if (!dirty)
         return;
-    }
     dirty = false;
     const snapshot = {};
-    for (const [name, store] of registry) {
+    for (const [name, store] of registry)
         snapshot[name] = store.toJSON();
-    }
     try {
         await mkdir(DATA_DIR, { recursive: true });
         // Write to temp file first, then rename for atomicity
-        const tmpFile = STORE_FILE + '.tmp';
+        const tmpFile = `${STORE_FILE}.tmp`;
         await writeFile(tmpFile, JSON.stringify(snapshot, null, 2), 'utf-8');
-        const { rename } = await import('node:fs/promises');
-        await rename(tmpFile, STORE_FILE);
+        await (await import('node:fs/promises')).rename(tmpFile, STORE_FILE);
     }
     catch (err) {
         console.error('[persistence] Failed to write store file:', err);
@@ -58,16 +55,15 @@ async function flush() {
 }
 export function markDirty() {
     dirty = true;
-    if (flushTimer) {
+    if (flushTimer)
         return;
-    }
     // Debounce: write at most every 2 seconds
     flushTimer = setTimeout(() => {
         flushTimer = null;
         void flush();
     }, 2000);
 }
-export async function shutdown() {
+export async function flushStores() {
     if (flushTimer) {
         clearTimeout(flushTimer);
         flushTimer = null;

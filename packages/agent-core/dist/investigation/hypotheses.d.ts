@@ -1,21 +1,7 @@
-/**
- * Hypothesis generation from step findings.
- *
- * LLM-driven path (the only path):
- * getMatchingHints() extracts directional hints from templates
- * synthesizeHypotheses() asks the LLM to reason over findings + hints
- *
- * When no LLM is provided, returns an empty array.
- * When no anomalies are found, skips the LLM call and returns an empty array.
- * On LLM failure or parse error, throws LLMUnavailableError so callers can
- * surface a clear "AI unavailable" response rather than silently substituting
- * rule-based output.
- */
-import type { Hypothesis } from '@agentic-obs/common';
+import { type Hypothesis } from '@agentic-obs/common';
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { ScoredCase } from '../case-library/types.js';
 import type { StepFinding } from './types.js';
-
 /**
  * Returns prompt hint strings from all matching templates.
  * Used to guide the LLM without constraining its reasoning.
@@ -32,7 +18,7 @@ export declare function synthesizeHypotheses(llm: LLMGateway, investigationId: s
  * Requires an LLMGateway - without it, returns an empty array so callers
  * that use this for early-stop checks degrade safely without crashing.
  *
- * When no anomalies are found, skips the LLM call and returns an empty array.
+ * When no anomalies are found, skips the LLM call and returns empty array.
  *
  * On LLM failure or unparseable response, throws LLMUnavailableError.
  *

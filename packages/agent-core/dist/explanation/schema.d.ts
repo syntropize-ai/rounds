@@ -93,40 +93,40 @@ export declare const structuredConclusionSchema: z.ZodObject<{
                 message: z.ZodString;
                 executedAt: z.ZodOptional<z.ZodString>;
             }, "strip", z.ZodTypeAny, {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             }, {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             }>>;
         }, "strip", z.ZodTypeAny, {
             id: string;
-            status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
             params: Record<string, unknown>;
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
             description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
             risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         }, {
             id: string;
-            status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
             params: Record<string, unknown>;
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
             description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
             risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         }>;
@@ -137,16 +137,16 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         risk: string;
         action: {
             id: string;
-            status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
             params: Record<string, unknown>;
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
             description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
             risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };
@@ -156,16 +156,16 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         risk: string;
         action: {
             id: string;
-            status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
             params: Record<string, unknown>;
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
             description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
             risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };
@@ -176,19 +176,7 @@ export declare const structuredConclusionSchema: z.ZodObject<{
     uncoveredAreas: z.ZodArray<z.ZodString, "many">;
     generatedAt: z.ZodString;
 }, "strip", z.ZodTypeAny, {
-    description: string;
     summary: string;
-    status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
-    params: Record<string, unknown>;
-    type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-    investigationId: string;
-    policyTag: "suggest" | "approve_required" | "deny";
-    risk: "low" | "medium" | "high";
-    result?: {
-        message: string;
-        success: boolean;
-        executedAt?: string | undefined;
-    } | undefined;
     hypotheses: {
         hypothesis: {
             id: string;
@@ -214,16 +202,16 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         risk: string;
         action: {
             id: string;
-            status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
             params: Record<string, unknown>;
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
             description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
             risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };
@@ -234,19 +222,7 @@ export declare const structuredConclusionSchema: z.ZodObject<{
     uncoveredAreas: string[];
     generatedAt: string;
 }, {
-    description: string;
     summary: string;
-    status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
-    params: Record<string, unknown>;
-    type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-    investigationId: string;
-    policyTag: "suggest" | "approve_required" | "deny";
-    risk: "low" | "medium" | "high";
-    result?: {
-        message: string;
-        success: boolean;
-        executedAt?: string | undefined;
-    } | undefined;
     hypotheses: {
         hypothesis: {
             id: string;
@@ -272,16 +248,16 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         risk: string;
         action: {
             id: string;
-            status: "proposed" | "completed" | "failed" | "approved" | "executing" | "denied";
             params: Record<string, unknown>;
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
             description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
             risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };

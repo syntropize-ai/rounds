@@ -1,6 +1,6 @@
 export type AlertRuleState = 'normal' | 'pending' | 'firing' | 'resolved' | 'disabled';
 export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low';
-export type AlertOperator = '>' | '>=' | '<' | '<=' | '=';
+export type AlertOperator = '>' | '>=' | '<' | '<=' | '==' | '!=';
 export interface AlertCondition {
     query: string;
     operator: AlertOperator;
@@ -15,7 +15,7 @@ export interface AlertRule {
     condition: AlertCondition;
     evaluationIntervalSec: number;
     severity: AlertSeverity;
-    labels: Record<string, string>;
+    labels?: Record<string, string>;
     state: AlertRuleState;
     stateChangedAt: string;
     pendingSince?: string;
@@ -74,7 +74,7 @@ export interface AlertSilence {
 }
 export type ContactPointIntegrationType = 'slack' | 'email' | 'pagerduty' | 'webhook' | 'teams' | 'opsgenie' | 'telegram' | 'discord';
 export interface ContactPointIntegration {
-    uid: string;
+    id: string;
     type: ContactPointIntegrationType;
     name: string;
     settings: Record<string, string>;
@@ -84,8 +84,8 @@ export interface ContactPoint {
     id: string;
     name: string;
     integrations: ContactPointIntegration[];
-    createdAt?: string;
-    updatedAt?: string;
+    createdAt: string;
+    updatedAt: string;
 }
 export interface NotificationPolicyNode {
     id: string;
@@ -94,7 +94,7 @@ export interface NotificationPolicyNode {
         operator: '=' | '!=' | '=~' | '!~';
         value: string;
     }>;
-    contactPointUid: string;
+    contactPointId: string;
     groupBy?: string[];
     groupWaitSec?: number;
     groupIntervalSec?: number;
@@ -131,9 +131,9 @@ export interface AlertGroup {
         ruleName: string;
         state: AlertRuleState;
         severity?: AlertSeverity;
-        labels?: Record<string, string>;
+        labels: Record<string, string>;
         value?: number;
-        startsAt?: string;
+        startsAt: string;
         annotations?: Record<string, string>;
     }>;
 }

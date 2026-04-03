@@ -1,6 +1,5 @@
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { PostMortemReport, PostMortemInput } from './post-mortem-types.js';
-
 export declare class PostMortemGenerator {
     private readonly llm;
     constructor(config: {

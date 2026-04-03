@@ -25,5 +25,5 @@ export interface WebhookRouterHandle {
     router: Router;
     stop(): void;
 }
-export declare function createWebhookRouter(bus?: IEventBus): WebhookRouterHandle;
+export declare function createWebhookRouter(bus?: IEventBus): Router;
 //# sourceMappingURL=webhooks.d.ts.map

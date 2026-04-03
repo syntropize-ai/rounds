@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ScheduledInvestigation } from '@agentic-obs/agent-core';
+import type { ScheduledInvestigation } from '@agentic-obs/agent-core';
 export interface ScheduleRouterDeps {
     scheduler: ScheduledInvestigation;
 }

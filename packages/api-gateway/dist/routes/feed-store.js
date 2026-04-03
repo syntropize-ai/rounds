@@ -17,9 +17,8 @@ export class FeedStore {
         };
         this.items.set(item.id, item);
         this.orderedIds.push(item.id);
-        if (tenantId) {
+        if (tenantId)
             this.tenants.set(item.id, tenantId);
-        }
         this.notify(item);
         return item;
     }
@@ -29,21 +28,17 @@ export class FeedStore {
     list(options = {}) {
         const { page = 1, limit = 20, type, severity, status, tenantId } = options;
         let filtered = this.orderedIds
-            .map(id => this.items.get(id))
-            .filter(item => item !== undefined)
-            .reverse();
-        if (tenantId !== undefined) {
-            filtered = filtered.filter(item => this.tenants.get(item.id) === tenantId);
-        }
-        if (type !== undefined) {
-            filtered = filtered.filter(item => item.type === type);
-        }
-        if (severity !== undefined) {
-            filtered = filtered.filter(item => item.severity === severity);
-        }
-        if (status !== undefined) {
-            filtered = filtered.filter(item => item.status === status);
-        }
+            .map((id) => this.items.get(id))
+            .filter((item) => item !== undefined)
+            .reverse(); // newest first
+        if (tenantId !== undefined)
+            filtered = filtered.filter((item) => this.tenants.get(item.id) === tenantId);
+        if (type !== undefined)
+            filtered = filtered.filter((item) => item.type === type);
+        if (severity !== undefined)
+            filtered = filtered.filter((item) => item.severity === severity);
+        if (status !== undefined)
+            filtered = filtered.filter((item) => item.status === status);
         const total = filtered.length;
         const start = (page - 1) * limit;
         const items = filtered.slice(start, start + limit);
@@ -51,34 +46,27 @@ export class FeedStore {
     }
     markRead(id) {
         const item = this.items.get(id);
-        if (!item) {
+        if (!item)
             return undefined;
-        }
         const updated = { ...item, status: 'read' };
         this.items.set(id, updated);
         return updated;
     }
-    /**
-     * Mark a feed item as followed-up (user navigated from feed into investigation).
-     * Idempotent: calling again when already true is a no-op.
-     */
+    /** Mark a feed item as followed-up (user navigated from feed into investigation). */
     markFollowedUp(id) {
         const item = this.items.get(id);
-        if (!item) {
+        if (!item)
             return undefined;
-        }
-        if (item.followed_up) {
+        if (item.followed_up)
             return item;
-        }
         const updated = { ...item, followed_up: true };
         this.items.set(id, updated);
         return updated;
     }
     addFeedback(id, feedback, comment) {
         const item = this.items.get(id);
-        if (!item) {
+        if (!item)
             return undefined;
-        }
         const updated = {
             ...item,
             feedback,
@@ -89,15 +77,14 @@ export class FeedStore {
     }
     /**
      * Record or update a per-hypothesis verdict for a feed item.
-     * If feedback for the same hypothesisId already exists it is replaced.
+     * If feedback for the same `hypothesisId` already exists it is replaced.
      */
     addHypothesisFeedback(id, feedback) {
         const item = this.items.get(id);
-        if (!item) {
+        if (!item)
             return undefined;
-        }
         const existing = item.hypothesisFeedback ?? [];
-        const others = existing.filter(f => f.hypothesisId !== feedback.hypothesisId);
+        const others = existing.filter((f) => f.hypothesisId !== feedback.hypothesisId);
         const updated = { ...item, hypothesisFeedback: [...others, feedback] };
         this.items.set(id, updated);
         return updated;
@@ -108,11 +95,10 @@ export class FeedStore {
      */
     addActionFeedback(id, feedback) {
         const item = this.items.get(id);
-        if (!item) {
+        if (!item)
             return undefined;
-        }
         const existing = item.actionFeedback ?? [];
-        const others = existing.filter(f => f.actionId !== feedback.actionId);
+        const others = existing.filter((f) => f.actionId !== feedback.actionId);
         const updated = { ...item, actionFeedback: [...others, feedback] };
         this.items.set(id, updated);
         return updated;
@@ -121,7 +107,7 @@ export class FeedStore {
     getStats() {
         const all = [...this.items.values()];
         const total = all.length;
-        const withFeedback = all.filter(i => i.feedback !== undefined).length;
+        const withFeedback = all.filter((i) => i.feedback !== undefined).length;
         const byVerdict = {
             useful: 0,
             not_useful: 0,
@@ -134,31 +120,26 @@ export class FeedStore {
         let actHelpful = 0;
         let actNotHelpful = 0;
         for (const item of all) {
-            if (item.feedback) {
+            if (item.feedback)
                 byVerdict[item.feedback]++;
-            }
             for (const hf of item.hypothesisFeedback ?? []) {
-                if (hf.verdict === 'correct') {
+                if (hf.verdict === 'correct')
                     hypCorrect++;
-                }
-                else {
+                else
                     hypWrong++;
-                }
             }
             for (const af of item.actionFeedback ?? []) {
-                if (af.helpful) {
+                if (af.helpful)
                     actHelpful++;
-                }
-                else {
+                else
                     actNotHelpful++;
-                }
             }
         }
-        const followedUpCount = all.filter(i => i.followed_up === true).length;
+        const followedUpCount = all.filter((i) => i.followed_up === true).length;
         const proactiveTypes = ['anomaly_detected', 'change_impact'];
-        const proactiveItems = all.filter(i => proactiveTypes.includes(i.type));
+        const proactiveItems = all.filter((i) => proactiveTypes.includes(i.type));
         const proactiveHitRate = proactiveItems.length > 0
-            ? proactiveItems.filter(i => i.followed_up === true).length / proactiveItems.length
+            ? proactiveItems.filter((i) => i.followed_up === true).length / proactiveItems.length
             : 0;
         return {
             total,
@@ -174,15 +155,16 @@ export class FeedStore {
     getUnreadCount() {
         let count = 0;
         for (const item of this.items.values()) {
-            if (item.status === 'unread') {
+            if (item.status === 'unread')
                 count++;
-            }
         }
         return count;
     }
     subscribe(fn) {
         this.subscribers.add(fn);
-        return () => this.subscribers.delete(fn);
+        return () => {
+            this.subscribers.delete(fn);
+        };
     }
     notify(item) {
         for (const fn of this.subscribers) {

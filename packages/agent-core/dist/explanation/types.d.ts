@@ -2,9 +2,9 @@ import type { Hypothesis, Evidence, Action, Symptom } from '@agentic-obs/common'
 /**
  * Target audience for the generated explanation narrative.
  *
- * - `sre`       - on-call engineer; full technical detail, PromQL refs, step-by-step actions
- * - `em`        - engineering manager; impact + timeline + team actions, minimal jargon
- * - `executive` - business stakeholder; user/revenue impact, plain English, no technical detail
+ * - `sre`       = on-call engineer; full technical detail, PromQL refs, step-by-step actions
+ * - `em`        = engineering manager; impact + timeline + team actions, minimal jargon
+ * - `executive` = business stakeholder; user/revenue impact, plain English, no technical detail
  */
 export type ExplanationAudience = 'sre' | 'em' | 'executive';
 export interface ExplanationInput {
@@ -24,15 +24,15 @@ export interface ExplanationInput {
     };
     /**
      * Target audience for the generated narrative.
-     * Defaults to `'sre'` when omitted.
+     * Defaults to `sre` when omitted.
      */
     audience?: ExplanationAudience;
 }
 export interface RankedHypothesis {
     hypothesis: Hypothesis;
-    /** 1 = most likely, ascending */
+    /** Rank: smaller means more likely */
     rank: number;
-    /** One-paragraph plain-English summary of supporting and counter evidence */
+    /** Concise paragraph-level plain-English summary of supporting and counter evidence */
     evidenceSummary: string;
     /** Why this confidence score was assigned */
     confidenceExplanation: string;
@@ -56,13 +56,13 @@ export interface RecommendedAction {
 export interface StructuredConclusion {
     /** One-paragraph narrative summary for SRE consumption */
     summary: string;
-    /** Hypotheses ranked by confidence (highest first) */
+    /** Hypotheses ranked by confidence (higher first) */
     hypotheses: RankedHypothesis[];
     impact: ImpactAssessment;
     recommendedActions: RecommendedAction[];
     /** Known risks not covered by recommended actions */
     risks: string[];
-    /** Signal or evidence areas not yet investigated */
+    /** Signals or evidence areas not yet investigated */
     uncoveredAreas: string[];
     generatedAt: string;
 }

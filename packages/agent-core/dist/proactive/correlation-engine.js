@@ -9,9 +9,17 @@
  */
 function symptomMeta(s) {
     if (s.source === 'anomaly') {
-        return { serviceId: s.finding.serviceId, timestamp: s.finding.timestamp, severity: s.finding.severity };
+        return {
+            serviceId: s.finding.serviceId,
+            timestamp: s.finding.timestamp,
+            severity: s.finding.severity,
+        };
     }
-    return { serviceId: s.finding.serviceId, timestamp: s.finding.timestamp, severity: s.finding.severity };
+    return {
+        serviceId: s.finding.serviceId,
+        timestamp: s.finding.timestamp,
+        severity: s.finding.severity,
+    };
 }
 /** No-op provider when topology information is unavailable. */
 export class NoopTopologyProvider {
@@ -26,9 +34,7 @@ export class CorrelationEngine {
     checkIntervalMs;
     topology;
     listeners = [];
-    /** IDs of symptoms already included in an emitted IncidentDraft. */
     usedSymptomIds = new Set();
-    /** IDs of changes already included in an emitted IncidentDraft. */
     usedChangeIds = new Set();
     timer = null;
     draftCounter = 0;
@@ -37,23 +43,18 @@ export class CorrelationEngine {
         this.checkIntervalMs = config.checkIntervalMs ?? 60_000;
         this.topology = config.topology ?? new NoopTopologyProvider();
     }
-    /** Add an anomaly finding to the correlation buffer. */
     ingestAnomalyFinding(finding) {
         this.symptoms.push({ source: 'anomaly', finding });
     }
-    /** Add a burn-rate finding to the correlation buffer. */
     ingestBurnRateFinding(finding) {
         this.symptoms.push({ source: 'burn_rate', finding });
     }
-    /** Add a change event to the correlation buffer. */
     ingestChange(change) {
         this.changes.push(change);
     }
-    /** Register a callback invoked for each new IncidentDraft. */
     onIncident(listener) {
         this.listeners.push(listener);
     }
-    /** Start periodic correlation. Runs an immediate check then polls on interval. */
     start() {
         if (this.timer) {
             return;
@@ -69,17 +70,12 @@ export class CorrelationEngine {
             }
         }, this.checkIntervalMs);
     }
-    /** Stop periodic correlation. */
     stop() {
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
         }
     }
-    /**
-     * Run a single correlation pass over the current buffer.
-     * Returns newly produced IncidentDrafts (not previously emitted ones).
-     */
     correlate() {
         const now = Date.now();
         const cutoff = now - this.correlationWindowMs;
@@ -89,7 +85,6 @@ export class CorrelationEngine {
         });
         const activeChanges = this.changes.filter((c) => new Date(c.timestamp).getTime() >= cutoff);
         const drafts = [];
-        // Rule 1: change + symptom on the same service
         for (const change of activeChanges) {
             if (this.usedChangeIds.has(change.id)) {
                 continue;
@@ -104,7 +99,6 @@ export class CorrelationEngine {
                 drafts.push(draft);
             }
         }
-        // Rule 2: 2 symptoms on the same service
         for (const [serviceId, group] of this.groupByService(activeSymptoms.filter((s) => !this.usedSymptomIds.has(this.symptomId(s))))) {
             if (group.length >= 2) {
                 const draft = this.buildDraft([serviceId], group, [], [`${group.length} symptoms observed on ${serviceId} within ${this.windowLabel()}`]);
@@ -112,7 +106,6 @@ export class CorrelationEngine {
                 drafts.push(draft);
             }
         }
-        // Rule 3: symptoms across topology-related services
         const remainingSymptoms = activeSymptoms.filter((s) => !this.usedSymptomIds.has(this.symptomId(s)));
         const serviceIds = [...new Set(remainingSymptoms.map((s) => symptomMeta(s).serviceId))];
         for (let i = 0; i < serviceIds.length; i++) {
@@ -121,7 +114,8 @@ export class CorrelationEngine {
             const linkedServices = serviceIds.filter((svcB) => related.includes(svcB));
             if (linkedServices.length > 0) {
                 const affectedServices = [svcA, ...linkedServices];
-                const group = remainingSymptoms.filter((s) => affectedServices.includes(symptomMeta(s).serviceId) && !this.usedSymptomIds.has(this.symptomId(s)));
+                const group = remainingSymptoms.filter((s) => affectedServices.includes(symptomMeta(s).serviceId) &&
+                    !this.usedSymptomIds.has(this.symptomId(s)));
                 if (group.length >= 2) {
                     const draft = this.buildDraft(affectedServices, group, [], [`Symptoms on topology-linked services: ${affectedServices.join(', ')}`]);
                     this.markUsed(draft);
@@ -132,13 +126,13 @@ export class CorrelationEngine {
         this.pruneExpired();
         return drafts;
     }
-    // Helpers
     buildDraft(affectedServices, symptoms, changes, correlationReasons) {
         const severity = this.deriveSeverity(symptoms);
         const uniqueServices = [...new Set(affectedServices)];
         const primaryService = uniqueServices[0] ?? 'unknown';
-        const title = changes.length > 0
-            ? `${primaryService}: ${changes[0].type} may have caused ${symptoms.length} symptom(s)`
+        const firstChange = changes[0];
+        const title = firstChange
+            ? `${primaryService}: ${firstChange.type} may have caused ${symptoms.length} symptom(s)`
             : `${primaryService}: ${symptoms.length} correlated symptom(s) detected`;
         return {
             id: `incident-draft-${++this.draftCounter}`,
@@ -152,7 +146,13 @@ export class CorrelationEngine {
         };
     }
     deriveSeverity(symptoms) {
-        const rank = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+        const rank = {
+            critical: 4,
+            high: 3,
+            medium: 2,
+            low: 1,
+            info: 0,
+        };
         let highest = 0;
         for (const s of symptoms) {
             const { severity } = symptomMeta(s);
@@ -198,11 +198,6 @@ export class CorrelationEngine {
         const minutes = Math.round(this.correlationWindowMs / 60_000);
         return `${minutes}m window`;
     }
-    /**
-     * Remove events that have aged out of the correlation window from the
-     * in-memory buffers and clean up the corresponding usedXxxIds entries.
-     * Called at the end of every correlate() cycle to keep the arrays bounded.
-     */
     pruneExpired() {
         const cutoff = Date.now() - this.correlationWindowMs;
         for (let i = this.symptoms.length - 1; i >= 0; i--) {

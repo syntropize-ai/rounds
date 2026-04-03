@@ -1,5 +1,4 @@
 import { z } from 'zod';
-
 export declare const hypothesisSchema: z.ZodObject<{
     id: z.ZodString;
     investigationId: z.ZodString;
@@ -28,7 +27,6 @@ export declare const hypothesisSchema: z.ZodObject<{
     evidenceIds: string[];
     counterEvidenceIds: string[];
 }>;
-
 export declare const investigationOutputSchema: z.ZodObject<{
     plan: z.ZodObject<{
         entity: z.ZodString;
@@ -54,9 +52,9 @@ export declare const investigationOutputSchema: z.ZodObject<{
             }>>;
         }, "strip", z.ZodTypeAny, {
             id: string;
-            status: "pending" | "running" | "completed" | "failed" | "skipped";
-            type: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
             description: string;
+            type: string;
             result?: unknown;
             cost?: {
                 tokens: number;
@@ -65,9 +63,9 @@ export declare const investigationOutputSchema: z.ZodObject<{
             } | undefined;
         }, {
             id: string;
-            status: "pending" | "running" | "completed" | "failed" | "skipped";
-            type: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
             description: string;
+            type: string;
             result?: unknown;
             cost?: {
                 tokens: number;
@@ -80,19 +78,19 @@ export declare const investigationOutputSchema: z.ZodObject<{
             params: z.ZodRecord<z.ZodString, z.ZodNumber>;
         }, "strip", z.ZodTypeAny, {
             params: Record<string, number>;
-            type: "high_confidence_hypothesis" | "max_cost" | "max_queries" | "time_budget";
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }, {
             params: Record<string, number>;
-            type: "high_confidence_hypothesis" | "max_cost" | "max_queries" | "time_budget";
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }>, "many">;
     }, "strip", z.ZodTypeAny, {
         entity: string;
         objective: string;
         steps: {
             id: string;
-            status: "pending" | "running" | "completed" | "failed" | "skipped";
-            type: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
             description: string;
+            type: string;
             result?: unknown;
             cost?: {
                 tokens: number;
@@ -102,16 +100,16 @@ export declare const investigationOutputSchema: z.ZodObject<{
         }[];
         stopConditions: {
             params: Record<string, number>;
-            type: "high_confidence_hypothesis" | "max_cost" | "max_queries" | "time_budget";
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     }, {
         entity: string;
         objective: string;
         steps: {
             id: string;
-            status: "pending" | "running" | "completed" | "failed" | "skipped";
-            type: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
             description: string;
+            type: string;
             result?: unknown;
             cost?: {
                 tokens: number;
@@ -121,7 +119,7 @@ export declare const investigationOutputSchema: z.ZodObject<{
         }[];
         stopConditions: {
             params: Record<string, number>;
-            type: "high_confidence_hypothesis" | "max_cost" | "max_queries" | "time_budget";
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     }>;
     hypotheses: z.ZodArray<z.ZodObject<{
@@ -165,17 +163,17 @@ export declare const investigationOutputSchema: z.ZodObject<{
         isAnomaly: boolean;
         summary: string;
         value?: number | undefined;
+        rawData?: unknown;
         baseline?: number | undefined;
         deviationRatio?: number | undefined;
-        rawData?: unknown;
     }, {
         stepType: string;
         isAnomaly: boolean;
         summary: string;
         value?: number | undefined;
+        rawData?: unknown;
         baseline?: number | undefined;
         deviationRatio?: number | undefined;
-        rawData?: unknown;
     }>, "many">;
     stopReason: z.ZodEnum<["high_confidence_hypothesis", "max_cost", "time_budget", "all_steps_complete"]>;
 }, "strip", z.ZodTypeAny, {
@@ -184,9 +182,9 @@ export declare const investigationOutputSchema: z.ZodObject<{
         objective: string;
         steps: {
             id: string;
-            status: "pending" | "running" | "completed" | "failed" | "skipped";
-            type: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
             description: string;
+            type: string;
             result?: unknown;
             cost?: {
                 tokens: number;
@@ -196,7 +194,7 @@ export declare const investigationOutputSchema: z.ZodObject<{
         }[];
         stopConditions: {
             params: Record<string, number>;
-            type: "high_confidence_hypothesis" | "max_cost" | "max_queries" | "time_budget";
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     };
     hypotheses: {
@@ -214,9 +212,9 @@ export declare const investigationOutputSchema: z.ZodObject<{
         isAnomaly: boolean;
         summary: string;
         value?: number | undefined;
+        rawData?: unknown;
         baseline?: number | undefined;
         deviationRatio?: number | undefined;
-        rawData?: unknown;
     }[];
     stopReason: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "all_steps_complete";
 }, {
@@ -225,9 +223,9 @@ export declare const investigationOutputSchema: z.ZodObject<{
         objective: string;
         steps: {
             id: string;
-            status: "pending" | "running" | "completed" | "failed" | "skipped";
-            type: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
             description: string;
+            type: string;
             result?: unknown;
             cost?: {
                 tokens: number;
@@ -237,7 +235,7 @@ export declare const investigationOutputSchema: z.ZodObject<{
         }[];
         stopConditions: {
             params: Record<string, number>;
-            type: "high_confidence_hypothesis" | "max_cost" | "max_queries" | "time_budget";
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     };
     hypotheses: {
@@ -255,12 +253,11 @@ export declare const investigationOutputSchema: z.ZodObject<{
         isAnomaly: boolean;
         summary: string;
         value?: number | undefined;
+        rawData?: unknown;
         baseline?: number | undefined;
         deviationRatio?: number | undefined;
-        rawData?: unknown;
     }[];
     stopReason: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "all_steps_complete";
 }>;
-
 export type InvestigationOutputValidated = z.infer<typeof investigationOutputSchema>;
 //# sourceMappingURL=schema.d.ts.map

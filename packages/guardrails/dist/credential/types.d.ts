@@ -15,8 +15,8 @@ export interface ResolvedCredential {
  * Resolves a `credentialRef` string into its actual secret value.
  *
  * Ref format examples:
- *  "env://SLACK_WEBHOOK_URL"        -> read from process.env.SLACK_WEBHOOK_URL
- *  "vault://secret/slack-webhook"   -> read from a secret store
+ *   "env://SLACK_WEBHOOK_URL"        -> read from process.env.SLACK_WEBHOOK_URL
+ *   "vault://secret/slack-webhook"   -> read from a secret store
  *
  * Implementations must throw (or return undefined) when the ref cannot be resolved.
  */

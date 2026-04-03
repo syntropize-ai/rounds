@@ -7,8 +7,10 @@ import { authMiddleware } from '../middleware/auth.js';
  */
 export function createEvidenceRouter(store = new EvidenceStore()) {
     const router = Router({ mergeParams: true });
-    // GET /investigation/:id/hypotheses/:hid/evidence
-    // Returns all evidence items bound to a specific hypothesis.
+    /**
+     * GET /investigations/:id/hypotheses/:hid/evidence
+     * Returns all evidence items bound to a specific hypothesis.
+     */
     router.get('/investigations/:id/hypotheses/:hid/evidence', authMiddleware, (req, res, next) => {
         try {
             const { hid } = req.params;
@@ -19,8 +21,10 @@ export function createEvidenceRouter(store = new EvidenceStore()) {
             next(err);
         }
     });
-    // GET /evidence/:id
-    // Returns single evidence item by ID (without raw query result).
+    /**
+     * GET /evidence/:id
+     * Returns a single evidence item by ID (without raw query result).
+     */
     router.get('/evidence/:id', authMiddleware, (req, res, next) => {
         try {
             const evidence = store.get(req.params['id'] ?? '');
@@ -28,9 +32,10 @@ export function createEvidenceRouter(store = new EvidenceStore()) {
                 res.status(404).json({ code: 'NOT_FOUND', message: 'Evidence not found' });
                 return;
             }
-            // Omit the raw `result` field - callers can fetch that
-            // on result - result, ...summary } = evidence
-            res.json(evidence);
+            // Omit the raw `result` field - callers use /raw for that
+            const { result, ...summary } = evidence;
+            void result;
+            res.json(summary);
         }
         catch (err) {
             next(err);
@@ -38,7 +43,7 @@ export function createEvidenceRouter(store = new EvidenceStore()) {
     });
     /**
      * GET /evidence/:id/raw
-     * Returns the original query string, language, and raw result for replay.
+     * Returns original query string, language, and raw result for replay.
      */
     router.get('/evidence/:id/raw', authMiddleware, (req, res, next) => {
         try {
@@ -62,8 +67,8 @@ export function createEvidenceRouter(store = new EvidenceStore()) {
     });
     return router;
 }
-// Shared singleton store for the running server
-// Default router wired to the singleton store
+/** Shared singleton store for the running server */
 export const evidenceStore = new EvidenceStore();
+/** Default router wired to the singleton store */
 export const evidenceRouter = createEvidenceRouter(evidenceStore);
 //# sourceMappingURL=evidence.js.map

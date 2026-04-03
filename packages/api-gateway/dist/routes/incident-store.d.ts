@@ -1,4 +1,4 @@
-import type { Incident, IncidentSeverity, IncidentTimelineEntry, IncidentTimelineEntryType } from '@agentic-obs/common';
+import type { Incident, IncidentStatus, IncidentSeverity, IncidentTimelineEntry, IncidentTimelineEntryType } from '@agentic-obs/common';
 export interface CreateIncidentParams {
     title: string;
     severity: IncidentSeverity;
@@ -7,7 +7,7 @@ export interface CreateIncidentParams {
 }
 export interface UpdateIncidentParams {
     title?: string;
-    status?: Incident['status'];
+    status?: IncidentStatus;
     severity?: IncidentSeverity;
     services?: string[];
     assignee?: string;
@@ -22,14 +22,14 @@ export declare class IncidentStore {
     private readonly tenants;
     constructor(maxCapacity?: number);
     create(params: CreateIncidentParamsWithTenant): Incident;
-    private _evictIfNeeded;
+    private evictIfNeeded;
     findById(id: string): Incident | undefined;
     getArchived(): Incident[];
     restoreFromArchive(id: string): Incident | undefined;
     findAll(tenantId?: string): Incident[];
     update(id: string, params: UpdateIncidentParams): Incident | undefined;
     addInvestigation(incidentId: string, investigationId: string): Incident | undefined;
-    addTimelineEntry(incidentId: string, type: IncidentTimelineEntryType, description: string, actorType: 'system' | 'user', actorId: string, referenceId?: string, data?: unknown): IncidentTimelineEntry | undefined;
+    addTimelineEntry(incidentId: string, type: IncidentTimelineEntryType, description: string, actorType: 'system' | 'human', actorId: string, referenceId?: string, data?: Record<string, unknown>): IncidentTimelineEntry | undefined;
     getTimeline(incidentId: string): IncidentTimelineEntry[] | undefined;
     get size(): number;
     clear(): void;

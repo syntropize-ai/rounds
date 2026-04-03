@@ -1,5 +1,5 @@
 // Explanation Agent types - structured conclusions for SRE investigations
-// — Validation error —
+// -- Validation error -----------------------------------------------------
 export class ExplanationParseError extends Error {
     rawContent;
     constructor(message, rawContent) {

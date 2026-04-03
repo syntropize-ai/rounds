@@ -1,45 +1,41 @@
 export class AlertRuleAgent {
-  deps;
-
-  constructor(deps) {
-    this.deps = deps;
-  }
-
-  async generate(prompt, context) {
-    // Step 1: Discover available metrics (if Prometheus available)
-    let availableMetrics = '';
-    if (this.deps.prometheusUrl) {
-      try {
-        const resp = await fetch(`${this.deps.prometheusUrl}/api/v1/label/__name__/values`, {
-          headers: this.deps.prometheusHeaders,
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          const metrics = (data.data ?? []).slice(0, 200);
-          availableMetrics = `\n## Available Prometheus Metrics (sample)\n${metrics.join(', ')}`;
+    deps;
+    constructor(deps) {
+        this.deps = deps;
+    }
+    async generate(prompt, context) {
+        // Step 1: Discover available metrics (if Prometheus available)
+        let availableMetrics = '';
+        if (this.deps.prometheusUrl) {
+            try {
+                const resp = await fetch(`${this.deps.prometheusUrl}/api/v1/label/__name__/values`, {
+                    headers: this.deps.prometheusHeaders,
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    const metrics = (data.data ?? []).slice(0, 200);
+                    availableMetrics = `\n## Available Prometheus Metrics (sample)\n${metrics.join(', ')}`;
+                }
+            }
+            catch {
+                // Ignore - proceed without metric list
+            }
         }
-      }
-      catch {
-        // Ignore - proceed without metric list
-      }
-    }
-
-    // Build dashboard context section
-    let dashboardContext = '';
-    if (context?.existingQueries?.length) {
-      dashboardContext += '\n## Dashboard Context\n';
-      if (context.dashboardTitle)
-        dashboardContext += `Dashboard: "${context.dashboardTitle}"\n`;
-      dashboardContext += 'The following PromQL queries are already in use on this dashboard.\n';
-      dashboardContext += 'PREFER reusing these queries or their metric names/label selectors for consistency:\n';
-      dashboardContext += `${context.existingQueries.map((q) => `- "${q}"`).join('\n')}\n`;
-      if (context.variables?.length) {
-        dashboardContext += `\nDashboard variables:\n${context.variables.map((v) => `- ${v.name}${v.value ? `="${v.value}"` : ''}`).join('\n')}\n`;
-      }
-    }
-
-    // Step 2: LLM generates the alert rule
-    const systemPrompt = `You are a Prometheus alerting expert. Given a natural language description, generate a structured alert rule.
+        // Build dashboard context section
+        let dashboardContext = '';
+        if (context?.existingQueries?.length) {
+            dashboardContext += '\n## Dashboard Context\n';
+            if (context.dashboardTitle)
+                dashboardContext += `Dashboard: "${context.dashboardTitle}"\n`;
+            dashboardContext += 'The following PromQL queries are already in use on this dashboard.\n';
+            dashboardContext += 'PREFER reusing these queries or their metric names/label selectors for consistency:\n';
+            dashboardContext += `${context.existingQueries.map((q) => `- "${q}"`).join('\n')}\n`;
+            if (context.variables?.length) {
+                dashboardContext += `\nDashboard variables:\n${context.variables.map((v) => `- ${v.name}${v.value ? `="${v.value}"` : ''}`).join('\n')}\n`;
+            }
+        }
+        // Step 2: LLM generates the alert rule
+        const systemPrompt = `You are a Prometheus alerting expert. Given a natural language description, generate a structured alert rule.
 ${availableMetrics}${dashboardContext}
 
 ## PromQL Patterns
@@ -79,54 +75,52 @@ Return ONLY valid JSON:
   "labels": { "source": "user", ... },
   "autoInvestigate": true
 }`;
-
-    const resp = await this.deps.gateway.complete([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: prompt },
-    ], {
-      model: this.deps.model,
-      maxTokens: 1024,
-      temperature: 0,
-      responseFormat: 'json',
-    });
-
-    const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-    // Extract the first complete JSON object - LLM sometimes appends explanatory text
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch)
-      throw new Error('LLM did not return valid JSON for alert rule');
-    const generated = JSON.parse(jsonMatch[0]);
-
-    // Step 3: Validate query against Prometheus
-    if (this.deps.prometheusUrl) {
-      try {
-        const testUrl = `${this.deps.prometheusUrl}/api/v1/query?query=${encodeURIComponent(generated.condition.query)}`;
-        const testResp = await fetch(testUrl, { headers: this.deps.prometheusHeaders });
-        if (!testResp.ok) {
-          // Try one repair pass via LLM if the query is invalid
-          const fixResp = await this.deps.gateway.complete([
+        const resp = await this.deps.gateway.complete([
             { role: 'system', content: systemPrompt },
-            { role: 'assistant', content: JSON.stringify(generated, null, 2) },
-            { role: 'user', content: `The PromQL query "${generated.condition.query}" failed validation against Prometheus: HTTP ${testResp.status}. Please fix the query and return the complete JSON again.` },
-          ], {
+            { role: 'user', content: prompt },
+        ], {
             model: this.deps.model,
             maxTokens: 1024,
             temperature: 0,
             responseFormat: 'json',
-          });
-          const fixedCleaned = fixResp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-          const fixedMatch = fixedCleaned.match(/\{[\s\S]*\}/);
-          if (!fixedMatch)
-            throw new Error('LLM did not return valid JSON for alert rule fix');
-          return JSON.parse(fixedMatch[0]);
+        });
+        const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+        // Extract the first complete JSON object - LLM sometimes appends explanatory text
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+        if (!jsonMatch)
+            throw new Error('LLM did not return valid JSON for alert rule');
+        const generated = JSON.parse(jsonMatch[0]);
+        // Step 3: Validate query against Prometheus
+        if (this.deps.prometheusUrl) {
+            try {
+                const testUrl = `${this.deps.prometheusUrl}/api/v1/query?query=${encodeURIComponent(generated.condition.query)}`;
+                const testResp = await fetch(testUrl, { headers: this.deps.prometheusHeaders });
+                if (!testResp.ok) {
+                    // Query failed - ask LLM to fix
+                    const fixResp = await this.deps.gateway.complete([
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: prompt },
+                        { role: 'assistant', content: cleaned },
+                        { role: 'user', content: `The PromQL query "${generated.condition.query}" failed validation against Prometheus (status ${testResp.status}). Please fix the query and return the complete JSON again.` },
+                    ], {
+                        model: this.deps.model,
+                        maxTokens: 1024,
+                        temperature: 0,
+                        responseFormat: 'json',
+                    });
+                    const fixedCleaned = fixResp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+                    const fixedMatch = fixedCleaned.match(/\{[\s\S]*\}/);
+                    if (!fixedMatch)
+                        throw new Error('LLM did not return valid JSON for alert rule fix');
+                    const fixed = JSON.parse(fixedMatch[0]);
+                    return fixed;
+                }
+            }
+            catch {
+                // Validation failed but non-fatal - return original
+            }
         }
-      }
-      catch {
-        // Validation failed but non-fatal - return original
-      }
+        return generated;
     }
-
-    return generated;
-  }
 }
 //# sourceMappingURL=alert-rule-agent.js.map

@@ -3,8 +3,8 @@ export interface StructuredIntent {
     entity: string;
     signal?: string;
     timeRange: {
-        start?: string;
-        end?: string;
+        start: string;
+        end: string;
     };
     goal: string;
     constraints?: Record<string, unknown>;

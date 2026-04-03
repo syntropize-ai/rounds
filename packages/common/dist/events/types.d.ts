@@ -33,10 +33,11 @@ export interface InvestigationEventPayload {
 }
 export interface IncidentEventPayload {
     incidentId: string;
-    title?: string;
+    title: string;
     severity?: string;
 }
 export interface ActionEventPayload {
+    actionId: string;
     actionType: string;
     investigationId?: string;
     approvedBy?: string;

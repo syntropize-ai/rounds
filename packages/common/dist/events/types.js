@@ -29,6 +29,7 @@ export const EventTypes = {
     // Finding / feed
     FINDING_CREATED: 'finding.created',
     FINDING_UPDATED: 'finding.updated',
+    // Feed events
     FEED_ITEM_CREATED: 'feed.item.created',
     FEED_ITEM_READ: 'feed.item.read',
 };

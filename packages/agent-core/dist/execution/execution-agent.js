@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { LLMUnavailableError } from '@agentic-obs/common';
-
-// -- Agent -----------------------------------------------------------------
 export class LLMExecutionAgent {
     llm;
     adapterRegistry;
@@ -11,7 +9,6 @@ export class LLMExecutionAgent {
     temperature;
     auditTrail = [];
     AUDIT_MAX_SIZE = 10_000;
-
     constructor(config) {
         this.llm = config.llm;
         this.adapterRegistry = config.adapterRegistry;
@@ -20,20 +17,13 @@ export class LLMExecutionAgent {
         this.model = config.model ?? 'claude-sonnet-4-6';
         this.temperature = config.temperature ?? 0.1;
     }
-
-    /**
-     * LLM evaluates the investigation conclusion and produces an execution plan
-     * with specific adapter actions, risk levels, and reasoning.
-     */
     async plan(conclusion, context) {
         let raw;
         try {
             const response = await this.llm.complete([
                 {
                     role: 'system',
-                    content: 'You are an expert SRE execution planner. Given an investigation conclusion, ' +
-                        'recommend specific, targeted remediation actions. ' +
-                        'Always respond with valid JSON matching the required schema.',
+                    content: 'You are an expert SRE execution planner. Given an investigation conclusion, recommend specific, targeted remediation actions. Always respond with valid JSON matching the required schema.',
                 },
                 { role: 'user', content: this.buildPlanPrompt(conclusion, context) },
             ], {
@@ -49,11 +39,6 @@ export class LLMExecutionAgent {
         }
         return this.parsePlanResponse(raw);
     }
-
-    /**
-     * Evaluates each planned action through the ActionGuard and categorizes them
-     * into approved / needsApproval / denied buckets.
-     */
     async guard(plan) {
         const approved = [];
         const needsApproval = [];
@@ -65,27 +50,15 @@ export class LLMExecutionAgent {
                 params: plannedAction.action.params,
             };
             const decision = this.actionGuard.evaluate(actionInput);
-            if (decision.effect === 'allow') {
+            if (decision.effect === 'allow')
                 approved.push(plannedAction);
-            }
-            else if (decision.effect === 'require_approval') {
+            else if (decision.effect === 'require_approval')
                 needsApproval.push(plannedAction);
-            }
-            else {
+            else
                 denied.push(plannedAction);
-            }
         }
         return { approved, needsApproval, denied };
     }
-
-    /**
-     * Executes a single planned action via the adapter pipeline:
-     * credential-bind → validate → dryRun → execute.
-     * Records an audit trail entry for every execution attempt.
-     *
-     * Credentials are resolved immediately before the pipeline and discarded
-     * after execution - they are never stored in the audit trail or returned.
-     */
     async execute(action, context) {
         const adapters = this.adapterRegistry.getByCapability(action.action.type);
         const executionId = randomUUID();
@@ -101,7 +74,6 @@ export class LLMExecutionAgent {
             return result;
         }
         const adapter = adapters[0];
-        // Step 0: Credential binding - resolve credentialRef if present
         let boundAction = action.action;
         if (action.action.credentialRef) {
             const ref = action.action.credentialRef;
@@ -143,11 +115,8 @@ export class LLMExecutionAgent {
                 this.recordAudit(action, result);
                 return result;
             }
-            // Build a short-lived copy with the resolved credential attached.
-            // The original PlannedAction is not mutated.
             boundAction = { ...action.action, resolvedCredential: resolved };
         }
-        // Step 1: validate
         let validation;
         try {
             validation = await adapter.validate(boundAction);
@@ -174,7 +143,6 @@ export class LLMExecutionAgent {
             this.recordAudit(action, result, context?.investigationId);
             return result;
         }
-        // Step 2: dryRun (informational; does not block execution)
         try {
             const dryRun = await adapter.dryRun(boundAction);
             if (dryRun.warnings.length > 0) {
@@ -184,7 +152,6 @@ export class LLMExecutionAgent {
         catch (err) {
             console.warn('[ExecutionAgent] dryRun failed (proceeding):', err);
         }
-        // Step 3: execute
         let result;
         try {
             result = await adapter.execute(boundAction);
@@ -198,27 +165,19 @@ export class LLMExecutionAgent {
                 error: `Execute threw: ${err instanceof Error ? err.message : String(err)}`,
             };
         }
-        // Clear the resolved credential from the bound action (belt-and-suspenders)
         if (boundAction !== action.action) {
             boundAction.resolvedCredential = undefined;
         }
         this.recordAudit(action, result);
         return result;
     }
-
-    /**
-     * LLM evaluates the execution result against the original context and returns
-     * an outcome assessment with next steps and rollback recommendation.
-     */
     async evaluateResult(result, context) {
         let raw;
         try {
             const response = await this.llm.complete([
                 {
                     role: 'system',
-                    content: 'You are an SRE expert evaluating the outcome of a remediation action. ' +
-                        'Determine if it succeeded, suggest next steps, and whether rollback is needed. ' +
-                        'Always respond with valid JSON matching the required schema.',
+                    content: 'You are an SRE expert evaluating the outcome of a remediation action. Determine if it succeeded, suggest next steps, and whether rollback is needed. Always respond with valid JSON matching the required schema.',
                 },
                 { role: 'user', content: this.buildEvaluationPrompt(result, context) },
             ], {
@@ -234,18 +193,13 @@ export class LLMExecutionAgent {
         }
         return this.parseEvaluationResponse(raw, result);
     }
-
     getAuditTrail() {
         return [...this.auditTrail];
     }
-
-    // -- Prompt builders ---------------------------------------------------
     buildPlanPrompt(conclusion, context) {
         const topHypothesis = conclusion.hypotheses[0];
         return JSON.stringify({
-            instruction: 'Based on this investigation conclusion, recommend specific ' +
-                'remediation actions. ' +
-                'For each action specify: type, target service, parameters, risk level, and reasoning.',
+            instruction: 'Based on this investigation conclusion, recommend specific remediation actions. For each action specify: type, target service, parameters, risk level, and reasoning.',
             investigationId: context.investigationId,
             symptoms: context.symptoms,
             affectedServices: context.services,
@@ -266,8 +220,7 @@ export class LLMExecutionAgent {
                 })),
             },
             responseSchema: {
-                actions: [
-                    {
+                actions: [{
                         action: {
                             type: 'string - adapter capability e.g. k8s:scale, k8s:restart, k8s:rollback, slack:notify',
                             targetService: 'string',
@@ -277,17 +230,14 @@ export class LLMExecutionAgent {
                         riskLevel: 'low | medium | high | critical',
                         reasoning: 'string explaining why this action addresses the root cause',
                         priority: 'number - 1 is highest priority',
-                    },
-                ],
+                    }],
                 reasoning: 'string - overall plan reasoning',
             },
         });
     }
-
     buildEvaluationPrompt(result, context) {
         return JSON.stringify({
-            instruction: 'Evaluate the execution result of a remediation action. ' +
-                'Determine the outcome, suggest concrete next steps, and whether rollback is needed.',
+            instruction: 'Evaluate the execution result of a remediation action. Determine the outcome, suggest concrete next steps, and whether rollback is needed.',
             investigationId: context.investigationId,
             symptoms: context.symptoms,
             affectedServices: context.services,
@@ -305,8 +255,6 @@ export class LLMExecutionAgent {
             },
         });
     }
-
-    // -- Response parsers --------------------------------------------------
     parsePlanResponse(raw) {
         let parsed;
         try {
@@ -323,28 +271,26 @@ export class LLMExecutionAgent {
         const actions = rawActions
             .filter((a) => typeof a === 'object' && a !== null)
             .map((a) => {
-                const actionObj = typeof a.action === 'object' && a.action !== null ? a.action : {};
-                const adapterAction = {
-                    type: String(actionObj.type ?? 'unknown'),
-                    targetService: String(actionObj.targetService ?? ''),
-                    params: typeof actionObj.params === 'object' && actionObj.params !== null
-                        ? actionObj.params
-                        : {},
-                    credentialRef: actionObj.credentialRef != null ? String(actionObj.credentialRef) : undefined,
-                };
-                return {
-                    action: adapterAction,
-                    riskLevel: isRiskLevel(a.riskLevel) ? a.riskLevel : 'medium',
-                    reasoning: String(a.reasoning ?? ''),
-                    priority: typeof a.priority === 'number' ? a.priority : 99,
-                };
-            });
+            const x = a;
+            const actionObj = typeof x.action === 'object' && x.action !== null ? x.action : {};
+            const adapterAction = {
+                type: String(actionObj.type ?? 'unknown'),
+                targetService: String(actionObj.targetService ?? ''),
+                params: typeof actionObj.params === 'object' && actionObj.params !== null ? actionObj.params : {},
+                credentialRef: actionObj.credentialRef != null ? String(actionObj.credentialRef) : undefined,
+            };
+            return {
+                action: adapterAction,
+                riskLevel: isRiskLevel(x.riskLevel) ? x.riskLevel : 'medium',
+                reasoning: String(x.reasoning ?? ''),
+                priority: typeof x.priority === 'number' ? x.priority : 99,
+            };
+        });
         return {
             actions,
             reasoning: String(obj.reasoning ?? ''),
         };
     }
-
     parseEvaluationResponse(raw, result) {
         let parsed;
         try {
@@ -368,8 +314,6 @@ export class LLMExecutionAgent {
             reasoning: String(obj.reasoning ?? ''),
         };
     }
-
-    // -- Audit -------------------------------------------------------------
     recordAudit(action, result, investigationId = '') {
         this.auditTrail.push({
             timestamp: new Date().toISOString(),
@@ -386,14 +330,11 @@ export class LLMExecutionAgent {
         }
     }
 }
-
-// -- Helpers ---------------------------------------------------------------
 function stripCodeFences(raw) {
     const trimmed = raw.trim();
     const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
     return match?.[1]?.trim() ?? trimmed;
 }
-
 function isRiskLevel(v) {
     return v === 'low' || v === 'medium' || v === 'high' || v === 'critical';
 }

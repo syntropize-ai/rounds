@@ -5,5 +5,5 @@ export interface Persistable {
 export declare function registerStore(name: string, store: Persistable): void;
 export declare function loadAll(): Promise<void>;
 export declare function markDirty(): void;
-export declare function shutdown(): Promise<void>;
+export declare function flushStores(): Promise<void>;
 //# sourceMappingURL=persistence.d.ts.map

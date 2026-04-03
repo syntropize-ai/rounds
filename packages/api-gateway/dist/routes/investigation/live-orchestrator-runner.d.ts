@@ -1,6 +1,6 @@
 import type { IGatewayInvestigationStore, IGatewayFeedStore } from '../../repositories/types.js';
-import type { OrchestratorRunInput } from './orchestrator-runner.js';
-export declare class LiveOrchestratorRunner {
+import type { OrchestratorRunner, OrchestratorRunInput } from './orchestrator-runner.js';
+export declare class LiveOrchestratorRunner implements OrchestratorRunner {
     private readonly store;
     private readonly feed;
     constructor(store: IGatewayInvestigationStore, feed: IGatewayFeedStore);

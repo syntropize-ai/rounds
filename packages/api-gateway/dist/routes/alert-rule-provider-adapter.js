@@ -7,7 +7,7 @@ export class AlertRuleStoreProvider {
         this.store = store;
     }
     getActiveRules() {
-        return this.store.findAll().rules.filter(r => r.state !== 'disabled');
+        return this.store.findAll().list.filter((r) => r.state !== 'disabled');
     }
     transition(id, newState, value) {
         return this.store.transition(id, newState, value);

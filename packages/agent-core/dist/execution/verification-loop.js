@@ -6,20 +6,13 @@ export class VerificationLoop {
         this.llm = config.llm;
         this.observationWindowMs = config.observationWindowMs ?? 300_000;
     }
-    /**
-     * LLM compares pre/post execution metrics to determine if the action was effective.
-     * Throws LLMUnavailableError if the LLM call fails or returns unparseable output.
-     * Callers should surface "AI unavailable - please verify manually" to the user.
-     */
     async verify(executionResult, preExecutionMetrics, postExecutionMetrics) {
         let raw;
         try {
             const response = await this.llm.complete([
                 {
                     role: 'system',
-                    content: 'You are an SRE expert verifying whether a remediation action resolved an incident. ' +
-                        'Compare pre and post execution metrics and determine if the action was effective. ' +
-                        'Always respond with valid JSON matching the required schema.',
+                    content: 'You are an SRE expert verifying whether a remediation action resolved an incident. Compare pre and post execution metrics and determine if the action was effective. Always respond with valid JSON matching the required schema.',
                 },
                 {
                     role: 'user',
@@ -73,8 +66,7 @@ export class VerificationLoop {
         const obj = parsed;
         const outcomeRaw = obj.outcome;
         const validOutcomes = ['resolved', 'improved', 'unchanged', 'degraded'];
-        const outcome = typeof outcomeRaw === 'string' &&
-            validOutcomes.includes(outcomeRaw)
+        const outcome = typeof outcomeRaw === 'string' && validOutcomes.includes(outcomeRaw)
             ? outcomeRaw
             : executionResult.success
                 ? 'improved'

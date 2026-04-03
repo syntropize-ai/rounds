@@ -1,11 +1,11 @@
-export type PanelVisualization = 'line' | 'bar' | 'stat' | 'table' | 'gauge' | 'heatmap' | 'pie' | 'histogram' | 'status_timeline';
+export type PanelVisualization = 'time_series' | 'stat' | 'table' | 'gauge' | 'bar' | 'heatmap' | 'pie' | 'histogram' | 'status_timeline';
 export type DashboardStatus = 'generating' | 'ready' | 'failed';
 export interface PanelQuery {
     refId: string;
     expr: string;
     legendFormat?: string;
     instant?: boolean;
-    datasourceUid?: string;
+    datasourceId?: string;
 }
 export interface PanelThreshold {
     value: number;
@@ -15,7 +15,7 @@ export interface PanelThreshold {
 export interface PanelConfig {
     id: string;
     title: string;
-    description?: string;
+    description: string;
     queries?: PanelQuery[];
     visualization: PanelVisualization;
     row: number;
@@ -25,8 +25,7 @@ export interface PanelConfig {
     refreshIntervalSec?: number | null;
     unit?: string;
     thresholds?: PanelThreshold[];
-    maxDataPoints?: number;
-    statMode?: 'none' | 'normal' | 'percent';
+    stackMode?: 'none' | 'normal' | 'percent';
     fillOpacity?: number;
     decimals?: number;
     query?: string;
@@ -39,6 +38,7 @@ export interface DashboardVariable {
     type: 'query' | 'custom' | 'datasource';
     query?: string;
     options?: string[];
+    current?: string;
     multi?: boolean;
     includeAll?: boolean;
 }
@@ -145,8 +145,6 @@ export interface Dashboard {
     variables: DashboardVariable[];
     refreshIntervalSec: number;
     datasourceIds: string[];
-    /** When true (default), discovery probes Prometheus for existing metrics.
-     * When false, panels are built from best-practice conventions only. */
     useExistingMetrics: boolean;
     folder?: string;
     createdAt: string;

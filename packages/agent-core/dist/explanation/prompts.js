@@ -1,5 +1,5 @@
 // Explanation Agent prompts - multi-audience structured conclusion generation
-// — Shared output schema preamble —
+// -- Shared output schema preamble ----------------------------------------
 const OUTPUT_SCHEMA = `## Output schema (JSON only - no markdown, no prose, no code fences)
 {
   "summary": "string",
@@ -34,14 +34,14 @@ const OUTPUT_SCHEMA = `## Output schema (JSON only - no markdown, no prose, no c
 }
 
 Order hypotheses by confidence descending (rank 1 = highest confidence).`;
-// — Critical rules (shared across all audiences) —
+// -- Critical rules (shared across all audiences) -------------------------
 const CRITICAL_RULES = `## Critical rules
 1. NEVER fabricate or infer data not present in the provided hypotheses and evidence.
 2. Only restate, reorder, and reframe what the evidence shows - do not add new facts.
 3. Confidence scores must reflect the provided evidence weights; do not inflate them.
 4. Actions must have a policyTag of "suggest" unless marked otherwise in the input.
 5. Output ONLY valid JSON - no markdown, no prose, no code fences.`;
-// — SRE audience —
+// -- SRE audience ---------------------------------------------------------
 /**
  * Default prompt targeting on-call SREs.
  * Tone: technical, precise, action-oriented. Includes PromQL references and
@@ -59,7 +59,7 @@ ${CRITICAL_RULES}
 - Keep summary <= 150 words. Keep each evidenceSummary <= 80 words.
 
 ${OUTPUT_SCHEMA}`;
-// — Engineering Manager audience —
+// -- Engineering Manager audience ----------------------------------------
 /**
  * Prompt targeting Engineering Managers.
  * Tone: impact + timeline focused, minimal jargon. Emphasises team ownership,
@@ -79,7 +79,7 @@ ${CRITICAL_RULES}
 - Keep summary <= 120 words. Keep each evidenceSummary <= 60 words.
 
 ${OUTPUT_SCHEMA}`;
-// — Executive audience —
+// -- Executive audience ---------------------------------------------------
 /**
  * Prompt targeting business executives or non-technical stakeholders.
  * Tone: business impact, plain English, no engineering jargon. Focuses on
@@ -99,7 +99,7 @@ ${CRITICAL_RULES}
 - Confidence scores may be expressed as qualitative terms: >=0.8 -> "high confidence", 0.5-0.8 -> "moderate confidence", <0.5 -> "low confidence".
 
 ${OUTPUT_SCHEMA}`;
-// — Prompt selector —
+// -- Prompt selector ------------------------------------------------------
 export function getSystemPrompt(audience) {
     switch (audience) {
         case 'em':

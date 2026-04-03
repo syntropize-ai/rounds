@@ -1,5 +1,5 @@
-import type { LLMGateway } from '@agentic-obs/llm-gateways';
-import type { PanelConfig, DashboardVariable, DashboardSSEEvent } from '@agentic-obs/common';
+import type { LLMGateway } from '@agentic-obs/llm-gateway';
+import type { PanelConfig, DashboardVariable, DashboardSseEvent } from '@agentic-obs/common';
 export interface PanelBuilderInput {
     goal: string;
     scope: 'single' | 'group' | 'comprehensive';
@@ -24,7 +24,7 @@ export declare class PanelBuilderAgent {
     private prometheusUrl;
     private headers;
     private sendEvent;
-    constructor(gateway: LLMGateway, model: string, prometheusUrl: string | undefined, headers: Record<string, string>, sendEvent: (event: DashboardSSEEvent) => void);
+    constructor(gateway: LLMGateway, model: string, prometheusUrl: string | undefined, headers: Record<string, string>, sendEvent: (event: DashboardSseEvent) => void);
     build(input: PanelBuilderInput): Promise<PanelBuilderOutput>;
     private generatePanels;
     private validateAndCorrect;
@@ -40,7 +40,7 @@ export declare class PanelBuilderAgent {
     private fixQueryWithLLM;
     /**
      * Extract potential metric name tokens from a PromQL expression
-     * and find similar names in the available metric list.
+     * and find similar names in the available metrics list.
      */
     private findSimilarMetrics;
     private detectVariables;

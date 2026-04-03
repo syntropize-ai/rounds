@@ -1,9 +1,8 @@
 export type InvestigationDepth = 'quick' | 'thorough';
-
 export interface ScheduleConfig {
-    /** schedule ID (auto-assigned if omitted) */
+    /** Unique schedule ID (auto-assigned if omitted) */
     id?: string;
-    /** the service being monitored */
+    /** The service being monitored */
     serviceId: string;
     /** Cron expression, e.g. '0 * * * *' = every hour */
     cron: string;
@@ -16,13 +15,11 @@ export interface ScheduleConfig {
     /** Whether the schedule is currently active (default: true) */
     enabled?: boolean;
 }
-
 export interface ScheduleRecord extends Required<ScheduleConfig> {
     createdAt: string;
     lastRunAt: string | null;
     nextRunAt: string | null;
 }
-
 export interface ScheduledJobData {
     scheduleId: string;
     serviceId: string;
@@ -30,8 +27,7 @@ export interface ScheduledJobData {
     description: string;
     tenantId: string;
 }
-
-export interface ScheduleRunOutcome {
+export interface ScheduledRunOutcome {
     scheduleId: string;
     serviceId: string;
     ranAt: string;
@@ -39,7 +35,6 @@ export interface ScheduleRunOutcome {
     investigationId?: string;
     reason: string;
 }
-
 export interface LLMCheckResponse {
     shouldInvestigate: boolean;
     reason: string;

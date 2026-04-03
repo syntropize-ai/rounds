@@ -1,24 +1,25 @@
-import type { LLMGateway } from '@agentic-obs/llm-gateways';
-import type { DashboardSSEEvent } from '@agentic-obs/common';
-import type { DatasourceConfig } from '../../ui/setup.js';
+import type { LLMGateway } from '@agentic-obs/llm-gateway';
+import type { DashboardSseEvent } from '@agentic-obs/common';
+import type { DatasourceConfig } from '../../setup.js';
 import type { IGatewayDashboardStore, IConversationStore } from '../../../repositories/types.js';
 export interface OrchestratorDeps {
     gateway: LLMGateway;
     model: string;
-    prometheusUrl?: string;
-    prometheusHeaders: Record<string, string>;
-    datasources?: DatasourceConfig[];
     store: IGatewayDashboardStore;
     conversationStore: IConversationStore;
-    sendEvent: (event: DashboardSSEEvent) => void;
+    prometheusUrl: string | undefined;
+    prometheusHeaders: Record<string, string>;
+    /** All configured datasources - used to inform the LLM about available environments */
+    allDatasources?: DatasourceConfig[];
+    sendEvent: (event: DashboardSseEvent) => void;
 }
 export declare class OrchestratorAgent {
     private deps;
-    private actionExecutor;
-    private generatorAgent;
-    private panelAdderAgent;
-    private investigationAgent?;
-    private alertRuleAgent;
+    private readonly actionExecutor;
+    private readonly generatorAgent;
+    private readonly panelAdderAgent;
+    private readonly investigationAgent?;
+    private readonly alertRuleAgent;
     constructor(deps: OrchestratorDeps);
     handleMessage(dashboardId: string, message: string): Promise<string>;
     private runReActLoop;

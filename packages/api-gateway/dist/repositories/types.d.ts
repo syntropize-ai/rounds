@@ -1,5 +1,5 @@
 import type { Investigation, InvestigationStatus, Hypothesis, Evidence, Incident, IncidentTimelineEntry, Dashboard, DashboardStatus, DashboardVariable, PanelConfig, DashboardMessage } from '@agentic-obs/common';
-import type { ExplanationResult } from '@agentic-obs/common';
+import type { ExplanationResult } from '@agentic-obs/agent-core';
 import type { FeedItem, FeedPage, FeedListOptions, FeedEventType, FeedSeverity, FeedFeedback, HypothesisFeedback, ActionFeedback, FeedbackStats } from '../routes/feed-store.js';
 import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../routes/investigation/types.js';
 import type { CreateIncidentParamsWithTenant, UpdateIncidentParams } from '../routes/incident-store.js';

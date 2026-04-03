@@ -14,7 +14,6 @@ export declare class InvestigationStore implements Persistable {
     private readonly feedback;
     private readonly conclusions;
     private readonly maxCapacity;
-    /** tenantId tag per investigation id */
     private readonly tenants;
     constructor(maxCapacity?: number);
     create(params: {
@@ -28,7 +27,7 @@ export declare class InvestigationStore implements Persistable {
         };
         tenantId?: string;
     }): Investigation;
-    private _evictIfNeeded;
+    private evictIfNeeded;
     findById(id: string): Investigation | undefined;
     getArchived(): Investigation[];
     restoreFromArchive(id: string): Investigation | undefined;
@@ -49,6 +48,5 @@ export declare class InvestigationStore implements Persistable {
     toJSON(): unknown;
     loadJSON(data: unknown): void;
 }
-/** Module-level singleton - replace with DI in production */
 export declare const defaultInvestigationStore: InvestigationStore;
 //# sourceMappingURL=store.d.ts.map

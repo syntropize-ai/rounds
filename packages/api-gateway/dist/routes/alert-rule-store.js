@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { markDirty } from '../persistence.js';
 export class AlertRuleStore {
     rules = new Map();
@@ -6,7 +6,6 @@ export class AlertRuleStore {
     silences = new Map();
     policies = new Map();
     listeners = [];
-    // -- Rules CRUD --
     create(data) {
         const now = new Date().toISOString();
         const rule = {
@@ -28,34 +27,28 @@ export class AlertRuleStore {
     }
     findAll(filter) {
         let list = [...this.rules.values()];
-        if (filter?.state) {
-            list = list.filter(r => r.state === filter.state);
-        }
-        if (filter?.severity) {
-            list = list.filter(r => r.severity === filter.severity);
-        }
+        if (filter?.state)
+            list = list.filter((r) => r.state === filter.state);
+        if (filter?.severity)
+            list = list.filter((r) => r.severity === filter.severity);
         if (filter?.search) {
-            const search = filter.search.toLowerCase();
-            list = list.filter(r => r.name.toLowerCase().includes(search) ||
-                r.condition.query.toLowerCase().includes(search) ||
-                r.description.toLowerCase().includes(search) ||
-                Object.values(r.labels).some(v => v.toLowerCase().includes(search)));
+            const q = filter.search.toLowerCase();
+            list = list.filter((r) => r.name.toLowerCase().includes(q)
+                || r.description.toLowerCase().includes(q)
+                || Object.values(r.labels ?? {}).some((v) => v.toLowerCase().includes(q)));
         }
         list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
         const total = list.length;
-        if (filter?.offset) {
+        if (filter?.offset)
             list = list.slice(filter.offset);
-        }
-        if (filter?.limit) {
+        if (filter?.limit)
             list = list.slice(0, filter.limit);
-        }
-        return { rules: list, total };
+        return { list, total };
     }
     update(id, patch) {
         const rule = this.rules.get(id);
-        if (!rule) {
+        if (!rule)
             return undefined;
-        }
         const updated = { ...rule, ...patch, updatedAt: new Date().toISOString() };
         this.rules.set(id, updated);
         markDirty();
@@ -64,24 +57,20 @@ export class AlertRuleStore {
     }
     delete(id) {
         const rule = this.rules.get(id);
-        if (!rule) {
+        if (!rule)
             return false;
-        }
         this.rules.delete(id);
         markDirty();
         this.notify('deleted', rule);
         return true;
     }
-    // -- State transitions --
     transition(id, newState, value) {
         const rule = this.rules.get(id);
-        if (!rule) {
+        if (!rule)
             return undefined;
-        }
         const oldState = rule.state;
-        if (oldState === newState) {
+        if (oldState === newState)
             return rule;
-        }
         const now = new Date().toISOString();
         const entry = {
             id: randomUUID(),
@@ -92,35 +81,30 @@ export class AlertRuleStore {
             value: value ?? 0,
             threshold: rule.condition.threshold,
             timestamp: now,
-            labels: rule.labels
+            labels: rule.labels ?? {},
         };
         this.history.push(entry);
-        // Keep history bounded
-        if (this.history.length > 10000) {
-            const patch = { ...entry, id: this.history.length - 10000 };
-            this.history = this.history.slice(-10000);
-        }
+        if (this.history.length > 10_000)
+            this.history.splice(0, this.history.length - 10_000);
         const patch = {
             state: newState,
             stateChangedAt: now,
             lastEvaluatedAt: now,
         };
-        if (newState === 'pending') {
+        if (newState === 'pending')
             patch.pendingSince = now;
-        }
         if (newState === 'firing') {
             patch.lastFiredAt = now;
             patch.fireCount = rule.fireCount + 1;
             patch.pendingSince = undefined;
         }
-        if (newState === 'normal' || newState === 'resolved') {
+        if (newState === 'normal' || newState === 'resolved')
             patch.pendingSince = undefined;
-        }
         return this.update(id, patch);
     }
     getHistory(ruleId, limit = 50) {
         return this.history
-            .filter(h => h.ruleId === ruleId)
+            .filter((h) => h.ruleId === ruleId)
             .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
             .slice(0, limit);
     }
@@ -129,7 +113,6 @@ export class AlertRuleStore {
             .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
             .slice(0, limit);
     }
-    // -- Silences --
     createSilence(data) {
         const silence = {
             ...data,
@@ -140,24 +123,20 @@ export class AlertRuleStore {
         markDirty();
         return silence;
     }
-    findAllSilences() {
+    findSilences() {
         const now = new Date().toISOString();
         return [...this.silences.values()]
-            .filter(s => !s.endsAt || s.endsAt > now)
-            .map(s => ({ ...s, status: this.computeSilenceStatus(s) }));
+            .filter((s) => s.endsAt > now)
+            .map((s) => ({ ...s, status: this.computeSilenceStatus(s) }));
     }
     findAllSilencesIncludingExpired() {
         return [...this.silences.values()]
-            .map(s => ({ ...s, status: this.computeSilenceStatus(s) }));
-    }
-    findSilenceById(id) {
-        return this.silences.get(id);
+            .map((s) => ({ ...s, status: this.computeSilenceStatus(s) }));
     }
     updateSilence(id, patch) {
         const silence = this.silences.get(id);
-        if (!silence) {
+        if (!silence)
             return undefined;
-        }
         const updated = { ...silence, ...patch };
         this.silences.set(id, updated);
         markDirty();
@@ -165,29 +144,25 @@ export class AlertRuleStore {
     }
     deleteSilence(id) {
         const result = this.silences.delete(id);
-        if (result) {
+        if (result)
             markDirty();
-        }
         return result;
     }
     computeSilenceStatus(silence) {
         const now = new Date().toISOString();
-        if (silence.endsAt < now) {
+        if (silence.endsAt < now)
             return 'expired';
-        }
-        if (silence.startsAt > now) {
+        if (silence.startsAt > now)
             return 'pending';
-        }
         return 'active';
     }
-    // -- Notification Policies --
     createPolicy(data) {
         const now = new Date().toISOString();
         const policy = {
             ...data,
-            id: `notif_${randomUUID().slice(0, 12)}`,
+            id: `policy_${randomUUID().slice(0, 12)}`,
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
         };
         this.policies.set(policy.id, policy);
         markDirty();
@@ -201,9 +176,8 @@ export class AlertRuleStore {
     }
     updatePolicy(id, patch) {
         const policy = this.policies.get(id);
-        if (!policy) {
+        if (!policy)
             return undefined;
-        }
         const updated = { ...policy, ...patch, updatedAt: new Date().toISOString() };
         this.policies.set(id, updated);
         markDirty();
@@ -211,12 +185,10 @@ export class AlertRuleStore {
     }
     deletePolicy(id) {
         const result = this.policies.delete(id);
-        if (result) {
+        if (result)
             markDirty();
-        }
         return result;
     }
-    // -- Listeners --
     onChange(cb) {
         this.listeners.push(cb);
     }
@@ -240,30 +212,25 @@ export class AlertRuleStore {
         const d = data;
         if (Array.isArray(d.rules)) {
             for (const r of d.rules) {
-                if (r.id) {
+                if (r.id)
                     this.rules.set(r.id, r);
-                }
             }
         }
-        if (Array.isArray(d.history)) {
+        if (Array.isArray(d.history))
             this.history = d.history;
-        }
         if (Array.isArray(d.silences)) {
             for (const s of d.silences) {
-                if (s.id) {
+                if (s.id)
                     this.silences.set(s.id, s);
-                }
             }
         }
         if (Array.isArray(d.policies)) {
             for (const p of d.policies) {
-                if (p.id) {
+                if (p.id)
                     this.policies.set(p.id, p);
-                }
             }
         }
     }
 }
-// Singleton
 export const defaultAlertRuleStore = new AlertRuleStore();
 //# sourceMappingURL=alert-rule-store.js.map

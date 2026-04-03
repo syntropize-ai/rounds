@@ -4,6 +4,7 @@ import { userStore } from '../auth/user-store.js';
 import { authMiddleware } from '../middleware/auth.js';
 /** Strip sensitive fields before sending a User object to the client */
 function sanitizeUser(user) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { passwordHash, ...safe } = user;
     return safe;
 }
@@ -13,10 +14,11 @@ export function createAuthRouter() {
     router.get('/providers', (_req, res) => {
         res.json({ providers: authManager.getEnabledProviders() });
     });
+    // -- OIDC
     // GET /api/auth/login/oidc - 302 to IdP
     router.get('/login/oidc', async (_req, res) => {
         try {
-            const url = await authManager.getOidcAuthUrl();
+            const { url } = await authManager.getOidcAuthUrl();
             res.redirect(url);
         }
         catch (err) {
@@ -28,7 +30,7 @@ export function createAuthRouter() {
     });
     // GET /api/auth/callback/oidc - OIDC redirect callback
     router.get('/callback/oidc', async (req, res) => {
-        const { code, state, error } = req.query;
+        const { error, code, state } = req.query;
         if (error) {
             res.redirect(`/login?error=${encodeURIComponent(error)}`);
             return;
@@ -39,23 +41,23 @@ export function createAuthRouter() {
         }
         try {
             const meta = { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
-            const tokens = await authManager.handleOidcCallback(String(code), String(state), meta);
-            res.redirect(`/login/callback#${encodeURIComponent(JSON.stringify(tokens))}`);
+            const result = await authManager.handleOidcCallback(code, state, meta);
+            res.redirect(`/login/callback?token=${encodeURIComponent(result.tokens.accessToken)}&refresh=${encodeURIComponent(result.tokens.refreshToken)}`);
         }
         catch (err) {
             res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'auth_failed')}`);
         }
     });
-    // -- GitHub OAuth --
-    router.get('/login/github', async (_req, res) => {
+    // -- GitHub OAuth
+    router.get('/login/github', (_req, res) => {
         try {
-            const url = await authManager.getOAuthAuthUrl('github');
+            const { url } = authManager.getOAuthAuthUrl('github');
             res.redirect(url);
         }
         catch (err) {
             res.status(400).json({
                 code: 'GITHUB_NOT_CONFIGURED',
-                message: err instanceof Error ? err.message : 'GitHub OAuth error',
+                message: err instanceof Error ? err.message : 'Github OAuth error',
             });
         }
     });
@@ -67,17 +69,17 @@ export function createAuthRouter() {
         }
         try {
             const meta = { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
-            const tokens = await authManager.handleOAuthCallback('github', String(code), String(state), meta);
-            res.redirect(`/login/callback#${encodeURIComponent(JSON.stringify(tokens))}`);
+            const result = await authManager.handleOAuthCallback('github', code, state, meta);
+            res.redirect(`/login/callback?token=${encodeURIComponent(result.tokens.accessToken)}&refresh=${encodeURIComponent(result.tokens.refreshToken)}`);
         }
         catch (err) {
-            res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'oauth_failed')}`);
+            res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'auth_failed')}`);
         }
     });
-    // -- Google OAuth --
-    router.get('/login/google', async (_req, res) => {
+    // -- Google OAuth
+    router.get('/login/google', (_req, res) => {
         try {
-            const url = await authManager.getOAuthAuthUrl('google');
+            const { url } = authManager.getOAuthAuthUrl('google');
             res.redirect(url);
         }
         catch (err) {
@@ -95,14 +97,14 @@ export function createAuthRouter() {
         }
         try {
             const meta = { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
-            const tokens = await authManager.handleOAuthCallback('google', String(code), String(state), meta);
-            res.redirect(`/login/callback#${encodeURIComponent(JSON.stringify(tokens))}`);
+            const result = await authManager.handleOAuthCallback('google', code, state, meta);
+            res.redirect(`/login/callback?token=${encodeURIComponent(result.tokens.accessToken)}&refresh=${encodeURIComponent(result.tokens.refreshToken)}`);
         }
         catch (err) {
-            res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'oauth_failed')}`);
+            res.redirect(`/login?error=${encodeURIComponent(err instanceof Error ? err.message : 'auth_failed')}`);
         }
     });
-    // -- Local auth --
+    // -- Local auth
     router.post('/login/local', async (req, res) => {
         const { email, password } = req.body;
         if (!email || !password) {
@@ -110,7 +112,7 @@ export function createAuthRouter() {
             return;
         }
         const meta = { ipAddress: req.ip, userAgent: req.headers['user-agent'] };
-        const result = await authManager.handleLocalLogin(email, password, meta);
+        const result = await authManager.localLogin(email, password, meta);
         if (!result) {
             res.status(401).json({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' });
             return;
@@ -119,11 +121,16 @@ export function createAuthRouter() {
     });
     // POST /api/auth/logout
     router.post('/logout', authMiddleware, (req, res) => {
-        authManager.logout(req.auth.sub);
+        if (req.auth?.sub)
+            authManager.logout(req.auth.sub);
         res.json({ ok: true });
     });
     // GET /api/auth/me
     router.get('/me', authMiddleware, (req, res) => {
+        if (!req.auth?.sub) {
+            res.status(401).json({ code: 'UNAUTHORIZED', message: 'Not authenticated' });
+            return;
+        }
         const user = userStore.findById(req.auth.sub);
         if (!user) {
             res.status(404).json({ code: 'USER_NOT_FOUND', message: 'User not found' });
@@ -142,12 +149,12 @@ export function createAuthRouter() {
             res.status(400).json({ code: 'VALIDATION', message: 'refreshToken is required' });
             return;
         }
-        const tokens = authManager.refresh(refreshToken);
+        const tokens = authManager.refresh?.(refreshToken);
         if (!tokens) {
             res.status(401).json({ code: 'INVALID_REFRESH_TOKEN', message: 'Invalid or expired refresh token' });
             return;
         }
-        res.json(tokens);
+        res.json({ tokens });
     });
     // GET /api/auth/saml/metadata - SP metadata XML for IdP registration
     router.get('/saml/metadata', (_req, res) => {

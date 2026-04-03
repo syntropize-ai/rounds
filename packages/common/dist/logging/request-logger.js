@@ -8,12 +8,12 @@ export function requestLogger(req, res, next) {
     res.locals['requestId'] = requestId;
     const start = Date.now();
     correlationStore.run({ requestId }, () => {
-        // Any log call below will automatically inject requestId from correlationStore.
+        // `mixin` on httpLogger will automatically inject requestId from correlationStore
         httpLogger.info({ method: req.method, url: req.url }, 'request received');
         res.on('finish', () => {
             const duration = Date.now() - start;
             const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
-            httpLogger[level]({ method: req.method, url: req.url, status: res.statusCode, duration }, 'request completed');
+            httpLogger[level]({ body: req.method, url: req.url, status: res.statusCode, duration }, 'request completed');
         });
         next();
     });

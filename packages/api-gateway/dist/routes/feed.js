@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { feedStore } from './feed-store.js';
-import { initSse, sendSseEvent, sendSseKeepalive } from './investigation/sse.js';
+import { feedStore, } from './feed-store.js';
+import { initSse, sendSseEvent, sendSseKeepAlive } from './investigation/sse.js';
 const VALID_FEED_TYPES = [
     'investigation_complete',
     'anomaly_detected',
@@ -26,12 +26,12 @@ export function createFeedRouter(store = feedStore) {
         const type = req.query['type'];
         const severity = req.query['severity'];
         const status = req.query['status'];
-        if (isNaN(page) || page < 1) {
+        if (!Number.isInteger(page) || page < 1) {
             const err = { code: 'INVALID_PARAMS', message: 'page must be a positive integer' };
             res.status(400).json(err);
             return;
         }
-        if (isNaN(limit) || limit < 1 || limit > 100) {
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
             const err = { code: 'INVALID_PARAMS', message: 'limit must be between 1 and 100' };
             res.status(400).json(err);
             return;
@@ -56,24 +56,22 @@ export function createFeedRouter(store = feedStore) {
         res.json(await store.list({ page, limit, type, severity, status }));
     });
     // GET /api/feed/subscribe - SSE stream of new feed items
-    router.get('/subscribe', async (req, res) => {
+    router.get('/subscribe', async (_req, res) => {
         initSse(res);
         // Send current unread count as initial event
-        sendSseEvent(res, { type: 'connected', unreadCount: await store.getUnreadCount() });
+        sendSseEvent(res, { type: 'connected', data: { unreadCount: await store.getUnreadCount() } });
         const keepAliveTimer = setInterval(() => {
             if (res.writableEnded) {
                 clearInterval(keepAliveTimer);
                 return;
             }
-            sendSseKeepalive(res);
+            sendSseKeepAlive(res);
         }, 15_000);
-        const unsubscribe = store.subscribe(item => {
-            if (res.writableEnded) {
-                return;
-            }
-            sendSseEvent(res, { type: 'feed_item', data: item });
+        const unsubscribe = store.subscribe((item) => {
+            if (!res.writableEnded)
+                sendSseEvent(res, { type: 'feed_item', data: item });
         });
-        req.on('close', () => {
+        res.on('close', () => {
             clearInterval(keepAliveTimer);
             unsubscribe();
         });
@@ -102,12 +100,16 @@ export function createFeedRouter(store = feedStore) {
         }
         res.json(item);
     });
-    // POST /api/feed/:id/feedback - record top-level user feedback on a feed item
+    // POST /api/feed/:id/feedback - record top-level feedback on a feed item
     router.post('/:id/feedback', async (req, res) => {
         const id = req.params['id'] ?? '';
         const { feedback, comment } = req.body;
         const validFeedback = [
-            'useful', 'not_useful', 'root_cause_correct', 'root_cause_wrong', 'partially_correct',
+            'useful',
+            'not_useful',
+            'root_cause_correct',
+            'root_cause_wrong',
+            'partially_correct',
         ];
         if (!feedback || !validFeedback.includes(feedback)) {
             const err = { code: 'INVALID_INPUT', message: `feedback must be one of: ${validFeedback.join(', ')}` };
@@ -131,7 +133,7 @@ export function createFeedRouter(store = feedStore) {
     router.post('/:id/action-feedback', async (req, res) => {
         const id = req.params['id'] ?? '';
         const { actionId, helpful, comment } = req.body;
-        if (!actionId || typeof actionId !== 'string') {
+        if (typeof actionId !== 'string' || !actionId.trim()) {
             const err = { code: 'INVALID_INPUT', message: 'actionId must be a non-empty string' };
             res.status(400).json(err);
             return;
@@ -147,8 +149,8 @@ export function createFeedRouter(store = feedStore) {
             return;
         }
         const fb = {
-            actionId: actionId,
-            helpful: helpful,
+            actionId,
+            helpful,
             comment: typeof comment === 'string' ? comment : undefined,
         };
         const item = await store.addActionFeedback(id, fb);
@@ -161,8 +163,7 @@ export function createFeedRouter(store = feedStore) {
     });
     // POST /api/feed/:id/follow-up - mark item as followed-up (user navigated to investigation)
     router.post('/:id/follow-up', async (req, res) => {
-        const id = String(req.params['id'] ?? '');
-        const item = await store.markFollowedUp(id);
+        const item = await store.markFollowedUp(req.params['id'] ?? '');
         if (!item) {
             const err = { code: 'NOT_FOUND', message: 'Feed item not found' };
             res.status(404).json(err);
@@ -174,13 +175,13 @@ export function createFeedRouter(store = feedStore) {
     router.post('/:id/hypothesis-feedback', async (req, res) => {
         const id = req.params['id'] ?? '';
         const { hypothesisId, verdict, comment } = req.body;
-        if (!hypothesisId || typeof hypothesisId !== 'string' || hypothesisId.trim() === '') {
+        if (typeof hypothesisId !== 'string' || !hypothesisId.trim()) {
             const err = { code: 'INVALID_INPUT', message: 'hypothesisId must be a non-empty string' };
             res.status(400).json(err);
             return;
         }
         const validVerdicts = ['correct', 'wrong'];
-        if (!verdict || !validVerdicts.includes(verdict)) {
+        if (typeof verdict !== 'string' || !validVerdicts.includes(verdict)) {
             const err = { code: 'INVALID_INPUT', message: `verdict must be one of: ${validVerdicts.join(', ')}` };
             res.status(400).json(err);
             return;
@@ -191,7 +192,7 @@ export function createFeedRouter(store = feedStore) {
             return;
         }
         const fb = {
-            hypothesisId: hypothesisId,
+            hypothesisId,
             verdict: verdict,
             comment: typeof comment === 'string' ? comment : undefined,
         };
@@ -205,6 +206,6 @@ export function createFeedRouter(store = feedStore) {
     });
     return router;
 }
-/** Default singleton router - preserves backward compatibility for imports. */
+// Default singleton router - preserves backward compatibility for imports.
 export const feedRouter = createFeedRouter();
 //# sourceMappingURL=feed.js.map

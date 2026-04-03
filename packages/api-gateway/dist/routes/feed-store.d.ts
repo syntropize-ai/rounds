@@ -3,20 +3,20 @@ export type FeedSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type FeedStatus = 'unread' | 'read';
 /**
  * Top-level feedback on a feed item.
- * - `useful` / `not_useful` = general helpfulness signal
- * - `root_cause_correct` = root cause identified was confirmed correct
- * - `root_cause_wrong` = root cause identified was wrong
- * - `partially_correct` = root cause was partly right (some hypotheses correct)
+ * - "useful", "not_useful" - general helpfulness signal
+ * - "root_cause_correct" - root cause identified was confirmed correct
+ * - "root_cause_wrong" - root cause identified was wrong
+ * - "partially_correct" - root cause was partly right (some hypotheses correct)
  */
 export type FeedFeedback = 'useful' | 'not_useful' | 'root_cause_correct' | 'root_cause_wrong' | 'partially_correct';
-/** Per-hypothesis verdict the user gave for fine-grained accuracy tracking. */
+/** Per-hypothesis verdict from the user - for fine-grained accuracy tracking. */
 export interface HypothesisFeedback {
     hypothesisId: string;
     verdict: 'correct' | 'wrong';
     /** Optional free-text comment from the user */
     comment?: string;
 }
-/** Optional verdict: was a recommended action actually helpful? */
+/** Per-action verdict - was a recommended action actually helpful? */
 export interface ActionFeedback {
     actionId: string;
     helpful: boolean;
@@ -31,7 +31,7 @@ export interface FeedItem {
     severity: FeedSeverity;
     status: FeedStatus;
     feedback?: FeedFeedback;
-    /** Free-text supplement attached to the top-level feedback. */
+    /** Free-text supplement attached to the top-level feedback */
     feedbackComment?: string;
     /** Per-hypothesis verdicts; one entry per hypothesis ID (last write wins per ID) */
     hypothesisFeedback?: HypothesisFeedback[];
@@ -39,8 +39,8 @@ export interface FeedItem {
     actionFeedback?: ActionFeedback[];
     investigationId?: string;
     /**
-     * True when the user navigated from this feed item to an investigation.
-     * Tracking the proactive findings was actionable. Phase 2 will use this
+     * True when the user navigated from this feed item into an investigation,
+     * indicating the proactive finding was actionable. Phase 2 will use this
      * to close the feedback loop.
      */
     followed_up?: boolean;
@@ -64,7 +64,7 @@ export interface FeedbackStats {
     followedUpCount: number;
     /**
      * Fraction of proactive feed items (anomaly_detected / change_impact) where
-     * the user followed up. 0 when no proactive items exist.
+     * the user followed up. `0` when no proactive items exist.
      */
     proactiveHitRate: number;
 }
@@ -92,10 +92,7 @@ export declare class FeedStore {
     get(id: string): FeedItem | undefined;
     list(options?: FeedListOptions): FeedPage;
     markRead(id: string): FeedItem | undefined;
-    /**
-     * Mark a feed item as followed-up (user navigated from feed into investigation).
-     * Idempotent: calling again when already true is a no-op.
-     */
+    /** Mark a feed item as followed-up (user navigated from feed into investigation). */
     markFollowedUp(id: string): FeedItem | undefined;
     addFeedback(id: string, feedback: FeedFeedback, comment?: string): FeedItem | undefined;
     /**

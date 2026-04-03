@@ -6,14 +6,13 @@
  * findings from the SystemContext alone (topology, changes, SLO status).
  */
 async function safeAdapterQuery(ctx, metric) {
-    if (!ctx.adapter || ctx.queryBudget.count >= ctx.queryBudget.max) {
+    if (!ctx.adapter || ctx.queryBudget.count >= ctx.queryBudget.max)
         return { value: undefined };
-    }
     try {
         const result = await ctx.adapter.query({
             entity: ctx.intent.entity,
             metric,
-            timerange: {
+            timeRange: {
                 start: new Date(ctx.intent.timeRange.start),
                 end: new Date(ctx.intent.timeRange.end),
             },
@@ -35,18 +34,16 @@ async function safeAdapterQuery(ctx, metric) {
     }
 }
 async function safeAdapterQueryRaw(ctx, metric, queryLanguage, filters) {
-    if (!ctx.adapter || ctx.queryBudget.count >= ctx.queryBudget.max) {
+    if (!ctx.adapter || ctx.queryBudget.count >= ctx.queryBudget.max)
         return { rawData: undefined };
-    }
     const supported = ctx.adapter.meta?.().supportedMetrics;
-    if (supported && !supported.includes(metric)) {
+    if (supported && !supported.includes(metric))
         return { rawData: undefined };
-    }
     try {
         const result = await ctx.adapter.query({
             entity: ctx.intent.entity,
             metric,
-            timerange: {
+            timeRange: {
                 start: new Date(ctx.intent.timeRange.start),
                 end: new Date(ctx.intent.timeRange.end),
             },
@@ -76,8 +73,8 @@ async function compareLatencyVsBaseline(ctx) {
         return {
             stepType: 'compare_latency_vs_baseline',
             summary: isAnomaly
-                ? `p95 latency ${current.toFixed(2)} exceeds threshold ${slo.threshold} by ${((deviationRatio || 0) * 100).toFixed(0)}%`
-                : `p95 latency ${current.toFixed(2)} is within threshold`,
+                ? `p95 latency ${current.toFixed(1)}ms exceeds threshold ${slo.threshold}ms by ${((deviationRatio || 0) * 100).toFixed(0)}%`
+                : `p95 latency ${current.toFixed(1)}ms is within threshold`,
             value: current,
             baseline: slo.threshold,
             deviationRatio,
@@ -90,7 +87,7 @@ async function compareLatencyVsBaseline(ctx) {
     return {
         stepType: 'compare_latency_vs_baseline',
         summary: latencySlo
-            ? `Latency baseline data unavailable; latency SLO status is ${latencySlo.status}`
+            ? `SLO status for latency: ${latencySlo.status}`
             : 'No latency baseline data available',
         value: latencySlo?.currentValue,
         baseline: latencySlo?.threshold,
@@ -119,35 +116,32 @@ async function checkErrorRate(ctx) {
     const isAnomaly = errorSlo?.status === 'breaching' || errorSlo?.status === 'at_risk';
     return {
         stepType: 'check_error_rate',
-        summary: errorSlo
-            ? `Error rate SLO status: ${errorSlo.status}`
-            : 'No error rate data available',
+        summary: errorSlo ? `Error rate SLO status: ${errorSlo.status}` : 'No error rate data available',
         value: errorSlo?.currentValue,
         isAnomaly,
     };
 }
 async function inspectDownstream(ctx) {
     const deps = ctx.context.topology.dependencies;
-    if (!deps.length) {
+    if (deps.length === 0) {
         return {
             stepType: 'inspect_downstream',
             summary: 'No downstream dependencies found for this service',
             isAnomaly: false,
         };
     }
-    const anomalyDeps = [];
+    const anomalousDeps = [];
     for (const dep of deps) {
-        const depSlos = ctx.context.sloStatus.filter((s) => s.serviceId === dep.node.id);
-        const hasIssue = depSlos.some((s) => s.status === 'breaching' || s.status === 'at_risk');
-        if (hasIssue) {
-            anomalyDeps.push(dep.node.name);
+        const depIssues = ctx.context.sloStatus.filter((s) => s.serviceId === dep.node.id);
+        if (depIssues.some((s) => s.status === 'breaching' || s.status === 'at_risk')) {
+            anomalousDeps.push(dep.node.name);
         }
     }
-    const isAnomaly = anomalyDeps.length > 0;
+    const isAnomaly = anomalousDeps.length > 0;
     return {
         stepType: 'inspect_downstream',
         summary: isAnomaly
-            ? `Downstream dependencies with issues: ${anomalyDeps.join(', ')}`
+            ? `Downstream dependencies with issues: ${anomalousDeps.join(', ')}`
             : `All ${deps.length} downstream dependencies appear healthy`,
         isAnomaly,
         rawData: deps.map((d) => d.node.name),
@@ -155,7 +149,7 @@ async function inspectDownstream(ctx) {
 }
 async function correlateDeployments(ctx) {
     const changes = ctx.context.recentChanges;
-    if (!changes.length) {
+    if (changes.length === 0) {
         return {
             stepType: 'correlate_deployments',
             summary: 'No recent changes detected in the lookback window',
@@ -166,11 +160,13 @@ async function correlateDeployments(ctx) {
     const recentCutoff = new Date(ctx.intent.timeRange.start).getTime();
     const recentDeploys = deployments.filter((c) => new Date(c.timestamp).getTime() >= recentCutoff);
     const isAnomaly = recentDeploys.length > 0;
+    const otherChanges = changes.filter((c) => c.type !== 'deploy');
+    const allChangeTypes = [...new Set(changes.map((c) => c.type))];
     return {
         stepType: 'correlate_deployments',
         summary: isAnomaly
             ? `${recentDeploys.length} deployment(s) found within investigation window (${recentDeploys.map((c) => c.description).join('; ')})`
-            : `${changes.length} total changes found; no deploys inside investigation window`,
+            : `${otherChanges.length} other change(s), but ${allChangeTypes.join(', ')} changes found; no deployments inside investigation window`,
         isAnomaly,
         rawData: changes.map((c) => ({ id: c.id, type: c.type, timestamp: c.timestamp })),
     };
@@ -179,10 +175,13 @@ async function sampleTraces(ctx) {
     const { rawData, replayableQuery } = await safeAdapterQueryRaw(ctx, 'trace', 'trace-query');
     if (rawData !== undefined) {
         const traces = rawData;
-        const hasErrors = traces?.some((t) => t.status === 'error');
+        const hasErrors = traces.some((t) => t.status === 'error');
+        const summary = traces.length > 0
+            ? `${traces.length} trace(s) sampled; ${hasErrors ? 'error traces detected' : 'no errors found'}`
+            : 'No traces found for this entity in the investigation window';
         return {
             stepType: 'sample_traces',
-            summary: `${traces.length} trace(s) sampled; ${hasErrors ? 'error traces detected' : 'no errors found'}`,
+            summary,
             isAnomaly: hasErrors,
             rawData: traces,
             replayableQuery,
@@ -198,13 +197,12 @@ async function clusterLogs(ctx) {
     const { rawData, replayableQuery } = await safeAdapterQueryRaw(ctx, 'log_clusters', 'log-query');
     if (rawData !== undefined) {
         const result = rawData;
-        const clusters = result?.clusters ?? [];
+        const clusters = result.clusters ?? [];
         const errorClusters = clusters.filter((c) => c.level === 'error' || c.level === 'fatal');
-        const isAnomaly = errorClusters.length > 0;
         return {
             stepType: 'cluster_logs',
             summary: `${clusters.length} log cluster(s) found; ${errorClusters.length} error/fatal cluster(s)`,
-            isAnomaly,
+            isAnomaly: errorClusters.length > 0,
             rawData: clusters,
             replayableQuery,
         };
@@ -216,34 +214,32 @@ async function clusterLogs(ctx) {
     };
 }
 async function checkSaturation(ctx) {
-    const cpuresult = await safeAdapterQuery(ctx, 'cpu_usage');
+    const cpuResult = await safeAdapterQuery(ctx, 'cpu_usage');
     const memResult = await safeAdapterQuery(ctx, 'memory_usage');
-    const cpuVal = cpuresult.value;
+    const cpuVal = cpuResult.value;
     const memVal = memResult.value;
     const cpuHigh = cpuVal !== undefined && cpuVal > 80;
     const memHigh = memVal !== undefined && memVal > 85;
     const isAnomaly = cpuHigh || memHigh;
     if (cpuVal === undefined && memVal === undefined) {
-        const satSlo = ctx.context.sloStatus.find((s) => s.metricName.includes('cpu') ||
-            s.metricName.includes('memory') ||
-            s.metricName.includes('saturation'));
-        const statusAnomaly = satSlo?.status === 'breaching' || satSlo?.status === 'at_risk';
+        const satSlo = ctx.context.sloStatus.find((s) => s.metricName.includes('memory') ||
+            s.metricName.includes('saturation') ||
+            s.metricName.includes('cpu'));
+        const isSloAnomaly = satSlo?.status === 'breaching' || satSlo?.status === 'at_risk';
         return {
             stepType: 'check_saturation',
             summary: satSlo
-                ? `Resource saturation SLO (${satSlo.metricName}): ${satSlo.currentValue ?? 'N/A'}`
+                ? `Resource saturation SLO: ${satSlo.status} (${satSlo.metricName}: ${satSlo.currentValue ?? 'N/A'})`
                 : 'No resource saturation data available',
             value: satSlo?.currentValue,
-            isAnomaly: satSlo ? statusAnomaly : false,
+            isAnomaly: isSloAnomaly ?? false,
         };
     }
     const parts = [];
-    if (cpuVal !== undefined) {
+    if (cpuVal !== undefined)
         parts.push(`CPU: ${cpuVal.toFixed(1)}% ${cpuHigh ? '(HIGH)' : ''}`.trim());
-    }
-    if (memVal !== undefined) {
+    if (memVal !== undefined)
         parts.push(`Memory: ${memVal.toFixed(1)}% ${memHigh ? '(HIGH)' : ''}`.trim());
-    }
     return {
         stepType: 'check_saturation',
         summary: isAnomaly
@@ -251,7 +247,7 @@ async function checkSaturation(ctx) {
             : `Resources within normal range: ${parts.join(', ')}`,
         value: cpuVal ?? memVal,
         isAnomaly,
-        replayableQuery: cpuresult.replayableQuery ?? memResult.replayableQuery,
+        replayableQuery: cpuResult.replayableQuery ?? memResult.replayableQuery,
     };
 }
 async function checkTrafficPattern(ctx) {
@@ -260,13 +256,13 @@ async function checkTrafficPattern(ctx) {
         const trafficSlo = ctx.context.sloStatus.find((s) => s.metricName.includes('traffic') || s.metricName.includes('request_rate'));
         const baseline = trafficSlo?.threshold ?? rps;
         const ratio = baseline > 0 ? rps / baseline : 0;
-        const isAnomaly = ratio >= 1.3 || ratio <= 0.7;
+        const isAnomaly = ratio > 2.0 || ratio < 0.3;
         return {
             stepType: 'check_traffic_pattern',
             summary: isAnomaly
                 ? ratio > 1
-                    ? `Traffic surge detected: ${rps.toFixed(1)} rps (${((ratio - 1) * 100).toFixed(0)}% of baseline)`
-                    : `Traffic drop detected: ${rps.toFixed(1)} rps (${((1 - ratio) * 100).toFixed(0)}% off baseline)`
+                    ? `Traffic spike (${((ratio - 1) * 100).toFixed(0)}% above baseline) may be overwhelming service capacity`
+                    : `Traffic drop (${((1 - ratio) * 100).toFixed(0)}% below baseline) possible upstream failure or routing change`
                 : `Traffic within normal range (${rps.toFixed(1)} rps)`,
             value: rps,
             baseline,
@@ -277,7 +273,7 @@ async function checkTrafficPattern(ctx) {
     }
     return {
         stepType: 'check_traffic_pattern',
-        summary: 'No traffic data available from configured adapters',
+        summary: 'No traffic data available from configured adapters.',
         isAnomaly: false,
     };
 }
@@ -289,37 +285,36 @@ function isErrorRateMetric(metricName) {
         lower.includes('success_rate'));
 }
 async function checkSloBurnRate(ctx) {
-    const breachingSLos = ctx.context.sloStatus.filter((s) => s.status === 'breaching');
-    const atRiskSLos = ctx.context.sloStatus.filter((s) => s.status === 'at_risk');
-    if (breachingSLos.length === 0 && atRiskSLos.length === 0) {
+    const breachingSlos = ctx.context.sloStatus.filter((s) => s.status === 'breaching');
+    const atRiskSlos = ctx.context.sloStatus.filter((s) => s.status === 'at_risk');
+    if (breachingSlos.length === 0 && atRiskSlos.length === 0) {
         return {
             stepType: 'check_slo_burn_rate',
             summary: 'All SLOs within budget - no burn rate concerns',
             isAnomaly: false,
         };
     }
-    const details = [...breachingSLos, ...atRiskSLos].map((s) => {
+    const details = [...breachingSlos, ...atRiskSlos].map((s) => {
         const current = s.currentValue ?? 0;
         const threshold = s.threshold ?? 1;
-        const errorBudget = isErrorRateMetric(s.metricName) && threshold > 0 ? current / threshold : null;
+        const burnRate = isErrorRateMetric(s.metricName) && threshold > 0 ? current / threshold : null;
         return {
             metric: s.metricName,
             service: s.serviceId,
-            burnRate: errorBudget,
+            burnRate,
             status: s.status,
             currentValue: current,
         };
     });
     const burnRates = details.map((d) => d.burnRate).filter((b) => b != null);
-    const burnRateNum = burnRates.length > 0 ? Math.max(...burnRates) : null;
-    const isAnomaly = breachingSLos.length > 0;
-    const burnSummary = burnRateNum
-        ? `max burn rate ${burnRateNum.toFixed(1)}x error budget`
+    const maxBurnRate = burnRates.length > 0 ? Math.max(...burnRates) : null;
+    const burnSummary = maxBurnRate
+        ? `max burn rate ${maxBurnRate.toFixed(1)}x error budget`
         : 'burn rate N/A (non-error-rate SLO)';
     return {
         stepType: 'check_slo_burn_rate',
-        summary: `${breachingSLos.length} SLO(s) breaching, ${atRiskSLos.length} at risk. ${burnSummary}`,
-        isAnomaly,
+        summary: `${breachingSlos.length} SLO(s) breaching, ${atRiskSlos.length} at risk. ${burnSummary}`,
+        isAnomaly: breachingSlos.length > 0,
         rawData: details,
     };
 }

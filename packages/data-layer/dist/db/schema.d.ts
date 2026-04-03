@@ -1,10 +1,8 @@
-import type { PgColumn, PgTableWithColumns } from "drizzle-orm/pg-core";
-
-export declare const investigations: PgTableWithColumns<{
+export declare const investigations: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "investigations";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "investigations";
             dataType: "string";
@@ -21,7 +19,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        tenantId: PgColumn<{
+        tenantId: import("drizzle-orm/pg-core").PgColumn<{
             name: "tenant_id";
             tableName: "investigations";
             dataType: "string";
@@ -38,7 +36,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        sessionId: PgColumn<{
+        sessionId: import("drizzle-orm/pg-core").PgColumn<{
             name: "session_id";
             tableName: "investigations";
             dataType: "string";
@@ -55,7 +53,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        userId: PgColumn<{
+        userId: import("drizzle-orm/pg-core").PgColumn<{
             name: "user_id";
             tableName: "investigations";
             dataType: "string";
@@ -72,7 +70,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        intent: PgColumn<{
+        intent: import("drizzle-orm/pg-core").PgColumn<{
             name: "intent";
             tableName: "investigations";
             dataType: "string";
@@ -89,7 +87,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        structuredIntent: PgColumn<{
+        structuredIntent: import("drizzle-orm/pg-core").PgColumn<{
             name: "structured_intent";
             tableName: "investigations";
             dataType: "json";
@@ -106,7 +104,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        plan: PgColumn<{
+        plan: import("drizzle-orm/pg-core").PgColumn<{
             name: "plan";
             tableName: "investigations";
             dataType: "json";
@@ -123,7 +121,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        status: PgColumn<{
+        status: import("drizzle-orm/pg-core").PgColumn<{
             name: "status";
             tableName: "investigations";
             dataType: "string";
@@ -140,7 +138,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        hypotheses: PgColumn<{
+        hypotheses: import("drizzle-orm/pg-core").PgColumn<{
             name: "hypotheses";
             tableName: "investigations";
             dataType: "json";
@@ -157,7 +155,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        evidence: PgColumn<{
+        evidence: import("drizzle-orm/pg-core").PgColumn<{
             name: "evidence";
             tableName: "investigations";
             dataType: "json";
@@ -174,7 +172,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        symptoms: PgColumn<{
+        symptoms: import("drizzle-orm/pg-core").PgColumn<{
             name: "symptoms";
             tableName: "investigations";
             dataType: "json";
@@ -191,7 +189,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "investigations";
             dataType: "date";
@@ -208,7 +206,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        updatedAt: PgColumn<{
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "updated_at";
             tableName: "investigations";
             dataType: "date";
@@ -225,7 +223,7 @@ export declare const investigations: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        archivedAt: PgColumn<{
+        archivedAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "archived_at";
             tableName: "investigations";
             dataType: "date";
@@ -245,12 +243,11 @@ export declare const investigations: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const incidents: PgTableWithColumns<{
+export declare const incidents: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "incidents";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "incidents";
             dataType: "string";
@@ -267,7 +264,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        tenantId: PgColumn<{
+        tenantId: import("drizzle-orm/pg-core").PgColumn<{
             name: "tenant_id";
             tableName: "incidents";
             dataType: "string";
@@ -284,7 +281,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        title: PgColumn<{
+        title: import("drizzle-orm/pg-core").PgColumn<{
             name: "title";
             tableName: "incidents";
             dataType: "string";
@@ -301,7 +298,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        severity: PgColumn<{
+        severity: import("drizzle-orm/pg-core").PgColumn<{
             name: "severity";
             tableName: "incidents";
             dataType: "string";
@@ -318,7 +315,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        status: PgColumn<{
+        status: import("drizzle-orm/pg-core").PgColumn<{
             name: "status";
             tableName: "incidents";
             dataType: "string";
@@ -335,7 +332,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        services: PgColumn<{
+        services: import("drizzle-orm/pg-core").PgColumn<{
             name: "services";
             tableName: "incidents";
             dataType: "json";
@@ -352,7 +349,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        assignee: PgColumn<{
+        assignee: import("drizzle-orm/pg-core").PgColumn<{
             name: "assignee";
             tableName: "incidents";
             dataType: "string";
@@ -369,7 +366,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "incidents";
             dataType: "date";
@@ -386,7 +383,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        updatedAt: PgColumn<{
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "updated_at";
             tableName: "incidents";
             dataType: "date";
@@ -403,7 +400,7 @@ export declare const incidents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        archivedAt: PgColumn<{
+        archivedAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "archived_at";
             tableName: "incidents";
             dataType: "date";
@@ -423,12 +420,11 @@ export declare const incidents: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const incidentTimeline: PgTableWithColumns<{
+export declare const incidentTimeline: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "incident_timeline";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "incident_timeline";
             dataType: "string";
@@ -445,7 +441,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        incidentId: PgColumn<{
+        incidentId: import("drizzle-orm/pg-core").PgColumn<{
             name: "incident_id";
             tableName: "incident_timeline";
             dataType: "string";
@@ -462,7 +458,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        type: PgColumn<{
+        type: import("drizzle-orm/pg-core").PgColumn<{
             name: "type";
             tableName: "incident_timeline";
             dataType: "string";
@@ -479,7 +475,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        description: PgColumn<{
+        description: import("drizzle-orm/pg-core").PgColumn<{
             name: "description";
             tableName: "incident_timeline";
             dataType: "string";
@@ -496,7 +492,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        actorType: PgColumn<{
+        actorType: import("drizzle-orm/pg-core").PgColumn<{
             name: "actor_type";
             tableName: "incident_timeline";
             dataType: "string";
@@ -513,7 +509,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        actorId: PgColumn<{
+        actorId: import("drizzle-orm/pg-core").PgColumn<{
             name: "actor_id";
             tableName: "incident_timeline";
             dataType: "string";
@@ -530,7 +526,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        referenceId: PgColumn<{
+        referenceId: import("drizzle-orm/pg-core").PgColumn<{
             name: "reference_id";
             tableName: "incident_timeline";
             dataType: "string";
@@ -547,7 +543,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        metadata: PgColumn<{
+        metadata: import("drizzle-orm/pg-core").PgColumn<{
             name: "metadata";
             tableName: "incident_timeline";
             dataType: "json";
@@ -564,7 +560,7 @@ export declare const incidentTimeline: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        timestamp: PgColumn<{
+        timestamp: import("drizzle-orm/pg-core").PgColumn<{
             name: "timestamp";
             tableName: "incident_timeline";
             dataType: "date";
@@ -584,12 +580,11 @@ export declare const incidentTimeline: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const feedEvents: PgTableWithColumns<{
+export declare const feedEvents: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "feed_events";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "feed_events";
             dataType: "string";
@@ -606,7 +601,7 @@ export declare const feedEvents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        tenantId: PgColumn<{
+        tenantId: import("drizzle-orm/pg-core").PgColumn<{
             name: "tenant_id";
             tableName: "feed_events";
             dataType: "string";
@@ -623,7 +618,7 @@ export declare const feedEvents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        type: PgColumn<{
+        type: import("drizzle-orm/pg-core").PgColumn<{
             name: "type";
             tableName: "feed_events";
             dataType: "string";
@@ -640,7 +635,7 @@ export declare const feedEvents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        title: PgColumn<{
+        title: import("drizzle-orm/pg-core").PgColumn<{
             name: "title";
             tableName: "feed_events";
             dataType: "string";
@@ -657,7 +652,7 @@ export declare const feedEvents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        summary: PgColumn<{
+        summary: import("drizzle-orm/pg-core").PgColumn<{
             name: "summary";
             tableName: "feed_events";
             dataType: "string";
@@ -674,7 +669,7 @@ export declare const feedEvents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        severity: PgColumn<{
+        severity: import("drizzle-orm/pg-core").PgColumn<{
             name: "severity";
             tableName: "feed_events";
             dataType: "string";
@@ -691,7 +686,7 @@ export declare const feedEvents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        metadata: PgColumn<{
+        metadata: import("drizzle-orm/pg-core").PgColumn<{
             name: "metadata";
             tableName: "feed_events";
             dataType: "json";
@@ -708,7 +703,7 @@ export declare const feedEvents: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "feed_events";
             dataType: "date";
@@ -728,12 +723,11 @@ export declare const feedEvents: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const cases: PgTableWithColumns<{
+export declare const cases: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "cases";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "cases";
             dataType: "string";
@@ -750,7 +744,7 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        tenantId: PgColumn<{
+        tenantId: import("drizzle-orm/pg-core").PgColumn<{
             name: "tenant_id";
             tableName: "cases";
             dataType: "string";
@@ -767,7 +761,7 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        title: PgColumn<{
+        title: import("drizzle-orm/pg-core").PgColumn<{
             name: "title";
             tableName: "cases";
             dataType: "string";
@@ -784,24 +778,24 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        symptom: PgColumn<{
-            name: "symptom";
+        symptoms: import("drizzle-orm/pg-core").PgColumn<{
+            name: "symptoms";
             tableName: "cases";
-            dataType: "string";
-            columnType: "PgText";
-            data: string;
-            driverParam: string;
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
             notNull: true;
             hasDefault: true;
             isPrimaryKey: false;
             isAutoincrement: false;
             hasRuntimeDefault: false;
-            enumValues: [string, ...string[]];
+            enumValues: undefined;
             baseColumn: never;
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        rootCause: PgColumn<{
+        rootCause: import("drizzle-orm/pg-core").PgColumn<{
             name: "root_cause";
             tableName: "cases";
             dataType: "string";
@@ -818,7 +812,7 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        resolution: PgColumn<{
+        resolution: import("drizzle-orm/pg-core").PgColumn<{
             name: "resolution";
             tableName: "cases";
             dataType: "string";
@@ -835,7 +829,7 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        services: PgColumn<{
+        services: import("drizzle-orm/pg-core").PgColumn<{
             name: "services";
             tableName: "cases";
             dataType: "json";
@@ -852,7 +846,7 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        tags: PgColumn<{
+        tags: import("drizzle-orm/pg-core").PgColumn<{
             name: "tags";
             tableName: "cases";
             dataType: "json";
@@ -869,7 +863,7 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        evidenceRefs: PgColumn<{
+        evidenceRefs: import("drizzle-orm/pg-core").PgColumn<{
             name: "evidence_refs";
             tableName: "cases";
             dataType: "json";
@@ -886,7 +880,7 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        actions: PgColumn<{
+        actions: import("drizzle-orm/pg-core").PgColumn<{
             name: "actions";
             tableName: "cases";
             dataType: "json";
@@ -903,24 +897,24 @@ export declare const cases: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        outcomes: PgColumn<{
-            name: "outcomes";
+        outcome: import("drizzle-orm/pg-core").PgColumn<{
+            name: "outcome";
             tableName: "cases";
-            dataType: "json";
-            columnType: "PgJsonb";
-            data: unknown;
-            driverParam: unknown;
-            notNull: true;
-            hasDefault: true;
+            dataType: "string";
+            columnType: "PgText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;
             hasRuntimeDefault: false;
-            enumValues: undefined;
+            enumValues: [string, ...string[]];
             baseColumn: never;
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "cases";
             dataType: "date";
@@ -940,12 +934,11 @@ export declare const cases: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const approvals: PgTableWithColumns<{
+export declare const approvals: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "approvals";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "approvals";
             dataType: "string";
@@ -962,7 +955,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        tenantId: PgColumn<{
+        tenantId: import("drizzle-orm/pg-core").PgColumn<{
             name: "tenant_id";
             tableName: "approvals";
             dataType: "string";
@@ -979,7 +972,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        actionType: PgColumn<{
+        actionType: import("drizzle-orm/pg-core").PgColumn<{
             name: "action_type";
             tableName: "approvals";
             dataType: "string";
@@ -996,7 +989,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        requestedBy: PgColumn<{
+        requestedBy: import("drizzle-orm/pg-core").PgColumn<{
             name: "requested_by";
             tableName: "approvals";
             dataType: "string";
@@ -1013,7 +1006,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        resolvedBy: PgColumn<{
+        resolvedBy: import("drizzle-orm/pg-core").PgColumn<{
             name: "resolved_by";
             tableName: "approvals";
             dataType: "string";
@@ -1030,7 +1023,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        status: PgColumn<{
+        status: import("drizzle-orm/pg-core").PgColumn<{
             name: "status";
             tableName: "approvals";
             dataType: "string";
@@ -1047,7 +1040,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        params: PgColumn<{
+        params: import("drizzle-orm/pg-core").PgColumn<{
             name: "params";
             tableName: "approvals";
             dataType: "json";
@@ -1064,7 +1057,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "approvals";
             dataType: "date";
@@ -1081,7 +1074,7 @@ export declare const approvals: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        resolvedAt: PgColumn<{
+        resolvedAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "resolved_at";
             tableName: "approvals";
             dataType: "date";
@@ -1101,12 +1094,11 @@ export declare const approvals: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const sessions: PgTableWithColumns<{
+export declare const sessions: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "sessions";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "sessions";
             dataType: "string";
@@ -1123,7 +1115,7 @@ export declare const sessions: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        tenantId: PgColumn<{
+        tenantId: import("drizzle-orm/pg-core").PgColumn<{
             name: "tenant_id";
             tableName: "sessions";
             dataType: "string";
@@ -1140,7 +1132,7 @@ export declare const sessions: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        userId: PgColumn<{
+        userId: import("drizzle-orm/pg-core").PgColumn<{
             name: "user_id";
             tableName: "sessions";
             dataType: "string";
@@ -1157,7 +1149,7 @@ export declare const sessions: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        messages: PgColumn<{
+        messages: import("drizzle-orm/pg-core").PgColumn<{
             name: "messages";
             tableName: "sessions";
             dataType: "json";
@@ -1174,7 +1166,7 @@ export declare const sessions: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "sessions";
             dataType: "date";
@@ -1191,7 +1183,7 @@ export declare const sessions: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        updatedAt: PgColumn<{
+        updatedAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "updated_at";
             tableName: "sessions";
             dataType: "date";
@@ -1211,12 +1203,11 @@ export declare const sessions: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const shareLinks: PgTableWithColumns<{
+export declare const shareLinks: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "share_links";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "share_links";
             dataType: "string";
@@ -1233,7 +1224,7 @@ export declare const shareLinks: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        investigationId: PgColumn<{
+        investigationId: import("drizzle-orm/pg-core").PgColumn<{
             name: "investigation_id";
             tableName: "share_links";
             dataType: "string";
@@ -1250,7 +1241,7 @@ export declare const shareLinks: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        token: PgColumn<{
+        token: import("drizzle-orm/pg-core").PgColumn<{
             name: "token";
             tableName: "share_links";
             dataType: "string";
@@ -1267,7 +1258,7 @@ export declare const shareLinks: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        permission: PgColumn<{
+        permission: import("drizzle-orm/pg-core").PgColumn<{
             name: "permission";
             tableName: "share_links";
             dataType: "string";
@@ -1284,7 +1275,7 @@ export declare const shareLinks: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdBy: PgColumn<{
+        createdBy: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_by";
             tableName: "share_links";
             dataType: "string";
@@ -1301,7 +1292,7 @@ export declare const shareLinks: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        expiresAt: PgColumn<{
+        expiresAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "expires_at";
             tableName: "share_links";
             dataType: "date";
@@ -1318,7 +1309,7 @@ export declare const shareLinks: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "share_links";
             dataType: "date";
@@ -1338,12 +1329,11 @@ export declare const shareLinks: PgTableWithColumns<{
     };
     dialect: "pg";
 }>;
-
-export declare const postMortems: PgTableWithColumns<{
+export declare const postMortems: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "post_mortems";
     schema: undefined;
     columns: {
-        id: PgColumn<{
+        id: import("drizzle-orm/pg-core").PgColumn<{
             name: "id";
             tableName: "post_mortems";
             dataType: "string";
@@ -1360,7 +1350,7 @@ export declare const postMortems: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        incidentId: PgColumn<{
+        incidentId: import("drizzle-orm/pg-core").PgColumn<{
             name: "incident_id";
             tableName: "post_mortems";
             dataType: "string";
@@ -1377,7 +1367,7 @@ export declare const postMortems: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        report: PgColumn<{
+        report: import("drizzle-orm/pg-core").PgColumn<{
             name: "report";
             tableName: "post_mortems";
             dataType: "json";
@@ -1394,7 +1384,7 @@ export declare const postMortems: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        generatedBy: PgColumn<{
+        generatedBy: import("drizzle-orm/pg-core").PgColumn<{
             name: "generated_by";
             tableName: "post_mortems";
             dataType: "string";
@@ -1411,7 +1401,7 @@ export declare const postMortems: PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
-        createdAt: PgColumn<{
+        createdAt: import("drizzle-orm/pg-core").PgColumn<{
             name: "created_at";
             tableName: "post_mortems";
             dataType: "date";

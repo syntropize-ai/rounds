@@ -1,8 +1,8 @@
-import type { Redis } from 'ioredis';
+import { Redis } from 'ioredis';
 import type { IEventBus, EventHandler } from './interface.js';
 import type { EventEnvelope } from './types.js';
 export interface RedisEventBusOptions {
-    /** ioredis connection URL; e.g. redis://localhost:6379 */
+    /** ioredis connection URL, e.g. redis://localhost:6379 */
     url?: string;
     /** Pre-created ioredis client (takes precedence over url) */
     client?: Redis;

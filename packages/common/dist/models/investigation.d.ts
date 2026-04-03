@@ -30,9 +30,9 @@ export interface InvestigationPlan {
 export interface Investigation {
     id: string;
     sessionId: string;
-    userId?: string;
+    userId: string;
     intent: string;
-    structuredIntent?: StructuredIntent;
+    structuredIntent: StructuredIntent;
     plan: InvestigationPlan;
     status: InvestigationStatus;
     hypotheses: Hypothesis[];

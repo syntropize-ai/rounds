@@ -3,21 +3,21 @@ export declare const AppConfigSchema: z.ZodObject<{
     server: z.ZodObject<{
         port: z.ZodDefault<z.ZodNumber>;
         host: z.ZodDefault<z.ZodString>;
-        corsOrigins: z.ZodDefault<z.ZodEffects<z.ZodUnion<[z.ZodArray<z.ZodString>, z.ZodString]>, string[], string[] | string>>;
-    }, "strict", z.ZodTypeAny, {
-        port: number;
+        corsOrigins: z.ZodDefault<z.ZodEffects<z.ZodUnion<[z.ZodArray<z.ZodString, "many">, z.ZodString]>, string[], string | string[]>>;
+    }, "strip", z.ZodTypeAny, {
         host: string;
+        port: number;
         corsOrigins: string[];
     }, {
-        port?: number | undefined;
         host?: string | undefined;
-        corsOrigins?: string[] | string | undefined;
+        port?: number | undefined;
+        corsOrigins?: string | string[] | undefined;
     }>;
     database: z.ZodObject<{
         url: z.ZodString;
         poolSize: z.ZodDefault<z.ZodNumber>;
         ssl: z.ZodDefault<z.ZodEffects<z.ZodUnion<[z.ZodBoolean, z.ZodString]>, boolean, string | boolean>>;
-    }, "strict", z.ZodTypeAny, {
+    }, "strip", z.ZodTypeAny, {
         url: string;
         poolSize: number;
         ssl: boolean;
@@ -29,7 +29,7 @@ export declare const AppConfigSchema: z.ZodObject<{
     redis: z.ZodObject<{
         url: z.ZodDefault<z.ZodString>;
         prefix: z.ZodDefault<z.ZodString>;
-    }, "strict", z.ZodTypeAny, {
+    }, "strip", z.ZodTypeAny, {
         url: string;
         prefix: string;
     }, {
@@ -37,25 +37,25 @@ export declare const AppConfigSchema: z.ZodObject<{
         prefix?: string | undefined;
     }>;
     llm: z.ZodObject<{
-        provider: z.ZodDefault<z.ZodEnum<["anthropic", "openai", "azure"]>>;
+        provider: z.ZodDefault<z.ZodEnum<["anthropic", "openai", "azure", "gemini", "ollama"]>>;
         apiKey: z.ZodString;
         model: z.ZodDefault<z.ZodString>;
-        fallbackProvider: z.ZodOptional<z.ZodEnum<["anthropic", "openai", "azure"]>>;
-    }, "strict", z.ZodTypeAny, {
+        fallbackProvider: z.ZodOptional<z.ZodEnum<["anthropic", "openai", "azure", "gemini", "ollama"]>>;
+    }, "strip", z.ZodTypeAny, {
+        provider: "anthropic" | "openai" | "azure" | "gemini" | "ollama";
         apiKey: string;
-        provider: "anthropic" | "openai" | "azure";
         model: string;
-        fallbackProvider?: "anthropic" | "openai" | "azure" | undefined;
+        fallbackProvider?: "anthropic" | "openai" | "azure" | "gemini" | "ollama" | undefined;
     }, {
         apiKey: string;
-        provider?: "anthropic" | "openai" | "azure" | undefined;
+        provider?: "anthropic" | "openai" | "azure" | "gemini" | "ollama" | undefined;
         model?: string | undefined;
-        fallbackProvider?: "anthropic" | "openai" | "azure" | undefined;
+        fallbackProvider?: "anthropic" | "openai" | "azure" | "gemini" | "ollama" | undefined;
     }>;
     proactive: z.ZodObject<{
         checkIntervalMs: z.ZodDefault<z.ZodNumber>;
         historySize: z.ZodDefault<z.ZodNumber>;
-    }, "strict", z.ZodTypeAny, {
+    }, "strip", z.ZodTypeAny, {
         checkIntervalMs: number;
         historySize: number;
     }, {
@@ -66,7 +66,7 @@ export declare const AppConfigSchema: z.ZodObject<{
         jwtSecret: z.ZodString;
         apiKeyHeader: z.ZodDefault<z.ZodString>;
         sessionTtl: z.ZodDefault<z.ZodNumber>;
-    }, "strict", z.ZodTypeAny, {
+    }, "strip", z.ZodTypeAny, {
         jwtSecret: string;
         apiKeyHeader: string;
         sessionTtl: number;
@@ -78,17 +78,17 @@ export declare const AppConfigSchema: z.ZodObject<{
     logging: z.ZodObject<{
         level: z.ZodDefault<z.ZodEnum<["debug", "info", "warn", "error"]>>;
         format: z.ZodDefault<z.ZodEnum<["json", "text"]>>;
-    }, "strict", z.ZodTypeAny, {
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "text";
+    }, "strip", z.ZodTypeAny, {
+        level: "error" | "debug" | "info" | "warn";
+        format: "text" | "json";
     }, {
-        level?: "debug" | "info" | "warn" | "error" | undefined;
-        format?: "json" | "text" | undefined;
+        level?: "error" | "debug" | "info" | "warn" | undefined;
+        format?: "text" | "json" | undefined;
     }>;
-}, "strict", z.ZodTypeAny, {
+}, "strip", z.ZodTypeAny, {
     server: {
-        port: number;
         host: string;
+        port: number;
         corsOrigins: string[];
     };
     database: {
@@ -101,10 +101,10 @@ export declare const AppConfigSchema: z.ZodObject<{
         prefix: string;
     };
     llm: {
+        provider: "anthropic" | "openai" | "azure" | "gemini" | "ollama";
         apiKey: string;
-        provider: "anthropic" | "openai" | "azure";
         model: string;
-        fallbackProvider?: "anthropic" | "openai" | "azure" | undefined;
+        fallbackProvider?: "anthropic" | "openai" | "azure" | "gemini" | "ollama" | undefined;
     };
     proactive: {
         checkIntervalMs: number;
@@ -116,14 +116,14 @@ export declare const AppConfigSchema: z.ZodObject<{
         sessionTtl: number;
     };
     logging: {
-        level: "debug" | "info" | "warn" | "error";
-        format: "json" | "text";
+        level: "error" | "debug" | "info" | "warn";
+        format: "text" | "json";
     };
 }, {
     server: {
-        port?: number | undefined;
         host?: string | undefined;
-        corsOrigins?: string[] | string | undefined;
+        port?: number | undefined;
+        corsOrigins?: string | string[] | undefined;
     };
     database: {
         url: string;
@@ -136,9 +136,9 @@ export declare const AppConfigSchema: z.ZodObject<{
     };
     llm: {
         apiKey: string;
-        provider?: "anthropic" | "openai" | "azure" | undefined;
+        provider?: "anthropic" | "openai" | "azure" | "gemini" | "ollama" | undefined;
         model?: string | undefined;
-        fallbackProvider?: "anthropic" | "openai" | "azure" | undefined;
+        fallbackProvider?: "anthropic" | "openai" | "azure" | "gemini" | "ollama" | undefined;
     };
     proactive: {
         checkIntervalMs?: number | undefined;
@@ -150,8 +150,8 @@ export declare const AppConfigSchema: z.ZodObject<{
         sessionTtl?: number | undefined;
     };
     logging: {
-        level?: "debug" | "info" | "warn" | "error" | undefined;
-        format?: "json" | "text" | undefined;
+        level?: "error" | "debug" | "info" | "warn" | undefined;
+        format?: "text" | "json" | undefined;
     };
 }>;
 export type AppConfig = z.infer<typeof AppConfigSchema>;

@@ -1,5 +1,4 @@
 import type { Evidence } from '@agentic-obs/common';
-
 export declare class EvidenceStore {
     private readonly items;
     add(evidence: Evidence): void;

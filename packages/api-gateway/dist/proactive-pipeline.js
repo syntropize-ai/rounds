@@ -2,9 +2,9 @@
  * Proactive Pipeline Bootstrap
  *
  * Wires together the four proactive monitoring components:
- *   AnomalyDetector  -> CorrelationEngine -> IncidentStore -> FeedStore
- *   SloBurnMonitor   -> CorrelationEngine -> IncidentStore -> FeedStore
- *   ChangeWatcher    -> CorrelationEngine -> IncidentStore -> FeedStore
+ * AnomalyDetector -> CorrelationEngine -> IncidentStore -> FeedStore
+ * SloBurnMonitor -> CorrelationEngine -> IncidentStore -> FeedStore
+ * ChangeWatcher -> CorrelationEngine -> IncidentStore -> FeedStore
  *
  * Also provides a TopologyStoreAdapter that bridges the data-layer
  * TopologyStore to the CorrelationEngine's TopologyProvider interface.
@@ -15,30 +15,43 @@
  */
 import { createLogger } from '@agentic-obs/common';
 const log = createLogger('proactive-pipeline');
-// -- TopologyStoreAdapter --
+// -- TopologyStoreAdapter
+/**
+ * Bridges the data-layer TopologyStore to the CorrelationEngine's
+ * TopologyProvider interface, returning all direct upstream and downstream
+ * neighbour IDs for a given serviceId.
+ */
 export class TopologyStoreAdapter {
     store;
     constructor(store) {
         this.store = store;
     }
     getRelatedServices(serviceId) {
-        const downstream = this.store.getDownstream(serviceId).map(u => u.node.id);
-        const upstream = this.store.getUpstream(serviceId).map(u => u.node.id);
+        const downstream = this.store.getDownstream(serviceId).map((d) => d.node.id);
+        const upstream = this.store.getUpstream(serviceId).map((u) => u.node.id);
         return [...new Set([...downstream, ...upstream])];
     }
 }
-function severityToFeed(sev) {
-    switch (sev) {
-        case 'P1': return 'critical';
-        case 'P2': return 'high';
-        case 'P3': return 'medium';
-        default: return 'low';
+// -- Severity mapping helpers
+function draftSeverityToFeed(severity) {
+    switch (severity) {
+        case 'P1':
+            return 'critical';
+        case 'P2':
+            return 'high';
+        case 'P3':
+            return 'medium';
+        default:
+            return 'low';
     }
 }
-// -- Factory --
-// Wire the proactive components together and return a handle to start/stop
-// the whole pipeline.
-// All wiring is set up synchronously; call `start()` to begin polling.
+// -- Factory
+/**
+ * Wire the proactive components together and return a handle to start/stop
+ * the whole pipeline.
+ *
+ * All wiring is set up synchronously; call `start()` to begin polling.
+ */
 export function createProactivePipeline(components, deps) {
     const { feed, incidents } = deps;
     const { anomalyDetector, sloBurnMonitor, changeWatcher, correlationEngine, alertRuleEvaluator } = components;
@@ -50,7 +63,7 @@ export function createProactivePipeline(components, deps) {
                 feed.add('anomaly_detected', `Anomaly: ${finding.metricName} on ${finding.serviceId}`, finding.message, finding.severity);
             }
             catch (err) {
-                log.error(err, 'anomaly callback error');
+                log.error({ err }, 'anomaly callback error');
             }
         });
     }
@@ -59,10 +72,10 @@ export function createProactivePipeline(components, deps) {
         sloBurnMonitor.onFinding((finding) => {
             try {
                 correlationEngine.ingestBurnRateFinding(finding);
-                feed.add('anomaly_detected', `SLO burn: ${finding.metricName} on ${finding.serviceId}`, finding.message, finding.severity);
+                feed.add('anomaly_detected', `SLO burn: ${finding.metricName} on ${finding.serviceId} (${finding.burnRate.toFixed(1)}x)`, finding.message, finding.severity);
             }
             catch (err) {
-                log.error(err, 'slo-burn callback error');
+                log.error({ err }, 'slo-burn callback error');
             }
         });
     }
@@ -70,16 +83,16 @@ export function createProactivePipeline(components, deps) {
     if (changeWatcher) {
         changeWatcher.onFinding((watcherFinding) => {
             try {
-                const change = watcherFinding.change;
+                const { change } = watcherFinding;
                 correlationEngine.ingestChange(change);
-                feed.add('change_impact', `${change.type} on ${change.serviceId}`, change.description, 'medium');
+                feed.add('change_impact', `Change: ${change.type} on ${change.serviceId}`, change.description, 'medium');
             }
             catch (err) {
-                log.error(err, 'change-watcher callback error');
+                log.error({ err }, 'change-watcher callback error');
             }
         });
     }
-    // -- CorrelationEngine -> IncidentStore, Feed
+    // -- CorrelationEngine -> IncidentStore + Feed
     correlationEngine.onIncident((draft) => {
         try {
             const incident = incidents.create({
@@ -88,37 +101,39 @@ export function createProactivePipeline(components, deps) {
                 services: draft.affectedServices,
             });
             // Add timeline entry describing why these signals were correlated
-            incidents.addTimelineEntry(incident.id, 'investigation_created', `Proactive correlation: ${draft.title}`, 'system', 'proactive-pipeline', undefined, {
-                correlationVersion: draft.correlationReasons,
+            incidents.addTimelineEntry(incident.id, 'investigation_created', `Proactive correlation: ${draft.correlationReasons.join(', ')}`, 'system', 'proactive-pipeline', undefined, {
+                correlationReasons: draft.correlationReasons,
                 symptomCount: draft.symptoms.length,
                 changeCount: draft.changes.length,
             });
-            feed.add('incident_created', draft.title, `Severity: ${draft.severity}. Services: ${draft.affectedServices.join(', ')}. ${draft.correlationReasons[0] ?? ''}`, severityToFeed(draft.severity));
+            feed.add('incident_created', draft.title, `Severity: ${draft.severity}. Services: ${draft.affectedServices.join(', ')}. ${draft.correlationReasons[0] ?? ''}`, draftSeverityToFeed(draft.severity), incident.id);
         }
         catch (err) {
-            log.error(err, 'incident callback error');
+            log.error({ err }, 'incident callback error');
         }
     });
-    // -- AlertRuleEvaluator -> Feed -> CorrelationEngine
+    // -- AlertRuleEvaluator -> Feed + CorrelationEngine
     if (alertRuleEvaluator) {
         alertRuleEvaluator.onAlert((event) => {
             try {
                 feed.add('anomaly_detected', `Alert: ${event.ruleName}`, event.message, event.severity);
+                log.info({ ruleId: event.ruleId, severity: event.severity }, `Alert firing: ${event.ruleName}`);
             }
             catch (err) {
-                log.error(err, 'alert callback error');
+                log.error({ err }, 'alert callback error');
             }
         });
         alertRuleEvaluator.onResolve((event) => {
             try {
                 feed.add('anomaly_detected', `Resolved: ${event.ruleName}`, event.message, 'low');
+                log.info({ ruleId: event.ruleId }, `Alert resolved: ${event.ruleName}`);
             }
             catch (err) {
-                log.error(err, 'alert resolve callback error');
+                log.error({ err }, 'alert resolve callback error');
             }
         });
     }
-    // -- Lifecycle --
+    // -- Lifecycle
     return {
         start() {
             anomalyDetector?.start();

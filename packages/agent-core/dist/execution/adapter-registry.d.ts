@@ -1,5 +1,4 @@
 import type { ExecutionAdapter, AdapterCapability } from './types.js';
-
 export declare class AdapterRegistry {
     private readonly adapters;
     register(adapter: ExecutionAdapter): void;

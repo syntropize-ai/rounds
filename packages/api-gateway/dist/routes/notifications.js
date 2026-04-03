@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { defaultNotificationStore } from './notification-store.js';
 import { defaultAlertRuleStore } from './alert-rule-store.js';
 const router = Router();
-// -- Contact Points --
+// -- Contact Points
 // GET /api/notifications/contact-points
 router.get('/contact-points', (_req, res) => {
     res.json(defaultNotificationStore.findAllContactPoints());
@@ -19,7 +19,7 @@ router.get('/contact-points/:id', (req, res) => {
 // POST /api/notifications/contact-points
 router.post('/contact-points', (req, res) => {
     const body = req.body;
-    if (!body.name) {
+    if (!body?.name) {
         res.status(400).json({ code: 'INVALID_INPUT', message: 'name is required' });
         return;
     }
@@ -57,51 +57,52 @@ router.post('/contact-points/:id/test', async (req, res, next) => {
         }
         const results = [];
         for (const integration of cp.integrations) {
-            if (integration.type === 'slack' || integration.type === 'webhook' || integration.type === 'discord' || integration.type === 'teams') {
+            if (integration.type === 'slack'
+                || integration.type === 'webhook'
+                || integration.type === 'discord'
+                || integration.type === 'teams') {
                 const url = integration.settings?.url ?? integration.settings?.webhookUrl ?? '';
-                if (url) {
-                    try {
-                        const payload = {
-                            text: '[Test] Notification from Agentic Observability Platform - contact point "Sre-pmae" is working correctly.',
-                            username: 'Agentic Obs',
-                        };
-                        const resp = await fetch(url, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload),
-                        });
-                        results.push({
-                            integrationId: integration.uuid,
-                            type: integration.type,
-                            success: resp.ok,
-                            message: resp.ok ? 'Test notification sent successfully' : `HTTP ${resp.status}`,
-                        });
-                    }
-                    catch (err) {
-                        results.push({
-                            integrationId: integration.uuid,
-                            type: integration.type,
-                            success: false,
-                            message: err instanceof Error ? err.message : 'Unknown error',
-                        });
-                    }
-                }
-                else {
+                try {
+                    const payload = {
+                        text: `Test notification from Agentic Observability Platform - contact point "${cp.name}" is working correctly.`,
+                        username: 'Agentic Obs',
+                    };
+                    const resp = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
                     results.push({
-                        integrationId: integration.uuid,
+                        integrationUid: integration.id,
+                        type: integration.type,
+                        success: resp.ok,
+                        message: resp.ok ? 'Test notification sent successfully' : `HTTP ${resp.status}`,
+                    });
+                }
+                catch (err) {
+                    results.push({
+                        integrationUid: integration.id,
                         type: integration.type,
                         success: false,
-                        message: 'No webhook URL configured',
+                        message: err instanceof Error ? err.message : 'Unknown error',
                     });
                 }
             }
-            else {
+            else if (integration.type === 'email' || integration.type === 'pagerduty' || integration.type === 'opsgenie' || integration.type === 'telegram') {
                 // For email, pagerduty, opsgenie, telegram - mock success (requires external credentials)
                 results.push({
-                    integrationId: integration.uuid,
+                    integrationUid: integration.id,
                     type: integration.type,
                     success: true,
                     message: `Mock test for ${integration.type} - configure credentials for live testing`,
+                });
+            }
+            else {
+                results.push({
+                    integrationUid: integration.id,
+                    type: integration.type,
+                    success: false,
+                    message: 'No webhook URL configured',
                 });
             }
         }
@@ -111,7 +112,7 @@ router.post('/contact-points/:id/test', async (req, res, next) => {
         next(err);
     }
 });
-// -- Policy Tree --
+// -- Policy Tree
 // GET /api/notifications/policies
 router.get('/policies', (_req, res) => {
     res.json(defaultNotificationStore.getPolicyTree());
@@ -119,8 +120,8 @@ router.get('/policies', (_req, res) => {
 // PUT /api/notifications/policies - replace entire tree
 router.put('/policies', (req, res) => {
     const body = req.body;
-    if (!body || body.id !== 'root') {
-        res.status(400).json({ code: 'INVALID_INPUT', message: 'Valid policy tree with id=root is required' });
+    if (!body || !body.id) {
+        res.status(400).json({ code: 'INVALID_INPUT', message: 'Valid policy tree with id is required' });
         return;
     }
     defaultNotificationStore.updatePolicyTree(body);
@@ -129,7 +130,7 @@ router.put('/policies', (req, res) => {
 // POST /api/notifications/policies/:parentId/children
 router.post('/policies/:parentId/children', (req, res) => {
     const body = req.body;
-    if (!body.contactPointId) {
+    if (!body?.contactPointId) {
         res.status(400).json({ code: 'INVALID_INPUT', message: 'contactPointId is required' });
         return;
     }
@@ -152,8 +153,7 @@ router.post('/policies/:parentId/children', (req, res) => {
 });
 // PUT /api/notifications/policies/:id
 router.put('/policies/:id', (req, res) => {
-    const id = req.params['id'] ?? '';
-    const updated = defaultNotificationStore.updatePolicy(id, req.body);
+    const updated = defaultNotificationStore.updatePolicy(req.params['id'] ?? '', req.body);
     if (!updated) {
         res.status(404).json({ code: 'NOT_FOUND', message: 'Policy node not found' });
         return;
@@ -174,13 +174,15 @@ router.delete('/policies/:id', (req, res) => {
     }
     res.status(204).end();
 });
-// -- Mute Timings --
+// -- Mute Timings
+// GET /api/notifications/mute-timings
 router.get('/mute-timings', (_req, res) => {
     res.json(defaultNotificationStore.findAllMuteTimings());
 });
+// POST /api/notifications/mute-timings
 router.post('/mute-timings', (req, res) => {
     const body = req.body;
-    if (!body.name) {
+    if (!body?.name) {
         res.status(400).json({ code: 'INVALID_INPUT', message: 'name is required' });
         return;
     }
@@ -208,21 +210,22 @@ router.delete('/mute-timings/:id', (req, res) => {
     }
     res.status(204).end();
 });
-// -- Alert Groups --
+// -- Alert Groups
 // GET /api/notifications/alert-groups
 router.get('/alert-groups', (_req, res) => {
     const rules = defaultAlertRuleStore.findAll({ state: undefined });
-    const activeRules = rules.rules.filter(r => r.state === 'firing' || r.state === 'pending');
+    const activeRules = rules.list.filter((r) => r.state === 'firing' || r.state === 'pending');
     const policyTree = defaultNotificationStore.getPolicyTree();
-    const groupBy = policyTree.groupBy.length > 0 ? policyTree.groupBy : ['alertname'];
+    const groupBy = (policyTree.groupBy?.length ?? 0) > 0 ? policyTree.groupBy : ['alertname'];
+    // Group alerts by the root group's label values
     const groupMap = new Map();
     for (const rule of activeRules) {
-        // Build the group key from the groupBy labels
+        // Build the group key from the groupby labels
         const groupLabels = {};
         for (const label of groupBy) {
-            groupLabels[label] = rule.labels[label] ?? (label === 'alertname' ? rule.name : '');
+            groupLabels[label] = rule.labels?.[label] ?? (label === 'alertname' ? rule.name : '');
         }
-        const key = groupBy.map(k => `${k}=${groupLabels[k]}`).join(',');
+        const key = groupBy.map((l) => `${l}=${groupLabels[l]}`).join(',');
         if (!groupMap.has(key)) {
             groupMap.set(key, { labels: groupLabels, alerts: [] });
         }
@@ -231,7 +234,7 @@ router.get('/alert-groups', (_req, res) => {
             ruleName: rule.name,
             state: rule.state,
             severity: rule.severity,
-            labels: rule.labels,
+            labels: rule.labels ?? {},
             startsAt: rule.lastFiredAt ?? rule.stateChangedAt,
         });
     }

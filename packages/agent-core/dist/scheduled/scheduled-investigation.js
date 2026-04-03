@@ -14,7 +14,7 @@ export class NoopMetricsCollector {
         return `Service ${serviceId}: no metrics available (noop collector)`;
     }
 }
-// Queue name constant
+// - Queue name constant ----------------------------------------------------
 export const SCHEDULED_INVESTIGATION_QUEUE = 'scheduled-investigation';
 export class ScheduledInvestigation {
     schedules = new Map();
@@ -34,9 +34,8 @@ export class ScheduledInvestigation {
     }
     /** Register a schedule and start its cron timer. */
     schedule(config) {
-        const id = config.id ?? randomUUID();
         const record = {
-            id,
+            id: config.id ?? randomUUID(),
             serviceId: config.serviceId,
             cron: config.cron,
             depth: config.depth,
@@ -47,7 +46,7 @@ export class ScheduledInvestigation {
             lastRunAt: null,
             nextRunAt: this.nextRunTime(config.cron),
         };
-        this.schedules.set(id, record);
+        this.schedules.set(record.id, record);
         if (record.enabled) {
             this.startTimer(record);
         }
@@ -76,9 +75,10 @@ export class ScheduledInvestigation {
      * Call once at application startup.
      */
     startWorker() {
-        this.unregisterWorker = this.queue.process(SCHEDULED_INVESTIGATION_QUEUE, async (job) => {
+        const unregister = this.queue.process(SCHEDULED_INVESTIGATION_QUEUE, async (job) => {
             await this.runJob(job.data);
         });
+        this.unregisterWorker = unregister;
     }
     /** Stop the worker and all timers. */
     async stop() {
@@ -90,7 +90,7 @@ export class ScheduledInvestigation {
             await this.unregisterWorker();
         }
     }
-    // Internal: job execution
+    // - Internal: job execution ----------------------------------------------
     /** Called by the worker for each scheduled-investigation job. */
     async runJob(data) {
         const metrics = await this.metricsCollector.snapshot(data.serviceId);
@@ -102,8 +102,16 @@ export class ScheduledInvestigation {
             decision = this.parseDecision(raw);
         }
         catch (err) {
-            const reason = err instanceof LLMUnavailableError ? err.message : 'LLM unavailable - will retry on next cron trigger';
-            return { scheduleId: data.scheduleId, serviceId: data.serviceId, ranAt, decision: 'skipped_llm_unavailable', reason };
+            const reason = err instanceof LLMUnavailableError
+                ? err.message
+                : 'LLM unavailable - will retry on next cron trigger';
+            return {
+                scheduleId: data.scheduleId,
+                serviceId: data.serviceId,
+                ranAt,
+                decision: 'skipped_llm_unavailable',
+                reason,
+            };
         }
         // Update schedule record
         const record = this.schedules.get(data.scheduleId);
@@ -120,15 +128,28 @@ export class ScheduledInvestigation {
                 tenantId: data.tenantId,
                 entity: data.serviceId,
             });
-            this.feed.add('anomaly_detected', `Scheduled rule triggered investigation for ${data.serviceId}`, decision.reason, data.depth === 'thorough' ? 'high' : 'medium', investigationId, data.tenantId);
-            return { scheduleId: data.scheduleId, serviceId: data.serviceId, ranAt, decision: 'investigate', investigationId, reason: decision.reason };
+            this.feed.add('anomaly_detected', `Scheduled check triggered investigation for ${data.serviceId}`, decision.reason, data.depth === 'thorough' ? 'high' : 'medium', investigationId, data.tenantId);
+            return {
+                scheduleId: data.scheduleId,
+                serviceId: data.serviceId,
+                ranAt,
+                decision: 'investigate',
+                investigationId,
+                reason: decision.reason,
+            };
         }
         else {
-            this.feed.add('change_impact', `Scheduled check: all clear for ${data.serviceId}`, decision.reason, 'low', undefined, data.tenantId);
-            return { scheduleId: data.scheduleId, serviceId: data.serviceId, ranAt, decision: 'all_clear', reason: decision.reason };
+            this.feed.add('change_impact', `Scheduled check: all clear - ${data.serviceId}`, decision.reason, 'low', undefined, data.tenantId);
+            return {
+                scheduleId: data.scheduleId,
+                serviceId: data.serviceId,
+                ranAt,
+                decision: 'all_clear',
+                reason: decision.reason,
+            };
         }
     }
-    // Internal: cron timer
+    // - Internal: cron timer -------------------------------------------------
     startTimer(record) {
         const intervalMs = this.msUntilNext(record.cron);
         const fire = () => {
@@ -143,16 +164,16 @@ export class ScheduledInvestigation {
                 attempts: 2,
                 backoff: { type: 'exponential', delay: 5000 },
             });
-            if (record.enabled) {
+            // Reschedule
+            if (this.schedules.has(record.id)) {
                 this.timers.set(record.id, setTimeout(fire, intervalMs));
             }
         };
         this.timers.set(record.id, setTimeout(fire, intervalMs));
     }
-    // Internal: LLM prompt
+    // - Internal: LLM prompt -------------------------------------------------
     buildPrompt(data, metrics) {
-        return `
-You are an SRE assistant performing a scheduled health check.
+        return `You are an SRE assistant performing a scheduled health check.
 
 Service: ${data.serviceId}
 Description: ${data.description}
@@ -174,7 +195,8 @@ Respond ONLY with a JSON object in this exact format:
         const clean = raw.replace(/^```(?:json)?/gi, '').trim();
         try {
             const parsed = JSON.parse(clean);
-            if (typeof parsed.shouldInvestigate === 'boolean' && typeof parsed.reason === 'string') {
+            if (typeof parsed.shouldInvestigate === 'boolean' &&
+                typeof parsed.reason === 'string') {
                 return parsed;
             }
         }
@@ -183,6 +205,7 @@ Respond ONLY with a JSON object in this exact format:
         }
         throw new LLMUnavailableError('LLM response could not be parsed - worker queue will retry');
     }
+    // - Internal: cron helpers -----------------------------------------------
     msUntilNext(cron) {
         try {
             const interval = cronParser.parseExpression(cron, { currentDate: new Date() });

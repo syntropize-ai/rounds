@@ -16,24 +16,19 @@ export class PrometheusPromQlEvaluator {
                 headers: this.headers,
                 signal: AbortSignal.timeout(10_000),
             });
-            if (!resp.ok) {
+            if (!resp.ok)
                 return undefined;
-            }
             const data = await resp.json();
-            if (data.status !== 'success' || !data.data?.result?.length) {
+            if (data.status !== 'success' || !data.data?.result?.length)
                 return undefined;
-            }
             const first = data.data.result[0];
-            if (!first) {
+            if (!first)
                 return undefined;
-            }
-            // Instant query returns [timestamp, value] tuple
             const val = first.value?.[1];
-            if (!val) {
+            if (val === undefined)
                 return undefined;
-            }
             const num = parseFloat(val);
-            return isNaN(num) ? undefined : num;
+            return Number.isNaN(num) ? undefined : num;
         }
         catch {
             return undefined;

@@ -89,8 +89,8 @@ export function createApprovalRouter(repo = defaultRepo) {
             next(err);
         }
     });
-    // POST /api/approvals/:id/override - admin override: force-approve regardless of status
-    // Requires execution:override (admin only via ui)
+    // POST /api/approvals/:id/override - admin override; force-approve regardless of status
+    // Requires execution:override (admin only via auth)
     router.post('/:id/override', authMiddleware, requirePermission('execution:override'), async (req, res, next) => {
         try {
             const authReq = req;

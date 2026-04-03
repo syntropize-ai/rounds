@@ -16,13 +16,7 @@ export declare class VerificationLoop {
         llm: LLMGateway;
         observationWindowMs?: number;
     });
-    /**
-     * LLM compares pre/post execution metrics to determine if the action was effective.
-     * Throws LLMUnavailableError if the LLM call fails or returns unparseable output.
-     * Callers should surface "AI unavailable - please verify manually" to the user.
-     */
-    verify(executionResult: ExecutionResult, preExecutionMetrics: MetricSnapshot,
-        postExecutionMetrics: MetricSnapshot): Promise<VerificationOutcome>;
+    verify(executionResult: ExecutionResult, preExecutionMetrics: MetricSnapshot, postExecutionMetrics: MetricSnapshot): Promise<VerificationOutcome>;
     private buildVerificationPrompt;
     private parseVerificationResponse;
 }

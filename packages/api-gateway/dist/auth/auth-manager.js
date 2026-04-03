@@ -1,170 +1,154 @@
-import jwt from 'jsonwebtoken'
-import crypto from 'crypto'
-import { OidcProvider } from './oidc-provider.js'
-import { OAuthProvider } from './oauth-provider.js'
-import { SamlProvider } from './saml-provider.js'
-import { localLogin, createLocalUser } from './local-provider.js'
-import { sessionStore } from './session-store.js'
-import { userStore } from './user-store.js'
-
-const JWT_SECRET = process.env['JWT_SECRET'] ?? 'dev-secret-change-in-prod'
-const ACCESS_TOKEN_TTL_SEC = 15 * 60 // 15 minutes
-const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
-
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { OidcProvider } from './oidc-provider.js';
+import { OAuthProvider } from './oauth-provider.js';
+import { SamlProvider } from './saml-provider.js';
+import { localLogin, createLocalUser } from './local-provider.js';
+import { sessionStore } from './session-store.js';
+import { userStore } from './user-store.js';
+const JWT_SECRET = process.env['JWT_SECRET'] ?? 'dev-secret-change-in-prod';
+const ACCESS_TOKEN_TTL_SEC = 15 * 60; // 15 minutes
+const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export class AuthManager {
-  oidcProvider
-  githubProvider
-  googleProvider
-  samlProvider
-
-  configure(config) {
-    if (config.oidc)
-      this.oidcProvider = new OidcProvider(config.oidc)
-    if (config.github)
-      this.githubProvider = new OAuthProvider(config.github)
-    if (config.google)
-      this.googleProvider = new OAuthProvider(config.google)
-    if (config.saml)
-      this.samlProvider = new SamlProvider(config.saml)
-  }
-
-  getEnabledProviders() {
-    const providers = [
-      { id: 'local', name: 'Email & Password', type: 'local' },
-    ]
-    if (this.oidcProvider)
-      providers.push({ id: 'oidc', name: 'SSO (OIDC)', type: 'oidc' })
-    if (this.samlProvider)
-      providers.push({ id: 'saml', name: 'SSO (SAML)', type: 'saml' })
-    if (this.githubProvider)
-      providers.push({ id: 'github', name: 'GitHub', type: 'oauth' })
-    if (this.googleProvider)
-      providers.push({ id: 'google', name: 'Google', type: 'oauth' })
-    return providers
-  }
-
-  // OIDC
-  async getOidcAuthUrl() {
-    if (!this.oidcProvider)
-      throw new Error('OIDC provider is not configured')
-    return this.oidcProvider.getAuthorizationUrl()
-  }
-
-  async handleOidcCallback(code, state, meta) {
-    if (!this.oidcProvider)
-      throw new Error('OIDC provider is not configured')
-    const { claims, role } = await this.oidcProvider.handleCallback(code, state)
-    const user = await this.upsertUser(claims, 'oidc', role)
-    const tokens = this.issueTokens(user, meta)
-    userStore.addAuditEntry({ action: 'login', actorId: user.id, actorEmail: user.email, provider: 'oidc', ...meta })
-    return { user, tokens }
-  }
-
-  // OAuth (GitHub / Google)
-  getOAuthAuthUrl(provider) {
-    const p = provider === 'github' ? this.githubProvider : this.googleProvider
-    if (!p)
-      throw new Error(`${provider} OAuth provider is not configured`)
-    return p.getAuthorizationUrl()
-  }
-
-  async handleOAuthCallback(provider, code, state, meta) {
-    const p = provider === 'github' ? this.githubProvider : this.googleProvider
-    if (!p)
-      throw new Error(`${provider} OAuth provider is not configured`)
-    const claims = await p.handleCallback(code, state)
-    const user = await this.upsertUser(claims, provider, 'viewer')
-    const tokens = this.issueTokens(user, meta)
-    userStore.addAuditEntry({ action: 'login', actorId: user.id, actorEmail: user.email, provider, ...meta })
-    return { user, tokens }
-  }
-
-  // Local auth
-  async localLogin(email, password, meta) {
-    const user = await localLogin(email, password)
-    if (!user) {
-      userStore.addAuditEntry({ action: 'login_failed', actorEmail: email, provider: 'local', ...meta })
-      return null
+    oidcProvider;
+    githubProvider;
+    googleProvider;
+    samlProvider;
+    configure(config) {
+        if (config.oidc)
+            this.oidcProvider = new OidcProvider(config.oidc);
+        if (config.github)
+            this.githubProvider = new OAuthProvider(config.github);
+        if (config.google)
+            this.googleProvider = new OAuthProvider(config.google);
+        if (config.saml)
+            this.samlProvider = new SamlProvider(config.saml);
     }
-    const tokens = this.issueTokens(user, meta)
-    userStore.addAuditEntry({ action: 'login', actorId: user.id, actorEmail: user.email, provider: 'local', ...meta })
-    return { user, tokens }
-  }
-
-  // Session management
-  refresh(refreshToken) {
-    const session = sessionStore.getByRefreshToken(refreshToken)
-    if (!session)
-      return null
-    const user = userStore.findById(session.userId)
-    if (!user || user.disabled) {
-      sessionStore.revoke(session.id)
-      return null
+    getEnabledProviders() {
+        const providers = [
+            { id: 'local', name: 'Email & Password', type: 'local' },
+        ];
+        if (this.oidcProvider)
+            providers.push({ id: 'oidc', name: 'SSO (OIDC)', type: 'oidc' });
+        if (this.samlProvider)
+            providers.push({ id: 'saml', name: 'SSO (SAML)', type: 'saml' });
+        if (this.githubProvider)
+            providers.push({ id: 'github', name: 'GitHub', type: 'oauth' });
+        if (this.googleProvider)
+            providers.push({ id: 'google', name: 'Google', type: 'oauth' });
+        return providers;
     }
-    sessionStore.revoke(session.id)
-    return this.issueTokens(user)
-  }
-
-  logout(userId) {
-    sessionStore.revokeAllForUser(userId)
-    userStore.addAuditEntry({ action: 'logout', actorId: userId })
-  }
-
-  verifyAccessToken(token) {
-    try {
-      const payload = jwt.verify(token, JWT_SECRET)
-      return {
-        sub: payload['sub'] ?? '',
-        userId: payload['userId'] ?? '',
-        role: payload['role'] ?? 'viewer',
-        roles: payload['roles'] ?? [payload['role'] ?? 'viewer'],
-      }
+    // OIDC
+    async getOidcAuthUrl() {
+        if (!this.oidcProvider)
+            throw new Error('OIDC provider is not configured');
+        return this.oidcProvider.getAuthorizationUrl();
     }
-    catch {
-      return null
+    async handleOidcCallback(code, state, meta) {
+        if (!this.oidcProvider)
+            throw new Error('OIDC provider is not configured');
+        const { claims, role } = await this.oidcProvider.handleCallback(code, state);
+        const user = await this.upsertUser(claims, 'oidc', role);
+        const tokens = this.issueTokens(user, meta);
+        userStore.addAuditEntry({ action: 'login', actorId: user.id, actorEmail: user.email, provider: 'oidc', ...meta });
+        return { user, tokens };
     }
-  }
-
-  // Helpers
-  async upsertUser(claims, provider, defaultRole) {
-    let user = userStore.findByExternalId(provider, claims.sub)
-    if (!user && claims.email)
-      user = userStore.findByEmail(claims.email)
-    if (user) {
-      return userStore.update(user.id, {
-        name: claims.name ?? user.name,
-        avatarUrl: claims.picture ?? user.avatarUrl,
-        externalId: claims.sub,
-        lastLoginAt: new Date().toISOString(),
-      }) ?? user
+    // OAuth (GitHub / Google)
+    getOAuthAuthUrl(provider) {
+        const p = provider === 'github' ? this.githubProvider : this.googleProvider;
+        if (!p)
+            throw new Error(`${provider} OAuth provider is not configured`);
+        return p.getAuthorizationUrl();
     }
-    const newUser = userStore.create({
-      email: claims.email ?? '',
-      name: claims.name ?? claims.email ?? 'Unknown',
-      avatarUrl: claims.picture,
-      authProvider: provider,
-      externalId: claims.sub,
-      role: defaultRole,
-      teams: [],
-    })
-    userStore.addAuditEntry({ action: 'user_created', actorId: newUser.id, actorEmail: newUser.email, provider })
-    return newUser
-  }
-
-  issueTokens(user, meta) {
-    const accessToken = jwt.sign({ sub: user.id, userId: user.id, email: user.email, role: user.role, roles: [user.role], jti: crypto.randomBytes(8).toString('hex') }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_TTL_SEC })
-    const refreshToken = crypto.randomBytes(48).toString('hex')
-    sessionStore.create(user.id, accessToken, refreshToken, REFRESH_TOKEN_TTL_MS, meta)
-    return { accessToken, refreshToken, expiresIn: ACCESS_TOKEN_TTL_SEC }
-  }
+    async handleOAuthCallback(provider, code, state, meta) {
+        const p = provider === 'github' ? this.githubProvider : this.googleProvider;
+        if (!p)
+            throw new Error(`${provider} OAuth provider is not configured`);
+        const claims = await p.handleCallback(code, state);
+        const user = await this.upsertUser(claims, provider, 'viewer');
+        const tokens = this.issueTokens(user, meta);
+        userStore.addAuditEntry({ action: 'login', actorId: user.id, actorEmail: user.email, provider, ...meta });
+        return { user, tokens };
+    }
+    // Local auth
+    async localLogin(email, password, meta) {
+        const user = await localLogin(email, password);
+        if (!user) {
+            userStore.addAuditEntry({ action: 'login_failed', actorEmail: email, provider: 'local', ...meta });
+            return null;
+        }
+        const tokens = this.issueTokens(user, meta);
+        userStore.addAuditEntry({ action: 'login', actorId: user.id, actorEmail: user.email, provider: 'local', ...meta });
+        return { user, tokens };
+    }
+    // Session management
+    refresh(refreshToken) {
+        const session = sessionStore.getByRefreshToken(refreshToken);
+        if (!session)
+            return null;
+        const user = userStore.findById(session.userId);
+        if (!user || user.disabled) {
+            sessionStore.revoke(session.id);
+            return null;
+        }
+        sessionStore.revoke(session.id);
+        return this.issueTokens(user);
+    }
+    logout(userId) {
+        sessionStore.revokeAllForUser(userId);
+        userStore.addAuditEntry({ action: 'logout', actorId: userId });
+    }
+    verifyAccessToken(token) {
+        try {
+            const payload = jwt.verify(token, JWT_SECRET);
+            return {
+                sub: String(payload['sub'] ?? ''),
+                userId: String(payload['userId'] ?? ''),
+                role: payload['role'] ?? 'viewer',
+                roles: payload['roles'] ?? [String(payload['role'] ?? 'viewer')],
+            };
+        }
+        catch {
+            return null;
+        }
+    }
+    // Helpers
+    async upsertUser(claims, provider, defaultRole) {
+        let user = userStore.findByExternalId(provider, claims.sub);
+        if (!user && claims.email)
+            user = userStore.findByEmail(claims.email);
+        if (user) {
+            return userStore.update(user.id, {
+                name: claims.name ?? user.name,
+                avatarUrl: claims.picture ?? user.avatarUrl,
+                externalId: claims.sub,
+                lastLoginAt: new Date().toISOString(),
+            }) ?? user;
+        }
+        const newUser = userStore.create({
+            email: claims.email ?? '',
+            name: claims.name ?? claims.email ?? 'Unknown',
+            avatarUrl: claims.picture,
+            authProvider: provider,
+            externalId: claims.sub,
+            role: defaultRole,
+            teams: [],
+        });
+        userStore.addAuditEntry({ action: 'user_created', actorId: newUser.id, actorEmail: newUser.email, provider });
+        return newUser;
+    }
+    issueTokens(user, meta) {
+        const accessToken = jwt.sign({ sub: user.id, userId: user.id, email: user.email, role: user.role, roles: [user.role], jti: crypto.randomBytes(8).toString('hex') }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_TTL_SEC });
+        const refreshToken = crypto.randomBytes(48).toString('hex');
+        sessionStore.create(user.id, accessToken, refreshToken, REFRESH_TOKEN_TTL_MS, meta);
+        return { accessToken, refreshToken, expiresIn: ACCESS_TOKEN_TTL_SEC };
+    }
 }
-
-export const authManager = new AuthManager()
+export const authManager = new AuthManager();
 // Dev seed: create a default admin account if no users exist
 if (process.env['NODE_ENV'] !== 'production' && userStore.count() === 0) {
-  createLocalUser('admin@example.com', 'admin123', 'Admin User', 'admin').catch(() => {
-    // Silently ignore if it already exists from a previous import
-  })
+    createLocalUser('admin@example.com', 'admin123', 'Admin User', 'admin').catch(() => {
+        // Silently ignore if it already exists from a previous import
+    });
 }
-
 //# sourceMappingURL=auth-manager.js.map

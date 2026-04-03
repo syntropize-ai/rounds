@@ -4,7 +4,7 @@
  *
  * When REDIS_URL is set, proactive findings are enqueued via BullMQ so that
  * a separate worker process can process them independently. When REDIS_URL is
- * absent the InMemoryWorkerQueue is used, dispatching jobs in-process.
+ * absent the in-memory/workerQueue is used, dispatching jobs in-process.
  *
  * This module is imported lazily by startServer() so it does not run during
  * tests (which only call createApp()).

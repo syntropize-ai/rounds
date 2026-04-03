@@ -26,11 +26,9 @@ export class ChangeWatcher {
             userId: config.userId,
         };
     }
-    /** Register a listener that receives a finding for each auto-investigated change. */
     onFinding(listener) {
         this.listeners.push(listener);
     }
-    /** Start periodic polling. Runs an initial check immediately. */
     start() {
         if (this.timer) {
             return;
@@ -38,18 +36,12 @@ export class ChangeWatcher {
         void this.check();
         this.timer = setInterval(() => void this.check(), this.config.pollIntervalMs);
     }
-    /** Stop periodic polling. */
     stop() {
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
         }
     }
-    /**
-     * Run a single poll cycle: query recent changes, filter, deduplicate,
-     * and trigger an investigation for each new matching change.
-     * Returns the findings produced in this cycle.
-     */
     async check() {
         const now = Date.now();
         const endTime = new Date(now);
@@ -76,7 +68,6 @@ export class ChangeWatcher {
         }
         return findings;
     }
-    // Helpers
     matchesFilter(change) {
         const { services, changeTypes } = this.config.filter;
         if (services && services.length > 0 && !services.includes(change.serviceId)) {
@@ -94,10 +85,6 @@ export class ChangeWatcher {
             userId: this.config.userId,
         };
     }
-    /**
-     * Add a change ID to the dedup set, evicting the oldest entry (FIFO) when
-     * the set would exceed maxSeenIds. O(1) amortised.
-     */
     addSeenId(id) {
         if (this.seenIds.has(id)) {
             return;

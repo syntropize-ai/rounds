@@ -1,9 +1,9 @@
 import { createHmac, timingSafeEqual, randomUUID } from 'crypto';
 import { Router, raw as expressRaw } from 'express';
-import { createEventBusFromEnv, createEvent } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common';
 import { authMiddleware } from '../middleware/auth.js';
 const log = createLogger('webhooks');
+// All event type strings as literals (avoids ESM init-time circular deps)
 const ALL_EVENT_TYPES = [
     'investigation.created',
     'investigation.updated',
@@ -17,34 +17,40 @@ const ALL_EVENT_TYPES = [
     'action.rejected',
     'action.executed',
     'action.failed',
-    'finding.created',
+    'admin.created',
     'finding.updated',
-    'feed.item.created',
-    'feed.item.read',
+    'feed_item.created',
+    'feed_item.read',
 ];
+// Webhook source -> eventBus event type mapping (string literals)
 const SOURCE_EVENT_MAP = {
+    // GitHub
     push: 'finding.created',
     pull_request: 'finding.created',
-    incident.trigger: 'incident.created',
-    incident.resolve: 'incident.resolved',
-    incident.acknowledge: 'incident.updated',
+    // PagerDuty
+    'incident.trigger': 'incident.created',
+    'incident.resolve': 'incident.resolved',
+    'incident.acknowledge': 'incident.updated',
+    // GitLab
     Pipeline: 'finding.created',
-    alerts: 'finding.created',
-    incidents: 'incident.created',
+    // Generic
+    alert: 'finding.created',
+    incident: 'incident.created',
 };
+// -- HMAC verification
 export function verifySignature(payload, signature, secret) {
-    if (!signature) {
+    if (!signature)
         return false;
-    }
+    const sigValue = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+    const expected = createHmac('sha256', secret).update(payload).digest('hex');
     try {
-        const sigValue = signature.startsWith('sha256=') ? signature.slice(7) : signature;
-        const expected = createHmac('sha256', secret).update(payload).digest('hex');
         return timingSafeEqual(Buffer.from(sigValue, 'hex'), Buffer.from(expected, 'hex'));
     }
     catch {
         return false;
     }
 }
+// -- Outbound delivery with exponential backoff
 const RETRY_DELAYS_MS = [1_000, 5_000, 30_000];
 const MAX_DELIVERY_LOG = 1000;
 async function deliverWebhook(sub, eventType, payload, deliveryLog) {
@@ -56,9 +62,8 @@ async function deliverWebhook(sub, eventType, payload, deliveryLog) {
         status: 'pending',
         attempts: 0,
     };
-    if (deliveryLog.length >= MAX_DELIVERY_LOG) {
+    if (deliveryLog.length >= MAX_DELIVERY_LOG)
         deliveryLog.shift();
-    }
     deliveryLog.push(delivery);
     const body = JSON.stringify({ event: eventType, payload, deliveryId: delivery.id });
     const sig = createHmac('sha256', sub.secret).update(body).digest('hex');
@@ -70,8 +75,8 @@ async function deliverWebhook(sub, eventType, payload, deliveryLog) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Agent-Signature': `sha256=${sig}`,
-                    'X-Agent-Event': eventType,
+                    'X-Agentic-Signature': `sha256=${sig}`,
+                    'X-Agentic-Event': eventType,
                     'X-Delivery-Id': delivery.id,
                 },
                 body,
@@ -80,7 +85,7 @@ async function deliverWebhook(sub, eventType, payload, deliveryLog) {
             delivery.responseStatus = res.status;
             if (res.ok) {
                 delivery.status = 'success';
-                log.debug({ url: sub.url, event: eventType }, 'webhook delivered');
+                log.debug({ sub: sub.url, event: eventType }, 'webhook delivered');
                 return;
             }
             delivery.error = `HTTP ${res.status}`;
@@ -88,44 +93,48 @@ async function deliverWebhook(sub, eventType, payload, deliveryLog) {
         catch (err) {
             delivery.error = err instanceof Error ? err.message : String(err);
         }
-        if (attempt < RETRY_DELAYS_MS.length - 1) {
-            await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt]));
-        }
+        if (attempt < RETRY_DELAYS_MS.length - 1)
+            await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
     }
     delivery.status = 'failed';
     log.warn({ url: sub.url, event: eventType, error: delivery.error }, 'webhook delivery failed');
 }
 export function createWebhookRouter(bus) {
-    const eventBus = bus ?? createEventBusFromEnv();
+    const eventBus = bus ?? {};
     // Per-instance state
     const subscriptions = new Map();
     const deliveryLog = [];
     const outboundUnsubs = [];
+    // Start outbound webhook fan-out: subscribe to all event types
     for (const eventType of ALL_EVENT_TYPES) {
-        outboundUnsubs.push(eventBus.subscribe(eventType, event => {
+        outboundUnsubs.push(eventBus.subscribe?.(eventType, (event) => {
             for (const sub of subscriptions.values()) {
-                if (!sub.active) {
+                if (!sub.active)
                     continue;
-                }
-                if (!sub.events.includes(eventType) && !sub.events.includes('*')) {
+                if (!sub.events.includes(eventType) && !sub.events.includes('*'))
                     continue;
-                }
                 void deliverWebhook(sub, eventType, event.payload, deliveryLog);
             }
-        }));
+        }) ?? (() => { }));
     }
     const router = Router();
-    router.post('/webhooks/source/:source', expressRaw({ type: () => true }), async (req, res) => {
+    // POST /api/webhooks/:source - inbound webhook receiver
+    // expressRaw() captures raw bytes before any JSON parsing for HMAC verification
+    router.post('/webhooks/:source', expressRaw({ type: () => true }), async (req, res) => {
         const source = req.params['source'];
-        const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {}));
-        const signatureHeader = req.headers['x-hub-signature-256'] ??
-            req.headers['x-gitlab-token'] ??
-            req.headers['authorization'];
-        const sourceSub = [...subscriptions.values()].find(s => s.active && s.description === `inbound:${source}`);
-        if (sourceSub && !verifySignature(rawBody, signatureHeader, sourceSub.secret)) {
-            res.status(401).json({ code: 'INVALID_SIGNATURE', message: 'Signature mismatch' });
-            return;
+        const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? ''));
+        // Signature verification if matching inbound subscription exists
+        const signature = req.headers['x-hub-signature-256']
+            ?? req.headers['x-gitlab-token']
+            ?? req.headers['x-agentic-signature'];
+        const sourceSub = [...subscriptions.values()].find((s) => s.active && s.description === `inbound:${source}`);
+        if (sourceSub && signature) {
+            if (!verifySignature(rawBody, signature, sourceSub.secret)) {
+                res.status(401).json({ code: 'INVALID_SIGNATURE', message: 'Signature mismatch' });
+                return;
+            }
         }
+        // Parse JSON from raw body (expressRaw gives us a buffer)
         let payload;
         try {
             payload = JSON.parse(rawBody.toString());
@@ -133,16 +142,24 @@ export function createWebhookRouter(bus) {
         catch {
             payload = rawBody.toString();
         }
+        // Derive event type from source/header
         const githubEvent = req.headers['x-github-event'];
-        const messages = payload?.['messages'];
-        const pagerdutyEvent = (Array.isArray(messages) ? messages[0]?.['event'] : undefined);
-        const rawEventKey = githubEvent ?? pagerdutyEvent ?? source;
+        const messages = payload;
+        const pagerdutyType = messages?.['event']
+            ?? messages?.['messages']?.['event'];
+        const rawEventKey = githubEvent ?? pagerdutyType ?? source;
         const eventType = SOURCE_EVENT_MAP[rawEventKey] ?? 'finding.created';
-        const event = createEvent(eventType, { source, rawEventKey, payload });
-        await eventBus.publish(eventType, event);
+        const evt = {
+            id: randomUUID(),
+            source,
+            event: rawEventKey,
+            payload,
+        };
+        eventBus.publish?.(eventType, evt);
         log.debug({ source, eventType }, 'inbound webhook received');
-        res.json({ received: true, eventId: event.id, eventType });
+        res.json({ received: true, eventId: evt.id, eventType });
     });
+    // Webhook subscription CRUD (authenticated)
     router.get('/webhook-subscriptions', authMiddleware, (_req, res) => {
         res.json([...subscriptions.values()]);
     });
@@ -198,20 +215,13 @@ export function createWebhookRouter(bus) {
             return;
         }
         subscriptions.delete(id);
-        res.status(204).end();
+        res.status(204).send();
     });
     router.get('/webhook-subscriptions/:id/deliveries', authMiddleware, (req, res) => {
         const id = req.params['id'];
-        const deliveries = deliveryLog.filter(d => d.subscriptionId === id);
+        const deliveries = deliveryLog.filter((d) => d.subscriptionId === id);
         res.json(deliveries);
     });
-    return {
-        router,
-        stop() {
-            for (const unsub of outboundUnsubs) {
-                unsub();
-            }
-        },
-    };
+    return router;
 }
 //# sourceMappingURL=webhooks.js.map

@@ -1,6 +1,6 @@
 function stripCodeFences(raw) {
     const trimmed = raw.trim();
-    const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/i);
+    const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
     return match?.[1]?.trim() ?? trimmed;
 }
 const TASK_TYPES = new Set([
@@ -12,9 +12,8 @@ const TASK_TYPES = new Set([
     'general_query',
 ]);
 function isIsoDate(value) {
-    if (typeof value !== 'string') {
+    if (typeof value !== 'string')
         return false;
-    }
     return !isNaN(Date.parse(value));
 }
 export class IntentValidationError extends Error {
@@ -39,24 +38,35 @@ export function parseAndValidate(raw) {
         throw new IntentValidationError('LLM output must be a JSON object');
     }
     const record = obj;
+    // taskType
     if (!TASK_TYPES.has(record['taskType'])) {
-        throw new IntentValidationError(`Invalid taskType: ${String(record['taskType'])}. Must be one of: ${[...TASK_TYPES].join(', ')}`);
+        throw new IntentValidationError(`Invalid taskType: ${String(record['taskType'])}. Must be one of ${[...TASK_TYPES].join(', ')}`);
     }
+    // entity
     if (typeof record['entity'] !== 'string' || record['entity'].trim() === '') {
         throw new IntentValidationError('entity must be a non-empty string');
     }
+    // signal [optional]
     if (record['signal'] !== null && record['signal'] !== undefined && typeof record['signal'] !== 'string') {
         throw new IntentValidationError('signal must be a string or null');
     }
-    if (typeof record['timeRange'] !== 'object' || record['timeRange'] === null || Array.isArray(record['timeRange'])) {
+    // timeRange
+    const tr = record['timeRange'];
+    if (typeof tr !== 'object' || tr === null || Array.isArray(tr)) {
         throw new IntentValidationError('timeRange must be an object');
     }
-    if (!isIsoDate(record['timeRange']['start']) || !isIsoDate(record['timeRange']['end'])) {
-        throw new IntentValidationError('timeRange.start and timeRange.end must be ISO-8601 strings');
+    const trRecord = tr;
+    if (!isIsoDate(trRecord['start'])) {
+        throw new IntentValidationError(`timeRange.start must be a valid ISO-8601 date, got: ${String(trRecord['start'])}`);
     }
+    if (!isIsoDate(trRecord['end'])) {
+        throw new IntentValidationError(`timeRange.end must be a valid ISO-8601 date, got: ${String(trRecord['end'])}`);
+    }
+    // goal
     if (typeof record['goal'] !== 'string' || record['goal'].trim() === '') {
         throw new IntentValidationError('goal must be a non-empty string');
     }
+    // constraints [optional]
     if (record['constraints'] !== null &&
         record['constraints'] !== undefined &&
         (typeof record['constraints'] !== 'object' || Array.isArray(record['constraints']))) {
@@ -64,14 +74,14 @@ export function parseAndValidate(raw) {
     }
     return {
         taskType: record['taskType'],
-        entity: record['entity'].trim(),
-        signal: record['signal'] ?? null,
+        entity: record['entity'],
+        signal: (record['signal'] ?? undefined),
         timeRange: {
-            start: record['timeRange']['start'],
-            end: record['timeRange']['end'],
+            start: trRecord['start'],
+            end: trRecord['end'],
         },
-        goal: record['goal'].trim(),
-        constraints: record['constraints'] ?? null,
+        goal: record['goal'],
+        constraints: (record['constraints'] ?? undefined),
     };
 }
 //# sourceMappingURL=schema.js.map

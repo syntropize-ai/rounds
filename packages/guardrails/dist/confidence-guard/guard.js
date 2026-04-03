@@ -1,6 +1,6 @@
 import { DEFAULT_CONFIG } from './types.js';
-function clamp(n, min, max) {
-    return Math.max(min, Math.min(max, n));
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
 }
 export class ConfidenceGuard {
     config;
@@ -35,7 +35,7 @@ export class ConfidenceGuard {
                 return hypothesis;
             }
             // Apply the most restrictive adjustment (lowest adjustedConfidence)
-            const minAdjusted = adjustments.reduce((min, a) => a.adjustedConfidence < min ? a.adjustedConfidence : min, hypothesis.confidence);
+            const minAdjusted = adjustments.reduce((min, adj) => (adj.adjustedConfidence < min ? adj.adjustedConfidence : min), hypothesis.confidence);
             const finalConfidence = clamp(minAdjusted, 0, 1);
             const worstAdjustment = adjustments.find(a => a.adjustedConfidence === minAdjusted) ?? adjustments[0];
             return {
@@ -72,7 +72,7 @@ export class ConfidenceGuard {
                         if (adjustedConfidence < hypothesis.confidence) {
                             return {
                                 adjustedConfidence,
-                                reason: `未验证反证，置信度上限 ${maxConfidenceWithoutCounterCheck}`,
+                                reason: `缺少反证校验，置信度上限 ${maxConfidenceWithoutCounterCheck}`,
                                 severity: 'warning',
                             };
                         }
@@ -84,9 +84,8 @@ export class ConfidenceGuard {
             {
                 name: 'single-source-type',
                 check(hypothesis, evidence) {
-                    if (evidence.length === 0) {
+                    if (evidence.length === 0)
                         return null;
-                    }
                     const types = new Set(evidence.map(e => e.type));
                     if (types.size === 1) {
                         const adjustedConfidence = clamp(hypothesis.confidence - singleSourcePenalty, 0, 1);

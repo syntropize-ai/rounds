@@ -2,7 +2,6 @@ export interface PostMortemTimelineEntry {
     timestamp: string;
     description: string;
 }
-
 export interface PostMortemReport {
     id: string;
     incidentId: string;
@@ -21,10 +20,9 @@ export interface PostMortemReport {
     /** Follow-up items to prevent recurrence */
     actionItems: string[];
     generatedAt: string;
-    /** "llm" - full LLM output */
+    /** "llm" = full LLM output */
     generatedBy: 'llm';
 }
-
 export interface PostMortemIncidentInput {
     id: string;
     title: string;
@@ -39,10 +37,9 @@ export interface PostMortemIncidentInput {
         timestamp: string;
     }>;
 }
-
 export interface PostMortemInvestigationInput {
     id: string;
-    intent: string;
+    intents: string;
     status: string;
     conclusionSummary?: string;
     hypotheses?: Array<{
@@ -51,10 +48,9 @@ export interface PostMortemInvestigationInput {
     }>;
     evidence?: Array<{
         type: string;
-        summary: string;
+        summary?: string;
     }>;
 }
-
 export interface PostMortemExecutionResult {
     action: string;
     targetService: string;
@@ -62,13 +58,11 @@ export interface PostMortemExecutionResult {
     output?: unknown;
     error?: string;
 }
-
 export interface PostMortemVerificationOutcome {
     outcome: string;
     reasoning: string;
     nextSteps: string[];
 }
-
 export interface PostMortemInput {
     incident: PostMortemIncidentInput;
     investigations: PostMortemInvestigationInput[];

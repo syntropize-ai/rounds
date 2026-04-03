@@ -1,5 +1,4 @@
 import type { StructuredIntent } from '@agentic-obs/common';
-
 export declare class IntentValidationError extends Error {
     constructor(message: string);
 }

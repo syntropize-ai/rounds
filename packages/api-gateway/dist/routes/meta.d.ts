@@ -1,5 +1,6 @@
 export declare const metaRouter: import("express-serve-static-core").Router;
 export interface DailyTrend {
+    /** YYYY-MM-DD */
     date: string;
     investigations: number;
     avg_duration_ms: number;
@@ -39,7 +40,7 @@ export interface QualityMetrics {
     evidence_completeness: number;
     /**
      * Fraction of proactive feed items (anomaly_detected / change_impact) where
-     * the user followed up by navigating into the investigation.
+     * the user followed up by navigating into investigation.
      * 0 when no proactive items exist.
      */
     proactive_hit_rate: number;

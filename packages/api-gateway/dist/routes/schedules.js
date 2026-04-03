@@ -1,13 +1,15 @@
+// /api/schedules - CRUD endpoints for scheduled investigations
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 export function createScheduleRouter(deps) {
     if (!deps.scheduler) {
-        throw new Error('createScheduleRouter: scheduler is required. Provide a ScheduledInvestigation instance via deps.scheduler.');
+        throw new Error('createScheduleRouter: scheduler is required. Provide a ScheduledInvestigation instance via deps.scheduler');
     }
     const scheduler = deps.scheduler;
     const router = Router();
     router.use(authMiddleware);
+    // POST /api/schedules
     router.post('/', requirePermission('investigation:create'), (req, res, next) => {
         try {
             const body = req.body;
@@ -19,13 +21,14 @@ export function createScheduleRouter(deps) {
                 res.status(400).json({ code: 'INVALID_INPUT', message: 'depth must be "quick" or "thorough"' });
                 return;
             }
-            const record = scheduler.schedule({ ...body });
+            const record = scheduler.schedule(body);
             res.status(201).json(record);
         }
         catch (err) {
             next(err);
         }
     });
+    // GET /api/schedules
     router.get('/', requirePermission('investigation:read'), (req, res, next) => {
         try {
             const tenantId = req.query['tenantId'];
@@ -35,6 +38,7 @@ export function createScheduleRouter(deps) {
             next(err);
         }
     });
+    // GET /api/schedules/:id
     router.get('/:id', requirePermission('investigation:read'), (req, res, next) => {
         try {
             const record = scheduler.get(req.params['id'] ?? '');
@@ -48,6 +52,7 @@ export function createScheduleRouter(deps) {
             next(err);
         }
     });
+    // DELETE /api/schedules/:id
     router.delete('/:id', requirePermission('investigation:write'), (req, res, next) => {
         try {
             const removed = scheduler.unschedule(req.params['id'] ?? '');
@@ -55,7 +60,7 @@ export function createScheduleRouter(deps) {
                 res.status(404).json({ code: 'NOT_FOUND', message: 'Schedule not found' });
                 return;
             }
-            res.status(204).end();
+            res.status(204).send();
         }
         catch (err) {
             next(err);

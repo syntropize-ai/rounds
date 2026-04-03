@@ -38,7 +38,9 @@ export interface IWorkerQueue {
     process<T>(queueName: string, handler: JobHandler<T>): () => Promise<void>;
     /** Get current queue statistics. */
     getStats(queueName: string): Promise<QueueStats>;
-    /** Gracefully shut down - drain active jobs and close connections. */
+    /**
+     * Gracefully shut down - drain active jobs and close connections.
+     */
     close(): Promise<void>;
 }
 //# sourceMappingURL=interface.d.ts.map

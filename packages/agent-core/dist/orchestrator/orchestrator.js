@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { DEFAULT_ORCHESTRATOR_CONFIG } from './types.js';
-// Main orchestrator
+// - Main orchestrator ------------------------------------------------------
 export class AgentOrchestrator extends EventEmitter {
     intentAgent;
     contextAgent;
@@ -16,7 +16,7 @@ export class AgentOrchestrator extends EventEmitter {
         this.evidenceAgent = deps.evidenceAgent;
         this.config = { ...DEFAULT_ORCHESTRATOR_CONFIG, ...(deps.config ?? {}) };
     }
-    // Public API
+    // - Public API -----------------------------------------------------------
     async run(input) {
         const investigationId = randomUUID();
         const startedAt = new Date().toISOString();
@@ -39,12 +39,11 @@ export class AgentOrchestrator extends EventEmitter {
         }
         catch (err) {
             const completedAt = new Date().toISOString();
-            const message = err instanceof Error ? err.message : String(err);
             this.emitEvent({
                 type: 'error',
                 state: 'failed',
                 investigationId,
-                error: message,
+                error: err instanceof Error ? err.message : String(err),
                 fatal: true,
             });
             return {
@@ -70,21 +69,18 @@ export class AgentOrchestrator extends EventEmitter {
             clearTimeout(globalTimer);
         }
     }
-    // Pipeline
+    // - Pipeline -------------------------------------------------------------
     async pipeline(input, investigationId, agentCtx, startedAt, startMs) {
         let state = 'planning';
         const covered = [];
         const uncovered = [];
         const degradedSteps = [];
-        this.transitionTo(investigationId, 'planning', 'planning');
-        // Step 1: planning - parse intent
+        this.transitionTo(investigationId, 'planning', 'planning', state);
+        // - Step 1: planning - parse intent
         let intent = null;
         const intentStart = Date.now();
         try {
-            intent = await this.withTimeout(this.intentAgent.parse({
-                message: input.message,
-                sessionId: input.sessionId,
-            }), this.config.stepTimeoutMs, 'IntentAgent timed out');
+            intent = await this.withTimeout(this.intentAgent.parse({ message: input.message, sessionId: input.sessionId }), this.config.stepTimeoutMs, 'IntentAgent timed out');
             covered.push('intent');
             this.emitStep(state, investigationId, Date.now() - intentStart, false);
         }
@@ -92,14 +88,13 @@ export class AgentOrchestrator extends EventEmitter {
             const msg = err instanceof Error ? err.message : String(err);
             this.emitDegraded(state, investigationId, `Intent parsing failed: ${msg}`, covered, ['intent', 'context', 'investigation', 'evidence', 'explanation']);
             this.emitEvent({ type: 'error', state, investigationId, error: msg, fatal: true });
-            if (!this.config.degradeOnError) {
+            if (!this.config.degradeOnError)
                 throw err;
-            }
             uncovered.push('intent', 'context', 'investigation', 'evidence', 'explanation');
             degradedSteps.push('intent');
-            return this.buildOutput(investigationId, input.sessionId, 'failed', null, null, [], [], null, { covered, uncovered, degradedSteps }, startedAt, startMs);
+            return this.buildOutput(investigationId, input.sessionId, 'failed', intent, null, [], [], null, { covered, uncovered, degradedSteps }, startedAt, startMs);
         }
-        // Step 2: investigating - collect context + run investigation
+        // - Step 2: investigating - collect context + run investigation
         state = this.transitionTo(investigationId, state, 'investigating');
         let context = null;
         const contextStart = Date.now();
@@ -117,12 +112,12 @@ export class AgentOrchestrator extends EventEmitter {
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             this.emitDegraded(state, investigationId, `Context unavailable: ${msg}`, covered, ['context']);
-            if (!this.config.degradeOnError) {
+            if (!this.config.degradeOnError)
                 throw err;
-            }
             uncovered.push('context');
             degradedSteps.push('context');
             this.emitStep(state, investigationId, Date.now() - contextStart, true);
+            // Continue with null context - InvestigationAgent has its own fallback
             context = {
                 entity: intent.entity,
                 topology: { node: null, dependencies: [], dependents: [] },
@@ -133,32 +128,36 @@ export class AgentOrchestrator extends EventEmitter {
             };
         }
         let investigationOutput = null;
-        const invStart = Date.now();
-        try {
-            const invResult = await this.withTimeout(this.investigationAgent.run({ intent, context }, agentCtx), this.config.stepTimeoutMs, 'InvestigationAgent timed out');
-            if (invResult?.success && invResult.data) {
-                investigationOutput = invResult.data;
-                covered.push('investigation');
+        if (context !== null) {
+            const invStart = Date.now();
+            try {
+                const invResult = await this.withTimeout(this.investigationAgent.run({ intent, context }, agentCtx), this.config.stepTimeoutMs, 'InvestigationAgent timed out');
+                if (invResult?.success && invResult.data) {
+                    investigationOutput = invResult.data;
+                    covered.push('investigation');
+                }
+                else {
+                    throw new Error(invResult?.error ?? 'InvestigationAgent returned no data');
+                }
+                this.emitStep(state, investigationId, Date.now() - invStart, false);
             }
-            else {
-                throw new Error(invResult?.error ?? 'InvestigationAgent returned no data');
+            catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.emitDegraded(state, investigationId, `Investigation failed: ${msg}`, covered, ['investigation']);
+                if (!this.config.degradeOnError)
+                    throw err;
+                uncovered.push('investigation');
+                degradedSteps.push('investigation');
+                this.emitStep(state, investigationId, Date.now() - invStart, true);
             }
-            this.emitStep(state, investigationId, Date.now() - invStart, false);
         }
-        catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            this.emitDegraded(state, investigationId, `Investigation failed: ${msg}`, covered, ['investigation']);
-            if (!this.config.degradeOnError) {
-                throw err;
-            }
+        else {
             uncovered.push('investigation');
-            degradedSteps.push('investigation');
-            this.emitStep(state, investigationId, Date.now() - invStart, true);
         }
-        // Step 3: evidencing - bind evidence to hypotheses
+        // - Step 3: evidencing - bind evidence to hypotheses
+        state = this.transitionTo(investigationId, state, 'evidencing');
         let evidenceOutput = null;
         if (investigationOutput !== null) {
-            state = this.transitionTo(investigationId, state, 'evidencing');
             const evStart = Date.now();
             try {
                 const evResult = await this.withTimeout(this.evidenceAgent.run({
@@ -167,21 +166,20 @@ export class AgentOrchestrator extends EventEmitter {
                     entity: intent.entity,
                     timeRange: intent.timeRange,
                 }, agentCtx), this.config.stepTimeoutMs, 'EvidenceAgent timed out');
-                if (evResult?.success && evResult.data) {
+                if (evResult.success && evResult.data) {
                     evidenceOutput = evResult.data;
                     covered.push('evidence');
                 }
                 else {
-                    throw new Error(evResult?.error ?? 'EvidenceAgent returned no data');
+                    throw new Error(evResult.error ?? 'EvidenceAgent returned no data');
                 }
                 this.emitStep(state, investigationId, Date.now() - evStart, false);
             }
             catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
                 this.emitDegraded(state, investigationId, `Evidence binding failed: ${msg}`, covered, ['evidence']);
-                if (!this.config.degradeOnError) {
+                if (!this.config.degradeOnError)
                     throw err;
-                }
                 uncovered.push('evidence');
                 degradedSteps.push('evidence');
                 this.emitStep(state, investigationId, Date.now() - evStart, true);
@@ -190,9 +188,9 @@ export class AgentOrchestrator extends EventEmitter {
         else {
             uncovered.push('evidence');
         }
-        // Step 4: explaining - generate structured conclusion
         const hypotheses = evidenceOutput?.hypotheses ?? investigationOutput?.hypotheses ?? [];
         const evidence = evidenceOutput?.evidence ?? [];
+        // - Step 4: explaining - generate structured conclusion
         state = this.transitionTo(investigationId, state, 'explaining');
         const explanation = this.buildExplanation(hypotheses, uncovered);
         if (uncovered.length === 0 || !uncovered.includes('investigation')) {
@@ -201,12 +199,12 @@ export class AgentOrchestrator extends EventEmitter {
         else {
             uncovered.push('explanation');
         }
-        // Step 5: verifying - completed
+        // - Step 5: verifying - completed
         state = this.transitionTo(investigationId, state, 'verifying');
         state = this.transitionTo(investigationId, state, 'completed');
         return this.buildOutput(investigationId, input.sessionId, state, intent, context, hypotheses, evidence, explanation, { covered, uncovered, degradedSteps }, startedAt, startMs);
     }
-    // Explanation placeholder
+    // - Explanation placeholder ----------------------------------------------
     buildExplanation(hypotheses, uncovered) {
         const best = [...hypotheses].sort((a, b) => b.confidence - a.confidence)[0];
         if (!best) {
@@ -219,7 +217,7 @@ export class AgentOrchestrator extends EventEmitter {
                 recommendedActions: [],
             };
         }
-        const degradedNote = uncovered.length
+        const degradedNote = uncovered.length > 0
             ? ` However, ${uncovered.join(', ')} unavailable - conclusion may be incomplete.`
             : '';
         return {
@@ -231,6 +229,7 @@ export class AgentOrchestrator extends EventEmitter {
                 : ['Gather more evidence', 'Expand investigation scope'],
         };
     }
+    // - Helpers --------------------------------------------------------------
     buildOutput(investigationId, sessionId, state, intent, context, hypotheses, evidence, explanation, coverage, startedAt, startMs) {
         return {
             investigationId,
@@ -247,8 +246,8 @@ export class AgentOrchestrator extends EventEmitter {
             durationMs: Date.now() - startMs,
         };
     }
-    transitionTo(investigationId, from, to) {
-        this.transition(investigationId, from, to);
+    transitionTo(investigationId, from, to, prev) {
+        this.transition(investigationId, from, to, prev);
         return to;
     }
     transition(investigationId, from, to, _prev) {
@@ -264,14 +263,7 @@ export class AgentOrchestrator extends EventEmitter {
         this.emitEvent({ type: 'step_complete', state, investigationId, durationMs, degraded });
     }
     emitDegraded(state, investigationId, reason, coveredBy, uncovered) {
-        this.emitEvent({
-            type: 'degraded',
-            state,
-            investigationId,
-            reason,
-            coveredBy,
-            uncovered,
-        });
+        this.emitEvent({ type: 'degraded', state, investigationId, reason, coveredBy, uncovered });
         this.emitEvent({
             type: 'error',
             state,

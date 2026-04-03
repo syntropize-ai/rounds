@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { hypothesisSchema } from '../investigation/schema.js';
-// — Sub-schemas —
+// -- Sub-schemas ----------------------------------------------------------
 const actionSchema = z.object({
     id: z.string(),
     investigationId: z.string(),
@@ -10,13 +10,11 @@ const actionSchema = z.object({
     status: z.enum(['proposed', 'approved', 'executing', 'completed', 'failed', 'denied']),
     params: z.record(z.unknown()),
     risk: z.enum(['low', 'medium', 'high']),
-    result: z
-        .object({
+    result: z.object({
         success: z.boolean(),
         message: z.string(),
         executedAt: z.string().optional(),
-    })
-        .optional(),
+    }).optional(),
 });
 const rankedHypothesisSchema = z.object({
     hypothesis: hypothesisSchema,
@@ -36,7 +34,7 @@ const recommendedActionSchema = z.object({
     expectedOutcome: z.string(),
     risk: z.string(),
 });
-// — Top-level output schema —
+// -- Top-level output schema ----------------------------------------------
 export const structuredConclusionSchema = z.object({
     summary: z.string(),
     hypotheses: z.array(rankedHypothesisSchema),

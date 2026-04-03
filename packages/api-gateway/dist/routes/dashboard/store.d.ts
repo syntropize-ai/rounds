@@ -14,10 +14,10 @@ export declare class DashboardStore implements IGatewayDashboardStore, Persistab
         useExistingMetrics?: boolean;
         folder?: string;
     }): Dashboard;
-    private _evictIfNeeded;
+    private evictIfNeeded;
     findById(id: string): Dashboard | undefined;
     findAll(userId?: string): Dashboard[];
-    update(id: string, patch: Partial<Pick<Dashboard, 'type' | 'title' | 'description' | 'panels' | 'variables' | 'refreshIntervalSec' | 'folder'>>): Dashboard | undefined;
+    update(id: string, patch: Partial<Pick<Dashboard, 'type' | 'title' | 'description' | 'panels' | 'variables' | 'refreshIntervalSec' | 'updatedAt' | 'folder'>>): Dashboard | undefined;
     updateStatus(id: string, status: DashboardStatus, error?: string): Dashboard | undefined;
     updatePanels(id: string, panels: PanelConfig[]): Dashboard | undefined;
     updateVariables(id: string, variables: DashboardVariable[]): Dashboard | undefined;
@@ -27,6 +27,6 @@ export declare class DashboardStore implements IGatewayDashboardStore, Persistab
     toJSON(): unknown;
     loadJSON(data: unknown): void;
 }
-/** Module-level singleton */
+/** Module-level singleton - replace with DI in production */
 export declare const defaultDashboardStore: DashboardStore;
 //# sourceMappingURL=store.d.ts.map

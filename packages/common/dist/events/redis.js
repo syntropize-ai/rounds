@@ -5,7 +5,7 @@
 //
 // Each topic maps to one Redis stream.
 // All subscribers within the same process share a single consumer group per topic.
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import { randomUUID } from 'crypto';
 export class RedisEventBus {
     pub;
@@ -36,15 +36,17 @@ export class RedisEventBus {
             this.handlers.set(topic, new Set());
             this.startReading(topic);
         }
-        const s = this.handlers.get(topic);
-        s?.add(handler);
+        const set = this.handlers.get(topic);
+        set.add(handler);
         return () => {
-            s?.delete(handler);
-            if (s?.size === 0) {
+            set.delete(handler);
+            if (set.size === 0) {
                 this.handlers.delete(topic);
                 const task = this.streamTasks.get(topic);
-                task?.stop();
-                this.streamTasks.delete(topic);
+                if (task) {
+                    task.stop();
+                    this.streamTasks.delete(topic);
+                }
             }
         };
     }
@@ -57,7 +59,7 @@ export class RedisEventBus {
         this.handlers.clear();
         await Promise.allSettled([this.pub.quit(), this.sub.quit()]);
     }
-    // Private helper
+    // Private helpers
     startReading(topic) {
         let active = true;
         const task = { stop: () => { active = false; } };
@@ -72,7 +74,7 @@ export class RedisEventBus {
             }
             while (active && !this.closed) {
                 try {
-                    const results = await this.sub.xreadgroup('GROUP', this.group, this.consumer, 'COUNT', 10, 'BLOCK', 1000, 'STREAMS', topic, '>');
+                    const results = await this.sub.xreadgroup('GROUP', this.group, this.consumer, 'COUNT', 100, 'BLOCK', 1000, 'STREAMS', topic, '>');
                     if (!results || !active)
                         continue;
                     for (const [, messages] of results) {

@@ -15,15 +15,15 @@ import { DashboardStore, defaultDashboardStore } from '../routes/dashboard/store
 import { ConversationStore, defaultConversationStore } from '../routes/dashboard/conversation-store.js';
 /** Create a set of in-memory stores (default mode, no external dependencies). */
 export function createInMemoryStores() {
-  return {
-    investigations: new InvestigationStore(),
-    incidents: new IncidentStore(),
-    feed: new FeedStore(),
-    approvals: new ApprovalStore(),
-    shares: new ShareStore(),
-    dashboards: new DashboardStore(),
-    conversations: new ConversationStore(),
-  };
+    return {
+        investigations: new InvestigationStore(),
+        incidents: new IncidentStore(),
+        feed: new FeedStore(),
+        approvals: new ApprovalStore(),
+        shares: new ShareStore(),
+        dashboards: new DashboardStore(),
+        conversations: new ConversationStore(),
+    };
 }
 /**
  * Return the module-level singleton stores.
@@ -31,14 +31,14 @@ export function createInMemoryStores() {
  * the same store instances (same as before this migration).
  */
 export function createDefaultStores() {
-  return {
-    investigations: defaultInvestigationStore,
-    incidents: incidentStore,
-    feed: feedStore,
-    approvals: approvalStore,
-    shares: defaultShareStore,
-    dashboards: defaultDashboardStore,
-    conversations: defaultConversationStore,
-  };
+    return {
+        investigations: defaultInvestigationStore,
+        incidents: incidentStore,
+        feed: feedStore,
+        approvals: approvalStore,
+        shares: defaultShareStore,
+        dashboards: defaultDashboardStore,
+        conversations: defaultConversationStore,
+    };
 }
 //# sourceMappingURL=factory.js.map

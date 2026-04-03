@@ -1,4 +1,4 @@
-import type { DashboardSSEEvent } from '@agentic-obs/common';
+import type { DashboardSseEvent } from '@agentic-obs/common';
 export interface DiscoveryResult {
     metrics: string[];
     labelsByMetric: Record<string, string[]>;
@@ -12,7 +12,7 @@ export declare class DiscoveryAgent {
     private prometheusUrl;
     private headers;
     private sendEvent;
-    constructor(prometheusUrl: string, headers: Record<string, string>, sendEvent: (event: DashboardSSEEvent) => void);
+    constructor(prometheusUrl: string, headers: Record<string, string>, sendEvent: (event: DashboardSseEvent) => void);
     /** Fetch all metric names from Prometheus (no filtering). */
     fetchAllMetricNames(): Promise<string[]>;
     discover(patterns: string[]): Promise<DiscoveryResult>;

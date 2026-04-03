@@ -21,7 +21,7 @@ import { getRequestId } from './correlation.js';
  * call, so correlation IDs flow through the call chain automatically.
  */
 export function createLogger(name, options) {
-    const level = options?.level ?? process.env['LOG_LEVEL'] ?? 'info';
+    const level = (options?.level ?? process.env['LOG_LEVEL'] ?? 'info');
     const logger = pino({
         name,
         level,

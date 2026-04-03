@@ -50,9 +50,8 @@ export class BullMQWorkerQueue {
         managed.workers.push(worker);
         return async () => {
             const idx = managed.workers.indexOf(worker);
-            if (idx !== -1) {
+            if (idx !== -1)
                 managed.workers.splice(idx, 1);
-            }
             await worker.close();
         };
     }

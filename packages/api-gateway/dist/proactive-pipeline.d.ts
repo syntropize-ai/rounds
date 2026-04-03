@@ -2,9 +2,9 @@
  * Proactive Pipeline Bootstrap
  *
  * Wires together the four proactive monitoring components:
- *   AnomalyDetector  -> CorrelationEngine -> IncidentStore -> FeedStore
- *   SloBurnMonitor   -> CorrelationEngine -> IncidentStore -> FeedStore
- *   ChangeWatcher    -> CorrelationEngine -> IncidentStore -> FeedStore
+ * AnomalyDetector -> CorrelationEngine -> IncidentStore -> FeedStore
+ * SloBurnMonitor -> CorrelationEngine -> IncidentStore -> FeedStore
+ * ChangeWatcher -> CorrelationEngine -> IncidentStore -> FeedStore
  *
  * Also provides a TopologyStoreAdapter that bridges the data-layer
  * TopologyStore to the CorrelationEngine's TopologyProvider interface.
@@ -20,7 +20,7 @@ import type { IncidentStore } from './routes/incident-store.js';
 /**
  * Bridges the data-layer TopologyStore to the CorrelationEngine's
  * TopologyProvider interface, returning all direct upstream and downstream
- * neighbors for a given serviceId.
+ * neighbour IDs for a given serviceId.
  */
 export declare class TopologyStoreAdapter implements TopologyProvider {
     private readonly store;

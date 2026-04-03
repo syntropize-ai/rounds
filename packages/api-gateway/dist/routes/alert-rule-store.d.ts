@@ -15,7 +15,7 @@ export declare class AlertRuleStore implements Persistable {
         limit?: number;
         offset?: number;
     }): {
-        rules: AlertRule[];
+        list: AlertRule[];
         total: number;
     };
     update(id: string, patch: Partial<Omit<AlertRule, 'id' | 'createdAt'>>): AlertRule | undefined;
@@ -24,9 +24,8 @@ export declare class AlertRuleStore implements Persistable {
     getHistory(ruleId: string, limit?: number): AlertHistoryEntry[];
     getAllHistory(limit?: number): AlertHistoryEntry[];
     createSilence(data: Omit<AlertSilence, 'id' | 'createdAt'>): AlertSilence;
-    findAllSilences(): AlertSilence[];
+    findSilences(): AlertSilence[];
     findAllSilencesIncludingExpired(): AlertSilence[];
-    findSilenceById(id: string): AlertSilence | undefined;
     updateSilence(id: string, patch: Partial<Omit<AlertSilence, 'id' | 'createdAt'>>): AlertSilence | undefined;
     deleteSilence(id: string): boolean;
     private computeSilenceStatus;
@@ -35,7 +34,7 @@ export declare class AlertRuleStore implements Persistable {
     findPolicyById(id: string): NotificationPolicy | undefined;
     updatePolicy(id: string, patch: Partial<Omit<NotificationPolicy, 'id' | 'createdAt'>>): NotificationPolicy | undefined;
     deletePolicy(id: string): boolean;
-    onChange(cb: (event: 'created' | 'updated' | 'deleted' | 'fireCount' | 'state' | 'stateChangedAt', rule: AlertRule) => void): void;
+    onChange(cb: (event: 'created' | 'updated' | 'deleted', rule: AlertRule) => void): void;
     private notify;
     toJSON(): unknown;
     loadJSON(data: unknown): void;

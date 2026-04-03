@@ -18,7 +18,8 @@ export class QueryValidator {
     maxCardinalityEstimate;
     constructor(config = {}) {
         this.maxTimeWindowMs = config.maxTimeWindowMs ?? QUERY_GUARD_DEFAULTS.maxTimeWindowMs;
-        this.maxCardinalityEstimate = config.maxCardinalityEstimate ?? QUERY_GUARD_DEFAULTS.maxCardinalityEstimate;
+        this.maxCardinalityEstimate =
+            config.maxCardinalityEstimate ?? QUERY_GUARD_DEFAULTS.maxCardinalityEstimate;
     }
     validate(query) {
         const warnings = [];

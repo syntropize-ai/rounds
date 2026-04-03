@@ -1,5 +1,5 @@
-import type { LLMGateway } from '@agentic-obs/llm-gateways';
-import type { DashboardSSEEvent } from '@agentic-obs/common';
+import type { LLMGateway } from '@agentic-obs/llm-gateway';
+import type { DashboardSseEvent } from '@agentic-obs/common';
 export interface ResearchResult {
     topic: string;
     keyMetrics: string[];
@@ -7,12 +7,13 @@ export interface ResearchResult {
     monitoringApproach: string;
     bestPractices: string[];
     panelSuggestions: string[];
+    rawContext: string;
 }
 export declare class ResearchAgent {
     private gateway;
     private model;
-    private sendEvent?;
-    constructor(gateway: LLMGateway, model: string, sendEvent?: (event: DashboardSSEEvent) => void);
+    private sendEvent;
+    constructor(gateway: LLMGateway, model: string, sendEvent: (event: DashboardSseEvent) => void);
     research(topic: string): Promise<ResearchResult>;
     private buildSearchQuery;
     private webSearch;

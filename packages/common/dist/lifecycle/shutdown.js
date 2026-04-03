@@ -1,12 +1,12 @@
 // GracefulShutdown - ordered shutdown hook registry
 //
-// Shutdown order (lower priority numbers run first):
-// 10 - stop accepting new requests (HTTP server.close)
-// 20 - drain in-flight HTTP requests (with timeout)
-// 30 - stop proactive workers / pipeline
-// 40 - drain worker queues (BullMQ/InMemory)
-// 50 - close DB connection pools
-// 60 - close Redis connections / Event Bus
+// Shutdown order (lower priority number = runs first):
+//   10 - stop accepting new requests (HTTP server.close)
+//   20 - drain in-flight HTTP requests (with timeout)
+//   30 - stop proactive workers / pipeline
+//   40 - drain worker queues (BullMQ/InMemory)
+//   50 - close DB connection pools
+//   60 - close Redis connections / Event Bus
 import { createLogger } from '../logging/index.js';
 const log = createLogger('graceful-shutdown');
 export class GracefulShutdown {

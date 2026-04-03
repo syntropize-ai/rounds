@@ -27,7 +27,7 @@ export declare const roleStore: RoleStore;
  * Returns true if `required` is covered by at least one entry in `userPermissions`.
  *
  * Wildcard rules (both parts may independently be "*"):
- * - "*" matches everything
+ * - "*:*" matches everything
  * - "res:*" matches any action on resource "res"
  * - "*:act" matches action "act" on any resource
  * - "res:act" exact match only

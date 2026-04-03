@@ -7,7 +7,6 @@ export * from './orchestrator/index.js';
 export * from './explanation/index.js';
 export * from './execution/index.js';
 export * from './proactive/index.js';
-export * from './quality/index.js';
 export * from './case-library/index.js';
 export * from './postmortem/index.js';
 export * from './scheduled/index.js';

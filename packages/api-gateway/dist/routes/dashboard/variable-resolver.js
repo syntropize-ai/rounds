@@ -1,86 +1,73 @@
 // Resolves DashboardVariable options from Prometheus or setup config
-import { getSetupConfig } from './setup.js';
-
+import { getSetupConfig } from '../setup.js';
 export class VariableResolver {
-  prometheusUrl;
-  headers;
-
-  constructor(prometheusUrl, headers = {}) {
-    this.prometheusUrl = prometheusUrl;
-    this.headers = headers;
-  }
-
-  async resolve(variable) {
-    if (variable.type === 'custom') {
-      return variable.options ?? [];
+    prometheusUrl;
+    headers;
+    constructor(prometheusUrl, headers = {}) {
+        this.prometheusUrl = prometheusUrl;
+        this.headers = headers;
     }
-    if (variable.type === 'query' && variable.query) {
-      return this.resolveQuery(variable.query);
-    }
-    if (variable.type === 'datasource') {
-      return this.resolveDatasources();
-    }
-    return [];
-  }
-
-  async resolveQuery(query) {
-    const baseUrl = this.prometheusUrl.replace(/\/$/, '');
-    // Two-arg form: label_values(metric, label)
-    const twoArgMatch = query.match(/label_values\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/);
-    if (twoArgMatch) {
-      const [, metric, labelName] = twoArgMatch;
-      const params = new URLSearchParams();
-      params.set('match[]', metric);
-      const url = `${baseUrl}/api/v1/label/${encodeURIComponent(labelName)}/values?${params}`;
-      try {
-        const res = await fetch(url, {
-          headers: this.headers,
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!res.ok) {
-          return [];
+    async resolve(variable) {
+        if (variable.type === 'custom') {
+            return variable.options ?? [];
         }
-        const body = await res.json();
-        if (body.status !== 'success' || !Array.isArray(body.data)) {
-          return [];
+        if (variable.type === 'query' && variable.query) {
+            return this.resolveQuery(variable.query);
         }
-        return [...new Set(body.data)].sort();
-      }
-      catch {
+        if (variable.type === 'datasource') {
+            return this.resolveDatasources();
+        }
         return [];
-      }
     }
-
-    // Single-arg form: label_values(labelName)
-    const singleArgMatch = query.match(/label_values\(\s*([^)]+?)\s*\)/);
-    if (singleArgMatch) {
-      const labelName = singleArgMatch[1].trim();
-      const url = `${baseUrl}/api/v1/label/${encodeURIComponent(labelName)}/values`;
-      try {
-        const res = await fetch(url, {
-          headers: this.headers,
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!res.ok) {
-          return [];
+    async resolveQuery(query) {
+        const baseUrl = this.prometheusUrl.replace(/\/$/, '');
+        // Two-arg form: label_values(metric, label)
+        const twoArgMatch = query.match(/label_values\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)/);
+        if (twoArgMatch) {
+            const [, metric, labelName] = twoArgMatch;
+            const params = new URLSearchParams();
+            params.set('match[]', metric);
+            const url = `${baseUrl}/api/v1/label/${encodeURIComponent(labelName)}/values?${params}`;
+            try {
+                const res = await fetch(url, {
+                    headers: this.headers,
+                    signal: AbortSignal.timeout(10_000),
+                });
+                if (!res.ok)
+                    return [];
+                const body = await res.json();
+                if (body.status === 'success' && Array.isArray(body.data))
+                    return [...new Set(body.data)].sort();
+            }
+            catch {
+                return [];
+            }
         }
-        const body = await res.json();
-        if (body.status !== 'success' || !Array.isArray(body.data)) {
-          return [];
+        // Single-arg form: label_values(labelName)
+        const singleArgMatch = query.match(/label_values\(\s*([^)]+?)\s*\)/);
+        if (singleArgMatch) {
+            const labelName = singleArgMatch[1].trim();
+            const url = `${baseUrl}/api/v1/label/${encodeURIComponent(labelName)}/values`;
+            try {
+                const res = await fetch(url, {
+                    headers: this.headers,
+                    signal: AbortSignal.timeout(10_000),
+                });
+                if (!res.ok)
+                    return [];
+                const body = await res.json();
+                if (body.status === 'success' && Array.isArray(body.data))
+                    return [...new Set(body.data)].sort();
+            }
+            catch {
+                return [];
+            }
         }
-        return [...new Set(body.data)].sort();
-      }
-      catch {
         return [];
-      }
     }
-
-    return [];
-  }
-
-  resolveDatasources() {
-    const config = getSetupConfig();
-    return config.datasources.map((d) => d.label ?? d.name ?? d.id).filter(Boolean);
-  }
+    resolveDatasources() {
+        const config = getSetupConfig();
+        return config.datasources.map((d) => d.label ?? d.name ?? d.id).filter(Boolean);
+    }
 }
 //# sourceMappingURL=variable-resolver.js.map

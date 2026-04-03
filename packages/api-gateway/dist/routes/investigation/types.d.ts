@@ -1,8 +1,8 @@
-import type { InvestigationPlan, InvestigationStatus } from '@agentic-obs/common';
+import type { Investigation, InvestigationStatus } from '@agentic-obs/common';
 export interface CreateInvestigationBody {
     /** Natural-language question from the user */
     question: string;
-    /** Session id to attach the investigation to */
+    /** Session to attach the investigation to */
     sessionId?: string;
     /** Optional entity hint (e.g. "checkout-service") */
     entity?: string;
@@ -22,14 +22,14 @@ export interface FeedbackBody {
     comment?: string;
     /** Explicit verdict on the identified root cause */
     rootCauseVerdict?: 'correct' | 'wrong' | 'partially_correct';
-    /** Per-hypothesis verdicts (array replaces single hypothesisId for multi-hypothesis feedback) */
-    hypothesisFeedback?: Array<{
+    /** Per-hypothesis verdicts (replaces single hypothesisId for multi-hypothesis feedback) */
+    hypothesisFeedbacks?: Array<{
         hypothesisId: string;
-        verdicts: 'correct' | 'wrong';
+        verdict: 'correct' | 'wrong';
         comment?: string;
     }>;
     /** Per-action verdicts */
-    actionFeedback?: Array<{
+    actionFeedbacks?: Array<{
         actionId: string;
         helpful: boolean;
         comment?: string;
@@ -38,7 +38,7 @@ export interface FeedbackBody {
 export interface InvestigationSummary {
     id: string;
     status: InvestigationStatus;
-    question: string;
+    intent: string;
     sessionId: string;
     userId: string;
     createdAt: string;
@@ -46,7 +46,7 @@ export interface InvestigationSummary {
 }
 export interface PlanResponse {
     investigationId: string;
-    plan: InvestigationPlan;
+    plan: Investigation['plan'];
 }
 export interface FollowUpRecord {
     id: string;
@@ -58,9 +58,14 @@ export interface FeedbackResponse {
     received: boolean;
     investigationId: string;
 }
-export type SseEventType = 'investigationcreated' | 'investigationstatus' | 'investigationstep' | 'investigationhypothesis' | 'investigationcomplete' | 'investigationerror' | 'connected' | 'feed_item';
+export interface StoredFeedback extends FeedbackBody {
+    id: string;
+    investigationId: string;
+    createdAt: string;
+}
+export type SseEventType = 'investigation:created' | 'investigation:status' | 'investigation:step' | 'investigation:hypothesis' | 'investigation:complete' | 'investigation:error' | 'connected' | 'feed_item';
 export interface SseEvent<T = unknown> {
     type: SseEventType;
-    data?: T;
+    data: T;
 }
 //# sourceMappingURL=types.d.ts.map

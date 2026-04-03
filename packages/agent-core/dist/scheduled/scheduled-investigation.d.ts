@@ -1,10 +1,8 @@
 import type { IWorkerQueue } from '@agentic-obs/common';
-import type { ScheduleConfig, ScheduleRecord, ScheduledJobData, ScheduleRunOutcome } from './types.js';
-
+import type { ScheduleConfig, ScheduleRecord, ScheduledJobData, ScheduledRunOutcome } from './types.js';
 export interface ILLMClient {
     complete(prompt: string): Promise<string>;
 }
-
 export interface IScheduledOrchestrator {
     startInvestigation(params: {
         question: string;
@@ -16,30 +14,24 @@ export interface IScheduledOrchestrator {
         investigationId: string;
     }>;
 }
-
 export interface IScheduledFeed {
-    add(type: string, title: string, summary: string, severity?: 'low' | 'medium' | 'high' | 'critical', investigationId?: string, tenantId?: string): unknown;
+    add(type: string, title: string, summary: string, severity: 'low' | 'medium' | 'high' | 'critical', investigationId?: string, tenantId?: string): void;
 }
-
-export interface MetricsCollector {
+export interface IMetricsCollector {
     /** Returns a human-readable snapshot of current metrics for serviceId */
     snapshot(serviceId: string): Promise<string>;
 }
-
-export declare class NoopMetricsCollector implements MetricsCollector {
+export declare class NoopMetricsCollector implements IMetricsCollector {
     snapshot(serviceId: string): Promise<string>;
 }
-
 export declare const SCHEDULED_INVESTIGATION_QUEUE = "scheduled-investigation";
-
 export interface ScheduledInvestigationDeps {
     llm: ILLMClient;
     orchestrator: IScheduledOrchestrator;
     queue: IWorkerQueue;
     feed: IScheduledFeed;
-    metricsCollector?: MetricsCollector;
+    metricsCollector?: IMetricsCollector;
 }
-
 export declare class ScheduledInvestigation {
     private readonly schedules;
     private readonly timers;
@@ -66,7 +58,7 @@ export declare class ScheduledInvestigation {
     /** Stop the worker and all timers. */
     stop(): Promise<void>;
     /** Called by the worker for each scheduled-investigation job. */
-    runJob(data: ScheduledJobData): Promise<ScheduleRunOutcome>;
+    runJob(data: ScheduledJobData): Promise<ScheduledRunOutcome>;
     private startTimer;
     private buildPrompt;
     private parseDecision;

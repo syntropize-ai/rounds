@@ -16,7 +16,7 @@ export declare class NotificationStore implements Persistable {
     getPolicyTree(): NotificationPolicyNode;
     updatePolicyTree(tree: NotificationPolicyNode): void;
     addChildPolicy(parentId: string, policy: Omit<NotificationPolicyNode, 'id' | 'children' | 'createdAt' | 'updatedAt'>): NotificationPolicyNode | undefined;
-    updatePolicy(id: string, patch: Partial<Omit<NotificationPolicyNode, 'id' | 'children'>>): NotificationPolicyNode | undefined;
+    updatePolicy(id: string, patch: Partial<Omit<NotificationPolicyNode, 'id' | 'children' | 'createdAt'>>): NotificationPolicyNode | undefined;
     deletePolicy(id: string): boolean;
     createMuteTiming(data: {
         name: string;

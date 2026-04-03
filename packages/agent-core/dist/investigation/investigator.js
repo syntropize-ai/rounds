@@ -82,17 +82,18 @@ export class InvestigationAgent {
                 const finding = await executeStep(stepType, stepCtxBase);
                 step.status = 'completed';
                 step.result = finding;
-                step.cost = { tokens: 0, queries: 1, latencyMs: Date.now() - stepStartMs };
+                step.cost = { tokens: 0, queries: 0, latencyMs: Date.now() - stepStartMs };
                 findings.push(finding);
-                if (this.llm) {
-                    const partialHypotheses = await generateHypotheses(investigationId, findings, this.llm);
-                    if (partialHypotheses.some((h) => h.confidence >= this.config.highConfidenceThreshold)) {
-                        stopReason = 'high_confidence_hypothesis';
-                        for (let j = i + 1; j < planSteps.length; j++) {
-                            planSteps[j].status = 'skipped';
-                        }
-                        break;
+                const partialHypotheses = this.llm !== undefined
+                    ? await generateHypotheses(investigationId, findings, this.llm)
+                    : [];
+                if (partialHypotheses.length > 0 &&
+                    partialHypotheses[0].confidence >= this.config.highConfidenceThreshold) {
+                    stopReason = 'high_confidence_hypothesis';
+                    for (let j = i + 1; j < planSteps.length; j++) {
+                        planSteps[j].status = 'skipped';
                     }
+                    break;
                 }
             }
             catch (err) {
@@ -115,7 +116,10 @@ export class InvestigationAgent {
                 objective: intent.goal,
                 steps: planSteps,
                 stopConditions: [
-                    { type: 'high_confidence_hypothesis', params: { threshold: this.config.highConfidenceThreshold } },
+                    {
+                        type: 'high_confidence_hypothesis',
+                        params: { threshold: this.config.highConfidenceThreshold },
+                    },
                     { type: 'max_queries', params: { maxQueries: this.config.maxQueries } },
                     { type: 'time_budget', params: { timeBudgetMs: this.config.timeBudgetMs } },
                 ],

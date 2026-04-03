@@ -1,87 +1,85 @@
 import { randomUUID } from 'crypto';
 export class InMemoryInvestigationRepository {
-  active = new Map();
-  archived = new Map();
-  async findById(id) {
-    return this.active.get(id) ?? this.archived.get(id);
-  }
-  async findAll(opts = {}) {
-    let items = [...this.active.values()];
-    if (opts.tenantId !== undefined) {
-      items = items.filter((i) => i.tenantId === opts.tenantId);
+    active = new Map();
+    archived = new Map();
+    async findById(id) {
+        return this.active.get(id) ?? this.archived.get(id);
     }
-    if (opts.status !== undefined) {
-      items = items.filter((i) => i.status === opts.status);
+    async findAll(opts = {}) {
+        let items = [...this.active.values()];
+        if (opts.tenantId !== undefined) {
+            items = items.filter((i) => i.tenantId === opts.tenantId);
+        }
+        if (opts.status !== undefined) {
+            items = items.filter((i) => i.status === opts.status);
+        }
+        if (opts.offset !== undefined)
+            items = items.slice(opts.offset);
+        if (opts.limit !== undefined)
+            items = items.slice(0, opts.limit);
+        return items;
     }
-    if (opts.offset !== undefined) {
-      items = items.slice(opts.offset);
+    async create(data) {
+        const now = new Date().toISOString();
+        const investigation = {
+            ...data,
+            id: data.id ?? `inv_${randomUUID().slice(0, 8)}`,
+            createdAt: now,
+            updatedAt: data.updatedAt ?? now,
+        };
+        this.active.set(investigation.id, investigation);
+        return investigation;
     }
-    if (opts.limit !== undefined) {
-      items = items.slice(0, opts.limit);
+    async update(id, patch) {
+        const existing = this.active.get(id);
+        if (!existing)
+            return undefined;
+        const updated = {
+            ...existing,
+            ...patch,
+            id: existing.id,
+            updatedAt: new Date().toISOString(),
+        };
+        this.active.set(id, updated);
+        return updated;
     }
-    return items;
-  }
-  async create(data) {
-    const now = new Date().toISOString();
-    const investigation = {
-      ...data,
-      id: data.id ?? `inv_${randomUUID().slice(0, 8)}`,
-      createdAt: now,
-      updatedAt: data.updatedAt ?? now,
-    };
-    this.active.set(investigation.id, investigation);
-    return investigation;
-  }
-  async update(id, patch) {
-    const existing = this.active.get(id);
-    if (!existing)
-      return undefined;
-    const updated = {
-      ...existing,
-      ...patch,
-      id: existing.id,
-      updatedAt: new Date().toISOString(),
-    };
-    this.active.set(id, updated);
-    return updated;
-  }
-  async delete(id) {
-    return this.active.delete(id) || this.archived.delete(id);
-  }
-  async count() {
-    return this.active.size;
-  }
-  async findBySession(sessionId) {
-    return [...this.active.values()].filter((i) => i.sessionId === sessionId);
-  }
-  async findByUser(userId, _tenantId) {
-    return [...this.active.values()].filter((i) => i.userId === userId);
-  }
-  async archive(id) {
-    const item = this.active.get(id);
-    if (!item)
-      return undefined;
-    this.active.delete(id);
-    const archived = { ...item, updatedAt: new Date().toISOString() };
-    this.archived.set(id, archived);
-    return archived;
-  }
-  async restore(id) {
-    const item = this.archived.get(id);
-    if (!item)
-      return undefined;
-    this.archived.delete(id);
-    const restored = { ...item, updatedAt: new Date().toISOString() };
-    this.active.set(id, restored);
-    return restored;
-  }
-  async findArchived(_tenantId) {
-    return [...this.archived.values()];
-  }
-  /** Test helper */
-  clear() {
-    this.active.clear();
-    this.archived.clear();
-  }
+    async delete(id) {
+        return this.active.delete(id) || this.archived.delete(id);
+    }
+    async count() {
+        return this.active.size;
+    }
+    async findBySession(sessionId) {
+        return [...this.active.values()].filter((i) => i.sessionId === sessionId);
+    }
+    async findByUser(userId, _tenantId) {
+        return [...this.active.values()].filter((i) => i.userId === userId);
+    }
+    async archive(id) {
+        const item = this.active.get(id);
+        if (!item)
+            return undefined;
+        this.active.delete(id);
+        const archived = { ...item, updatedAt: new Date().toISOString() };
+        this.archived.set(id, archived);
+        return archived;
+    }
+    async restore(id) {
+        const item = this.archived.get(id);
+        if (!item)
+            return undefined;
+        this.archived.delete(id);
+        const restored = { ...item, updatedAt: new Date().toISOString() };
+        this.active.set(id, restored);
+        return restored;
+    }
+    async findArchived(_tenantId) {
+        return [...this.archived.values()];
+    }
+    /** Test helper */
+    clear() {
+        this.active.clear();
+        this.archived.clear();
+    }
 }
 //# sourceMappingURL=investigation.js.map

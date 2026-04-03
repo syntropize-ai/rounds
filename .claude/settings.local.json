@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/shiqi/Documents/prism/*.json /c/Users/shiqi/Documents/prism/tsconfig*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(node packages/api-gateway/dist/main.js)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(curl -s -X POST http://localhost:3000/api/setup/llm/models -H \"Content-Type: application/json\" -d '{\"provider\":\"ollama\"}')",
+      "Bash(npx kill-port:*)",
+      "Bash(curl -s http://localhost:11434/api/chat -d '{\"model\":\"qwen3:8b\",\"messages\":[{\"role\":\"user\",\"content\":\"say hello\"}],\"stream\":false}')",
+      "Bash(curl -s 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=REDACTED_GEMINI_KEY' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello in one word\"}]}],\"generationConfig\":{\"maxOutputTokens\":10}}')",
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/models?key=REDACTED_GEMINI_KEY\")",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(m['name']\\) for m in data.get\\('models',[]\\) if 'generateContent' in m.get\\('supportedGenerationMethods',[]\\)]\")",
+      "Bash(node -e \"const d=JSON.parse\\(require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\)\\); d.models?.filter\\(m=>m.supportedGenerationMethods?.includes\\('generateContent'\\)\\).forEach\\(m=>console.log\\(m.name\\)\\)\")",
+      "Bash(curl -s 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=REDACTED_GEMINI_KEY' -H 'Content-Type: application/json' -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello\"}]}],\"generationConfig\":{\"maxOutputTokens\":50}}')",
+      "Bash(curl -s http://127.0.0.1:9090/-/healthy)",
+      "Bash(curl -s \"http://127.0.0.1:9090/api/v1/query?query=node_cpu_seconds_total\")",
+      "Bash(curl -s \"http://127.0.0.1:9090/api/v1/label/__name__/values\")",
+      "Bash(git status:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(curl -s http://localhost:3000/api/alert-rules)"
+    ]
+  }
+}

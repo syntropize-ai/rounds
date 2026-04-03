@@ -18,9 +18,8 @@ export class InMemoryWorkerQueue {
             record,
             opts: { attempts: opts.attempts ?? 3, delay: opts.delay ?? 0 },
         };
-        if (!this.queues.has(queueName)) {
+        if (!this.queues.has(queueName))
             this.queues.set(queueName, []);
-        }
         this.queues.get(queueName).push(job);
         this.incrementStat(queueName, 'waiting', 1);
         // Dispatch asynchronously after optional delay

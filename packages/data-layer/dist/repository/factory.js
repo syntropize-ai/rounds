@@ -11,32 +11,31 @@ import { PostgresCaseRepository } from './postgres/case.js';
 import { PostgresApprovalRepository } from './postgres/approval.js';
 import { PostgresShareRepository } from './postgres/share.js';
 export function createInMemoryRepositories() {
-  return {
-    investigations: new InMemoryInvestigationRepository(),
-    incidents: new InMemoryIncidentRepository(),
-    feed: new InMemoryFeedRepository(),
-    cases: new InMemoryCaseRepository(),
-    approvals: new InMemoryApprovalRepository(),
-    shares: new InMemoryShareRepository(),
-  };
+    return {
+        investigations: new InMemoryInvestigationRepository(),
+        incidents: new InMemoryIncidentRepository(),
+        feed: new InMemoryFeedRepository(),
+        cases: new InMemoryCaseRepository(),
+        approvals: new InMemoryApprovalRepository(),
+        shares: new InMemoryShareRepository(),
+    };
 }
 export function createPostgresRepositories(db) {
-  return {
-    investigations: new PostgresInvestigationRepository(db),
-    incidents: new PostgresIncidentRepository(db),
-    feed: new PostgresFeedRepository(db),
-    cases: new PostgresCaseRepository(db),
-    approvals: new PostgresApprovalRepository(db),
-    shares: new PostgresShareRepository(db),
-  };
+    return {
+        investigations: new PostgresInvestigationRepository(db),
+        incidents: new PostgresIncidentRepository(db),
+        feed: new PostgresFeedRepository(db),
+        cases: new PostgresCaseRepository(db),
+        approvals: new PostgresApprovalRepository(db),
+        shares: new PostgresShareRepository(db),
+    };
 }
 export function createRepositories(backend, db) {
-  if (backend === 'postgres') {
-    if (!db) {
-      throw new Error('DbClient is required for postgres backend');
+    if (backend === 'postgres') {
+        if (!db)
+            throw new Error('DbClient is required for postgres backend');
+        return createPostgresRepositories(db);
     }
-    return createPostgresRepositories(db);
-  }
-  return createInMemoryRepositories();
+    return createInMemoryRepositories();
 }
 //# sourceMappingURL=factory.js.map

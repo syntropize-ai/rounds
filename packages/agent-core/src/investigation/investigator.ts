@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { DataAdapter } from '@agentic-obs/adapters';
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
+import { createLogger } from '@agentic-obs/common';
 import type { InvestigationStep } from '@agentic-obs/common';
+
+const log = createLogger('investigator');
 import type { Agent, AgentContext, AgentResult } from '../index.js';
 import type { CaseRetriever } from '../case-library/types.js';
 import type {
@@ -62,10 +65,7 @@ export class InvestigationAgent implements Agent<InvestigationInput, Investigati
       const output = await this.investigate(input, agentCtx.investigationId);
       const validation = investigationOutputSchema.safeParse(output);
       if (!validation.success) {
-        console.warn(
-          '[InvestigationAgent] Output schema validation failed:',
-          validation.error.format(),
-        );
+        log.warn({ validationError: validation.error.format() }, 'output schema validation failed');
       }
       return { success: true, data: output };
     } catch (err) {

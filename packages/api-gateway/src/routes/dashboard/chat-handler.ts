@@ -1,5 +1,8 @@
 import type { Request, Response } from 'express'
+import { createLogger } from '@agentic-obs/common'
 import type { DashboardSseEvent } from '@agentic-obs/common'
+
+const log = createLogger('chat-handler')
 import type { IGatewayDashboardStore, IConversationStore } from '../../repositories/types.js'
 import { DashboardService, withDashboardLock } from '../../services/dashboard-service.js'
 
@@ -53,7 +56,7 @@ export async function handleChatMessage(
     })
   }
   catch (err) {
-    console.error('[ChatHandler] Error:', err)
+    log.error({ err }, 'chat handler error')
     const errMsg = err instanceof Error ? err.message : 'Internal error'
     res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', message: errMsg })}\n\n`)
   }

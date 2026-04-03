@@ -1,6 +1,9 @@
 // EvidenceAgent - binds investigation step findings to hypotheses as evidence chains
 
+import { createLogger } from '@agentic-obs/common';
 import type { Evidence, Hypothesis } from '@agentic-obs/common';
+
+const log = createLogger('evidence-agent');
 import type { Agent, AgentContext, AgentResult } from '../index.js';
 import type { EvidenceInput, EvidenceOutput, EvidenceChain } from './types.js';
 import { bindFindingsToHypothesis, clampConfidence, deriveStatus } from './binder.js';
@@ -21,7 +24,7 @@ export class EvidenceAgent implements Agent<EvidenceInput, EvidenceOutput> {
       this.store.addAll(output.evidence);
       const validation = evidenceOutputSchema.safeParse(output);
       if (!validation.success) {
-        console.warn('[EvidenceAgent] Output schema validation failed:', validation.error.format());
+        log.warn({ validationError: validation.error.format() }, 'output schema validation failed');
       }
       return { success: true, data: output };
     } catch (err) {

@@ -12,6 +12,7 @@ import { handleChatMessage } from './chat-handler.js'
 import { VariableResolver } from './variable-resolver.js'
 import type { PanelConfig } from '@agentic-obs/common'
 import { getSetupConfig } from '../setup.js'
+import { getWorkspaceId } from '../../middleware/workspace-context.js'
 
 export interface DashboardGenerator {
   generate(dashboardId: string, prompt: string, userId: string): void
@@ -43,6 +44,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps = {}): ExpressRo
       }
 
       const userId = (req as AuthenticatedRequest).auth?.sub ?? 'anonymous'
+      const workspaceId = getWorkspaceId(req)
       const dashboard = await store.create({
         title: body.title?.trim() ?? 'Untitled Dashboard',
         description: '',
@@ -51,6 +53,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps = {}): ExpressRo
         datasourceIds: body.datasourceIds ?? [],
         useExistingMetrics: body.useExistingMetrics ?? true,
         folder: body.folder,
+        workspaceId,
       })
 
       // When stream=true, skip background generation - client will use POST /:id/chat for SSE
@@ -69,7 +72,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps = {}): ExpressRo
   router.get('/', requirePermission('dashboard:read'), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const typeFilter = req.query['type'] as string | undefined
+      const workspaceId = getWorkspaceId(req)
       let all = await store.findAll()
+      // Filter by workspace
+      all = all.filter((d) => (d.workspaceId ?? 'default') === workspaceId)
       if (typeFilter) {
         all = all.filter((d) => d.type === typeFilter)
       }
@@ -127,6 +133,11 @@ export function createDashboardRouter(deps: DashboardRouterDeps = {}): ExpressRo
       const id = req.params['id'] ?? ''
       const dashboard = await store.findById(id)
       if (!dashboard) {
+        res.status(404).json({ code: 'NOT_FOUND', message: 'Dashboard not found' })
+        return
+      }
+      const workspaceId = getWorkspaceId(req)
+      if ((dashboard.workspaceId ?? 'default') !== workspaceId) {
         res.status(404).json({ code: 'NOT_FOUND', message: 'Dashboard not found' })
         return
       }

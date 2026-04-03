@@ -4,7 +4,9 @@ import { promises as fs } from 'fs';
 import { execSync } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
-import { DEFAULT_LLM_MODEL } from '@agentic-obs/common';
+import { createLogger, DEFAULT_LLM_MODEL } from '@agentic-obs/common';
+
+const log = createLogger('setup');
 import {
   AnthropicProvider,
   OpenAIProvider,
@@ -288,7 +290,9 @@ export function createSetupRouter(): Router {
   const router = Router();
 
   // Load persisted config on startup
-  void ensureConfigLoaded();
+  void ensureConfigLoaded().catch((err) => {
+    log.error({ err }, 'failed to load config');
+  });
 
   // GET /api/setup/status
   router.get('/status', (_req: Request, res: Response) => {

@@ -57,6 +57,7 @@ export class InvestigationStore implements Persistable {
   private readonly conclusions = new Map<string, ExplanationResult>();
   private readonly maxCapacity: number;
   private readonly tenants = new Map<string, string>();
+  private readonly workspaces = new Map<string, string>();
 
   constructor(maxCapacity = 1000) {
     this.maxCapacity = maxCapacity;
@@ -71,6 +72,7 @@ export class InvestigationStore implements Persistable {
     entity?: string;
     timeRange?: { start: string; end: string };
     tenantId?: string;
+    workspaceId?: string;
   }): Investigation {
     const now = new Date().toISOString();
     const id = `inv_${uid()}`;
@@ -96,6 +98,7 @@ export class InvestigationStore implements Persistable {
       actions: [],
       evidence: [],
       symptoms: [],
+      ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -103,6 +106,8 @@ export class InvestigationStore implements Persistable {
     this.investigations.set(id, investigation);
     if (params.tenantId)
       this.tenants.set(id, params.tenantId);
+    if (params.workspaceId)
+      this.workspaces.set(id, params.workspaceId);
     this.evictIfNeeded();
     markDirty();
     return investigation;
@@ -148,6 +153,16 @@ export class InvestigationStore implements Persistable {
     if (tenantId === undefined)
       return all;
     return all.filter((inv) => this.tenants.get(inv.id) === tenantId);
+  }
+
+  findByWorkspace(workspaceId: string): Investigation[] {
+    return [...this.investigations.values()].filter(
+      (inv) => this.workspaces.get(inv.id) === workspaceId,
+    );
+  }
+
+  getWorkspaceId(id: string): string | undefined {
+    return this.workspaces.get(id);
   }
 
   updateStatus(id: string, status: InvestigationStatus): Investigation | undefined {
@@ -245,6 +260,7 @@ export class InvestigationStore implements Persistable {
     this.feedback.clear();
     this.conclusions.clear();
     this.tenants.clear();
+    this.workspaces.clear();
   }
 
   toJSON(): unknown {
@@ -261,6 +277,7 @@ export class InvestigationStore implements Persistable {
       followUps: mapToObj(this.followUps),
       feedback: mapToObj(this.feedback),
       tenants: mapToObj(this.tenants),
+      workspaces: mapToObj(this.workspaces),
     };
   }
 
@@ -298,6 +315,12 @@ export class InvestigationStore implements Persistable {
     if (d.tenants && typeof d.tenants === 'object') {
       for (const [k, v] of Object.entries(d.tenants as Record<string, string>)) {
         this.tenants.set(k, v);
+      }
+    }
+
+    if (d.workspaces && typeof d.workspaces === 'object') {
+      for (const [k, v] of Object.entries(d.workspaces as Record<string, string>)) {
+        this.workspaces.set(k, v);
       }
     }
   }

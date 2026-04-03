@@ -6,6 +6,7 @@ export * from './alert-rule-store.js';
 export * from './approval-store.js';
 export * from './incident-store.js';
 export * from './notification-store.js';
+export * from './notification-dispatch.js';
 export * from './post-mortem-store.js';
 export * from './feed-store.js';
 export * from './investigation-store.js';

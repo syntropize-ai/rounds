@@ -1,5 +1,8 @@
 import { randomUUID } from 'crypto';
+import { createLogger } from '@agentic-obs/common';
 import type { DashboardSseEvent } from '@agentic-obs/common';
+
+const log = createLogger('dashboard-service');
 import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
 import { defaultInvestigationReportStore, defaultAlertRuleStore } from '@agentic-obs/data-layer';
 import { getSetupConfig, type DatasourceConfig } from '../routes/setup.js';
@@ -101,9 +104,9 @@ export class DashboardService {
       sendEvent,
     });
 
-    console.log(`[DashboardService] Starting orchestrator for dashboard=${dashboardId} message="${message.slice(0, 80)}"`);
+    log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');
     const replyContent = await orchestrator.handleMessage(dashboardId, message);
-    console.log(`[DashboardService] Orchestrator done. Reply="${replyContent.slice(0, 100)}"`);
+    log.info({ dashboardId, reply: replyContent.slice(0, 100) }, 'orchestrator done');
 
     // Save assistant message
     const assistantMessageId = randomUUID();

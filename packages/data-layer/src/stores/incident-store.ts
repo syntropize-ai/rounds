@@ -24,6 +24,7 @@ export interface UpdateIncidentParams {
 
 export interface CreateIncidentParamsWithTenant extends CreateIncidentParams {
   tenantId?: string;
+  workspaceId?: string;
 }
 
 export class IncidentStore {
@@ -31,6 +32,7 @@ export class IncidentStore {
   private readonly archivedItems = new Map<string, Incident>();
   private readonly maxCapacity: number;
   private readonly tenants = new Map<string, string>();
+  private readonly workspaces = new Map<string, string>();
 
   constructor(maxCapacity = 500) {
     this.maxCapacity = maxCapacity;
@@ -48,6 +50,7 @@ export class IncidentStore {
       investigationIds: [],
       timeline: [],
       assignee: params.assignee,
+      ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -55,6 +58,8 @@ export class IncidentStore {
     this.incidents.set(id, incident);
     if (params.tenantId)
       this.tenants.set(id, params.tenantId);
+    if (params.workspaceId)
+      this.workspaces.set(id, params.workspaceId);
     this.evictIfNeeded();
     return incident;
   }
@@ -97,6 +102,16 @@ export class IncidentStore {
     if (tenantId === undefined)
       return all;
     return all.filter((inc) => this.tenants.get(inc.id) === tenantId);
+  }
+
+  findByWorkspace(workspaceId: string): Incident[] {
+    return [...this.incidents.values()].filter(
+      (inc) => this.workspaces.get(inc.id) === workspaceId,
+    );
+  }
+
+  getWorkspaceId(id: string): string | undefined {
+    return this.workspaces.get(id);
   }
 
   update(id: string, params: UpdateIncidentParams): Incident | undefined {
@@ -200,6 +215,7 @@ export class IncidentStore {
     this.incidents.clear();
     this.archivedItems.clear();
     this.tenants.clear();
+    this.workspaces.clear();
   }
 
   private createTimelineEntry(

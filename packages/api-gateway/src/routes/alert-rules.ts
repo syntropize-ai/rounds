@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import type { AlertRule, AlertSilence, NotificationPolicy } from '@agentic-obs/common';
 import { defaultAlertRuleStore } from '@agentic-obs/data-layer';
 import { AlertRuleService } from '../services/alert-rule-service.js';
+import { getWorkspaceId } from '../middleware/workspace-context.js';
 
 const router = Router();
 const alertRuleService = new AlertRuleService();
@@ -19,6 +20,11 @@ router.post('/generate', async (req: Request, res: Response, next: NextFunction)
     }
 
     const { rule } = await alertRuleService.generateFromPrompt(body.prompt.trim());
+    // Stamp workspace on generated rule
+    const workspaceId = getWorkspaceId(req);
+    if (workspaceId !== 'default') {
+      defaultAlertRuleStore.update(rule.id, { workspaceId, labels: { ...rule.labels, workspaceId } });
+    }
     res.status(201).json(rule);
   } catch (err: any) {
     if (err?.message?.includes('LLM not configured')) {
@@ -37,6 +43,7 @@ router.get('/', (req: Request, res: Response) => {
   const search = req.query['search'] as string | undefined;
   const limit = req.query['limit'] ? parseInt(req.query['limit'] as string) : undefined;
   const offset = req.query['offset'] ? parseInt(req.query['offset'] as string) : undefined;
+  const workspaceId = getWorkspaceId(req);
 
   const results = defaultAlertRuleStore.findAll({
     state: state as AlertRule['state'] | undefined,
@@ -45,6 +52,10 @@ router.get('/', (req: Request, res: Response) => {
     limit,
     offset,
   });
+
+  // Filter by workspace
+  results.list = results.list.filter((r) => (r.workspaceId ?? 'default') === workspaceId);
+  results.total = results.list.length;
 
   res.json(results);
 });
@@ -65,6 +76,7 @@ router.post('/', (req: Request, res: Response) => {
     return;
   }
 
+  const workspaceId = getWorkspaceId(req);
   const rule = defaultAlertRuleStore.create({
     name: body.name,
     description: body.description ?? '',
@@ -72,9 +84,10 @@ router.post('/', (req: Request, res: Response) => {
     condition: body.condition,
     evaluationIntervalSec: body.evaluationIntervalSec ?? 60,
     severity: body.severity ?? 'medium',
-    labels: body.labels ?? {},
+    labels: { ...body.labels, workspaceId },
     createdBy: body.createdBy ?? 'user',
     notificationPolicyId: body.notificationPolicyId,
+    workspaceId,
   } as unknown as Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>);
 
   res.status(201).json(rule);

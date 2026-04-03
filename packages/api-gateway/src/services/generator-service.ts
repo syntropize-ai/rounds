@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { CompletionMessage, LLMGateway } from '@agentic-obs/llm-gateway'
+import { createLogger } from '@agentic-obs/common'
 import type { PanelConfig, PanelVisualization } from '@agentic-obs/common'
+
+const log = createLogger('dashboard-generator')
 import { getSetupConfig } from '../routes/setup.js'
 import { createLlmGateway } from '../routes/llm-factory.js'
 import type { IGatewayDashboardStore } from '../repositories/types.js'
@@ -31,15 +34,15 @@ export class LiveDashboardGenerator implements DashboardGenerator {
       const promDatasource = config.datasources.find((d) => d.type === 'prometheus' || d.type === 'victoria-metrics')
 
       // -- Phase 1: Research (web search)
-      console.log(`[LiveDashboardGenerator] ${dashboardId} Phase 1: Research`)
+      log.info({ dashboardId, phase: 1 }, 'starting research phase')
       const researchContext = await this.research(gateway, model, prompt)
 
       // -- Phase 2: Discovery (probe Prometheus)
-      console.log(`[LiveDashboardGenerator] ${dashboardId} Phase 2: Discovery`)
+      log.info({ dashboardId, phase: 2 }, 'starting discovery phase')
       const availableMetrics = await this.discoverMetrics(gateway, model, prompt, researchContext, promDatasource?.url)
 
       // -- Phase 3: Generation
-      console.log(`[LiveDashboardGenerator] ${dashboardId} Phase 3: Generation`)
+      log.info({ dashboardId, phase: 3 }, 'starting generation phase')
       const { title, description, panels } = await this.generateDashboard(
         gateway,
         model,
@@ -55,10 +58,10 @@ export class LiveDashboardGenerator implements DashboardGenerator {
       await this.store.updatePanels(dashboardId, validatedPanels)
       await this.store.updateStatus(dashboardId, 'ready')
 
-      console.log(`[LiveDashboardGenerator] ${dashboardId} done - ${validatedPanels.length} panels`)
+      log.info({ dashboardId, panelCount: validatedPanels.length }, 'generation complete')
     }
     catch (err) {
-      console.error(`[LiveDashboardGenerator] ${dashboardId} failed:`, err)
+      log.error({ err, dashboardId }, 'generation failed')
       await this.store.updateStatus(dashboardId, 'failed', `${err}`)
     }
   }
@@ -84,10 +87,10 @@ Reply with JSON: { "needsSearch": true/false, "searchQuery": "what to search for
       const parsed = JSON.parse(cleaned) as { needsSearch?: boolean, searchQuery?: string, reason?: string }
       needsSearch = !!parsed.needsSearch
       searchQuery = parsed.searchQuery ?? ''
-      console.log('[LiveDashboardGenerator] Research decision:', needsSearch, searchQuery, parsed.reason)
+      log.info({ needsSearch, searchQuery, reason: parsed.reason }, 'research decision')
     }
     catch (err) {
-      console.warn('[LiveDashboardGenerator] Research decision failed, skipping web search:', err instanceof Error ? err.message : err)
+      log.warn({ err }, 'research decision failed, skipping web search')
       return ''
     }
 
@@ -127,11 +130,11 @@ Reply with JSON: { "needsSearch": true/false, "searchQuery": "what to search for
       if (snippets.length === 0)
         return ''
 
-      console.log('[LiveDashboardGenerator] Web search returned', snippets.length, 'snippets')
+      log.info({ count: snippets.length }, 'web search returned snippets')
       return `Web search results for "${searchQuery}":\n${snippets.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
     }
     catch (err) {
-      console.warn('[LiveDashboardGenerator] Web search failed, proceeding without it:', err instanceof Error ? err.message : err)
+      log.warn({ err }, 'web search failed, proceeding without it')
       return ''
     }
   }
@@ -145,7 +148,7 @@ Reply with JSON: { "needsSearch": true/false, "searchQuery": "what to search for
     prometheusUrl: string | undefined,
   ): Promise<string[]> {
     if (!prometheusUrl) {
-      console.warn('[LiveDashboardGenerator] No Prometheus datasource configured - skipping discovery')
+      log.warn('no Prometheus datasource configured - skipping discovery')
       return []
     }
 
@@ -169,7 +172,7 @@ Only return the JSON array.`,
       patterns = JSON.parse(cleaned) as string[]
     }
     catch (err) {
-      console.warn('[LiveDashboardGenerator] Metric pattern planning failed:', err instanceof Error ? err.message : err)
+      log.warn({ err }, 'metric pattern planning failed')
     }
 
     const allMetrics: string[] = []
@@ -200,10 +203,10 @@ Only return the JSON array.`,
           }
         }
       }
-      console.log(`[LiveDashboardGenerator] Discovered ${allMetrics.length} metrics`)
+      log.info({ count: allMetrics.length }, 'discovered metrics')
     }
     catch (err) {
-      console.warn('[LiveDashboardGenerator] Prometheus discovery failed, proceeding with LLM best guess:', err instanceof Error ? err.message : err)
+      log.warn({ err }, 'Prometheus discovery failed, proceeding with LLM best guess')
     }
 
     return allMetrics

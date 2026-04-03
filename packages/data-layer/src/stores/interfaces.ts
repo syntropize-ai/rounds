@@ -52,6 +52,7 @@ export interface IGatewayInvestigationStore {
     entity?: string
     timeRange?: { start: string, end: string }
     tenantId?: string
+    workspaceId?: string
   }): MaybeAsync<Investigation>
   findById(id: string): MaybeAsync<Investigation | undefined>
   findAll(tenantId?: string): MaybeAsync<Investigation[]>
@@ -146,6 +147,7 @@ export interface IGatewayDashboardStore {
     datasourceIds: string[]
     useExistingMetrics?: boolean
     folder?: string
+    workspaceId?: string
   }): MaybeAsync<Dashboard>
   findById(id: string): MaybeAsync<Dashboard | undefined>
   findAll(userId?: string): MaybeAsync<Dashboard[]>

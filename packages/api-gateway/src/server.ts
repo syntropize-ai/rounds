@@ -155,7 +155,9 @@ export function startServer(port = 3000): void {
     registerStore('notifications', defaultNotificationStore);
     await loadAll();
     log.info('Persisted store data loaded');
-  })();
+  })().catch((err) => {
+    log.error({ err: err instanceof Error ? err.message : err }, 'failed to load persisted stores');
+  });
 
   // Wrap Express app in httpServer + attach Socket.io WebSocket gateway
   void import('./websocket/gateway.js').then(({ createWebSocketGateway }) => {
@@ -166,6 +168,8 @@ export function startServer(port = 3000): void {
     // (createApp() is used by tests without triggering background workers).
     void import('./proactive-pipeline-runner.js').then(async ({ runProactivePipeline }) => {
       await runProactivePipeline();
+    }).catch((err) => {
+      log.error({ err: err instanceof Error ? err.message : err }, 'proactive pipeline failed to start');
     });
 
     httpServer.listen(port, () => {
@@ -212,5 +216,7 @@ export function startServer(port = 3000): void {
 
     // Attach OS signal handlers
     shutdown.listen();
+  }).catch((err) => {
+    log.error({ err: err instanceof Error ? err.message : err }, 'websocket gateway failed to initialize');
   });
 }

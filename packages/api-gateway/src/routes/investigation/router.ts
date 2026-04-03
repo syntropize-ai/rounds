@@ -14,6 +14,7 @@ import type { CreateInvestigationBody, FollowUpBody, FeedbackBody } from './type
 import { initSse, sendSseEvent, sendSseKeepAlive, closeSse } from './sse.js';
 import { LiveOrchestratorRunner } from './live-orchestrator-runner.js';
 import type { OrchestratorRunner } from './orchestrator-runner.js';
+import { getWorkspaceId } from '../../middleware/workspace-context.js';
 
 interface InvestigationRouterDeps {
   store?: IGatewayInvestigationStore;
@@ -47,12 +48,14 @@ export function createInvestigationRouter(
       }
 
       const authReq = req as AuthenticatedRequest;
+      const workspaceId = getWorkspaceId(req);
       const investigation = await store.create({
         question: body.question.trim(),
         sessionId: body.sessionId ?? `ses_${Date.now()}`,
         userId: authReq.auth?.sub ?? 'anonymous',
         entity: body.entity,
         timeRange: body.timeRange,
+        workspaceId,
       });
 
       // Async orchestration - does not block the HTTP response
@@ -97,9 +100,10 @@ export function createInvestigationRouter(
 
   // -- GET /investigations
 
-  router.get('/', requirePermission('investigation:read'), async (_req: Request, res: Response, next: NextFunction) => {
+  router.get('/', requirePermission('investigation:read'), async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const all = (await store.findAll()).map((inv) => ({
+      const workspaceId = getWorkspaceId(req);
+      const all = (await store.findAll()).filter((inv) => (inv.workspaceId ?? 'default') === workspaceId).map((inv) => ({
         id: inv.id,
         status: inv.status,
         intent: inv.intent,
@@ -120,6 +124,11 @@ export function createInvestigationRouter(
     try {
       const inv = await store.findById(req.params['id'] ?? '');
       if (!inv) {
+        res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation not found' });
+        return;
+      }
+      const workspaceId = getWorkspaceId(req);
+      if ((inv.workspaceId ?? 'default') !== workspaceId) {
         res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation not found' });
         return;
       }

@@ -1,4 +1,6 @@
-import { DEFAULT_LLM_MODEL, type AlertRule } from '@agentic-obs/common';
+import { createLogger, DEFAULT_LLM_MODEL, type AlertRule } from '@agentic-obs/common';
+
+const log = createLogger('intent-service');
 import { defaultAlertRuleStore } from '@agentic-obs/data-layer';
 import { AlertRuleAgent } from '@agentic-obs/agent-core';
 import type { IGatewayDashboardStore } from '../repositories/types.js';
@@ -144,7 +146,7 @@ export class IntentService {
     onProgress({ type: 'thinking', data: { content: 'Understanding your request...' } });
 
     const intent = await this.classifyIntent(message);
-    console.log(`[IntentService] message="${message.slice(0, 80)}" -> intent="${intent}"`);
+    log.info({ message: message.slice(0, 80), intent }, 'classified intent');
     onProgress({ type: 'intent', data: { intent } });
 
     if (intent === 'alert') {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
+import { createLogger } from '@agentic-obs/common'
 import type {
   PanelConfig,
   PanelQuery,
@@ -8,6 +9,8 @@ import type {
   InvestigationReport,
   InvestigationReportSection,
 } from '@agentic-obs/common'
+
+const log = createLogger('investigation-agent')
 
 // -- Types
 
@@ -197,7 +200,7 @@ export class InvestigationAgent {
   private async planInvestigation(input: InvestigationInput): Promise<InvestigationPlan> {
     // Auto-discover available metrics from Prometheus
     const discoveredMetrics = await this.discoverMetrics()
-    console.log(`[InvestigationAgent] Discovered ${discoveredMetrics.length} metrics from Prometheus`)
+    log.info({ count: discoveredMetrics.length }, 'discovered metrics from Prometheus')
 
     const existingContext = input.existingPanels.length > 0
       ? `\n## Current dashboard panels\n${input.existingPanels.map((p) => `- ${p.title} (${(p.queries ?? []).map((q) => q.expr).join(' | ')})`).join('\n')}\n`
@@ -244,14 +247,14 @@ ${existingContext}${metricsContext}
       const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
       const parsed = JSON.parse(cleaned) as InvestigationPlan
       const queries = Array.isArray(parsed.queries) ? parsed.queries : []
-      console.log(`[InvestigationAgent] Plan: hypothesis="${parsed.hypothesis}", ${queries.length} queries`)
+      log.info({ hypothesis: parsed.hypothesis, queryCount: queries.length }, 'investigation plan ready')
       return {
         hypothesis: parsed.hypothesis ?? 'Unknown',
         queries,
       }
     }
     catch (err) {
-      console.error('[InvestigationAgent] planInvestigation failed:', err instanceof Error ? err.message : err)
+      log.error({ err }, 'planInvestigation failed')
       return { hypothesis: 'Failed to plan', queries: [] }
     }
   }
@@ -377,7 +380,7 @@ ${evidenceSummary}
       }
     }
     catch (err) {
-      console.error('[InvestigationAgent] analyzeEvidence failed:', err instanceof Error ? err.message : err)
+      log.error({ err }, 'analyzeEvidence failed')
       const basicSummary = `Investigation of "${input.goal}" completed with evidence, but report generation failed.`
       return {
         summary: basicSummary,

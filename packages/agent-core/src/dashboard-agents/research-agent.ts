@@ -1,5 +1,8 @@
 import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateway'
+import { createLogger } from '@agentic-obs/common'
 import type { DashboardSseEvent } from '@agentic-obs/common'
+
+const log = createLogger('research-agent')
 
 export interface ResearchResult {
   topic: string
@@ -39,7 +42,7 @@ export class ResearchAgent {
 
     // Build an English search query for better technical results
     const searchQuery = await this.buildSearchQuery(topic)
-    console.log(`[ResearchAgent] Search query: "${searchQuery}" (original: "${topic}")`)
+    log.info({ searchQuery, topic }, 'built search query')
 
     // Step 1: Web search
     this.sendEvent({
@@ -50,10 +53,7 @@ export class ResearchAgent {
     })
 
     const searchResults = await this.webSearch(searchQuery)
-    console.log(`[ResearchAgent] Web search returned ${searchResults.length} snippets`)
-    if (searchResults.length) {
-      console.log(`[ResearchAgent] First snippet: "${searchResults[0]?.slice(0, 120)}"`)
-    }
+    log.info({ count: searchResults.length, firstSnippet: searchResults[0]?.slice(0, 120) }, 'web search complete')
 
     this.sendEvent({
       type: 'tool_result',
@@ -65,7 +65,7 @@ export class ResearchAgent {
     // Step 2: LLM extracts structured knowledge from search results
     this.sendEvent({ type: 'thinking', content: 'Extracting monitoring insights...' })
     const knowledge = await this.extractKnowledge(topic, searchResults)
-    console.log(`[ResearchAgent] Extracted ${knowledge.keyMetrics.length} metrics, ${knowledge.bestPractices.length} practices`)
+    log.info({ metrics: knowledge.keyMetrics.length, practices: knowledge.bestPractices.length }, 'extracted monitoring knowledge')
 
     const rawContext = searchResults.length > 0
       ? `Web search results:\n${searchResults.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
@@ -175,7 +175,7 @@ Return JSON: { keyMetrics: [...], metricPrefixes: [...], monitoringApproach: "..
       })
 
       const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      console.log(`[ResearchAgent] LLM extraction raw (first 300): ${cleaned.slice(0, 300)}`)
+      log.debug({ raw: cleaned.slice(0, 300) }, 'LLM extraction raw output')
       const parsed = JSON.parse(cleaned) as ExtractedKnowledge
 
       return {
@@ -187,7 +187,7 @@ Return JSON: { keyMetrics: [...], metricPrefixes: [...], monitoringApproach: "..
       }
     }
     catch (err) {
-      console.error('[ResearchAgent] extractKnowledge failed:', err instanceof Error ? err.message : err)
+      log.error({ err }, 'extractKnowledge failed')
       return FALLBACK_KNOWLEDGE
     }
   }

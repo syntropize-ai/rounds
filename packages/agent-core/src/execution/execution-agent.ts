@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_LLM_MODEL, LLMUnavailableError } from '@agentic-obs/common';
+import { createLogger, DEFAULT_LLM_MODEL, LLMUnavailableError } from '@agentic-obs/common';
+
+const log = createLogger('execution-agent');
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { ActionGuard, CredentialResolver } from '@agentic-obs/guardrails';
 import type { AdapterRegistry } from './adapter-registry.js';
@@ -207,10 +209,10 @@ export class LLMExecutionAgent {
     try {
       const dryRun = await adapter.dryRun(boundAction);
       if (dryRun.warnings.length > 0) {
-        console.warn('[ExecutionAgent] dryRun warnings:', dryRun.warnings);
+        log.warn({ warnings: dryRun.warnings }, 'dryRun warnings');
       }
     } catch (err) {
-      console.warn('[ExecutionAgent] dryRun failed (proceeding):', err);
+      log.warn({ err }, 'dryRun failed (proceeding)');
     }
 
     let result: ExecutionResult;

@@ -15,6 +15,7 @@ export class AlertRuleStore implements Persistable {
   private history: AlertHistoryEntry[] = [];
   private silences = new Map<string, AlertSilence>();
   private policies = new Map<string, NotificationPolicy>();
+  private readonly workspaces = new Map<string, string>();
   private listeners: Array<(event: 'created' | 'updated' | 'deleted', rule: AlertRule) => void> = [];
 
   create(data: Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>): AlertRule {
@@ -29,6 +30,8 @@ export class AlertRuleStore implements Persistable {
       updatedAt: now,
     };
     this.rules.set(rule.id, rule);
+    if (data.workspaceId)
+      this.workspaces.set(rule.id, data.workspaceId);
     markDirty();
     this.notify('created', rule);
     return rule;
@@ -65,6 +68,16 @@ export class AlertRuleStore implements Persistable {
     if (filter?.limit)
       list = list.slice(0, filter.limit);
     return { list, total };
+  }
+
+  findByWorkspace(workspaceId: string): AlertRule[] {
+    return [...this.rules.values()].filter(
+      (r) => this.workspaces.get(r.id) === workspaceId,
+    );
+  }
+
+  getWorkspaceId(id: string): string | undefined {
+    return this.workspaces.get(id);
   }
 
   update(id: string, patch: Partial<Omit<AlertRule, 'id' | 'createdAt'>>): AlertRule | undefined {

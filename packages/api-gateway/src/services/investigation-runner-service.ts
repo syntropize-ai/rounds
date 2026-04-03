@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
+import { createLogger } from '@agentic-obs/common';
 import type { Evidence, Hypothesis, InvestigationStep } from '@agentic-obs/common';
+
+const log = createLogger('investigation-runner');
 import type { ExplanationResult } from '@agentic-obs/agent-core';
 import type { CompletionMessage, LLMGateway } from '@agentic-obs/llm-gateway';
 import { PrometheusHttpClient } from '@agentic-obs/adapters';
@@ -146,7 +149,7 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
       );
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[LiveOrchestratorRunner] Investigation ${investigationId} failed`, errorMsg);
+      log.error({ investigationId, error: errorMsg }, 'investigation failed');
 
       const conclusion: ExplanationResult = {
         summary: `Investigation failed: ${errorMsg}`,
@@ -226,7 +229,7 @@ export class LiveOrchestratorRunner implements OrchestratorRunner {
         queries: step.queries,
       }));
     } catch (err) {
-      console.warn('[LiveOrchestratorRunner] Planning failed, using defaults', err instanceof Error ? err.message : err);
+      log.warn({ err }, 'planning failed, using defaults');
 
       return [
         {

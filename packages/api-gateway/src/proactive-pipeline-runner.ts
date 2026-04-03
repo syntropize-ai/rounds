@@ -105,7 +105,9 @@ export async function runProactivePipeline(): Promise<void> {
     void queue.enqueue('correlate', {
       symptoms: draft.symptoms,
       changes: draft.changes,
-    }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
+    }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } }).catch((err: unknown) => {
+      log.error({ err: err instanceof Error ? err.message : err }, 'failed to enqueue correlation job');
+    });
   });
 
   pipeline.start();

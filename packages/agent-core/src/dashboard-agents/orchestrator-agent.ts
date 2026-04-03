@@ -1,9 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import type {
-  LLMGateway,
-  CompletionMessage,
-} from '@agentic-obs/llm-gateway'
-import type {
   DashboardSseEvent,
   DashboardAction,
   DashboardMessage,
@@ -17,13 +13,13 @@ import type {
   IAlertRuleStore,
   DatasourceConfig,
 } from './types.js'
+import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import { DashboardGeneratorAgent } from './dashboard-generator-agent.js'
 import { PanelAdderAgent } from './panel-adder-agent.js'
 import { InvestigationAgent } from './investigation-agent.js'
 import { ActionExecutor } from './action-executor.js'
 import { AlertRuleAgent } from './alert-rule-agent.js'
-
-const MAX_ITERATIONS = 15
+import { ReActLoop, type ReActStep } from './react-loop.js'
 
 export interface OrchestratorDeps {
   gateway: LLMGateway
@@ -37,14 +33,8 @@ export interface OrchestratorDeps {
   /** All configured datasources - used to inform the LLM about available environments */
   allDatasources?: DatasourceConfig[]
   sendEvent: (event: DashboardSseEvent) => void
-}
-
-interface ReActStep {
-  thought: string
-  /** Brief conversational reply shown to user before executing the action */
-  message?: string
-  action: string
-  args: Record<string, unknown>
+  /** Maximum total tokens per chat message. Default: 50000 */
+  maxTokenBudget?: number
 }
 
 export class OrchestratorAgent {
@@ -53,6 +43,7 @@ export class OrchestratorAgent {
   private readonly panelAdderAgent: PanelAdderAgent
   private readonly investigationAgent?: InvestigationAgent
   private readonly alertRuleAgent: AlertRuleAgent
+  private readonly reactLoop: ReActLoop
 
   constructor(private deps: OrchestratorDeps) {
     this.actionExecutor = new ActionExecutor(deps.store, deps.sendEvent)
@@ -85,6 +76,13 @@ export class OrchestratorAgent {
       prometheusHeaders: deps.prometheusHeaders,
     })
 
+    this.reactLoop = new ReActLoop({
+      gateway: deps.gateway,
+      model: deps.model,
+      sendEvent: deps.sendEvent,
+      maxTokenBudget: deps.maxTokenBudget,
+    })
+
     console.log(`[Orchestrator] init: prometheusUrl=${deps.prometheusUrl ? 'SET' : 'UNSET'}, investigationAgent=${this.investigationAgent ? 'YES' : 'NO'}`)
   }
 
@@ -93,423 +91,362 @@ export class OrchestratorAgent {
     if (!dashboard)
       throw new Error(`Dashboard ${dashboardId} not found`)
 
-    // Always use the ReAct loop - LLM classifies intent (generate, investigate, add panels, etc.)
-    return this.runReActLoop(dashboardId, dashboard, message)
-  }
-
-  // ReAct loop - classifies intent and delegates to appropriate tool
-  private async runReActLoop(dashboardId: string, dashboard: Dashboard, message: string): Promise<string> {
     const history = this.deps.conversationStore.getMessages(dashboardId)
     const systemPrompt = this.buildSystemPrompt(dashboard, history)
-    const observations: Array<{ action: string, args: Record<string, unknown>, result: string }> = []
 
-    for (let i = 0; i < MAX_ITERATIONS; i++) {
-      const messages = this.buildMessages(systemPrompt, message, observations)
+    return this.reactLoop.runLoop(
+      systemPrompt,
+      message,
+      (step) => this.executeAction(dashboardId, step),
+    )
+  }
 
-      let step: ReActStep
-      try {
-        const resp = await this.deps.gateway.complete(messages, {
-          model: this.deps.model,
-          maxTokens: 2048,
-          temperature: 0,
-          responseFormat: 'json',
-        })
+  private async executeAction(dashboardId: string, step: ReActStep): Promise<string | null> {
+    const { action, args } = step
 
-        const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-        step = JSON.parse(cleaned) as ReActStep
-      }
-      catch {
-        observations.push({ action: 'parse_error', args: {}, result: 'LLM returned invalid JSON - retrying.' })
-        continue
-      }
+    try {
+      switch (action) {
+        case 'generate_dashboard': {
+          const goal = String(args.goal ?? '')
+          const scopeArg = args.scope as string | undefined
+          const scope = ['single', 'group', 'comprehensive'].includes(scopeArg as 'single' | 'group' | 'comprehensive')
+            ? (scopeArg as 'single' | 'group' | 'comprehensive')
+            : 'comprehensive'
 
-      const { thought, message: chatReply, action, args } = step
-      console.log(`[Orchestrator] ReAct step ${i}: action="${action}" message="${chatReply?.slice(0, 80)}" args=${JSON.stringify(args).slice(0, 200)}`)
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'generate_dashboard',
+            args: { goal, scope },
+            displayText: `Generating dashboard: ${goal} (${scope})`,
+          })
 
-      // thought is internal reasoning - not sent to the user
-      // Send conversational message to user before executing the action
-      if (chatReply) {
-        this.deps.sendEvent({ type: 'reply', content: chatReply })
-      }
+          const currentDash = await this.deps.store.findById(dashboardId)
+          if (!currentDash)
+            throw new Error('Dashboard not found')
 
-      if (action === 'reply') {
-        const text = chatReply ?? (typeof args.text === 'string' ? args.text : '')
-        if (!chatReply) {
-          this.deps.sendEvent({ type: 'reply', content: text })
-        }
-        return text
-      }
-
-      if (action === 'ask_user') {
-        const question = chatReply ?? (typeof args.question === 'string' ? args.question : '')
-        if (!chatReply && question) {
-          this.deps.sendEvent({ type: 'reply', content: question })
-        }
-        // Break the loop - the user will respond in their next message
-        return question
-      }
-
-      let observationText: string
-
-      try {
-        switch (action) {
-          case 'generate_dashboard': {
-            const goal = String(args.goal ?? '')
-            const scopeArg = args.scope as string | undefined
-            const scope = ['single', 'group', 'comprehensive'].includes(scopeArg as 'single' | 'group' | 'comprehensive')
-              ? (scopeArg as 'single' | 'group' | 'comprehensive')
-              : 'comprehensive'
-
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'generate_dashboard',
-              args: { goal, scope },
-              displayText: `Generating dashboard: ${goal} (${scope})`,
-            })
-
-            const currentDash = await this.deps.store.findById(dashboardId)
-            if (!currentDash)
-              throw new Error('Dashboard not found')
-
-            const onGroupDone = async (panels: import('@agentic-obs/common').PanelConfig[]) => {
-              await this.actionExecutor.execute(dashboardId, [{ type: 'add_panels', panels }])
-            }
-
-            const result = await this.generatorAgent.generate({
-              goal,
-              scope,
-              existingPanels: currentDash.panels,
-              existingVariables: currentDash.variables,
-            }, onGroupDone)
-
-            // Apply title if provided
-            if (result.title) {
-              await this.actionExecutor.execute(dashboardId, [{
-                type: 'set_title',
-                title: result.title,
-                ...(result.description ? { description: result.description } : {}),
-              }])
-            }
-
-            // Panels already added progressively via onGroupDone
-            // Apply variables
-            if (result.variables && result.variables.length > 0) {
-              for (const variable of result.variables) {
-                await this.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }])
-              }
-            }
-
-            observationText
-              = `Generated ${result.panels.length} panels`
-              + (result.variables?.length ? ` and ${result.variables.length} variables` : '')
-
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'generate_dashboard',
-              summary: observationText,
-              success: result.panels.length > 0,
-            })
-            break
+          const onGroupDone = async (panels: import('@agentic-obs/common').PanelConfig[]) => {
+            await this.actionExecutor.execute(dashboardId, [{ type: 'add_panels', panels }])
           }
 
-          case 'add_panels': {
-            const goal = String(args.goal ?? '')
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'add_panels',
-              args: { goal },
-              displayText: `Adding panels: ${goal}`,
-            })
+          const result = await this.generatorAgent.generate({
+            goal,
+            scope,
+            existingPanels: currentDash.panels,
+            existingVariables: currentDash.variables,
+          }, onGroupDone)
 
-            const currentDash = await this.deps.store.findById(dashboardId)
-            if (!currentDash)
-              throw new Error('Dashboard not found')
-
-            const result = await this.panelAdderAgent.addPanels({
-              goal,
-              existingPanels: currentDash.panels,
-              existingVariables: currentDash.variables,
-              availableMetrics: [],
-              labelsByMetric: {},
-              gridNextRow: currentDash.panels.length > 0
-                ? Math.max(...currentDash.panels.map((p) => p.row + p.height))
-                : 0,
-            })
-
-            if (result.panels.length > 0) {
-              await this.actionExecutor.execute(dashboardId, [{ type: 'add_panels', panels: result.panels }])
-            }
-
-            if (result.variables && result.variables.length > 0) {
-              for (const variable of result.variables) {
-                await this.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }])
-              }
-            }
-
-            observationText
-              = `Added ${result.panels.length} panel(s)`
-              + (result.variables?.length ? ` and ${result.variables.length} variable(s)` : '')
-
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'add_panels',
-              summary: observationText,
-              success: result.panels.length > 0,
-            })
-            break
-          }
-
-          case 'investigate': {
-            const goal = String(args.goal ?? '')
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'investigate',
-              args: { goal },
-              displayText: `Investigating: ${goal}`,
-            })
-
-            if (!this.investigationAgent) {
-              observationText = 'Investigation requires Prometheus - no Prometheus URL configured.'
-              this.deps.sendEvent({ type: 'tool_result', tool: 'investigate', summary: observationText, success: false })
-              break
-            }
-
-            const currentDash = await this.deps.store.findById(dashboardId)
-            if (!currentDash)
-              throw new Error('Dashboard not found')
-
-            const result = await this.investigationAgent.investigate({
-              goal,
-              existingPanels: currentDash.panels,
-              gridNextRow: currentDash.panels.length > 0
-                ? Math.max(...currentDash.panels.map((p) => p.row + p.height))
-                : 0,
-            })
-
-            // Investigation panels are only shown in the report view, NOT added to the dashboard
-            // Mark this as an investigation and set a meaningful title
-            await this.deps.store.update(dashboardId, { type: 'investigation' })
+          if (result.title) {
             await this.actionExecutor.execute(dashboardId, [{
               type: 'set_title',
-              title: `Investigation: ${goal.length > 60 ? goal.slice(0, 60) + '...' : goal}`,
+              title: result.title,
+              ...(result.description ? { description: result.description } : {}),
             }])
-
-            // Emit the full investigation report for left-side report view
-            this.deps.sendEvent({ type: 'investigation_report', report: result.report })
-
-            // Persist the report so it can be retrieved later via API
-            this.deps.investigationReportStore.save({
-              id: randomUUID(),
-              dashboardId,
-              goal,
-              summary: result.summary,
-              sections: result.report.sections,
-              createdAt: new Date().toISOString(),
-            })
-
-            observationText = result.summary
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'investigate',
-              summary: `Investigation complete - ${result.panels.length} evidence panels added`,
-              success: true,
-            })
-            break
           }
 
-          case 'remove_panels': {
-            const panelIds = Array.isArray(args.panelIds) ? (args.panelIds as string[]) : []
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'remove_panels',
-              args: { panelIds },
-              displayText: `Removing ${panelIds.length} panel(s)`,
-            })
-
-            const removeAction: DashboardAction = { type: 'remove_panels', panelIds }
-            await this.actionExecutor.execute(dashboardId, [removeAction])
-            observationText = `Removed ${panelIds.length} panel(s).`
-
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'remove_panels',
-              summary: `Removed ${panelIds.length} panels`,
-              success: true,
-            })
-            break
-          }
-
-          case 'modify_panel': {
-            const panelId = String(args.panelId ?? '')
-            const patch = (args.patch ?? {}) as Partial<Dashboard['panels'][number]>
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'modify_panel',
-              args: { panelId, patch },
-              displayText: `Modifying panel: ${panelId}`,
-            })
-
-            const modifyAction: DashboardAction = { type: 'modify_panel', panelId, patch }
-            await this.actionExecutor.execute(dashboardId, [modifyAction])
-            observationText = `Modified panel ${panelId}.`
-
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'modify_panel',
-              summary: `Panel ${panelId} modified`,
-              success: true,
-            })
-            break
-          }
-
-          case 'rearrange': {
-            const layout: Array<{ panelId: string, row: number, col: number, width: number, height: number }>
-              = Array.isArray(args.layout)
-                ? args.layout as Array<{ panelId: string, row: number, col: number, width: number, height: number }>
-                : []
-
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'rearrange',
-              args: { layout },
-              displayText: `Rearranging ${layout.length} panel(s)`,
-            })
-
-            const rearrangeAction: DashboardAction = { type: 'rearrange', layout }
-            await this.actionExecutor.execute(dashboardId, [rearrangeAction])
-            observationText = `Rearranged ${layout.length} panel(s).`
-
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'rearrange',
-              summary: `Rearranged ${layout.length} panels`,
-              success: true,
-            })
-            break
-          }
-
-          case 'add_variable': {
-            const variable = args.variable as DashboardVariable
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'add_variable',
-              args: { variable },
-              displayText: `Adding variable: ${variable?.name ?? ''}`,
-            })
-
-            const addVarAction: DashboardAction = { type: 'add_variable', variable }
-            await this.actionExecutor.execute(dashboardId, [addVarAction])
-            observationText = `Added variable: ${variable?.name ?? ''}.`
-
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'add_variable',
-              summary: `Variable ${variable?.name ?? ''} added`,
-              success: true,
-            })
-            break
-          }
-
-          case 'set_title': {
-            const title = String(args.title ?? '')
-            const description = typeof args.description === 'string' ? args.description : undefined
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'set_title',
-              args: { title, ...(description !== undefined ? { description } : {}) },
-              displayText: `Setting title: "${title}"`,
-            })
-
-            const titleAction: DashboardAction = {
-              type: 'set_title',
-              title,
-              ...(description !== undefined ? { description } : {}),
+          if (result.variables && result.variables.length > 0) {
+            for (const variable of result.variables) {
+              await this.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }])
             }
-            await this.actionExecutor.execute(dashboardId, [titleAction])
-            observationText = `Title set to "${title}".`
-
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'set_title',
-              summary: `Title updated to "${title}"`,
-              success: true,
-            })
-            break
           }
 
-          case 'create_alert_rule': {
-            const prompt = String(args.prompt ?? args.goal ?? '')
-            this.deps.sendEvent({
-              type: 'tool_call',
-              tool: 'create_alert_rule',
-              args: { prompt },
-              displayText: `Creating alert rule: ${prompt.slice(0, 60)}`,
-            })
+          const observationText
+            = `Generated ${result.panels.length} panels`
+            + (result.variables?.length ? ` and ${result.variables.length} variables` : '')
 
-            // Extract dashboard context - existing queries, variables, title
-            const currentDash = await this.deps.store.findById(dashboardId)
-            const existingQueries = (currentDash?.panels ?? [])
-              .flatMap((p) => (p.queries ?? []).map((q) => q.expr))
-              .filter(Boolean)
-            const variables = (currentDash?.variables ?? []).map((v) => ({
-              name: v.name,
-              value: v.current,
-            }))
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'generate_dashboard',
+            summary: observationText,
+            success: result.panels.length > 0,
+          })
+          return observationText
+        }
 
-            const generated = await this.alertRuleAgent.generate(prompt, {
-              dashboardId,
-              dashboardTitle: currentDash?.title,
-              existingQueries: existingQueries.length > 0 ? existingQueries : undefined,
-              variables: variables.length > 0 ? variables : undefined,
-            })
+        case 'add_panels': {
+          const goal = String(args.goal ?? '')
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'add_panels',
+            args: { goal },
+            displayText: `Adding panels: ${goal}`,
+          })
 
-            // Save to store - include dashboard context in labels
-            const rule = this.deps.alertRuleStore.create({
-              name: generated.name,
-              description: generated.description,
-              originalPrompt: prompt,
-              condition: generated.condition,
-              evaluationIntervalSec: generated.evaluationIntervalSec,
-              severity: generated.severity,
-              labels: {
-                ...generated.labels,
-                ...(dashboardId ? { dashboardId } : {}),
-              },
-              createdBy: 'llm',
-            })
+          const currentDash = await this.deps.store.findById(dashboardId)
+          if (!currentDash)
+            throw new Error('Dashboard not found')
 
-            observationText = `Created alert rule "${rule.name}" (${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold} for ${rule.condition.forDurationSec}s.${generated.autoInvestigate ? ' Auto-investigation enabled on fire.' : ''}`
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'create_alert_rule',
-              summary: `Alert rule "${rule.name}" created`,
-              success: true,
-            })
-            break
+          const result = await this.panelAdderAgent.addPanels({
+            goal,
+            existingPanels: currentDash.panels,
+            existingVariables: currentDash.variables,
+            availableMetrics: [],
+            labelsByMetric: {},
+            gridNextRow: currentDash.panels.length > 0
+              ? Math.max(...currentDash.panels.map((p) => p.row + p.height))
+              : 0,
+          })
+
+          if (result.panels.length > 0) {
+            await this.actionExecutor.execute(dashboardId, [{ type: 'add_panels', panels: result.panels }])
           }
 
-          default: {
-            observationText = `Unknown action "${action}" - skipping.`
+          if (result.variables && result.variables.length > 0) {
+            for (const variable of result.variables) {
+              await this.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }])
+            }
           }
+
+          const observationText
+            = `Added ${result.panels.length} panel(s)`
+            + (result.variables?.length ? ` and ${result.variables.length} variable(s)` : '')
+
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'add_panels',
+            summary: observationText,
+            success: result.panels.length > 0,
+          })
+          return observationText
+        }
+
+        case 'investigate': {
+          const goal = String(args.goal ?? '')
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'investigate',
+            args: { goal },
+            displayText: `Investigating: ${goal}`,
+          })
+
+          if (!this.investigationAgent) {
+            const observationText = 'Investigation requires Prometheus - no Prometheus URL configured.'
+            this.deps.sendEvent({ type: 'tool_result', tool: 'investigate', summary: observationText, success: false })
+            return observationText
+          }
+
+          const currentDash = await this.deps.store.findById(dashboardId)
+          if (!currentDash)
+            throw new Error('Dashboard not found')
+
+          const result = await this.investigationAgent.investigate({
+            goal,
+            existingPanels: currentDash.panels,
+            gridNextRow: currentDash.panels.length > 0
+              ? Math.max(...currentDash.panels.map((p) => p.row + p.height))
+              : 0,
+          })
+
+          await this.deps.store.update(dashboardId, { type: 'investigation' })
+          await this.actionExecutor.execute(dashboardId, [{
+            type: 'set_title',
+            title: `Investigation: ${goal.length > 60 ? goal.slice(0, 60) + '...' : goal}`,
+          }])
+
+          this.deps.sendEvent({ type: 'investigation_report', report: result.report })
+
+          this.deps.investigationReportStore.save({
+            id: randomUUID(),
+            dashboardId,
+            goal,
+            summary: result.summary,
+            sections: result.report.sections,
+            createdAt: new Date().toISOString(),
+          })
+
+          const observationText = result.summary
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'investigate',
+            summary: `Investigation complete - ${result.panels.length} evidence panels added`,
+            success: true,
+          })
+          return observationText
+        }
+
+        case 'remove_panels': {
+          const panelIds = Array.isArray(args.panelIds) ? (args.panelIds as string[]) : []
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'remove_panels',
+            args: { panelIds },
+            displayText: `Removing ${panelIds.length} panel(s)`,
+          })
+
+          const removeAction: DashboardAction = { type: 'remove_panels', panelIds }
+          await this.actionExecutor.execute(dashboardId, [removeAction])
+          const observationText = `Removed ${panelIds.length} panel(s).`
+
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'remove_panels',
+            summary: `Removed ${panelIds.length} panels`,
+            success: true,
+          })
+          return observationText
+        }
+
+        case 'modify_panel': {
+          const panelId = String(args.panelId ?? '')
+          const patch = (args.patch ?? {}) as Partial<Dashboard['panels'][number]>
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'modify_panel',
+            args: { panelId, patch },
+            displayText: `Modifying panel: ${panelId}`,
+          })
+
+          const modifyAction: DashboardAction = { type: 'modify_panel', panelId, patch }
+          await this.actionExecutor.execute(dashboardId, [modifyAction])
+          const observationText = `Modified panel ${panelId}.`
+
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'modify_panel',
+            summary: `Panel ${panelId} modified`,
+            success: true,
+          })
+          return observationText
+        }
+
+        case 'rearrange': {
+          const layout: Array<{ panelId: string, row: number, col: number, width: number, height: number }>
+            = Array.isArray(args.layout)
+              ? args.layout as Array<{ panelId: string, row: number, col: number, width: number, height: number }>
+              : []
+
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'rearrange',
+            args: { layout },
+            displayText: `Rearranging ${layout.length} panel(s)`,
+          })
+
+          const rearrangeAction: DashboardAction = { type: 'rearrange', layout }
+          await this.actionExecutor.execute(dashboardId, [rearrangeAction])
+          const observationText = `Rearranged ${layout.length} panel(s).`
+
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'rearrange',
+            summary: `Rearranged ${layout.length} panels`,
+            success: true,
+          })
+          return observationText
+        }
+
+        case 'add_variable': {
+          const variable = args.variable as DashboardVariable
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'add_variable',
+            args: { variable },
+            displayText: `Adding variable: ${variable?.name ?? ''}`,
+          })
+
+          const addVarAction: DashboardAction = { type: 'add_variable', variable }
+          await this.actionExecutor.execute(dashboardId, [addVarAction])
+          const observationText = `Added variable: ${variable?.name ?? ''}.`
+
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'add_variable',
+            summary: `Variable ${variable?.name ?? ''} added`,
+            success: true,
+          })
+          return observationText
+        }
+
+        case 'set_title': {
+          const title = String(args.title ?? '')
+          const description = typeof args.description === 'string' ? args.description : undefined
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'set_title',
+            args: { title, ...(description !== undefined ? { description } : {}) },
+            displayText: `Setting title: "${title}"`,
+          })
+
+          const titleAction: DashboardAction = {
+            type: 'set_title',
+            title,
+            ...(description !== undefined ? { description } : {}),
+          }
+          await this.actionExecutor.execute(dashboardId, [titleAction])
+          const observationText = `Title set to "${title}".`
+
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'set_title',
+            summary: `Title updated to "${title}"`,
+            success: true,
+          })
+          return observationText
+        }
+
+        case 'create_alert_rule': {
+          const prompt = String(args.prompt ?? args.goal ?? '')
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'create_alert_rule',
+            args: { prompt },
+            displayText: `Creating alert rule: ${prompt.slice(0, 60)}`,
+          })
+
+          const currentDash = await this.deps.store.findById(dashboardId)
+          const existingQueries = (currentDash?.panels ?? [])
+            .flatMap((p) => (p.queries ?? []).map((q) => q.expr))
+            .filter(Boolean)
+          const variables = (currentDash?.variables ?? []).map((v) => ({
+            name: v.name,
+            value: v.current,
+          }))
+
+          const generated = await this.alertRuleAgent.generate(prompt, {
+            dashboardId,
+            dashboardTitle: currentDash?.title,
+            existingQueries: existingQueries.length > 0 ? existingQueries : undefined,
+            variables: variables.length > 0 ? variables : undefined,
+          })
+
+          const rule = this.deps.alertRuleStore.create({
+            name: generated.name,
+            description: generated.description,
+            originalPrompt: prompt,
+            condition: generated.condition,
+            evaluationIntervalSec: generated.evaluationIntervalSec,
+            severity: generated.severity,
+            labels: {
+              ...generated.labels,
+              ...(dashboardId ? { dashboardId } : {}),
+            },
+            createdBy: 'llm',
+          })
+
+          const observationText = `Created alert rule "${rule.name}" (${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold} for ${rule.condition.forDurationSec}s.${generated.autoInvestigate ? ' Auto-investigation enabled on fire.' : ''}`
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'create_alert_rule',
+            summary: `Alert rule "${rule.name}" created`,
+            success: true,
+          })
+          return observationText
+        }
+
+        default: {
+          return `Unknown action "${action}" - skipping.`
         }
       }
-      catch (err) {
-        observationText = `Action "${action}" failed: ${err instanceof Error ? err.message : String(err)}`
-        this.deps.sendEvent({
-          type: 'tool_result',
-          tool: action,
-          summary: observationText,
-          success: false,
-        })
-      }
-
-      observations.push({ action, args: step.args ?? {}, result: observationText })
     }
-
-    // Max iterations reached - emit a fallback reply
-    const fallback = 'I have completed the requested changes to your dashboard.'
-    this.deps.sendEvent({ type: 'reply', content: fallback })
-    return fallback
+    catch (err) {
+      const observationText = `Action "${action}" failed: ${err instanceof Error ? err.message : String(err)}`
+      this.deps.sendEvent({
+        type: 'tool_result',
+        tool: action,
+        summary: observationText,
+        success: false,
+      })
+      return observationText
+    }
   }
 
   private buildSystemPrompt(dashboard: Dashboard, history: DashboardMessage[]): string {
@@ -622,29 +559,5 @@ Return JSON on every step.
 
 For the final reply:
 { "thought": "done", "message": "Here's a summary of what I did...", "action": "reply", "args": {} }`
-  }
-
-  private buildMessages(
-    systemPrompt: string,
-    userMessage: string,
-    observations: Array<{ action: string, args: Record<string, unknown>, result: string }>,
-  ): CompletionMessage[] {
-    const messages: CompletionMessage[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
-    ]
-
-    for (const obs of observations) {
-      messages.push({
-        role: 'assistant',
-        content: JSON.stringify({ action: obs.action, args: obs.args }),
-      })
-      messages.push({
-        role: 'user',
-        content: `Observation: ${obs.result}`,
-      })
-    }
-
-    return messages
   }
 }

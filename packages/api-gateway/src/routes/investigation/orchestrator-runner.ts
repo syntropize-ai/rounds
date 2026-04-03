@@ -1,8 +1,11 @@
 // Orchestrator runner - decouples the HTTP router from agent pipeline details.
 // Inject OrchestratorRunner into createInvestigationRouter for testability.
 
+import { createLogger } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/agent-core';
 import type { IGatewayInvestigationStore, IGatewayFeedStore } from '../../repositories/types.js';
+
+const log = createLogger('orchestrator-runner');
 
 export interface OrchestratorRunInput {
   investigationId: string;
@@ -26,7 +29,9 @@ export class StubOrchestratorRunner implements OrchestratorRunner {
   ) {}
 
   run(input: OrchestratorRunInput): void {
-    void this.execute(input);
+    void this.execute(input).catch((err) => {
+      log.error({ err }, 'async execution failed');
+    });
   }
 
   private async execute(input: OrchestratorRunInput): Promise<void> {

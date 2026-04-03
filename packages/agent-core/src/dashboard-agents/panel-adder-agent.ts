@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@agentic-obs/common'
 import type {
   PanelConfig,
   PanelQuery,
   PanelVisualization,
   DashboardVariable,
 } from '@agentic-obs/common'
+
+const log = createLogger('panel-adder')
 import type {
   GeneratorDeps,
   RawPanelSpec,
@@ -171,7 +174,7 @@ ONLY return the JSON array.`
       return Array.isArray(parsed) ? parsed as RawPanelSpec[] : []
     }
     catch (err) {
-      console.warn('[PanelAdder] generate failed:', err instanceof Error ? err.message : err)
+      log.warn({ err }, 'generate failed')
       return []
     }
   }

@@ -1,7 +1,10 @@
 // ExplanationAgent - generates structured SRE conclusions from hypotheses + evidence
 
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
+import { createLogger } from '@agentic-obs/common';
 import type { Hypothesis, Action } from '@agentic-obs/common';
+
+const log = createLogger('explanation-agent');
 import type { Agent, AgentContext, AgentResult } from '../index.js';
 import type {
   ExplanationInput,
@@ -219,7 +222,7 @@ export class ExplanationAgent implements Agent<ExplanationInput, StructuredConcl
 
     const validation = structuredConclusionSchema.safeParse(conclusion);
     if (!validation.success) {
-      console.warn('[ExplanationAgent] StructuredConclusion schema validation failed:', validation.error.format());
+      log.warn({ validationError: validation.error.format() }, 'StructuredConclusion schema validation failed');
     }
 
     return conclusion;

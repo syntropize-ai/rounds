@@ -11,3 +11,5 @@ export * from './dashboard.js';
 export * from './alert.js';
 export * from './postmortem.js';
 export * from './explanation.js';
+export * from './workspace.js';
+export * from './version.js';

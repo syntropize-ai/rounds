@@ -3,6 +3,7 @@
 import type { Dashboard, DashboardStatus, DashboardVariable, PanelConfig } from '@agentic-obs/common'
 import type { Persistable } from './persistence.js'
 import { markDirty } from './persistence.js'
+import { defaultVersionStore } from './version-store.js'
 
 function uid(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -49,6 +50,7 @@ export class DashboardStore implements Persistable {
     this.dashboards.set(id, dashboard)
     this.evictIfNeeded()
     markDirty()
+    defaultVersionStore.record('dashboard', id, dashboard, params.userId, 'human', 'Initial creation')
     return dashboard
   }
 
@@ -81,6 +83,14 @@ export class DashboardStore implements Persistable {
     return all.filter((d) => d.userId === userId)
   }
 
+  listByWorkspace(workspaceId: string): Dashboard[] {
+    const result: Dashboard[] = []
+    for (const d of this.dashboards.values()) {
+      if (d.workspaceId === workspaceId) result.push(d)
+    }
+    return result
+  }
+
   update(
     id: string,
     patch: Partial<Pick<Dashboard, 'type' | 'title' | 'description' | 'panels' | 'variables' | 'refreshIntervalSec' | 'updatedAt' | 'folder'>>,
@@ -91,6 +101,7 @@ export class DashboardStore implements Persistable {
     const updated = { ...d, ...patch, updatedAt: new Date().toISOString() }
     this.dashboards.set(id, updated)
     markDirty()
+    defaultVersionStore.record('dashboard', id, updated, d.userId, 'human')
     return updated
   }
 

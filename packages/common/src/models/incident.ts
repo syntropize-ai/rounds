@@ -35,6 +35,7 @@ export interface Incident {
   investigationIds: string[];
   timeline: IncidentTimelineEntry[];
   assignee?: string;
+  workspaceId?: string;
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string;

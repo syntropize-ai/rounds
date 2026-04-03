@@ -32,6 +32,9 @@ export interface AlertRule {
   // Investigation link
   investigationId?: string; // Report ID from auto/manual investigation
 
+  // Workspace
+  workspaceId?: string;
+
   // Metadata
   createdBy: string;
   createdAt: string;

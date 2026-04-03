@@ -14,4 +14,6 @@ export * from './dashboard-store.js';
 export * from './conversation-store.js';
 export * from './investigation-report-store.js';
 export * from './alert-rule-provider-adapter.js';
+export * from './workspace-store.js';
+export * from './version-store.js';
 export * from './interfaces.js';

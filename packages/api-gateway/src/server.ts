@@ -27,6 +27,8 @@ import { createDashboardRouter } from './routes/dashboard/router.js';
 import { alertRulesRouter } from './routes/alert-rules.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { createIntentRouter } from './routes/intent.js';
+import { createWorkspaceRouter } from './routes/workspaces.js';
+import { createVersionRouter } from './routes/versions.js';
 import {
   createRepositories,
   createInMemoryRepositories,
@@ -116,6 +118,8 @@ export function createApp(): Application {
   app.use('/api/query', createQueryRouter());
   app.use('/api/dashboards', createDashboardRouter({ store: stores.dashboards }));
   app.use('/api/alert-rules', alertRulesRouter);
+  app.use('/api/workspaces', createWorkspaceRouter());
+  app.use('/api/versions', createVersionRouter());
 
   // 404 for unmatched routes
   app.use(notFoundHandler);

@@ -1,3 +1,5 @@
+import type { PublishStatus } from './version.js';
+
 export type PanelVisualization =
   | 'time_series'
   | 'stat'
@@ -125,6 +127,9 @@ export interface Dashboard {
   // When true (default), discovery probes Prometheus for existing metrics. When false, panels are built from best-practice conventions only.
   useExistingMetrics: boolean;
   folder?: string;
+  workspaceId?: string;
+  version?: number;
+  publishStatus?: PublishStatus;
   createdAt: string;
   updatedAt: string;
   error?: string;

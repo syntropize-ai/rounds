@@ -83,6 +83,14 @@ export {
   // Alert Rule Provider Adapter
   AlertRuleStoreProvider,
 
+  // Workspace Store
+  WorkspaceStore,
+  defaultWorkspaceStore,
+
+  // Version Store
+  VersionStore,
+  defaultVersionStore,
+
   // Gateway Interfaces
   type MaybeAsync,
   type IGatewayInvestigationStore,

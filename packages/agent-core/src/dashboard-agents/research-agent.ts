@@ -1,3 +1,4 @@
+import { parseLlmJson } from './llm-json.js'
 import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateway'
 import { createLogger } from '@agentic-obs/common'
 import type { DashboardSseEvent } from '@agentic-obs/common'
@@ -174,9 +175,8 @@ Return JSON: { keyMetrics: [...], metricPrefixes: [...], monitoringApproach: "..
         responseFormat: 'json',
       })
 
-      const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      log.debug({ raw: cleaned.slice(0, 300) }, 'LLM extraction raw output')
-      const parsed = JSON.parse(cleaned) as ExtractedKnowledge
+      log.debug({ raw: resp.content.slice(0, 300) }, 'LLM extraction raw output')
+      const parsed = parseLlmJson(resp.content) as ExtractedKnowledge
 
       return {
         keyMetrics: Array.isArray(parsed.keyMetrics) ? parsed.keyMetrics : [],

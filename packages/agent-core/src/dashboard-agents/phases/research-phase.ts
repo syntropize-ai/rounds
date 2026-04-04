@@ -1,3 +1,4 @@
+import { parseLlmJson } from '../llm-json.js'
 import { createLogger } from '@agentic-obs/common'
 import type { DiscoveryResult } from '../discovery-agent.js'
 
@@ -138,8 +139,7 @@ ONLY return the JSON array, nothing else.`,
         responseFormat: 'json',
       })
 
-      const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      const parsed = JSON.parse(cleaned) as unknown
+      const parsed = parseLlmJson(resp.content) as unknown
       if (!Array.isArray(parsed))
         return []
 

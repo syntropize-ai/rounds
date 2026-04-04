@@ -1,3 +1,4 @@
+import { parseLlmJson } from './llm-json.js'
 import { randomUUID } from 'node:crypto'
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import { createLogger } from '@agentic-obs/common'
@@ -271,8 +272,7 @@ ${existingContext}${metricsContext}
         responseFormat: 'json',
       })
 
-      const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      const parsed = JSON.parse(cleaned) as InvestigationPlan
+      const parsed = parseLlmJson(resp.content) as InvestigationPlan
       const queries = Array.isArray(parsed.queries) ? parsed.queries : []
       log.info({ hypothesis: parsed.hypothesis, queryCount: queries.length }, 'investigation plan ready')
       return {
@@ -398,8 +398,7 @@ ${evidenceSummary}
         responseFormat: 'json',
       })
 
-      const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      const parsed = JSON.parse(cleaned) as AnalysisResult
+      const parsed = parseLlmJson(resp.content) as AnalysisResult
 
       return {
         summary: typeof parsed.summary === 'string' ? parsed.summary : 'Investigation complete.',

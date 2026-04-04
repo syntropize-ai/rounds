@@ -1,3 +1,4 @@
+import { parseLlmJson } from './llm-json.js'
 import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateway'
 import { createLogger } from '@agentic-obs/common'
 import type {
@@ -225,8 +226,7 @@ ONLY return the JSON array - no markdown fences, no explanation text.`
         responseFormat: 'json',
       })
 
-      const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      const parsed = JSON.parse(cleaned) as unknown
+      const parsed = parseLlmJson(resp.content) as unknown
       return Array.isArray(parsed) ? parsed as RawPanelSpec[] : []
     }
     catch (err) {

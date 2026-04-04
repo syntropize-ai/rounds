@@ -1,3 +1,4 @@
+import { parseLlmJson } from '../llm-json.js'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@agentic-obs/common'
 import type {
@@ -251,8 +252,8 @@ ONLY return the JSON array without markdown.`
         temperature: 0.2,
         responseFormat: 'json',
       })
-      const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      const parsed = JSON.parse(cleaned) as unknown
+      // Fix invalid JSON escape sequences from LLM (e.g. \s, \d in PromQL regex)
+      const parsed = parseLlmJson(resp.content) as unknown
       return Array.isArray(parsed) ? parsed as RawPanelSpec[] : []
     }
     catch (err) {
@@ -310,8 +311,7 @@ approved = true if overallScore >= 8 AND no severity=error issues.`
         responseFormat: 'json',
       })
 
-      const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-      const parsed = JSON.parse(cleaned) as CriticFeedback
+      const parsed = parseLlmJson(resp.content) as CriticFeedback
       return {
         approved: !!parsed.approved,
         overallScore: typeof parsed.overallScore === 'number' ? parsed.overallScore : 5,

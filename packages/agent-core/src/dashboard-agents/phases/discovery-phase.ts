@@ -1,3 +1,4 @@
+import { parseLlmJson } from '../llm-json.js'
 import { createLogger } from '@agentic-obs/common'
 import type { ResearchResult } from '../research-agent.js'
 
@@ -73,8 +74,7 @@ ${researchContext}${metricsContext}${existingContext}
           responseFormat: 'json',
         })
 
-        const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-        const parsed = JSON.parse(cleaned) as DashboardPlan
+        const parsed = parseLlmJson(resp.content) as DashboardPlan
 
         return {
           title: parsed.title ?? input.goal,

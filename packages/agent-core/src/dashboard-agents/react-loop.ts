@@ -1,3 +1,4 @@
+import { parseLlmJson } from './llm-json.js'
 import type {
   LLMGateway,
   CompletionMessage,
@@ -53,8 +54,7 @@ export class ReActLoop {
           responseFormat: 'json',
         })
 
-        const cleaned = resp.content.replace(/```json\n?/g, '').replace(/```/g, '').trim()
-        step = JSON.parse(cleaned) as ReActStep
+        step = parseLlmJson(resp.content) as ReActStep
       }
       catch {
         observations.push({ action: 'parse_error', args: {}, result: 'LLM returned invalid JSON - retrying.' })

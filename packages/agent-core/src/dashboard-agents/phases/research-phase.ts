@@ -67,22 +67,25 @@ export class ResearchPhase {
               this.deps.prometheusHeaders ?? {},
               sendEvent,
             )
-            const allMetrics = await discoveryAgent.fetchAllMetricNames()
-            const relevant = await this.selectRelevantMetrics(input.goal, allMetrics)
+            // Use full discovery (metrics + labels + samples) so LLM knows real label values
+            const discoveryResult = await discoveryAgent.discover([input.goal])
+            const relevant = discoveryResult.metrics.length > 0
+              ? discoveryResult.metrics
+              : await this.selectRelevantMetrics(input.goal, await discoveryAgent.fetchAllMetricNames())
 
             const result: DiscoveryResult = {
               metrics: relevant,
-              labelsByMetric: {},
-              sampleValues: {},
-              totalMetrics: allMetrics.length,
+              labelsByMetric: discoveryResult.labelsByMetric,
+              sampleValues: discoveryResult.sampleValues,
+              totalMetrics: discoveryResult.totalMetrics,
             }
 
             sendEvent?.({
               type: 'tool_result',
               tool: 'discover',
               summary: relevant.length
-                ? `Found ${relevant.length} relevant metrics (from ${allMetrics.length} total)`
-                : `Scanned ${allMetrics.length} metrics - using best practices`,
+                ? `Found ${relevant.length} relevant metrics (from ${discoveryResult.totalMetrics} total)`
+                : `Scanned ${discoveryResult.totalMetrics} metrics - using best practices`,
               success: true,
             })
             return result

@@ -108,11 +108,11 @@ export class PanelAdderAgent {
       : ''
 
     const metricsSection = input.availableMetrics.length
-      ? `\n## Available Metrics (from Prometheus)\n${input.availableMetrics.slice(0, 80).join('\n')}\nPrefer metrics from this list when they fit the request.\n`
+      ? `\n## Available Metrics (from Prometheus)\nThese are the REAL metrics in this Prometheus instance. ONLY use metrics from this list:\n${input.availableMetrics.slice(0, 80).join('\n')}\n\nDo NOT invent metric names. If a metric is not in this list, it does not exist.\n`
       : ''
 
     const labelsSection = Object.keys(input.labelsByMetric).length
-      ? `\n## Label Dimensions\n${Object.entries(input.labelsByMetric).slice(0, 15).map(([k, v]) => `- ${k}: ${v.join(', ')}`).join('\n')}\n`
+      ? `\n## Label Dimensions & Sample Values\nThese show the REAL label names and values. Use these exact values in your queries:\n${Object.entries(input.labelsByMetric).slice(0, 20).map(([k, v]) => `- ${k}: ${v.join(', ')}`).join('\n')}\n\nDo NOT guess label values like job="api". Use the actual values shown above.\n`
       : ''
 
     const feedbackSection = criticFeedback

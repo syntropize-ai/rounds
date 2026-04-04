@@ -37,7 +37,7 @@ export class DiscoveryAgent {
       content: `Exploring Prometheus for ${patterns.join(', ')} metrics...`,
     })
 
-    // Step 1: Get all metric names and filter by patterns
+    // Step 1: Discover metrics using server-side filtering when possible
     this.sendEvent({
       type: 'tool_call',
       tool: 'discover_metrics',
@@ -45,13 +45,29 @@ export class DiscoveryAgent {
       displayText: `Discovering metrics matching: ${patterns.join(', ')}`,
     })
 
-    const allNames = await this.fetchMetricNames()
-    const filtered = this.filterByPatterns(allNames, patterns)
+    // Try server-side series match first (scales to large Prometheus instances)
+    let filtered: string[] = []
+    let totalMetrics = 0
+    try {
+      const seriesMetrics = await this.fetchMetricsBySeriesMatch(patterns)
+      if (seriesMetrics.length > 0) {
+        filtered = seriesMetrics
+        totalMetrics = seriesMetrics.length // approximate
+      }
+    } catch {
+      // Fallback: fetch all names and filter client-side
+    }
+
+    if (filtered.length === 0) {
+      const allNames = await this.fetchMetricNames()
+      totalMetrics = allNames.length
+      filtered = this.filterByPatterns(allNames, patterns)
+    }
 
     this.sendEvent({
       type: 'tool_result',
       tool: 'discover_metrics',
-      summary: `Found ${filtered.length} matching metrics out of ${allNames.length} total`,
+      summary: `Found ${filtered.length} matching metrics`,
       success: true,
     })
 
@@ -103,8 +119,43 @@ export class DiscoveryAgent {
       metrics: filtered,
       labelsByMetric,
       sampleValues,
-      totalMetrics: allNames.length,
+      totalMetrics,
     }
+  }
+
+  /** Server-side metric discovery via /api/v1/series — scales to large instances */
+  private async fetchMetricsBySeriesMatch(patterns: string[]): Promise<string[]> {
+    const baseUrl = this.prometheusUrl.replace(/\/$/, '')
+    // Convert patterns to PromQL matchers: "http" → {__name__=~".*http.*"}
+    const matchers = patterns
+      .filter((p) => p.trim().length > 0)
+      .map((p) => {
+        const safe = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        return `{__name__=~".*${safe}.*"}`
+      })
+
+    if (matchers.length === 0) return []
+
+    const params = new URLSearchParams()
+    for (const m of matchers) params.append('match[]', m)
+    // Limit time range to last 5 minutes for speed
+    const now = Math.floor(Date.now() / 1000)
+    params.set('start', String(now - 300))
+    params.set('end', String(now))
+
+    const res = await fetch(`${baseUrl}/api/v1/series?${params}`, {
+      headers: this.headers,
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (!res.ok) return []
+
+    const body = await res.json() as PrometheusResponse<Array<Record<string, string>>>
+    const names = new Set<string>()
+    for (const series of (body.data ?? [])) {
+      if (series['__name__']) names.add(series['__name__'])
+    }
+    return [...names].sort()
   }
 
   private async fetchMetricNames(): Promise<string[]> {

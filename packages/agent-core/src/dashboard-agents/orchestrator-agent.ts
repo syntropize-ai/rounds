@@ -20,6 +20,7 @@ import { PanelAdderAgent } from './panel-adder-agent.js'
 import { InvestigationAgent } from './investigation-agent.js'
 import { ActionExecutor } from './action-executor.js'
 import { AlertRuleAgent } from './alert-rule-agent.js'
+import { DiscoveryAgent } from './discovery-agent.js'
 import { ReActLoop, type ReActStep } from './react-loop.js'
 import { VerifierAgent } from '../verification/verifier-agent.js'
 import { agentRegistry } from '../runtime/agent-registry.js'
@@ -319,12 +320,40 @@ export class OrchestratorAgent {
           if (!currentDash)
             throw new Error('Dashboard not found')
 
+          // Discover available metrics and labels before generating panels
+          let availableMetrics: string[] = []
+          let labelsByMetric: Record<string, string[]> = {}
+          if (this.deps.prometheusUrl) {
+            try {
+              const discoveryAgent = new DiscoveryAgent(
+                this.deps.prometheusUrl,
+                this.deps.prometheusHeaders ?? {},
+                this.deps.sendEvent,
+              )
+              const discovery = await discoveryAgent.discover([goal])
+              availableMetrics = discovery.metrics
+              // Build label context with actual values from samples
+              labelsByMetric = discovery.labelsByMetric
+              // Enrich with sample label values so LLM knows e.g. job="prometheus"
+              for (const [metric, sample] of Object.entries(discovery.sampleValues)) {
+                if (sample.sampleLabels.length > 0) {
+                  const valueContext = sample.sampleLabels.map((labels) =>
+                    Object.entries(labels).map(([k, v]) => `${k}="${v}"`).join(', ')
+                  )
+                  labelsByMetric[metric] = [...(labelsByMetric[metric] ?? []), `  sample: {${valueContext[0]}}`]
+                }
+              }
+            } catch (err) {
+              log.warn({ err: err instanceof Error ? err.message : err }, 'metric discovery failed, proceeding without context')
+            }
+          }
+
           const result = await this.panelAdderAgent.addPanels({
             goal,
             existingPanels: currentDash.panels,
             existingVariables: currentDash.variables,
-            availableMetrics: [],
-            labelsByMetric: {},
+            availableMetrics,
+            labelsByMetric,
             gridNextRow: currentDash.panels.length > 0
               ? Math.max(...currentDash.panels.map((p) => p.row + p.height))
               : 0,

@@ -108,6 +108,9 @@ export class DashboardService {
     const replyContent = await orchestrator.handleMessage(dashboardId, message);
     log.info({ dashboardId, reply: replyContent.slice(0, 100) }, 'orchestrator done');
 
+    // Mark dashboard as ready (stops frontend polling)
+    await this.store.update(dashboardId, { status: 'ready' } as any);
+
     // Save assistant message
     const assistantMessageId = randomUUID();
     this.conversationStore.addMessage(dashboardId, {

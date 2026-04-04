@@ -57,6 +57,8 @@ export async function handleChatMessage(
   }
   catch (err) {
     log.error({ err }, 'chat handler error')
+    // Ensure dashboard exits generating state even on error
+    try { await store.update(dashboardId, { status: 'ready' } as any) } catch { /* best effort */ }
     const errMsg = err instanceof Error ? err.message : 'Internal error'
     res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', message: errMsg })}\n\n`)
   }

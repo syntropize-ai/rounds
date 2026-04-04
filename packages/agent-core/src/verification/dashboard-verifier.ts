@@ -144,6 +144,62 @@ export class DashboardVerifier {
       }
     }
 
+    // 7. panel_semantics - catch mismatches between query shape, unit, and visualization
+    if (metricsAdapter) {
+      checksRun.push('panel_semantics');
+      for (const panel of dashboard.panels ?? []) {
+        const queries = this.getPanelQueries(panel);
+        const canInspectValues = queries.length > 0 && queries.every((q) => this.extractVariableRefs(q.expr).length === 0);
+        if (!canInspectValues) continue;
+
+        if (panel.visualization === 'stat' || panel.visualization === 'gauge') {
+          const primary = queries[0];
+          if (primary) {
+            try {
+              const samples = await metricsAdapter.instantQuery(primary.expr);
+              if (samples.length > 1) {
+                issues.push({
+                  code: 'panel_semantics',
+                  severity: 'warning',
+                  message: `Panel "${panel.title}" (${panel.id}) uses ${panel.visualization} but query returns ${samples.length} series. Use bar, table, pie, or time_series for grouped results.`,
+                  artifactKind: 'dashboard',
+                  artifactId: panel.id,
+                });
+              }
+
+              if (panel.unit === 'percentunit') {
+                const maxAbsValue = samples.reduce((max, s) => Math.max(max, Math.abs(s.value)), 0);
+                if (maxAbsValue > 1.5) {
+                  issues.push({
+                    code: 'panel_semantics',
+                    severity: 'warning',
+                    message: `Panel "${panel.title}" (${panel.id}) uses unit "percentunit" but query returns values above 1 (${maxAbsValue.toFixed(3)}). This likely represents a score or already-percent value, not a 0..1 ratio.`,
+                    artifactKind: 'dashboard',
+                    artifactId: panel.id,
+                  });
+                }
+              }
+            } catch {
+              // Ignore semantic inspection failures; query_valid already covers hard failures.
+            }
+          }
+        }
+
+        if (panel.unit === 'percentunit') {
+          const metricNames = queries.flatMap((q) => this.extractMetricNames(q.expr));
+          if (metricNames.some((name) => /(?:^|_)(score|health_score)(?:$|_)/i.test(name))) {
+            issues.push({
+              code: 'panel_semantics',
+              severity: 'warning',
+              message: `Panel "${panel.title}" (${panel.id}) uses unit "percentunit" with score-like metric names (${metricNames.join(', ')}). Score metrics are often already expressed as 0..100 values.`,
+              artifactKind: 'dashboard',
+              artifactId: panel.id,
+            });
+          }
+        }
+      }
+    }
+
     // Determine overall status
     const hasErrors = issues.some((i) => i.severity === 'error');
     const hasWarnings = issues.some((i) => i.severity === 'warning');
@@ -206,6 +262,23 @@ export class DashboardVerifier {
   private isBuiltinVariable(name: string): boolean {
     // Grafana built-in variables start with __
     return name.startsWith('__');
+  }
+
+  private extractMetricNames(expr: string): string[] {
+    const matches = expr.match(/\b[a-zA-Z_:][a-zA-Z0-9_:]*\b/g) ?? [];
+    const reserved = new Set([
+      'sum', 'avg', 'min', 'max', 'topk', 'bottomk', 'count', 'count_values',
+      'rate', 'irate', 'increase', 'delta', 'idelta', 'deriv',
+      'histogram_quantile', 'quantile_over_time', 'avg_over_time', 'sum_over_time',
+      'min_over_time', 'max_over_time', 'count_over_time', 'stddev_over_time', 'stdvar_over_time',
+      'by', 'without', 'on', 'ignoring', 'group_left', 'group_right', 'bool',
+      'and', 'or', 'unless', 'offset',
+    ]);
+    return Array.from(new Set(matches.filter((token) => {
+      if (reserved.has(token)) return false;
+      if (/^\d/.test(token)) return false;
+      return token.includes('_');
+    })));
   }
 
 }

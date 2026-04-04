@@ -204,16 +204,12 @@ export class OrchestratorAgent {
       switch (action) {
         case 'generate_dashboard': {
           const goal = String(args.goal ?? '')
-          const scopeArg = args.scope as string | undefined
-          const scope = ['single', 'group', 'comprehensive'].includes(scopeArg as 'single' | 'group' | 'comprehensive')
-            ? (scopeArg as 'single' | 'group' | 'comprehensive')
-            : 'comprehensive'
 
           this.deps.sendEvent({
             type: 'tool_call',
             tool: 'generate_dashboard',
-            args: { goal, scope },
-            displayText: `Generating dashboard: ${goal} (${scope})`,
+            args: { goal },
+            displayText: `Generating dashboard: ${goal}`,
           })
 
           const currentDash = await this.deps.store.findById(dashboardId)
@@ -226,7 +222,6 @@ export class OrchestratorAgent {
 
           const result = await this.generatorAgent.generate({
             goal,
-            scope,
             existingPanels: currentDash.panels,
             existingVariables: currentDash.variables,
           }, onGroupDone)
@@ -726,7 +721,7 @@ ${historySection}${datasourceSection}
 ## Available Tools
 
 ## Sub-agents (for complex work - these handle research, discovery, and panel generation internally)
-- generate_dashboard(goal: string, scope?: "single"|"group"|"comprehensive") -> FULL dashboard generation with research, metric discovery, and multi-section panel generation. Use when the dashboard is empty or the user wants a comprehensive monitoring view. This is the DEFAULT for new dashboards.
+- generate_dashboard(goal: string) -> dashboard generation with research, metric discovery, and panel planning. The dashboard generator decides the appropriate breadth from the user's request and the available data. Use when the dashboard is empty or the user wants a new dashboard.
 - add_panels(goal: string) -> add 1-3 specific panels to an EXISTING dashboard that already has panels. Only use for small incremental additions.
 - investigate(goal: string) -> investigate a production issue using real data; generates evidence panels and investigation report.
 - create_alert_rule(prompt: string) -> create an alert rule that notifies users when a metric crosses a threshold.
@@ -749,7 +744,7 @@ CRITICAL: Classify the user's intent carefully. You have the ability to create a
 
 Choose the tool based on these rules IN ORDER:
 
-1. **generate_dashboard** — Use when the dashboard has 0 panels, OR when the user wants a broad/comprehensive monitoring view for a topic. This runs a full pipeline: research → metric discovery → multi-section generation.
+1. **generate_dashboard** — Use when the dashboard has 0 panels, OR when the user wants a new dashboard for a topic. This runs a full pipeline: research → metric discovery → panel planning and generation.
 2. **add_panels** — Use ONLY when the dashboard already has panels AND the user wants to add a small incremental addition to the existing view.
 3. **investigate** — Use when the user describes a symptom, problem, or asks a diagnostic question about something going wrong.
 4. **create_alert_rule** — Use when the user wants to be notified in the future when a condition is met.

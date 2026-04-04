@@ -20,6 +20,24 @@ export class DiscoveryPhase {
     research?: ResearchResult,
     discovery?: DiscoveryResult,
   ): Promise<DashboardPlan> {
+    const scopePlanningGuidance: Record<'single' | 'group' | 'comprehensive' | 'auto', string> = {
+      single: `- SINGLE scope: plan the smallest useful answer.
+- Stay tightly focused on the specific signals or questions the user named.
+- Do NOT add breakdown/detail sections unless they are necessary to answer the request.`,
+      group: `- GROUP scope: plan a focused dashboard, not a platform-wide overview.
+- Include supporting sections only when they directly strengthen the requested view.
+- Do NOT add unrelated reliability, infra, or deep-detail sections unless explicitly requested.`,
+      comprehensive: `- COMPREHENSIVE scope: it is appropriate to build a broader dashboard.
+- Multiple sections are allowed when they are all relevant to the request.
+- Use overview -> trends -> breakdowns -> detail sections only when they materially improve the requested dashboard.
+- Even in comprehensive mode, do not introduce unrelated metric families.`,
+      auto: `- AUTO scope: infer the right breadth from the user's wording and the available data.
+- If the request is narrow or names only a few signals, produce a focused dashboard.
+- If the request clearly asks for broad coverage, overview, end-to-end visibility, or comprehensive monitoring, a broader dashboard is appropriate.
+- Do not expand the dashboard just because more metrics exist.`,
+    }
+    const scopeMode = input.scope ?? 'auto'
+
     const researchContext = research
       ? `\n## Research Context (from web search)\nMonitoring approach: ${research.monitoringApproach}\nKey metrics: ${research.keyMetrics.join(', ')}\nBest practices: ${research.bestPractices.join(', ')}\n`
       : ''
@@ -45,9 +63,17 @@ ${researchContext}${metricsContext}${existingContext}
 
 ## Planning Rules
 1. Use your expertise to determine the right monitoring methodology (RED, USE, 4 Golden Signals, or custom) based on the technology.
-2. Structure: overview stats first -> core trends -> breakdowns -> detail tables
+2. The dashboard structure must match the user's requested breadth. Do NOT default to a full observability template.
 3. Panel count is determined by what the user asked and what data exists. No fixed targets.
 4. Each panel spec needs a queryIntent (natural language description of the query).
+5. Only introduce sections, supporting signals, or metric families that are directly necessary to answer the user's request.
+6. Before creating sections, identify the distinct THEMES in the user's request (for example: business outcomes, application behavior, platform/dependency health). Group panels by theme first, then create sections from those themes.
+7. A panel must belong to the section that best matches its primary theme. Do NOT place platform/dependency panels inside business sections, and do NOT place business outcome panels inside platform sections.
+8. Avoid duplicate coverage within a theme. If two candidate panels express nearly the same signal at the same level of detail, keep the clearer one instead of including both.
+9. When the request mixes business and platform concerns, prefer a small number of representative panels per theme instead of exhausting one theme before covering the other.
+
+## Scope-Specific Planning Guidance
+${scopePlanningGuidance[scopeMode]}
 
 ## Output Format (JSON)
 {
@@ -71,7 +97,7 @@ ${researchContext}${metricsContext}${existingContext}
       try {
         const resp = await this.deps.gateway.complete([
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Goal: ${input.goal}\nScope: ${input.scope}` },
+          { role: 'user', content: `Goal: ${input.goal}\nScope hint: ${input.scope ?? 'unspecified - decide breadth from the request itself'}` },
         ], {
           model: this.deps.model,
           maxTokens: 8192,

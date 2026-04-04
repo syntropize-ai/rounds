@@ -170,6 +170,10 @@ ${existingContext}${datasourceSection}${feedbackSection}
 - sum by() / avg by() for aggregation
 - For stat/gauge panels add "instant": true to the query
 - Multi-series comparison: separate queries with refId A/B/C
+- stat/gauge panels are for SINGLE values only. Do NOT use stat/gauge for grouped queries that return multiple region/tenant/service/pod series.
+- If a query uses by(...), topk(...), or otherwise compares multiple entities, prefer bar, table, pie, or time_series instead of stat.
+- Use percentunit ONLY for ratios in the 0..1 range that should be displayed as percentages.
+- Metrics named *_score, *_health_score, or similar are usually scores, not 0..1 ratios. Do NOT assume percentunit for them.
 
 ## Layout
 Grid starts at row ${input.gridNextRow}, 12-column grid.
@@ -231,7 +235,7 @@ Existing panels: ${input.existingPanels.map((p) => p.title).join(', ') || '(none
 2. PromQL Correctness - Counters need rate(), histograms need histogram_quantile() on bucket, aggregations need by() clauses.
 3. Panel Count - Only as many panels as needed to answer the request. Fewer is better.
 4. Duplication - Do any new panels duplicate existing ones?
-5. Visualization - Is each chart type appropriate? stat/gauge need instant=true.
+5. Visualization - Is each chart type appropriate? stat/gauge need instant=true and should only be used for single-value queries.
 
 ## Output (JSON)
 {

@@ -241,6 +241,10 @@ Do not change pie to time_series, do not change histogram to bar, etc.
 - sum by() / avg by() for aggregation
 - For stat/gauge/pie/histogram/bar panels add "instant": true to the query
 - Multi-series comparison: separate queries with refId A/B/C
+- stat/gauge panels are for SINGLE values only. Do NOT use stat/gauge for grouped queries that return multiple region/tenant/service/pod series.
+- If a query uses by(...), topk(...), or otherwise compares multiple entities, prefer bar, table, pie, or time_series instead of stat.
+- Use percentunit ONLY for ratios in the 0..1 range that should be displayed as percentages.
+- Metrics named *_score, *_health_score, or similar are usually scores, not 0..1 ratios. Do NOT assume percentunit for them.
 
 ## Layout
 Grid starts at row ${startRow}, 12-column grid.
@@ -305,16 +309,19 @@ ONLY return the JSON array without markdown.`
 ## Review Context
 Dashboard goal: ${input.goal}
 Section: ${group.label} -> ${group.purpose}
-Expected scope: ${input.scope}
+Expected scope: ${input.scope ?? 'auto / inferred from the user request'}
+
+Treat the section label and purpose as a hard organizational boundary. If a panel's primary signal belongs to another theme, flag it as section_mismatch instead of approving it just because the query itself is valid.
 
 ## Review Criteria
 1. Scope Obedience — did this section ONLY produce what was requested? Any unrequested metric families or scope expansion is an error.
 2. Technology Relevance
 3. PromQL Correctness
-4. Visualization Appropriateness
-5. Panel Count Appropriateness
-6. Completeness
-7. Redundancy
+4. Visualization Appropriateness - stat/gauge must be single-value panels; grouped multi-series queries should not use stat/gauge.
+5. Section Discipline - does every panel belong in this section's theme/purpose, or is it a business panel inside a platform section (or vice versa)?
+6. Duplicate Coverage - are multiple panels in this section expressing the same signal at the same level of detail with only minor variations?
+7. Panel Count Appropriateness
+8. Completeness
 
 ## Output (JSON)
 {
@@ -324,7 +331,7 @@ Expected scope: ${input.scope}
     {
       "panelTitle": "Error",
       "severity": "error",
-      "category": "technology_relevance | promql_error | visualization_mismatch | panel_count | missing_coverage | redundant",
+      "category": "technology_relevance | promql_error | visualization_mismatch | section_mismatch | duplicate_coverage | panel_count | missing_coverage | redundant",
       "description": "what is wrong",
       "suggestedFix": "How to fix it"
     }

@@ -81,7 +81,7 @@ export interface GeneratorDeps {
 
 export interface GenerateInput {
   goal: string
-  scope: 'single' | 'group' | 'comprehensive'
+  scope?: 'single' | 'group' | 'comprehensive'
   existingPanels: PanelConfig[]
   existingVariables: DashboardVariable[]
 }

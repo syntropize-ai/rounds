@@ -11,6 +11,12 @@ function formatStatValue(value: number, unit?: string): string {
 
   // Handle percentile: multiply by 100 and show with %
   if (unit === 'percentunit') {
+    // percentunit means a 0..1 ratio. If the value is already >1, avoid
+    // multiplying again and render a safer fallback so obviously wrong panels
+    // do not show absurd values like 9498%.
+    if (Math.abs(value) > 1.5) {
+      return `${value.toFixed(1)}%`;
+    }
     const pct = value * 100;
     if (pct === 100) return '100%';
     if (pct > 10) return `${pct.toFixed(1)}%`;
@@ -46,7 +52,9 @@ function getBackgroundGradient(value: number, unit?: string): string {
   const isRatio = unit === 'percentunit' || unit === 'percent';
   if (!isRatio) return 'bg-[#141420]';
 
-  const pct = unit === 'percentunit' ? value * 100 : value;
+  const pct = unit === 'percentunit'
+    ? (Math.abs(value) > 1.5 ? value : value * 100)
+    : value;
   if (pct < 20) return 'bg-gradient-to-t from-emerald-900/30 to-[#141420]';
   if (pct < 80) return 'bg-gradient-to-t from-amber-900/30 to-[#141420]';
   return 'bg-gradient-to-t from-red-900/30 to-[#141420]';

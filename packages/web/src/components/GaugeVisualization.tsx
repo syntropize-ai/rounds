@@ -53,8 +53,8 @@ export default function GaugeVisualization({ value, max = 100, unit }: Props) {
   const displayValue = Number.isInteger(value) ? String(value) : (value ?? 0).toFixed(1);
 
   return (
-    <div className="flex flex-col items-center justify-center py-3 bg-[#141420] rounded-lg">
-      <svg viewBox="0 0 200 140" className="w-48 h-36">
+    <div className="flex flex-col items-center justify-center h-full p-1 bg-[#141420] rounded-lg">
+      <svg viewBox="0 0 200 150" className="w-full max-w-[10rem] flex-shrink-0">
         <defs>
           <linearGradient id={`gauge-grad-${pct.toFixed(2)}`} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor={color} stopOpacity={1} />
@@ -106,9 +106,10 @@ export default function GaugeVisualization({ value, max = 100, unit }: Props) {
         <text x="171" y="130" textAnchor="middle" fill="#555570" fontSize="11">
           {max}
         </text>
+        <text x={CX} y="145" textAnchor="middle" fill="#8888AA" fontSize="11" fontFamily="ui-monospace, monospace">
+          {(pct * 100).toFixed(0)}%
+        </text>
       </svg>
-
-      <div className="text-xs text-[#8888AA] font-mono mt-0.5">{(pct * 100).toFixed(0)}%</div>
     </div>
   );
 }

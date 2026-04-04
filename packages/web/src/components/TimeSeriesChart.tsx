@@ -124,7 +124,7 @@ export default function TimeSeriesChart({ result, height = 160, stackMode }: Pro
   const { series, query, totalSeries } = result;
 
   if (series.length === 0) {
-    return <div className="mt-2 text-xs text-[#8888AA] italic">No data returned for {query}</div>;
+    return <div className="mt-2 px-3 text-xs text-[#8888AA] italic break-all">No data returned for <span className="font-mono text-[#555570]">{query}</span></div>;
   }
 
   const isInstant = series.every((s) => s.points.length === 1);

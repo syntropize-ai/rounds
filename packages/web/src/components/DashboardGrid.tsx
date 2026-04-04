@@ -41,23 +41,52 @@ function groupBySection(panels: PanelConfig[]): Section[] {
 // Compact layout for a set of panels
 
 function compactLayout(panels: PanelConfig[], editMode: boolean): LayoutItem[] {
+  const COLS = 12;
   const raw = panels.map((panel) => ({
     i: panel.id,
     x: panel.gridCol ?? panel.col ?? 0,
     y: panel.gridRow ?? panel.row ?? 0,
-    w: panel.gridWidth ?? panel.width ?? 6,
+    w: Math.min(COLS, panel.gridWidth ?? panel.width ?? 6),
     h: Math.max(3, panel.gridHeight ?? panel.height ?? 3),
     minW: 2,
     minH: 3,
     static: !editMode,
   }));
 
-  // Vertical compaction within this section
+  // Horizontal compaction: pack panels left-to-right, row by row
+  // Sort by row first, then by column
+  raw.sort((a, b) => a.y - b.y || a.x - b.x);
+
+  // Group panels by their original row (same y value)
+  const rows = new Map<number, typeof raw>();
+  for (const item of raw) {
+    const rowItems = rows.get(item.y) ?? [];
+    rowItems.push(item);
+    rows.set(item.y, rowItems);
+  }
+
+  // For each row, pack panels left-to-right with no gaps
+  for (const rowItems of rows.values()) {
+    rowItems.sort((a, b) => a.x - b.x);
+    let nextX = 0;
+    for (const item of rowItems) {
+      item.x = nextX;
+      nextX += item.w;
+      // Wrap to next conceptual position if exceeds grid
+      if (nextX > COLS && item.x > 0) {
+        item.x = 0;
+        nextX = item.w;
+      }
+    }
+  }
+
+  // Vertical compaction: push panels up to fill vertical gaps
   raw.sort((a, b) => a.y - b.y || a.x - b.x);
   for (const item of raw) {
     let newY = 0;
     for (const other of raw) {
       if (other === item) continue;
+      // Check horizontal overlap
       if (other.x < item.x + item.w && other.x + other.w > item.x) {
         if (other.y + other.h > newY && other.y < item.y) {
           newY = Math.max(newY, other.y + other.h);

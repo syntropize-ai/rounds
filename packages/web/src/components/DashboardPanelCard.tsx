@@ -665,7 +665,7 @@ export default function DashboardPanelCard({
         <p className="px-3 pt-1 text-[11px] text-[#8888AA] line-clamp-1">{panel.description}</p>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto">{renderContent()}</div>
+      <div className="flex-1 min-h-0 overflow-hidden">{renderContent()}</div>
 
       <QueryBadge queries={effectiveQueries} />
     </div>

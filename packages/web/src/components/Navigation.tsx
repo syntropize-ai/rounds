@@ -10,22 +10,9 @@ interface NavigationProps {
 }
 
 function usePendingApprovals(): number {
-  const [count, setCount] = useState(0);
-
-  useEffect(() => {
-    const load = async () => {
-      const res = await apiClient.get<Array<{ status: string }>>('/approvals');
-      if (!res.error) {
-        setCount(res.data.filter((r) => r.status === 'pending').length);
-      }
-    };
-
-    void load();
-    const timer = setInterval(() => void load(), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-
-  return count;
+  // Approval polling disabled — feature not yet active in UI.
+  // Will be re-enabled when approval workflow is implemented.
+  return 0;
 }
 
 function SettingsIcon() {

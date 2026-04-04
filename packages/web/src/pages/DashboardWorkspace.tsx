@@ -216,7 +216,7 @@ export default function DashboardWorkspace() {
   const [titleDraft, setTitleDraft] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // pollRef removed — no more polling; SSE pushes all updates
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
 
@@ -258,24 +258,6 @@ export default function DashboardWorkspace() {
     setLoading(false);
   }, [id]);
 
-  // Ref to track generation state for use in polling callback (defined before hook)
-  const isGeneratingRef = useRef(false);
-
-  // Separate callback for polling that respects generation state
-  const pollDashboard = useCallback(async () => {
-    if (!id) return;
-    const res = await apiClient.get<Dashboard>(`/dashboards/${id}`);
-    if (!res.error && res.data) {
-      const fresh = res.data;
-      if (isGeneratingRef.current) {
-        // Only update non-panel fields during generation to avoid fighting SSE
-        setDashboard(prev => prev ? { ...prev, title: fresh.title, status: fresh.status } : fresh);
-      } else {
-        setDashboard(fresh);
-      }
-    }
-  }, [id]);
-
   useEffect(() => {
     setLoading(true);
     setLoadError(null);
@@ -285,22 +267,6 @@ export default function DashboardWorkspace() {
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, [loadDashboard]);
-
-  // Poll while generating
-  useEffect(() => {
-    if (dashboard?.status === 'generating') {
-      pollRef.current = setInterval(() => {
-        void pollDashboard();
-      }, 2000);
-    } else if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [dashboard?.status, pollDashboard]);
 
   // Chat / SSE
   const {
@@ -314,7 +280,6 @@ export default function DashboardWorkspace() {
     setVariables,
     investigationReport,
   } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? []);
-  isGeneratingRef.current = isGenerating;
   const [showReport, setShowReport] = useState(false);
 
   // Auto-show investigation report when it arrives
@@ -332,6 +297,18 @@ export default function DashboardWorkspace() {
       void sendMessage(initialPrompt);
     }
   }, [initialPrompt, dashboard, isGenerating, sendMessage]);
+
+  // Reload dashboard once when generation completes (SSE done → isGenerating becomes false)
+  const wasGeneratingRef = useRef(false);
+  useEffect(() => {
+    if (wasGeneratingRef.current && !isGenerating && id) {
+      // Generation just finished — fetch final dashboard state once
+      void apiClient.get<Dashboard>(`/dashboards/${id}`).then((res) => {
+        if (!res.error && res.data) setDashboard(res.data);
+      });
+    }
+    wasGeneratingRef.current = isGenerating;
+  }, [isGenerating, id]);
 
   // Variable changes
   const handleVariableChange = useCallback((name: string, value: string) => {

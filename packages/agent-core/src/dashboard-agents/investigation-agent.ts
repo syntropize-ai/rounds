@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import { createLogger } from '@agentic-obs/common'
 import { agentRegistry } from '../runtime/agent-registry.js'
+import { VerifierAgent } from '../verification/verifier-agent.js'
 import type {
   PanelConfig,
   PanelQuery,
@@ -37,6 +38,8 @@ export interface InvestigationOutput {
   report: InvestigationReport
   /** Evidence panels (already included in report sections too) */
   panels: PanelConfig[]
+  /** Verification report from the verifier agent */
+  verificationReport?: import('../verification/types.js').VerificationReport
 }
 
 interface InvestigationPlan {
@@ -181,7 +184,28 @@ export class InvestigationAgent {
       sections: reportSections,
     }
 
-    return { summary: analysis.summary, report, panels }
+    // Step 4: Verify the report
+    const verifier = new VerifierAgent()
+    const verificationReport = await verifier.verify(
+      'investigation_report',
+      report,
+      {
+        prometheusUrl: this.deps.prometheusUrl,
+        prometheusHeaders: this.deps.prometheusHeaders,
+      },
+    )
+
+    log.info(
+      { status: verificationReport.status, issues: verificationReport.issues.length },
+      'investigation verification complete',
+    )
+
+    sendEvent({
+      type: 'verification_report',
+      report: verificationReport,
+    })
+
+    return { summary: analysis.summary, report, panels, verificationReport }
   }
 
   // Step 0: Discover what metrics actually exist in Prometheus

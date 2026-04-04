@@ -28,7 +28,8 @@ export class AlertRuleService {
     const prometheusHeaders = prom?.headers ?? {};
 
     const agent = new AlertRuleAgent({ gateway, model, prometheusUrl, prometheusHeaders });
-    const generated = await agent.generate(prompt);
+    const result = await agent.generate(prompt);
+    const generated = result.rule;
 
     const rule = defaultAlertRuleStore.create({
       name: generated.name,

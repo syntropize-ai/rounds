@@ -14,7 +14,7 @@ export { InvestigationAgent } from './investigation-agent.js'
 export type { InvestigationDeps, InvestigationInput, InvestigationOutput } from './investigation-agent.js'
 
 export { AlertRuleAgent } from './alert-rule-agent.js'
-export type { AlertRuleContext } from './alert-rule-agent.js'
+export type { AlertRuleContext, AlertRuleGenerationResult } from './alert-rule-agent.js'
 
 export { ResearchAgent } from './research-agent.js'
 export type { ResearchResult } from './research-agent.js'

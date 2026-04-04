@@ -92,7 +92,8 @@ export class IntentService {
     const prometheusHeaders = prom?.headers ?? {};
 
     const agent = new AlertRuleAgent({ gateway, model, prometheusUrl, prometheusHeaders });
-    const generated = await agent.generate(message);
+    const result = await agent.generate(message);
+    const generated = result.rule;
 
     const rule = defaultAlertRuleStore.create({
       name: generated.name,

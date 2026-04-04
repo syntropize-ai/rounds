@@ -1,6 +1,11 @@
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
+import { createLogger } from '@agentic-obs/common'
 import { agentRegistry } from '../runtime/agent-registry.js'
+import { VerifierAgent } from '../verification/verifier-agent.js'
+import type { VerificationReport } from '../verification/types.js'
 import type { AlertCondition, AlertSeverity } from '@agentic-obs/common'
+
+const log = createLogger('alert-rule-agent')
 
 interface AlertRuleAgentDeps {
   gateway: LLMGateway
@@ -19,6 +24,11 @@ interface GeneratedAlertRule {
   autoInvestigate: boolean
 }
 
+export interface AlertRuleGenerationResult {
+  rule: GeneratedAlertRule
+  verificationReport?: VerificationReport
+}
+
 export interface AlertRuleContext {
   dashboardId?: string
   dashboardTitle?: string
@@ -33,7 +43,7 @@ export class AlertRuleAgent {
 
   constructor(private deps: AlertRuleAgentDeps) {}
 
-  async generate(prompt: string, context?: AlertRuleContext): Promise<GeneratedAlertRule> {
+  async generate(prompt: string, context?: AlertRuleContext): Promise<AlertRuleGenerationResult> {
     // Step 1: Discover available metrics (if Prometheus available)
     let availableMetrics = ''
     if (this.deps.prometheusUrl) {
@@ -126,6 +136,7 @@ Return ONLY valid JSON:
     const generated = JSON.parse(jsonMatch[0]) as GeneratedAlertRule
 
     // Step 3: Validate query against Prometheus
+    let finalRule = generated
     if (this.deps.prometheusUrl) {
       try {
         const testUrl = `${this.deps.prometheusUrl}/api/v1/query?query=${encodeURIComponent(generated.condition.query)}`
@@ -148,8 +159,7 @@ Return ONLY valid JSON:
           const fixedMatch = fixedCleaned.match(/\{[\s\S]*\}/)
           if (!fixedMatch)
             throw new Error('LLM did not return valid JSON for alert rule fix')
-          const fixed = JSON.parse(fixedMatch[0]) as GeneratedAlertRule
-          return fixed
+          finalRule = JSON.parse(fixedMatch[0]) as GeneratedAlertRule
         }
       }
       catch {
@@ -157,6 +167,39 @@ Return ONLY valid JSON:
       }
     }
 
-    return generated
+    // Step 4: Verify the generated alert rule
+    const verifier = new VerifierAgent()
+    // Build a minimal AlertRule-shaped object for the verifier
+    const ruleForVerification = {
+      id: 'pending',
+      name: finalRule.name,
+      description: finalRule.description,
+      condition: finalRule.condition,
+      evaluationIntervalSec: finalRule.evaluationIntervalSec,
+      severity: finalRule.severity,
+      labels: finalRule.labels,
+      state: 'normal' as const,
+      stateChangedAt: new Date().toISOString(),
+      createdBy: 'agent',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      fireCount: 0,
+    }
+
+    const verificationReport = await verifier.verify(
+      'alert_rule',
+      ruleForVerification,
+      {
+        prometheusUrl: this.deps.prometheusUrl,
+        prometheusHeaders: this.deps.prometheusHeaders,
+      },
+    )
+
+    log.info(
+      { status: verificationReport.status, issues: verificationReport.issues.length },
+      'alert rule verification complete',
+    )
+
+    return { rule: finalRule, verificationReport }
   }
 }

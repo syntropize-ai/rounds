@@ -22,6 +22,8 @@ import { AlertRuleAgent } from './alert-rule-agent.js'
 import { ReActLoop, type ReActStep } from './react-loop.js'
 import { VerifierAgent } from '../verification/verifier-agent.js'
 import { agentRegistry } from '../runtime/agent-registry.js'
+import type { AgentToolName, AgentPermissionMode } from '../runtime/agent-types.js'
+import type { AgentEvent } from '../runtime/agent-events.js'
 
 export interface OrchestratorDeps {
   gateway: LLMGateway
@@ -37,6 +39,19 @@ export interface OrchestratorDeps {
   sendEvent: (event: DashboardSseEvent) => void
   /** Maximum total tokens per chat message. Default: 50000 */
   maxTokenBudget?: number
+}
+
+const MUTATION_ACTIONS = [
+  'add_panels', 'remove_panels', 'modify_panel', 'rearrange',
+  'add_variable', 'set_title', 'generate_dashboard', 'create_alert_rule',
+] as const;
+
+function checkPermission(mode: AgentPermissionMode, action: string): 'allow' | 'block' | 'approval_required' {
+  const isMutation = (MUTATION_ACTIONS as readonly string[]).includes(action);
+  if (!isMutation) return 'allow';
+  if (mode === 'read_only') return 'block';
+  if (mode === 'approval_required') return 'approval_required';
+  return 'allow';
 }
 
 export class OrchestratorAgent {
@@ -93,23 +108,84 @@ export class OrchestratorAgent {
     console.log(`[Orchestrator] init: prometheusUrl=${deps.prometheusUrl ? 'SET' : 'UNSET'}, investigationAgent=${this.investigationAgent ? 'YES' : 'NO'}`)
   }
 
+  private emitAgentEvent(event: AgentEvent): void {
+    this.deps.sendEvent({ type: 'agent_event', event } as any);
+  }
+
+  private makeAgentEvent(
+    type: AgentEvent['type'],
+    metadata?: Record<string, unknown>,
+  ): AgentEvent {
+    return {
+      type,
+      agentType: OrchestratorAgent.definition.type,
+      timestamp: new Date().toISOString(),
+      ...(metadata ? { metadata } : {}),
+    };
+  }
+
   async handleMessage(dashboardId: string, message: string): Promise<string> {
+    this.emitAgentEvent(this.makeAgentEvent('agent.started', { dashboardId, message }));
+
     const dashboard = await this.deps.store.findById(dashboardId)
-    if (!dashboard)
+    if (!dashboard) {
+      this.emitAgentEvent(this.makeAgentEvent('agent.failed', { reason: 'Dashboard not found' }));
       throw new Error(`Dashboard ${dashboardId} not found`)
+    }
 
     const history = this.deps.conversationStore.getMessages(dashboardId)
     const systemPrompt = this.buildSystemPrompt(dashboard, history)
 
-    return this.reactLoop.runLoop(
-      systemPrompt,
-      message,
-      (step) => this.executeAction(dashboardId, step),
-    )
+    try {
+      const result = await this.reactLoop.runLoop(
+        systemPrompt,
+        message,
+        (step) => this.executeAction(dashboardId, step),
+      )
+      this.emitAgentEvent(this.makeAgentEvent('agent.completed', { dashboardId }));
+      return result;
+    }
+    catch (err) {
+      this.emitAgentEvent(this.makeAgentEvent('agent.failed', {
+        dashboardId,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+      throw err;
+    }
   }
 
   private async executeAction(dashboardId: string, step: ReActStep): Promise<string | null> {
     const { action, args } = step
+    const agentDef = OrchestratorAgent.definition;
+
+    // --- Tool boundary enforcement ---
+    if (!agentDef.allowedTools.includes(action as AgentToolName)) {
+      console.warn(`[Orchestrator] agent attempted undeclared tool "${action}" — blocked`);
+      this.emitAgentEvent(this.makeAgentEvent('agent.tool_blocked', { tool: action, reason: 'undeclared_tool' }));
+      return `Tool "${action}" is not permitted for this agent.`;
+    }
+
+    // --- Permission mode enforcement ---
+    const permissionResult = checkPermission(agentDef.permissionMode, action);
+    if (permissionResult === 'block') {
+      console.warn(`[Orchestrator] mutation "${action}" blocked — agent is read_only`);
+      this.emitAgentEvent(this.makeAgentEvent('agent.tool_blocked', { tool: action, reason: 'read_only' }));
+      return `Action "${action}" is blocked: agent is in read-only mode.`;
+    }
+    if (permissionResult === 'approval_required') {
+      console.info(`[Orchestrator] mutation "${action}" requires approval — emitting proposal`);
+      this.emitAgentEvent(this.makeAgentEvent('agent.artifact_proposed', { tool: action, args }));
+      this.deps.sendEvent({
+        type: 'approval_required',
+        tool: action,
+        args,
+        displayText: `Action "${action}" requires approval before execution.`,
+      } as any);
+      return `Action "${action}" requires approval. A proposal has been submitted.`;
+    }
+
+    // --- Emit tool_called event ---
+    this.emitAgentEvent(this.makeAgentEvent('agent.tool_called', { tool: action }));
 
     try {
       switch (action) {
@@ -164,6 +240,11 @@ export class OrchestratorAgent {
               prometheusHeaders: this.deps.prometheusHeaders,
             })
             this.deps.sendEvent({ type: 'verification_report', report: verificationReport })
+            this.emitAgentEvent(this.makeAgentEvent('agent.artifact_verified', {
+              tool: 'generate_dashboard',
+              status: verificationReport.status,
+              summary: verificationReport.summary,
+            }));
             if (verificationReport.status === 'failed') {
               console.warn(`[Orchestrator] Dashboard verification failed: ${verificationReport.summary}`)
             }
@@ -179,6 +260,7 @@ export class OrchestratorAgent {
             summary: observationText,
             success: result.panels.length > 0,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'generate_dashboard', summary: observationText }));
           return observationText
         }
 
@@ -226,6 +308,7 @@ export class OrchestratorAgent {
             summary: observationText,
             success: result.panels.length > 0,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'add_panels', summary: observationText }));
           return observationText
         }
 
@@ -280,6 +363,7 @@ export class OrchestratorAgent {
             summary: `Investigation complete - ${result.panels.length} evidence panels added`,
             success: true,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'investigate', summary: observationText }));
           return observationText
         }
 
@@ -302,6 +386,7 @@ export class OrchestratorAgent {
             summary: `Removed ${panelIds.length} panels`,
             success: true,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'remove_panels', summary: observationText }));
           return observationText
         }
 
@@ -325,6 +410,7 @@ export class OrchestratorAgent {
             summary: `Panel ${panelId} modified`,
             success: true,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'modify_panel', summary: observationText }));
           return observationText
         }
 
@@ -351,6 +437,7 @@ export class OrchestratorAgent {
             summary: `Rearranged ${layout.length} panels`,
             success: true,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'rearrange', summary: observationText }));
           return observationText
         }
 
@@ -373,6 +460,7 @@ export class OrchestratorAgent {
             summary: `Variable ${variable?.name ?? ''} added`,
             success: true,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'add_variable', summary: observationText }));
           return observationText
         }
 
@@ -400,6 +488,7 @@ export class OrchestratorAgent {
             summary: `Title updated to "${title}"`,
             success: true,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'set_title', summary: observationText }));
           return observationText
         }
 
@@ -421,12 +510,20 @@ export class OrchestratorAgent {
             value: v.current,
           }))
 
-          const generated = await this.alertRuleAgent.generate(prompt, {
+          const result = await this.alertRuleAgent.generate(prompt, {
             dashboardId,
             dashboardTitle: currentDash?.title,
             existingQueries: existingQueries.length > 0 ? existingQueries : undefined,
             variables: variables.length > 0 ? variables : undefined,
           })
+          const generated = result.rule
+
+          if (result.verificationReport) {
+            this.deps.sendEvent({
+              type: 'verification_report',
+              report: result.verificationReport,
+            })
+          }
 
           const rule = this.deps.alertRuleStore.create({
             name: generated.name,
@@ -449,6 +546,7 @@ export class OrchestratorAgent {
             summary: `Alert rule "${rule.name}" created`,
             success: true,
           })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'create_alert_rule', summary: observationText }));
           return observationText
         }
 
@@ -465,8 +563,16 @@ export class OrchestratorAgent {
         summary: observationText,
         success: false,
       })
+      this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', {
+        tool: action,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }));
       return observationText
     }
+
+    // This point is unreachable due to the switch/return structure,
+    // but if we did get here, emit completed
   }
 
   private buildSystemPrompt(dashboard: Dashboard, history: DashboardMessage[]): string {

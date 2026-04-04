@@ -258,6 +258,24 @@ export default function DashboardWorkspace() {
     setLoading(false);
   }, [id]);
 
+  // Ref to track generation state for use in polling callback (defined before hook)
+  const isGeneratingRef = useRef(false);
+
+  // Separate callback for polling that respects generation state
+  const pollDashboard = useCallback(async () => {
+    if (!id) return;
+    const res = await apiClient.get<Dashboard>(`/dashboards/${id}`);
+    if (!res.error && res.data) {
+      const fresh = res.data;
+      if (isGeneratingRef.current) {
+        // Only update non-panel fields during generation to avoid fighting SSE
+        setDashboard(prev => prev ? { ...prev, title: fresh.title, status: fresh.status } : fresh);
+      } else {
+        setDashboard(fresh);
+      }
+    }
+  }, [id]);
+
   useEffect(() => {
     setLoading(true);
     setLoadError(null);
@@ -272,7 +290,7 @@ export default function DashboardWorkspace() {
   useEffect(() => {
     if (dashboard?.status === 'generating') {
       pollRef.current = setInterval(() => {
-        void loadDashboard();
+        void pollDashboard();
       }, 2000);
     } else if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -282,7 +300,7 @@ export default function DashboardWorkspace() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [dashboard?.status, loadDashboard]);
+  }, [dashboard?.status, pollDashboard]);
 
   // Chat / SSE
   const {
@@ -296,6 +314,7 @@ export default function DashboardWorkspace() {
     setVariables,
     investigationReport,
   } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? []);
+  isGeneratingRef.current = isGenerating;
   const [showReport, setShowReport] = useState(false);
 
   // Auto-show investigation report when it arrives
@@ -397,7 +416,7 @@ export default function DashboardWorkspace() {
           if (!item) return panel;
           return {
             ...panel,
-            gridCol: item.x + 1,
+            gridCol: item.x,
             gridRow: item.y,
             gridWidth: item.w,
             gridHeight: item.h,

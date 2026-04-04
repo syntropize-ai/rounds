@@ -90,6 +90,7 @@ interface QueryResult {
   legendFormat?: string;
   series: Array<{ labels: Record<string, string>; points: Array<{ ts: number; value: number }> }>;
   totalSeries: number;
+  error?: string;
 }
 
 function transformQueryResult(data: RangeResponse, pq: PanelQuery): QueryResult {
@@ -396,6 +397,7 @@ export default function DashboardPanelCard({
                 legendFormat: pq.legendFormat,
                 series: [],
                 totalSeries: 0,
+                error: rr?.error ?? 'Query failed',
               };
             }
             return transformQueryResult(rr.data, pq);
@@ -536,6 +538,18 @@ export default function DashboardPanelCard({
 
     if (effectiveQueries.length === 0) {
       return <div className="flex items-center justify-center h-full text-xs text-[#555570] italic">No queries configured</div>;
+    }
+
+    // Check for per-query errors in batch results
+    const queryErrors = multiRangeData.filter((r) => r.error).map((r) => `${r.refIds}: ${r.error}`);
+    if (queryErrors.length > 0 && multiRangeData.every((r) => r.series.length === 0)) {
+      return (
+        <div className="text-red-400 text-xs p-3 space-y-1">
+          {queryErrors.map((msg, i) => (
+            <div key={i}>Query error: {msg}</div>
+          ))}
+        </div>
+      );
     }
 
     switch (panel.visualization) {

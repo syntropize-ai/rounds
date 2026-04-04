@@ -90,10 +90,23 @@ export function useDashboardChat(
   const abortRef = useRef<AbortController | null>(null);
   const historyLoadedRef = useRef(false);
 
-  // Sync panels when initialPanels changes (e.g. initial load)
+  // Track whether SSE has modified panels during this generation cycle
+  const sseModifiedRef = useRef(false);
+
+  // Reset SSE-modified flag when generation starts
   useEffect(() => {
-    setPanels(initialPanels);
-  }, [initialPanels]);
+    if (isGenerating) {
+      sseModifiedRef.current = false;
+    }
+  }, [isGenerating]);
+
+  // Sync panels when initialPanels changes (e.g. initial load),
+  // but NOT during generation when SSE is the authoritative source
+  useEffect(() => {
+    if (!isGenerating && !sseModifiedRef.current) {
+      setPanels(initialPanels);
+    }
+  }, [initialPanels, isGenerating]);
 
   // Load chat history and saved investigation report on mount / dashboard change
   useEffect(() => {
@@ -185,6 +198,7 @@ export function useDashboardChat(
         case 'panel_added': {
           const panel = parsed.panel as PanelConfig | undefined;
           if (panel) {
+            sseModifiedRef.current = true;
             setPanels((prev) => {
               if (prev.find((p) => p.id === panel.id)) return prev;
               return [...prev, panel];
@@ -197,6 +211,7 @@ export function useDashboardChat(
         case 'panel_removed': {
           const panelId = parsed.panelId as string | undefined;
           if (panelId) {
+            sseModifiedRef.current = true;
             setPanels((prev) => prev.filter((p) => p.id !== panelId));
             appendEvent({ id, kind: 'panel_removed', panelId });
           }
@@ -207,6 +222,7 @@ export function useDashboardChat(
           const panelId = parsed.panelId as string | undefined;
           const patch = (parsed.patch ?? parsed.panel) as Partial<PanelConfig> | undefined;
           if (panelId && patch) {
+            sseModifiedRef.current = true;
             setPanels((prev =>
               prev.map((p) => (p.id === panelId ? { ...p, ...patch } : p))
             ));

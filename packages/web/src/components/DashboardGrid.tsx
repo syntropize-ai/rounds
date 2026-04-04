@@ -46,9 +46,9 @@ function compactLayout(panels: PanelConfig[], editMode: boolean): LayoutItem[] {
     x: panel.gridCol ?? panel.col ?? 0,
     y: panel.gridRow ?? panel.row ?? 0,
     w: panel.gridWidth ?? panel.width ?? 6,
-    h: Math.max(2, panel.gridHeight ?? panel.height ?? 2),
+    h: Math.max(3, panel.gridHeight ?? panel.height ?? 3),
     minW: 2,
-    minH: 2,
+    minH: 3,
     static: !editMode,
   }));
 
@@ -96,7 +96,7 @@ function SectionGrid({
       layouts={{ lg: layout }}
       width={width}
       cols={{ lg: 12, md: 12, sm: 6, xs: 2, xxs: 1 }}
-      rowHeight={40}
+      rowHeight={60}
       margin={[12, 12]}
       containerPadding={[0, 0]}
       dragConfig={{ enabled: !!editMode, bounded: false, handle: '.drag-handle', threshold: 3 }}

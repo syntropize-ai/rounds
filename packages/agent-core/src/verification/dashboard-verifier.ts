@@ -70,7 +70,7 @@ export class DashboardVerifier {
           if (!definedVarNames.has(ref)) {
             issues.push({
               code: 'variable_refs',
-              severity: 'error',
+              severity: 'warning',
               message: `Panel "${panel.title}" (${panel.id}) references undefined variable "$${ref}" in query "${q.refId}"`,
               artifactKind: 'dashboard',
               artifactId: panel.id,

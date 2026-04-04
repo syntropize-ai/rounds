@@ -280,25 +280,17 @@ export class OrchestratorAgent {
             }
           }
 
-          let observationText: string
-          if (verificationFailed) {
-            observationText = `Generated ${result.panels.length} panels but verification FAILED — panels were rolled back. Do NOT retry generate_dashboard. Ask the user what they want to do.`
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'generate_dashboard',
-              summary: 'Dashboard generation rolled back due to verification failure',
-              success: false,
-            })
-          } else {
-            observationText = `Generated ${result.panels.length} panels`
+          const observationText = verificationFailed
+            ? `Generated ${result.panels.length} panels but some had issues (panels rolled back).`
+            : `Generated ${result.panels.length} panels`
               + (result.variables?.length ? ` and ${result.variables.length} variables` : '')
-            this.deps.sendEvent({
-              type: 'tool_result',
-              tool: 'generate_dashboard',
-              summary: observationText,
-              success: result.panels.length > 0,
-            })
-          }
+
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'generate_dashboard',
+            summary: observationText,
+            success: !verificationFailed && result.panels.length > 0,
+          })
           this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'generate_dashboard', summary: observationText }));
           return observationText
         }

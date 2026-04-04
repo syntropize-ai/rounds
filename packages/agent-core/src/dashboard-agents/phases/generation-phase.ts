@@ -30,12 +30,28 @@ const VALID_VISUALIZATIONS = new Set<string>([
 function clampWidth(panel: RawPanelSpec): number {
   const w = panel.width ?? 6;
   const viz = panel.visualization;
-  // Small panels: stat, gauge → max 4
   if (viz === 'stat' || viz === 'gauge') return Math.min(w, 4);
-  // Medium panels: pie, bar, histogram, table → max 6
   if (viz === 'pie' || viz === 'bar' || viz === 'histogram' || viz === 'table') return Math.min(w, 6);
-  // Full width only for: time_series, heatmap, status_timeline
   return w;
+}
+
+/** Calculate panel height based on content needs */
+function calcHeight(panel: RawPanelSpec): number {
+  const viz = panel.visualization;
+  const queryCount = panel.queries?.length ?? 1;
+
+  // Compact visualizations
+  if (viz === 'stat' || viz === 'gauge') return 3;
+
+  // Table needs more rows for data
+  if (viz === 'table') return Math.max(4, Math.min(6, queryCount + 3));
+
+  // Time series / bar / histogram: base 3 + extra for multi-query legend
+  // Each query likely produces 1+ series; legend needs ~16px per entry
+  // At rowHeight=80, each grid row ≈ 80px
+  // Base chart needs 3 rows; add 1 row per 3 legend entries above 2
+  const legendRows = queryCount > 2 ? Math.ceil((queryCount - 2) / 3) : 0;
+  return Math.max(3, Math.min(6, 3 + legendRows));
 }
 
 export class GenerationPhase {
@@ -268,7 +284,7 @@ ONLY return the JSON array without markdown.`
       const parsed = parseLlmJson(resp.content) as unknown
       const panels = Array.isArray(parsed) ? parsed as RawPanelSpec[] : []
       // Enforce reasonable widths — LLM often sets everything to 12
-      return panels.map((p) => ({ ...p, width: clampWidth(p) }))
+      return panels.map((p) => ({ ...p, width: clampWidth(p), height: calcHeight(p) }))
     }
     catch (err) {
       log.warn({ err }, 'generateGroup failed')

@@ -53,149 +53,59 @@ function groupEvents(events: ChatEvent[]): Block[] {
 
 // Step processing
 
-const TOP_LEVEL_TOOLS = new Set([
-  'research',
-  'discover',
-  'planner',
-  'add_panels',
-  'remove_panels',
-  'modify_panel',
-  'rearrange',
-  'add_variable',
-  'set_title',
-  'investigate',
-  'investigate_plan',
-  'investigate_query',
-  'investigate_analyze',
-]);
-
-// Tools that are meta-actions (their sub-steps are already shown) - hide from step list
-const META_TOOLS = new Set(['generate_dashboard']);
-
-// Tools that get folded into the "Building" step
-const BUILD_TOOLS = new Set(['generate_group', 'critic', 'build_progress']);
+// Data-driven step builder — no tool-name matching.
+// Every event carries its own displayText/summary; the UI just renders what it receives.
 
 interface StepRow {
   id: string;
-  tool: string;
   label: string;
   status: string;
   result?: { text: string; success: boolean };
   done: boolean;
-  // For building step: progress tracking.
-  progress?: { completed: number; total: number; currentSection: string };
 }
 
 function buildSteps(events: ChatEvent[]): { steps: StepRow[]; preStatus: string | null } {
   const steps: StepRow[] = [];
-  const stepsByTool = new Map<string, StepRow>(); // lookup by tool name for out-of-order results
+  // Map from tool name to its step (for pairing tool_call → tool_result)
+  const openSteps = new Map<string, StepRow>();
   let preStatus: string | null = null;
 
-  // Track the building step separately - merge all generate/critic events into one row
-  let buildStep: StepRow | null = null;
-  let planTotal = 0;
-  let buildCompleted = 0;
-
   for (const evt of events) {
-    // Skip meta-tools - their sub-steps are shown individually
-    if (evt.kind === 'tool_call' && evt.tool && META_TOOLS.has(evt.tool)) {
-      continue;
-    }
-
-    // Extract total group count from planner result
-    if (evt.kind === 'tool_result' && evt.tool === 'planner') {
-      const match = evt.content?.match(/(\d+)\s*sections?/i);
-      if (match) planTotal = Number.parseInt(match[1]!, 10);
-    }
-
-    // Build-related events - merge into single building step
-    if ((evt.kind === 'tool_call' || evt.kind === 'tool_result') && BUILD_TOOLS.has(evt.tool ?? '')) {
-      if (!buildStep) {
-        buildStep = {
-          id: `build-${evt.id}`,
-          tool: 'building',
-          label: 'Building',
-          status: 'Starting...',
-          done: false,
-          progress: { completed: 0, total: planTotal, currentSection: '' },
-        };
-        steps.push(buildStep);
-      }
-
-      if (evt.kind === 'tool_call' && evt.tool === 'generate_group') {
-        const sectionMatch = evt.content?.match(/group\s+["']?([^"']+)["']?/i);
-        const section = sectionMatch?.[1] ?? '';
-        buildStep.status = `Generating ${section}`;
-        buildStep.progress = { ...buildStep.progress!, currentSection: section };
-      } else if (evt.kind === 'tool_call' && evt.tool === 'critic') {
-        const sectionMatch = evt.content?.match(/group\s+["']?([^"']+)["']?/i);
-        const section = sectionMatch?.[1] ?? buildStep.progress?.currentSection ?? '';
-        buildStep.status = `Reviewing ${section}`;
-        buildStep.progress = { ...buildStep.progress!, currentSection: section };
-      } else if (evt.kind === 'tool_result' && evt.tool === 'build_progress') {
-        const progressMatch = evt.content?.match(/(\d+)\/(\d+)/);
-        if (progressMatch) {
-          buildCompleted = Number.parseInt(progressMatch[1]!, 10);
-          const total = Number.parseInt(progressMatch[2]!, 10);
-          buildStep.progress = { ...buildStep.progress!, completed: buildCompleted, total };
-          buildStep.status = evt.content ?? buildStep.status;
-        }
-      } else if (evt.kind === 'tool_result' && evt.tool === 'critic') {
-        buildStep.status = evt.content ?? buildStep.status;
-      }
-
-      if (buildStep.progress && buildStep.progress.total > 0 && buildCompleted >= buildStep.progress.total) {
-        buildStep.done = true;
-        buildStep.result = {
-          text: `${buildStep.progress.total} sections built`,
-          success: true,
-        };
-      }
-      continue;
-    }
-
-    // Top-level tool result - find its matching step (supports out-of-order/parallel results)
-    if (evt.kind === 'tool_result' && evt.tool && TOP_LEVEL_TOOLS.has(evt.tool)) {
-      const matchStep = stepsByTool.get(evt.tool);
-      if (matchStep) {
-        matchStep.result = { text: evt.content ?? '', success: evt.success ?? false };
-        matchStep.status = evt.content ?? matchStep.status;
-        matchStep.done = true;
-      }
-      continue;
-    }
-
-    // Top-level tool call - new step row
-    if (evt.kind === 'tool_call' && evt.tool && TOP_LEVEL_TOOLS.has(evt.tool)) {
-      const step: StepRow = {
-        id: evt.id,
-        tool: evt.tool,
-        label: TOOL_LABELS[evt.tool] ?? evt.tool,
-        status: evt.content ?? '',
-        done: false,
-      };
-      steps.push(step);
-      stepsByTool.set(evt.tool, step);
-      continue;
-    }
-
-    // Thinking events - update the last non-done step, or set preStatus
     if (evt.kind === 'thinking') {
+      // Update last active step, or show as pre-status if no steps yet
       const active = [...steps].reverse().find((s) => !s.done);
       if (active) {
         active.status = evt.content ?? active.status;
-      } else if (steps.length === 0) {
+      } else {
         preStatus = evt.content ?? null;
       }
       continue;
     }
 
-    // Minor tool events - update last active step
-    if (evt.kind === 'tool_call' && evt.tool && !TOP_LEVEL_TOOLS.has(evt.tool)) {
-      const active = [...steps].reverse().find((s) => !s.done);
-      if (active) {
-        active.status = evt.content ?? active.status;
+    if (evt.kind === 'tool_call') {
+      const tool = evt.tool ?? 'unknown';
+      const label = evt.content ?? TOOL_LABELS[tool] ?? tool;
+      const step: StepRow = {
+        id: evt.id,
+        label,
+        status: evt.content ?? '',
+        done: false,
+      };
+      steps.push(step);
+      openSteps.set(tool, step);
+      continue;
+    }
+
+    if (evt.kind === 'tool_result') {
+      const tool = evt.tool ?? 'unknown';
+      const match = openSteps.get(tool);
+      if (match) {
+        match.result = { text: evt.content ?? '', success: evt.success !== false };
+        match.status = evt.content ?? match.status;
+        match.done = true;
+        openSteps.delete(tool);
       }
+      continue;
     }
   }
 
@@ -275,11 +185,6 @@ function StepRowView({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-medium text-[#E8E8ED]">{step.label}</span>
-          {step.progress && step.progress.total > 0 && (
-            <span className="text-[10px] font-mono text-[#818CF8] bg-[#6366F1]/10 px-1.5 py-0.5 rounded">
-              {step.progress.completed}/{step.progress.total}
-            </span>
-          )}
           {isActive && <AnimatedDots />}
         </div>
         <div className="text-[11px] text-[#555570] truncate mt-0.5 leading-tight">
@@ -321,7 +226,7 @@ function AgentActivityBlock({
     ? expanded
       ? `${doneCount} of ${steps.length} steps done`
       : lastActive
-        ? `${lastActive.label}: ${lastActive.progress?.completed ?? lastActive.progress?.total ? `${lastActive.progress?.completed}/${lastActive.progress?.total}` : ''} ${preStatus ?? 'Working...'}`
+        ? `${lastActive.label}: ${preStatus ?? 'Working...'}`
         : `${steps.length} steps`
     : `${doneCount} steps completed${failCount > 0 ? `, ${failCount} failed` : ''}`;
 

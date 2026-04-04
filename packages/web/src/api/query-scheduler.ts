@@ -1,7 +1,7 @@
 /**
  * QueryScheduler - Grafana-style frontend request queue.
  *
- * 1. Result cache with TTL: mount 时直接返回缓存, 不发请求
+ * 1. Result cache with TTL: returns cached data on mount without making a request
  * 2. Concurrency limit: max N requests in-flight (default 6)
  * 3. Request deduplication: identical queries in-flight share the same response
  * 4. FIFO queue: excess requests wait until a slot opens

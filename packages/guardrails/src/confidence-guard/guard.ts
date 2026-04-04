@@ -76,7 +76,7 @@ export class ConfidenceGuard {
             const adjustedConfidence = Math.min(hypothesis.confidence, 0.5);
             return {
               adjustedConfidence,
-              reason: `证据数量不足（${evidence.length}/${minEvidenceCount}），置信度上限 0.5`,
+              reason: `Insufficient evidence (${evidence.length}/${minEvidenceCount}), confidence capped at 0.5`,
               severity: 'warning',
             };
           }
@@ -93,7 +93,7 @@ export class ConfidenceGuard {
             if (adjustedConfidence < hypothesis.confidence) {
               return {
                 adjustedConfidence,
-                reason: `缺少反证校验，置信度上限 ${maxConfidenceWithoutCounterCheck}`,
+                reason: `Missing counter-evidence check, confidence capped at ${maxConfidenceWithoutCounterCheck}`,
                 severity: 'warning',
               };
             }
@@ -112,7 +112,7 @@ export class ConfidenceGuard {
             const adjustedConfidence = clamp(hypothesis.confidence - singleSourcePenalty, 0, 1);
             return {
               adjustedConfidence,
-              reason: `所有证据来自单一数据源类型（${[...types][0]}），降低置信度 ${singleSourcePenalty}`,
+              reason: `All evidence from single source type (${[...types][0]}), confidence reduced by ${singleSourcePenalty}`,
               severity: 'warning',
             };
           }
@@ -127,7 +127,7 @@ export class ConfidenceGuard {
           if (hypothesis.confidence > 0.9 && evidence.length < 3) {
             return {
               adjustedConfidence: 0.7,
-              reason: `置信度 ${hypothesis.confidence} 过高但证据仅 ${evidence.length} 条（< 3），强降为 0.7`,
+              reason: `Confidence ${hypothesis.confidence} too high with only ${evidence.length} evidence items (< 3), forced down to 0.7`,
               severity: 'critical',
             };
           }

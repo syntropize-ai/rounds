@@ -95,10 +95,24 @@ export class DashboardGeneratorAgent {
 
     const allPanels: PanelConfig[] = groupResults.flat()
 
-    // Step 4: Validate queries against Prometheus (if available)
-    const validated = this.deps.prometheusUrl
-      ? await this.generation.validateQueries(allPanels)
-      : allPanels
+    // Step 4: Validate & fix queries against Prometheus (if available)
+    let validated: PanelConfig[]
+    if (this.deps.prometheusUrl) {
+      const { PanelValidator } = await import('./panel-validator.js')
+      const validator = new PanelValidator(
+        this.deps.gateway,
+        this.deps.model,
+        this.deps.prometheusUrl,
+        this.deps.prometheusHeaders ?? {},
+        this.deps.sendEvent,
+      )
+      validated = await validator.validateAndCorrect(
+        allPanels as any,
+        discoveryResult?.metrics ?? [],
+      )
+    } else {
+      validated = allPanels
+    }
 
     // Step 5: Detect variables
     const variables = this.generation.detectVariables(validated, input, discoveryResult)

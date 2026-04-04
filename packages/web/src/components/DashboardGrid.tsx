@@ -125,7 +125,7 @@ function SectionGrid({
       layouts={{ lg: layout }}
       width={width}
       cols={{ lg: 12, md: 12, sm: 6, xs: 2, xxs: 1 }}
-      rowHeight={60}
+      rowHeight={80}
       margin={[12, 12]}
       containerPadding={[0, 0]}
       dragConfig={{ enabled: !!editMode, bounded: false, handle: '.drag-handle', threshold: 3 }}

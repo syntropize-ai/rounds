@@ -74,10 +74,10 @@ agentRegistry.register({
 
 agentRegistry.register({
   type: 'verification',
-  description: 'Verifies that executed remediation actions resolved the issue by re-querying metrics',
+  description: 'Verifies generated artifacts (dashboards, investigation reports, alert rules) meet quality standards',
   allowedTools: ['verifier.run', 'prometheus.query', 'llm.complete'],
-  inputKinds: ['execution_result'],
-  outputKinds: ['investigation_report'],
+  inputKinds: ['dashboard', 'investigation_report', 'alert_rule'],
+  outputKinds: ['execution_result'],
   permissionMode: 'read_only',
   canRunInBackground: true,
 });

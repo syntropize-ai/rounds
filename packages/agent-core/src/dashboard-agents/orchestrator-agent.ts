@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@agentic-obs/common'
 import type {
   DashboardSseEvent,
   DashboardAction,
@@ -46,13 +47,16 @@ const MUTATION_ACTIONS = [
   'add_variable', 'set_title', 'generate_dashboard', 'create_alert_rule',
 ] as const;
 
-function checkPermission(mode: AgentPermissionMode, action: string): 'allow' | 'block' | 'approval_required' {
+function checkPermission(mode: AgentPermissionMode, action: string): 'allow' | 'block' | 'approval_required' | 'propose_only' {
   const isMutation = (MUTATION_ACTIONS as readonly string[]).includes(action);
   if (!isMutation) return 'allow';
   if (mode === 'read_only') return 'block';
   if (mode === 'approval_required') return 'approval_required';
+  if (mode === 'propose_only') return 'propose_only';
   return 'allow';
 }
+
+const log = createLogger('orchestrator')
 
 export class OrchestratorAgent {
   static readonly definition = agentRegistry.get('intent-router')!;
@@ -183,6 +187,17 @@ export class OrchestratorAgent {
       } as any);
       return `Action "${action}" requires approval. A proposal has been submitted.`;
     }
+    if (permissionResult === 'propose_only') {
+      log.info({ action }, 'mutation proposed but not applied — agent is propose_only');
+      this.emitAgentEvent(this.makeAgentEvent('agent.artifact_proposed', { tool: action, args }));
+      this.deps.sendEvent({
+        type: 'tool_result',
+        tool: action,
+        summary: `Proposed "${action}" (not applied — propose-only mode)`,
+        success: true,
+      });
+      return `Proposed "${action}" with args ${JSON.stringify(args).slice(0, 200)}. Not applied in propose-only mode.`;
+    }
 
     // --- Emit tool_called event ---
     this.emitAgentEvent(this.makeAgentEvent('agent.tool_called', { tool: action }));
@@ -234,6 +249,7 @@ export class OrchestratorAgent {
 
           // Run verification on the generated dashboard
           const updatedDash = await this.deps.store.findById(dashboardId)
+          let verificationFailed = false
           if (updatedDash) {
             const verificationReport = await this.verifierAgent.verify('dashboard', updatedDash, {
               prometheusUrl: this.deps.prometheusUrl,
@@ -246,13 +262,23 @@ export class OrchestratorAgent {
               summary: verificationReport.summary,
             }));
             if (verificationReport.status === 'failed') {
-              console.warn(`[Orchestrator] Dashboard verification failed: ${verificationReport.summary}`)
+              verificationFailed = true
+              log.warn({ summary: verificationReport.summary }, 'dashboard verification failed — rolling back panels')
+              // Rollback: remove the panels we just added
+              const panelIdsToRemove = result.panels.map((p) => p.id)
+              if (panelIdsToRemove.length > 0) {
+                await this.actionExecutor.execute(dashboardId, [{ type: 'remove_panels', panelIds: panelIdsToRemove }])
+              }
             }
           }
 
-          const observationText
-            = `Generated ${result.panels.length} panels`
-            + (result.variables?.length ? ` and ${result.variables.length} variables` : '')
+          let observationText: string
+          if (verificationFailed) {
+            observationText = `Generated ${result.panels.length} panels but verification FAILED — panels were rolled back. Issues found in generated queries or structure.`
+          } else {
+            observationText = `Generated ${result.panels.length} panels`
+              + (result.variables?.length ? ` and ${result.variables.length} variables` : '')
+          }
 
           this.deps.sendEvent({
             type: 'tool_result',
@@ -523,6 +549,21 @@ export class OrchestratorAgent {
               type: 'verification_report',
               report: result.verificationReport,
             })
+
+            if (result.verificationReport.status === 'failed') {
+              const failIssues = result.verificationReport.issues
+                .filter((i) => i.severity === 'error')
+                .map((i) => i.message)
+                .join('; ')
+              this.deps.sendEvent({
+                type: 'tool_result',
+                tool: 'create_alert_rule',
+                summary: `Alert rule verification failed — rule NOT saved`,
+                success: false,
+              })
+              this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'create_alert_rule', summary: 'blocked by verifier' }));
+              return `Alert rule verification failed: ${failIssues}. Rule was NOT saved.`
+            }
           }
 
           const rule = this.deps.alertRuleStore.create({

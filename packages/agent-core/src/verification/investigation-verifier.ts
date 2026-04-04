@@ -76,7 +76,7 @@ export class InvestigationVerifier {
           } else if (!result.ok) {
             issues.push({
               code: 'evidence_queries_valid',
-              severity: 'warning',
+              severity: 'error',
               message: `Evidence query "${q.expr}" in panel "${panel.title}" failed: ${result.error}`,
               artifactKind: 'investigation_report',
               artifactId: panel.id,

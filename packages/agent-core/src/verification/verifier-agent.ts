@@ -40,12 +40,18 @@ export class VerifierAgent {
       }
 
       default: {
+        // Fail-closed: unknown target kinds are rejected, not silently passed
         return {
-          status: 'passed',
+          status: 'failed',
           targetKind,
-          summary: `Unknown target kind "${targetKind}" - auto-passing`,
-          issues: [],
-          checksRun: [],
+          summary: `Unknown verification target kind "${targetKind}" — blocked (fail-closed)`,
+          issues: [{
+            code: 'unknown_target_kind',
+            severity: 'error',
+            message: `Verification target kind "${targetKind}" is not recognized. This may indicate a misconfiguration or missing verifier implementation.`,
+            artifactKind: targetKind,
+          }],
+          checksRun: ['target_kind_check'],
         };
       }
     }

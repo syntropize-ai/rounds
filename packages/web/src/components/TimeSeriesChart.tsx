@@ -306,10 +306,10 @@ function RechartsArea({
   }), [displaySeries, distLabels]);
 
   return (
-    <div className="h-full rounded-lg p-2 flex flex-col overflow-hidden">
+    <div className="h-full rounded-lg px-1 pt-1 pb-0 flex flex-col overflow-hidden">
       <div style={{ height: 'calc(100% - 36px)', minHeight: 80 }}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 8, right: 12, bottom: 20, left: 4 }} onMouseLeave={() => setActiveDotInfo(null)}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }} onMouseLeave={() => setActiveDotInfo(null)}>
           {seriesKeys.map((key, i) => (
             <defs key={`grad-${key}`}>
               <linearGradient id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">

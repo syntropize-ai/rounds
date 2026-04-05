@@ -575,7 +575,7 @@ export default function DashboardPanelCard({
 
     switch (panel.visualization) {
       case 'time_series':
-        return <div className="px-3 pb-2 h-full"><TimeSeriesChart result={multiRangeData[0]} stackMode={panel.stackMode === 'normal' ? 'normal' : 'none'} unit={panel.unit} /></div>;
+        return <div className="h-full"><TimeSeriesChart result={multiRangeData[0]} stackMode={panel.stackMode === 'normal' ? 'normal' : 'none'} unit={panel.unit} /></div>;
       case 'stat': {
         const val = firstInstantValue(instantData);
         return <StatVisualization value={val} unit={panel.unit} description={panel.description} />;
@@ -594,7 +594,7 @@ export default function DashboardPanelCard({
       }
       case 'table': {
         const tsData = isRangeViz ? multiRangeData[0] : transformInstantData(instantData!, activeQuery);
-        return <div className="px-3 pb-2 h-full"><TimeSeriesChart result={tsData} unit={panel.unit} /></div>;
+        return <div className="h-full"><TimeSeriesChart result={tsData} unit={panel.unit} /></div>;
       }
       case 'pie': {
         const items = instantToPieItems(instantData);
@@ -625,31 +625,22 @@ export default function DashboardPanelCard({
 
   const isStat = panel.visualization === 'stat' || panel.visualization === 'gauge';
 
-  // Compact stat/gauge layout
+  // Compact stat/gauge layout — like Grafana stat panel
   if (isStat) {
     return (
       <div
-        className={`bg-surface-high rounded-xl h-full flex flex-col justify-center px-4 py-2 relative group transition-all duration-200 panel-drag-handle cursor-grab active:cursor-grabbing ${
+        className={`bg-surface-high rounded-xl h-full px-4 py-3 relative group transition-all duration-200 panel-drag-handle cursor-grab active:cursor-grabbing flex flex-col ${
           editMode ? 'ring-1 ring-dashed ring-outline-variant' : ''
         }`}
       >
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[11px] text-on-surface-variant truncate">{panel.title}</span>
-          <div className={`flex items-center gap-1 shrink-0 transition-opacity duration-150 ${editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-            {onEdit && (
-              <button type="button" onClick={onEdit} className="p-0.5 rounded hover:bg-surface-highest text-on-surface-variant hover:text-on-surface transition-colors" title="Edit">
-                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-8.5 8.5L5 15l.086-2.914 8.5-8.5zM4 16h12v1H4z" /></svg>
-              </button>
-            )}
-            {onDelete && (
-              <button type="button" onClick={onDelete} className="p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error transition-colors" title="Delete">
-                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-1 1v1H5a1 1 0 100 2h.293l.853 9.386A2 2 0 008.138 17h3.724a2 2 0 001.992-1.614L14.707 6H15a1 1 0 100-2h-3V3a1 1 0 00-1-1H9zM9 4h2V3H9v1z" clipRule="evenodd" /></svg>
-              </button>
-            )}
+        <div className="flex items-start justify-between">
+          <span className="text-xs text-on-surface-variant font-medium truncate">{panel.title}</span>
+          <div className={`flex items-center gap-0.5 shrink-0 ml-2 transition-opacity duration-150 ${editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+            {onEdit && <button type="button" onClick={onEdit} className="p-0.5 rounded hover:bg-surface-highest text-on-surface-variant hover:text-on-surface" title="Edit"><svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-8.5 8.5L5 15l.086-2.914 8.5-8.5zM4 16h12v1H4z" /></svg></button>}
+            {onDelete && <button type="button" onClick={onDelete} className="p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" title="Delete"><svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-1 1v1H5a1 1 0 100 2h.293l.853 9.386A2 2 0 008.138 17h3.724a2 2 0 001.992-1.614L14.707 6H15a1 1 0 100-2h-3V3a1 1 0 00-1-1H9zM9 4h2V3H9v1z" clipRule="evenodd" /></svg></button>}
           </div>
         </div>
-        <div className="flex-1 min-h-0">{renderContent()}</div>
-        {editMode && <QueryBadge queries={effectiveQueries} />}
+        <div className="flex-1 flex items-center">{renderContent()}</div>
       </div>
     );
   }

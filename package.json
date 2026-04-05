@@ -16,7 +16,8 @@
     "testbed:up": "powershell -ExecutionPolicy Bypass -File ./infra/testbed/scripts/up.ps1",
     "testbed:down": "powershell -ExecutionPolicy Bypass -File ./infra/testbed/scripts/down.ps1",
     "testbed:istio:up": "powershell -ExecutionPolicy Bypass -File ./infra/testbed/scripts/up-istio.ps1",
-    "testbed:istio:down": "powershell -ExecutionPolicy Bypass -File ./infra/testbed/scripts/down-istio.ps1"
+    "testbed:istio:down": "powershell -ExecutionPolicy Bypass -File ./infra/testbed/scripts/down-istio.ps1",
+    "testbed:run": "npx tsx testbed/runner.ts"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",

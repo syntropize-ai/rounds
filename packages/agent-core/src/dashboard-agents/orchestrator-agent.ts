@@ -226,12 +226,46 @@ export class OrchestratorAgent {
             existingVariables: currentDash.variables,
           }, onGroupDone)
 
+          // Discovery found 0 relevant metrics — ask the user for clarification
+          if (result.needsClarification) {
+            const { searchedFor, totalMetricsInPrometheus, candidateMetrics } = result.needsClarification
+            let clarificationMsg = `I searched for metrics related to "${searchedFor}" but found no relevant matches in your Prometheus instance (${totalMetricsInPrometheus} total metrics available).`
+            if (candidateMetrics.length > 0) {
+              const listed = candidateMetrics.slice(0, 10).join(', ')
+              clarificationMsg += `\n\nSome potentially related metrics I found: ${listed}`
+              if (candidateMetrics.length > 10) {
+                clarificationMsg += ` (and ${candidateMetrics.length - 10} more)`
+              }
+            }
+            clarificationMsg += '\n\nCould you clarify what you\'d like to monitor? For example, you could specify a metric prefix or the service/exporter name.'
+
+            this.deps.sendEvent({
+              type: 'tool_result',
+              tool: 'generate_dashboard',
+              summary: 'No relevant metrics found — asking user for clarification',
+              success: false,
+            })
+            this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', {
+              tool: 'generate_dashboard',
+              summary: 'needsClarification — 0 relevant metrics',
+            }))
+            // Return the clarification message as observation text.
+            // The ReAct loop will see this and the LLM should route to ask_user.
+            return `CLARIFICATION_NEEDED: ${clarificationMsg}`
+          }
+
           if (result.title) {
             await this.actionExecutor.execute(dashboardId, [{
               type: 'set_title',
               title: result.title,
               ...(result.description ? { description: result.description } : {}),
             }])
+          }
+
+          // Replace panels in store with layout-applied panels from generator
+          // (onGroupDone added panels before layout was computed; this overwrites with final layout)
+          if (result.panels.length > 0) {
+            await this.deps.store.updatePanels(dashboardId, result.panels)
           }
 
           if (result.variables && result.variables.length > 0) {
@@ -774,6 +808,7 @@ ${dashboard.panels.length === 0 ? '\n⚠️ THIS DASHBOARD HAS 0 PANELS — you 
    - the user says "environment" but there are multiple environments and no clue which one
    - the user says "service" but there are multiple similarly named services or metrics
 7. NEVER ask more than one clarifying question. If you already have some context (e.g. dashboard panels show specific services), infer that context instead of asking.
+8. If you receive an observation starting with "CLARIFICATION_NEEDED:", use the ask_user tool to relay the clarification message to the user. Do NOT try to generate a dashboard without relevant metrics.
 
 ## Response Format
 Return JSON on every step.

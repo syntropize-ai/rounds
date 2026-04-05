@@ -21,8 +21,6 @@ export interface PanelSpec {
   description: string
   visualization: string
   queryIntent: string
-  width: number
-  height: number
 }
 
 export interface VariableSuggestion {
@@ -91,6 +89,12 @@ export interface GenerateOutput {
   description: string
   panels: PanelConfig[]
   variables: DashboardVariable[]
+  /** Set when discovery found 0 relevant metrics — caller should ask the user for clarification */
+  needsClarification?: {
+    searchedFor: string
+    totalMetricsInPrometheus: number
+    candidateMetrics: string[]
+  }
 }
 
 // -- Injected dependency interfaces for stores consumed by dashboard agents.

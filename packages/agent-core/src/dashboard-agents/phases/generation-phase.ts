@@ -27,44 +27,16 @@ const VALID_VISUALIZATIONS = new Set<string>([
   'heatmap', 'pie', 'histogram', 'status_timeline',
 ])
 
-/** Enforce reasonable panel width based on visualization type */
-function clampWidth(panel: RawPanelSpec): number {
-  const w = panel.width ?? 6;
-  const viz = panel.visualization;
-  if (viz === 'stat' || viz === 'gauge') return Math.min(w, 4);
-  if (viz === 'pie' || viz === 'bar' || viz === 'histogram' || viz === 'table') return Math.min(w, 6);
-  return w;
-}
-
-/** Calculate panel height based on content needs */
-function calcHeight(panel: RawPanelSpec): number {
-  const viz = panel.visualization;
-  const queryCount = panel.queries?.length ?? 1;
-
-  // Compact visualizations
-  if (viz === 'stat' || viz === 'gauge') return 3;
-
-  // Table needs more rows for data
-  if (viz === 'table') return Math.max(4, Math.min(6, queryCount + 3));
-
-  // Time series / bar / histogram: base 3 + extra for multi-query legend
-  // Each query likely produces 1+ series; legend needs ~16px per entry
-  // At rowHeight=80, each grid row ≈ 80px
-  // Base chart needs 3 rows; add 1 row per 3 legend entries above 2
-  const legendRows = queryCount > 2 ? Math.ceil((queryCount - 2) / 3) : 0;
-  return Math.max(3, Math.min(6, 3 + legendRows));
-}
-
 export class GenerationPhase {
   constructor(private deps: GeneratorDeps) {}
 
   async generateAndCriticLoop(
     group: PanelGroup,
     allGroups: PanelGroup[],
+    plannedVariables: Array<{ name: string }>,
     input: GenerateInput,
     research: ResearchResult | undefined,
     discovery: DiscoveryResult | undefined,
-    startRow: number,
   ): Promise<PanelConfig[]> {
     let rawPanels: RawPanelSpec[] = []
     let feedback: CriticFeedback | undefined
@@ -77,7 +49,7 @@ export class GenerationPhase {
         displayText: `Generating "${group.label}"${round > 0 ? ` (revision ${round})` : ''}`,
       })
 
-      rawPanels = await this.generateGroup(group, allGroups, input, research, discovery, startRow, feedback)
+      rawPanels = await this.generateGroup(group, allGroups, plannedVariables, input, research, discovery, feedback)
 
       this.deps.sendEvent?.({
         type: 'tool_result',
@@ -93,7 +65,7 @@ export class GenerationPhase {
         displayText: `Reviewing "${group.label}" (${rawPanels.length} panels)`,
       })
 
-      feedback = await this.critique(rawPanels, group, allGroups, input)
+      feedback = await this.critique(rawPanels, group, allGroups, plannedVariables, input)
 
       this.deps.sendEvent?.({
         type: 'tool_result',
@@ -111,7 +83,7 @@ export class GenerationPhase {
       })
     }
 
-    return this.toPanelConfigs(rawPanels, startRow)
+    return this.toPanelConfigs(rawPanels)
   }
 
   // Validate queries against Prometheus (if available)
@@ -198,10 +170,10 @@ export class GenerationPhase {
   private async generateGroup(
     group: PanelGroup,
     allGroups: PanelGroup[],
+    plannedVariables: Array<{ name: string }>,
     input: GenerateInput,
     research: ResearchResult | undefined,
     discovery: DiscoveryResult | undefined,
-    startRow: number,
     criticFeedback?: CriticFeedback,
   ): Promise<RawPanelSpec[]> {
     const researchContext = research && research.keyMetrics.length > 0
@@ -213,6 +185,7 @@ export class GenerationPhase {
           discoveredMetrics: discovery.metrics,
           labelsByMetric: discovery.labelsByMetric,
           sampleValues: discovery.sampleValues,
+          metadataByMetric: discovery.metadataByMetric,
         })
       : ''
 
@@ -220,13 +193,17 @@ export class GenerationPhase {
       ? `\n## Critic Feedback - FIX THESE ISSUES\n${criticFeedback.issues.map((i) => `- [${i.severity}] ${i.panelTitle}: ${i.description} / Fix: ${i.suggestedFix}`).join('\n')}\n`
       : ''
 
-    const panelSpecsText = group.panelSpecs.map((s) => `- ${s.title} (${s.queryIntent}) (${s.visualization}) ${s.width}x${s.height}`).join('\n')
+    const panelSpecsText = group.panelSpecs.map((s) => `- ${s.title} (${s.queryIntent}) (${s.visualization})`).join('\n')
     const sectionMap = allGroups
       .map((g) => {
         const specs = g.panelSpecs.map((s) => `${s.title}: ${s.queryIntent}`).join('; ')
         return `- ${g.label} -> ${g.purpose}${specs ? ` | assigned coverage: ${specs}` : ''}${g.id === group.id ? ' [CURRENT SECTION]' : ''}`
       })
       .join('\n')
+    const allPlannedVariables = [...input.existingVariables.map((v) => v.name), ...plannedVariables.map((v) => v.name)]
+    const plannedVariablesText = allPlannedVariables.length
+      ? [...new Set(allPlannedVariables)].map((name) => `- $${name}`).join('\n')
+      : '- none'
 
     const systemPrompt = `You are a PromQL expert generating dashboard panels for the "${group.label}" section.
 ${GENERATION_PRINCIPLES}
@@ -237,6 +214,9 @@ ${group.purpose}
 ## Full Dashboard Section Map
 ${sectionMap}
 
+## Planned Dashboard Variables
+${plannedVariablesText}
+
 ## Panel Specifications
 ${panelSpecsText}
 ${researchContext}${groundingContext}${feedbackSection}
@@ -245,6 +225,8 @@ ${researchContext}${groundingContext}${feedbackSection}
 Each panel spec above specifies its visualization type in parentheses. You MUST use exactly that visualization type.
 Do not change pie to time_series, do not change histogram to bar, etc.
 Treat the section map as a hard ownership map. This section should cover its assigned signals and should NOT recreate signals already assigned to other sections unless the perspective is clearly different.
+Treat the planned variable list as a hard contract. If no variables are planned, do NOT introduce template variables such as $instance, $job, $namespace, or similar placeholders in queries.
+For first-look health dashboards, do not add second-order exporter detail or drill-down panels unless that deeper signal is explicitly assigned in the section map.
 
 ## PromQL Rules
 - rate() on counters (*_total, *_count) with [5m]
@@ -258,16 +240,6 @@ Treat the section map as a hard ownership map. This section should cover its ass
 - Use percentunit ONLY for ratios in the 0..1 range that should be displayed as percentages.
 - Metrics named *_score, *_health_score, or similar are usually scores, not 0..1 ratios. Do NOT assume percentunit for them.
 
-## Layout
-Grid starts at row ${startRow}, 12-column grid.
-- stat: width=3, height=2
-- time_series full: width=12, height=3
-- time_series paired: width=6, height=3
-- bar/table/histogram: width=6, height=3
-- gauge/pie: width=4, height=3
-- heatmap: width=12, height=3
-- status_timeline: width=12, height=2
-
 ## Visualization selection
 - pie: use for proportional breakdowns (e.g. traffic share by service). Query should return multiple instant values.
 - histogram: use for latency/size distributions from bucket metrics. Query the raw bucket metric with instant=true.
@@ -275,16 +247,16 @@ Grid starts at row ${startRow}, 12-column grid.
 - status_timeline: use for up/down or health status over time. Query should return 0/1 values per target as range queries.
 
 ## Output
-Return a JSON array of panel specs.
+Return a JSON array of panel specs. Panel order in the array determines layout position — no row/col/width/height needed.
 [
-  { "title": "Request Rate", "visualization": "stat", "queries": [{ "refId": "A", "expr": "", "instant": true }], "row": 0, "col": 0, "width": 3, "height": 2 },
-  { "title": "Latency Trend", "visualization": "time_series", "queries": [{ "refId": "A", "expr": "", "legendFormat": "{{pod}}" }], "row": 2, "col": 0, "width": 6, "height": 3 },
-  { "title": "Traffic by Service", "visualization": "pie", "queries": [{ "refId": "A", "expr": "", "instant": true }], "row": 2, "col": 6, "width": 4, "height": 3 },
-  { "title": "Latency Distribution", "visualization": "histogram", "queries": [{ "refId": "A", "expr": "", "instant": true }], "row": 5, "col": 0, "width": 6, "height": 3 },
-  { "title": "Service Health", "visualization": "status_timeline", "queries": [{ "refId": "A", "expr": "" }], "row": 8, "col": 0, "width": 12, "height": 2 }
+  { "title": "Request Rate", "visualization": "stat", "queries": [{ "refId": "A", "expr": "", "instant": true }] },
+  { "title": "Latency Trend", "visualization": "time_series", "queries": [{ "refId": "A", "expr": "", "legendFormat": "{{pod}}" }] },
+  { "title": "Traffic by Service", "visualization": "pie", "queries": [{ "refId": "A", "expr": "", "instant": true }] },
+  { "title": "Latency Distribution", "visualization": "histogram", "queries": [{ "refId": "A", "expr": "", "instant": true }] },
+  { "title": "Service Health", "visualization": "status_timeline", "queries": [{ "refId": "A", "expr": "" }] }
 ]
 
-Full panel spec keys: title, description, visualization, queries: [{refId, expr, legendFormat, instant}], row, col, width, height, unit, stackMode, fillOpacity, thresholds, decimals.
+Full panel spec keys: title, description, visualization, queries: [{refId, expr, legendFormat, instant}], unit, stackMode, fillOpacity, thresholds, decimals.
 Valid units: bytes, bytes/s, seconds, ms, percentunit, percent, reqps, short, none
 ONLY return the JSON array without markdown.`
 
@@ -300,9 +272,7 @@ ONLY return the JSON array without markdown.`
       })
       // Fix invalid JSON escape sequences from LLM (e.g. \s, \d in PromQL regex)
       const parsed = parseLlmJson(resp.content) as unknown
-      const panels = Array.isArray(parsed) ? parsed as RawPanelSpec[] : []
-      // Enforce reasonable widths — LLM often sets everything to 12
-      return panels.map((p) => ({ ...p, width: clampWidth(p), height: calcHeight(p) }))
+      return Array.isArray(parsed) ? parsed as RawPanelSpec[] : []
     }
     catch (err) {
       log.warn({ err }, 'generateGroup failed')
@@ -315,6 +285,7 @@ ONLY return the JSON array without markdown.`
     panels: RawPanelSpec[],
     group: PanelGroup,
     allGroups: PanelGroup[],
+    plannedVariables: Array<{ name: string }>,
     input: GenerateInput,
   ): Promise<CriticFeedback> {
     const sectionMap = allGroups
@@ -333,7 +304,11 @@ Expected scope: ${input.scope ?? 'auto / inferred from the user request'}
 Full section map:
 ${sectionMap}
 
+Planned variables:
+${[...new Set([...input.existingVariables.map((v) => v.name), ...plannedVariables.map((v) => v.name)])].map((name) => `- $${name}`).join('\n') || '- none'}
+
 Treat the section label and purpose as a hard organizational boundary. If a panel's primary signal belongs to another theme, flag it as section_mismatch instead of approving it just because the query itself is valid.
+Treat the planned variable list as a hard contract. If queries introduce template variables that are not in the planned variable list, flag that as promql_error.
 
 ## Review Criteria
 1. Scope Obedience — did this section ONLY produce what was requested? Any unrequested metric families or scope expansion is an error.
@@ -342,8 +317,9 @@ Treat the section label and purpose as a hard organizational boundary. If a pane
 4. Visualization Appropriateness - stat/gauge must be single-value panels; grouped multi-series queries should not use stat/gauge.
 5. Section Discipline - does every panel belong in this section's theme/purpose, or is it a business panel inside a platform section (or vice versa)?
 6. Duplicate Coverage - are multiple panels in this section expressing the same signal at the same level of detail with only minor variations?
-7. Panel Count Appropriateness
-8. Completeness
+7. First-Look Discipline - for broad health dashboards, prioritize the core panels an operator would want first. Flag exporter-detail, specialist diagnostics, or drill-down panels that appear too early unless the user's intent is clearly deeper analysis.
+8. Panel Count Appropriateness
+9. Completeness
 
 ## Output (JSON)
 {
@@ -353,7 +329,7 @@ Treat the section label and purpose as a hard organizational boundary. If a pane
     {
       "panelTitle": "Error",
       "severity": "error",
-      "category": "technology_relevance | promql_error | visualization_mismatch | section_mismatch | duplicate_coverage | panel_count | missing_coverage | redundant",
+      "category": "technology_relevance | promql_error | visualization_mismatch | section_mismatch | duplicate_coverage | front_page_drift | panel_count | missing_coverage | redundant",
       "description": "what is wrong",
       "suggestedFix": "How to fix it"
     }
@@ -386,8 +362,8 @@ approved = true if overallScore >= 8 AND no severity=error issues.`
     }
   }
 
-  // Convert raw specs to PanelConfig
-  private toPanelConfigs(rawPanels: RawPanelSpec[], startRow: number): PanelConfig[] {
+  // Convert raw specs to PanelConfig (layout is applied later by the layout engine)
+  private toPanelConfigs(rawPanels: RawPanelSpec[]): PanelConfig[] {
     return rawPanels.map((raw) => {
       const visualization = VALID_VISUALIZATIONS.has(raw.visualization)
         ? raw.visualization as PanelVisualization
@@ -406,10 +382,10 @@ approved = true if overallScore >= 8 AND no severity=error issues.`
         description: raw.description ?? '',
         queries,
         visualization,
-        row: Math.max(0, raw.row ?? startRow),
-        col: Math.min(11, Math.max(0, raw.col ?? 0)),
-        width: Math.max(2, Math.min(12, raw.width ?? 6)),
-        height: Math.max(2, raw.height ?? 3),
+        row: 0,
+        col: 0,
+        width: 6,
+        height: 3,
         refreshIntervalSec: 30,
         unit: raw.unit,
         stackMode: raw.stackMode,

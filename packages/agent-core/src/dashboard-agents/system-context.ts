@@ -22,12 +22,22 @@ export function buildGroundingContext(opts: {
   discoveredMetrics?: string[];
   labelsByMetric?: Record<string, string[]>;
   sampleValues?: Record<string, { sampleLabels: Record<string, string>[] }>;
+  metadataByMetric?: Record<string, { type: string; help: string; unit: string }>;
 }): string {
   if (!opts.discoveredMetrics?.length) return '';
 
+  const meta = opts.metadataByMetric ?? {};
   let ctx = '\n## Discovered Metrics (HARD CONSTRAINT — use ONLY these)\n';
-  ctx += opts.discoveredMetrics.join('\n');
-  ctx += '\n\nDo NOT use metrics not in this list. If you need a metric that is not here, omit that panel.\n';
+  for (const name of opts.discoveredMetrics) {
+    const m = meta[name];
+    if (m && (m.type || m.help)) {
+      ctx += `- ${name} (${m.type}${m.help ? `: ${m.help}` : ''})\n`;
+    } else {
+      ctx += `- ${name}\n`;
+    }
+  }
+  ctx += '\nDo NOT use metrics not in this list. If you need a metric that is not here, omit that panel.\n';
+  ctx += 'Use the metric TYPE to choose correct PromQL: rate() for counters, direct value for gauges, histogram_quantile() with by(le) for histograms.\n';
 
   if (opts.labelsByMetric && Object.keys(opts.labelsByMetric).length > 0) {
     ctx += '\n## Discovered Label Keys (available dimensions for grouping/filtering)\n';

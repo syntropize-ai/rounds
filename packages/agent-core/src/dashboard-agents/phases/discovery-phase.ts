@@ -31,9 +31,10 @@ export class DiscoveryPhase {
 - Multiple sections are allowed when they are all relevant to the request.
 - Use overview -> trends -> breakdowns -> detail sections only when they materially improve the requested dashboard.
 - Even in comprehensive mode, do not introduce unrelated metric families.`,
-      auto: `- AUTO scope: infer the right breadth from the user's wording and the available data.
-- If the request is narrow or names only a few signals, produce a focused dashboard.
-- If the request clearly asks for broad coverage, overview, end-to-end visibility, or comprehensive monitoring, a broader dashboard is appropriate.
+      auto: `- AUTO scope: infer the right breadth from the user's intent and the available data.
+- First decide whether the user is asking for an operator's first-look dashboard or a deeper analytical/dashboard-expansion view.
+- For a first-look dashboard, include only the core panels needed to judge health quickly.
+- For a deeper analytical view, broader supporting sections are appropriate when they materially improve the answer.
 - Do not expand the dashboard just because more metrics exist.`,
     }
     const scopeMode = input.scope ?? 'auto'
@@ -47,6 +48,7 @@ export class DiscoveryPhase {
           discoveredMetrics: discovery.metrics,
           labelsByMetric: discovery.labelsByMetric,
           sampleValues: discovery.sampleValues,
+          metadataByMetric: discovery.metadataByMetric,
         })
       : ''
 
@@ -71,6 +73,10 @@ ${researchContext}${metricsContext}${existingContext}
 7. A panel must belong to the section that best matches its primary theme. Do NOT place platform/dependency panels inside business sections, and do NOT place business outcome panels inside platform sections.
 8. Avoid duplicate coverage within a theme. If two candidate panels express nearly the same signal at the same level of detail, keep the clearer one instead of including both.
 9. When the request mixes business and platform concerns, prefer a small number of representative panels per theme instead of exhausting one theme before covering the other.
+10. For broad subjects like Redis, Postgres, gateway, worker, or service health, do NOT assume the user wants a full exporter or deep-dive dashboard. Start by identifying the core signals that best answer "is this healthy?" or "what should I look at first?"
+11. Distinguish CORE panels from EXTENDED panels in your reasoning. CORE panels are the smallest set needed for a good first-look dashboard. EXTENDED panels are drill-down, exporter-detail, or specialist diagnostics.
+12. Unless the user's intent is clearly exploratory, exhaustive, or diagnostic, plan only CORE panels and omit EXTENDED panels.
+13. For first-look health dashboards, prefer a small number of representative sections and representative panels within each section. Do not create extra sections or second-order detail panels once the core health questions are already covered.
 
 ## Scope-Specific Planning Guidance
 ${scopePlanningGuidance[scopeMode]}

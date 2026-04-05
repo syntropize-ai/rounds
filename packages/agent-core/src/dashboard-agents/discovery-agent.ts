@@ -1,13 +1,16 @@
 // Discovery Sub-Agent - probes Prometheus to find metrics, labels, and sample data
 
 import type { DashboardSseEvent } from '@agentic-obs/common'
-import type { IMetricsAdapter } from '../adapters/index.js'
+import type { IMetricsAdapter, MetricMetadata } from '../adapters/index.js'
 
 export interface DiscoveryResult {
   metrics: string[]
   labelsByMetric: Record<string, string[]>
   sampleValues: Record<string, { count: number, sampleLabels: Record<string, string>[] }>
+  metadataByMetric: Record<string, MetricMetadata>
   totalMetrics: number
+  /** When relevant metrics is empty, these are the closest pattern-matched candidates from Prometheus */
+  candidateMetrics?: string[]
 }
 
 export class DiscoveryAgent {
@@ -105,10 +108,33 @@ export class DiscoveryAgent {
       success: true,
     })
 
+    // Step 4: Fetch metric metadata (type + help text) for discovered metrics
+    let metadataByMetric: Record<string, MetricMetadata> = {}
+    try {
+      this.sendEvent({
+        type: 'tool_call',
+        tool: 'fetch_metadata',
+        args: { metrics: topMetrics.length },
+        displayText: `Fetching metric metadata (type, help) for ${topMetrics.length} metrics`,
+      })
+
+      metadataByMetric = await this.metrics.fetchMetadata(topMetrics)
+
+      this.sendEvent({
+        type: 'tool_result',
+        tool: 'fetch_metadata',
+        summary: `Got metadata for ${Object.keys(metadataByMetric).length} metrics`,
+        success: true,
+      })
+    } catch {
+      // Metadata is best-effort; continue without it
+    }
+
     return {
       metrics: filtered,
       labelsByMetric,
       sampleValues,
+      metadataByMetric,
       totalMetrics,
     }
   }

@@ -7,9 +7,21 @@ interface MetricSample {
   timestamp: number;
 }
 
+interface MetricMetadata {
+  type: string;
+  help: string;
+  unit: string;
+}
+
 interface RangeResult {
   metric: Record<string, string>;
   values: Array<[number, string]>;
+}
+
+interface PrometheusMetadataEntry {
+  type: string;
+  help: string;
+  unit: string;
 }
 
 interface PrometheusApiResponse<T> {
@@ -128,6 +140,35 @@ export class PrometheusMetricsAdapter {
       metric: r.metric,
       values: r.values,
     }));
+  }
+
+  async fetchMetadata(metricNames?: string[]): Promise<Record<string, MetricMetadata>> {
+    const params = new URLSearchParams();
+    if (metricNames) {
+      for (const name of metricNames) params.append('metric', name);
+    }
+    const url = `${this.base}/api/v1/metadata?${params}`;
+    try {
+      const res = await this.fetch(url);
+      if (!res.ok) return {};
+      const body = (await res.json()) as PrometheusApiResponse<Record<string, PrometheusMetadataEntry[]>>;
+      if (body.status !== 'success' || !body.data) return {};
+
+      const result: Record<string, MetricMetadata> = {};
+      for (const [name, entries] of Object.entries(body.data)) {
+        const entry = entries[0];
+        if (entry) {
+          result[name] = {
+            type: entry.type ?? '',
+            help: entry.help ?? '',
+            unit: entry.unit ?? '',
+          };
+        }
+      }
+      return result;
+    } catch {
+      return {};
+    }
   }
 
   async testQuery(expr: string): Promise<{ ok: boolean; error?: string }> {

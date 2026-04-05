@@ -5,7 +5,6 @@ import { randomUUID } from 'crypto'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { requirePermission } from '../../middleware/rbac.js'
-import { LiveDashboardGenerator } from './generator.js'
 import { defaultConversationStore, defaultInvestigationReportStore } from '@agentic-obs/data-layer'
 import type { IGatewayDashboardStore, IConversationStore } from '@agentic-obs/data-layer'
 import { handleChatMessage } from './chat-handler.js'
@@ -13,20 +12,18 @@ import { VariableResolver } from './variable-resolver.js'
 import type { PanelConfig } from '@agentic-obs/common'
 import { getSetupConfig } from '../setup.js'
 import { getWorkspaceId } from '../../middleware/workspace-context.js'
+import { DashboardService, withDashboardLock } from '../../services/dashboard-service.js'
+import { createLogger } from '@agentic-obs/common'
 
-export interface DashboardGenerator {
-  generate(dashboardId: string, prompt: string, userId: string): void
-}
+const log = createLogger('dashboard-router')
 
 export interface DashboardRouterDeps {
   store?: IGatewayDashboardStore
-  generator?: DashboardGenerator
   conversationStore?: IConversationStore
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps = {}): ExpressRouter {
   const store = deps.store!
-  const generator = deps.generator ?? new LiveDashboardGenerator(store)
   const conversationStore = deps.conversationStore ?? defaultConversationStore
 
   const router = Router()
@@ -56,12 +53,24 @@ export function createDashboardRouter(deps: DashboardRouterDeps = {}): ExpressRo
         workspaceId,
       })
 
-      // When stream=true, skip background generation - client will use POST /:id/chat for SSE
-      if (!body.stream) {
-        generator.generate(dashboard.id, dashboard.prompt, userId)
-      }
-
       res.status(201).json(dashboard)
+
+      // Trigger generation in background via the orchestrator agent (same path as chat)
+      if (!body.stream) {
+        const service = new DashboardService(store, conversationStore)
+        void withDashboardLock(dashboard.id, async () => {
+          try {
+            await service.handleChatMessage(
+              dashboard.id,
+              dashboard.prompt,
+              () => {},  // no SSE sink for background generation
+            )
+          } catch (err) {
+            log.error({ err, dashboardId: dashboard.id }, 'background generation failed')
+            await store.update(dashboard.id, { status: 'failed' } as any)
+          }
+        })
+      }
     }
     catch (err) {
       next(err)

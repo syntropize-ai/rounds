@@ -88,7 +88,14 @@ export class ResearchPhase {
               metrics: relevant,
               labelsByMetric: discoveryResult.labelsByMetric,
               sampleValues: discoveryResult.sampleValues,
-              totalMetrics: discoveryResult.totalMetrics,
+              metadataByMetric: discoveryResult.metadataByMetric,
+              totalMetrics: allMetrics.length,
+              // When LLM found no relevant metrics, surface pattern-matched candidates
+              ...(relevant.length === 0 && discoveryResult.metrics.length > 0
+                ? { candidateMetrics: discoveryResult.metrics.slice(0, 20) }
+                : relevant.length === 0 && allMetrics.length > 0
+                  ? { candidateMetrics: allMetrics.slice(0, 20) }
+                  : {}),
             }
 
             sendEvent?.({

@@ -29,6 +29,8 @@ export type { ReActStep, ReActObservation, ReActDeps } from './react-loop.js'
 
 export { PanelValidator } from './panel-validator.js'
 
+export { applyLayout } from './layout-engine.js'
+
 export { ResearchPhase, DiscoveryPhase, GenerationPhase } from './phases/index.js'
 export type { ResearchPhaseResult } from './phases/index.js'
 

@@ -10,6 +10,7 @@ import { agentRegistry } from '../runtime/agent-registry.js'
 import { ResearchPhase } from './phases/research-phase.js'
 import { DiscoveryPhase } from './phases/discovery-phase.js'
 import { GenerationPhase } from './phases/generation-phase.js'
+import { applyLayout } from './layout-engine.js'
 
 export class DashboardGeneratorAgent {
   static readonly definition = agentRegistry.get('dashboard-builder')!;
@@ -33,6 +34,34 @@ export class DashboardGeneratorAgent {
     // Step 0/1: Research + Discovery in parallel
     const { research: researchResult, discovery: discoveryResult } = await this.research.run(input)
 
+    // If Prometheus is connected but discovery found 0 relevant metrics,
+    // surface a clarification signal instead of generating from guesswork.
+    if (
+      this.deps.metrics
+      && discoveryResult
+      && discoveryResult.metrics.length === 0
+      && discoveryResult.totalMetrics > 0
+    ) {
+      sendEvent?.({
+        type: 'tool_result',
+        tool: 'discover',
+        summary: `No relevant metrics found for "${input.goal}" — requesting clarification`,
+        success: false,
+      })
+
+      return {
+        title: '',
+        description: '',
+        panels: [],
+        variables: [],
+        needsClarification: {
+          searchedFor: input.goal,
+          totalMetricsInPrometheus: discoveryResult.totalMetrics,
+          candidateMetrics: discoveryResult.candidateMetrics ?? [],
+        },
+      }
+    }
+
     // Step 2: Planner
     sendEvent?.({
       type: 'tool_call',
@@ -50,33 +79,20 @@ export class DashboardGeneratorAgent {
     })
 
     // Step 3: Generate + Critic per group (parallel)
-    // Pre-calculate start rows so groups can run in parallel
-    const groupStartRows: number[] = []
-    let estimatedRow = 0
-    for (const group of plan.groups) {
-      groupStartRows.push(estimatedRow)
-      const estimatedHeight = group.panelSpecs.reduce((h, s) => {
-        if (s.visualization === 'stat')
-          return Math.max(h, 2)
-        return h + (s.height ?? 3)
-      }, 0)
-      estimatedRow += Math.max(2, estimatedHeight)
-    }
-
     sendEvent?.({ type: 'thinking', content: `Generating ${plan.groups.length} sections in parallel...` })
 
     let completedGroups = 0
     const totalGroups = plan.groups.length
 
     const groupResults = await Promise.all(
-      plan.groups.map((group, i) =>
+      plan.groups.map((group) =>
         this.generation.generateAndCriticLoop(
           group,
           plan.groups,
+          plan.variables,
           input,
           researchResult,
           discoveryResult,
-          groupStartRows[i] ?? 0,
         ).then(async (panels) => {
           const tagged = panels.map((p) => ({ ...p, sectionId: group.id, sectionLabel: group.label }))
           completedGroups++
@@ -114,13 +130,16 @@ export class DashboardGeneratorAgent {
       validated = allPanels
     }
 
-    // Step 5: Detect variables
-    const variables = this.generation.detectVariables(validated, input, discoveryResult)
+    // Step 5: Apply deterministic layout
+    const laidOut = applyLayout(validated)
+
+    // Step 6: Detect variables
+    const variables = this.generation.detectVariables(laidOut, input, discoveryResult)
 
     return {
       title: plan.title,
       description: plan.description,
-      panels: validated,
+      panels: laidOut,
       variables,
     }
   }

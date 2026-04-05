@@ -634,7 +634,7 @@ export default function DashboardPanelCard({
         }`}
       >
         <div className="flex items-start justify-between">
-          <span className="text-xs text-on-surface-variant font-medium truncate">{panel.title}</span>
+          <span className="text-xs text-on-surface font-semibold truncate">{panel.title}</span>
           <div className={`flex items-center gap-0.5 shrink-0 ml-2 transition-opacity duration-150 ${editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
             {onEdit && <button type="button" onClick={onEdit} className="p-0.5 rounded hover:bg-surface-highest text-on-surface-variant hover:text-on-surface" title="Edit"><svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-8.5 8.5L5 15l.086-2.914 8.5-8.5zM4 16h12v1H4z" /></svg></button>}
             {onDelete && <button type="button" onClick={onDelete} className="p-0.5 rounded hover:bg-error/10 text-on-surface-variant hover:text-error" title="Delete"><svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-1 1v1H5a1 1 0 100 2h.293l.853 9.386A2 2 0 008.138 17h3.724a2 2 0 001.992-1.614L14.707 6H15a1 1 0 100-2h-3V3a1 1 0 00-1-1H9zM9 4h2V3H9v1z" clipRule="evenodd" /></svg></button>}

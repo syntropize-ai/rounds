@@ -55,8 +55,8 @@ function formatStatValue(value: number, unit?: string): string {
 
 export default function StatVisualization({ value, unit }: Props) {
   return (
-    <div className="flex items-center justify-center h-full px-3">
-      <span className="text-2xl font-bold text-on-surface font-[Manrope] tabular-nums leading-none tracking-tight">
+    <div className="flex items-center justify-center h-full w-full">
+      <span className="text-3xl font-bold text-on-surface font-[Manrope] tabular-nums leading-none tracking-tight">
         {formatStatValue(value, unit)}
       </span>
     </div>

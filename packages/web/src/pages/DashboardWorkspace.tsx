@@ -594,14 +594,14 @@ export default function DashboardWorkspace() {
           if (!item) return panel;
           return {
             ...panel,
-            gridCol: item.x,
-            gridRow: item.y,
-            gridWidth: item.w,
-            gridHeight: item.h,
+            col: item.x,
+            row: item.y,
+            width: item.w,
+            height: item.h,
           };
         });
 
-        void apiClient.put<Dashboard>(`/dashboards/${id}/panels`, updatedPanels).then((res) => {
+        void apiClient.put<Dashboard>(`/dashboards/${id}/panels`, { panels: updatedPanels }).then((res) => {
           if (!res.error) {
             setDashboard(res.data);
             setPanels(res.data.panels);

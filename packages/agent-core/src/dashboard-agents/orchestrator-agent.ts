@@ -135,7 +135,7 @@ export class OrchestratorAgent {
       throw new Error(`Dashboard ${dashboardId} not found`)
     }
 
-    const history = this.deps.conversationStore.getMessages(dashboardId)
+    const history = await this.deps.conversationStore.getMessages(dashboardId)
     const systemPrompt = this.buildSystemPrompt(dashboard, history)
 
     try {

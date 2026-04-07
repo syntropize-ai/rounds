@@ -109,10 +109,10 @@ export interface IDashboardAgentStore {
 }
 
 export interface IConversationStore {
-  addMessage(dashboardId: string, msg: import('@agentic-obs/common').DashboardMessage): import('@agentic-obs/common').DashboardMessage
-  getMessages(dashboardId: string): import('@agentic-obs/common').DashboardMessage[]
-  clearMessages(dashboardId: string): void
-  deleteConversation(dashboardId: string): void
+  addMessage(dashboardId: string, msg: import('@agentic-obs/common').DashboardMessage): import('@agentic-obs/common').DashboardMessage | Promise<import('@agentic-obs/common').DashboardMessage>
+  getMessages(dashboardId: string): import('@agentic-obs/common').DashboardMessage[] | Promise<import('@agentic-obs/common').DashboardMessage[]>
+  clearMessages(dashboardId: string): void | Promise<void>
+  deleteConversation(dashboardId: string): void | Promise<void>
 }
 
 export interface IInvestigationReportStore {

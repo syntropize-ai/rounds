@@ -465,7 +465,7 @@ export const investigationReports = sqliteTable(
   'investigation_reports',
   {
     id: text('id').primaryKey(),
-    dashboardId: text('dashboard_id').notNull().references(() => dashboards.id, { onDelete: 'cascade' }),
+    dashboardId: text('dashboard_id').notNull(), // Stores investigationId despite the column name (legacy naming)
     goal: text('goal').notNull(),
     summary: text('summary').notNull(),
     sections: text('sections', { mode: 'json' }).notNull(),

@@ -798,6 +798,8 @@ Classify the user's intent based on what they are trying to accomplish, not by m
    - the user says "service" but there are multiple similarly named services or metrics
 7. NEVER ask more than one clarifying question. If you already have some context (e.g. dashboard panels show specific services), infer that context instead of asking.
 8. If you receive an observation starting with "CLARIFICATION_NEEDED:", use the ask_user tool to relay the clarification message to the user. Do NOT try to generate a dashboard without relevant metrics.
+9. NEVER modify the dashboard (set_title, modify_panel, remove_panels, add_panels, generate_dashboard) as a side effect of another action. If the user asks to create an alert rule, ONLY create the alert rule — do NOT change the dashboard title, panels, or layout. Each user request should do exactly one thing.
+10. After completing an action, use "reply" to confirm the result. Do NOT chain additional actions unless the user explicitly asked for multiple things.
 
 ## Response Format
 Return JSON on every step.

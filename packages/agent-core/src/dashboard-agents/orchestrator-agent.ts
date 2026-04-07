@@ -45,7 +45,7 @@ export interface OrchestratorDeps {
 
 const MUTATION_ACTIONS = [
   'add_panels', 'remove_panels', 'modify_panel', 'rearrange',
-  'add_variable', 'set_title', 'generate_dashboard', 'create_alert_rule',
+  'add_variable', 'set_title', 'generate_dashboard', 'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule',
 ] as const;
 
 function checkPermission(mode: AgentPermissionMode, action: string): 'allow' | 'block' | 'approval_required' | 'propose_only' {
@@ -683,7 +683,7 @@ export class OrchestratorAgent {
             createdBy: 'llm',
           })
 
-          const observationText = `Created alert rule "${rule.name}" (${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold} for ${rule.condition.forDurationSec}s.${generated.autoInvestigate ? ' Auto-investigation enabled on fire.' : ''}`
+          const observationText = `Created alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold} for ${rule.condition.forDurationSec}s.${generated.autoInvestigate ? ' Auto-investigation enabled on fire.' : ''}`
           this.deps.sendEvent({
             type: 'tool_result',
             tool: 'create_alert_rule',
@@ -691,6 +691,72 @@ export class OrchestratorAgent {
             success: true,
           })
           this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'create_alert_rule', summary: observationText }));
+          return observationText
+        }
+
+        case 'modify_alert_rule': {
+          const ruleId = String(args.ruleId ?? '')
+          const patch = (args.patch ?? args) as Record<string, unknown>
+          if (!ruleId) return 'Error: ruleId is required for modify_alert_rule.'
+          if (!this.deps.alertRuleStore.update) return 'Error: alert rule store does not support updates.'
+
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'modify_alert_rule',
+            args: { ruleId, patch },
+            displayText: `Updating alert rule ${ruleId}...`,
+          })
+
+          // Build the update patch — map flat args to nested condition if needed
+          const updatePatch: Record<string, unknown> = {}
+          if (patch.severity) updatePatch.severity = patch.severity
+          if (patch.evaluationIntervalSec) updatePatch.evaluationIntervalSec = patch.evaluationIntervalSec
+
+          const conditionPatch: Record<string, unknown> = {}
+          if (patch.threshold !== undefined) conditionPatch.threshold = patch.threshold
+          if (patch.operator) conditionPatch.operator = patch.operator
+          if (patch.forDurationSec !== undefined) conditionPatch.forDurationSec = patch.forDurationSec
+          if (patch.query) conditionPatch.query = patch.query
+          if (Object.keys(conditionPatch).length > 0) updatePatch.condition = conditionPatch
+
+          await this.deps.alertRuleStore.update(ruleId, updatePatch)
+
+          const observationText = `Alert rule ${ruleId} updated successfully.`
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'modify_alert_rule',
+            summary: observationText,
+            success: true,
+          })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'modify_alert_rule', summary: observationText }));
+          return observationText
+        }
+
+        case 'delete_alert_rule': {
+          const ruleId = String(args.ruleId ?? '')
+          if (!ruleId) return 'Error: ruleId is required for delete_alert_rule.'
+
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: 'delete_alert_rule',
+            args: { ruleId },
+            displayText: `Deleting alert rule ${ruleId}...`,
+          })
+
+          // alertRuleStore may have delete via the repository interface
+          const store = this.deps.alertRuleStore as unknown as { delete?(id: string): unknown }
+          if (store.delete) {
+            await store.delete(ruleId)
+          }
+
+          const observationText = `Alert rule ${ruleId} deleted.`
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: 'delete_alert_rule',
+            summary: observationText,
+            success: true,
+          })
+          this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'delete_alert_rule', summary: observationText }));
           return observationText
         }
 
@@ -758,7 +824,9 @@ ${historySection}${datasourceSection}
 - generate_dashboard(goal: string) -> dashboard generation with research, metric discovery, and panel planning. The dashboard generator decides the appropriate breadth from the user's request and the available data. Use when the dashboard is empty or the user wants a new dashboard.
 - add_panels(goal: string) -> add 1-3 specific panels to an EXISTING dashboard that already has panels. Only use for small incremental additions.
 - investigate(goal: string) -> investigate a production issue using real data; generates evidence panels and investigation report.
-- create_alert_rule(prompt: string) -> create an alert rule that notifies users when a metric crosses a threshold.
+- create_alert_rule(prompt: string) -> create a NEW alert rule that notifies users when a metric crosses a threshold.
+- modify_alert_rule(ruleId: string, patch: { threshold?: number, operator?: string, severity?: string, forDurationSec?: number, evaluationIntervalSec?: number }) -> modify an existing alert rule's properties. Use this when the user wants to change a threshold, severity, or other property of an alert they already created.
+- delete_alert_rule(ruleId: string) -> delete an existing alert rule.
 
 ## Direct tools (immediate dashboard changes)
 - remove_panels(panelIds: string[]) -> remove panels by ID
@@ -781,7 +849,11 @@ Classify the user's intent based on what they are trying to accomplish, not by m
 
 **add_panels** — The user wants to extend an existing dashboard that already has panels with a small addition.
 
-**create_alert_rule** — The user wants to be notified when something happens in the future.
+**create_alert_rule** — The user wants to create a NEW alert to be notified when something happens.
+
+**modify_alert_rule** — The user wants to change an existing alert rule (e.g. change threshold, severity). Look at recently created alert rules in the conversation history to find the ruleId.
+
+**delete_alert_rule** — The user wants to remove/delete an existing alert rule.
 
 **Direct tools** (modify_panel, remove_panels, rearrange, add_variable, set_title) — The user wants to make a specific change to an existing panel or the dashboard structure.
 

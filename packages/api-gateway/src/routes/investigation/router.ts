@@ -153,14 +153,11 @@ export function createInvestigationRouter(
         res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation not found' });
         return;
       }
-      // Use delete if available, otherwise cast to access internal maps
-      if (typeof (store as any).delete === 'function') {
-        (store as any).delete(id);
-      } else {
-        // Fallback: access the in-memory maps directly
-        const s = store as any;
-        s.investigations?.delete?.(id);
-        s.archivedItems?.delete?.(id);
+      store.delete(id);
+      // Cascade: remove associated investigation reports
+      const reports = defaultInvestigationReportStore.findByDashboard(id);
+      for (const r of reports) {
+        defaultInvestigationReportStore.delete(r.id);
       }
       res.status(204).end();
     } catch (err) {

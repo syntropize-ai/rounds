@@ -27,6 +27,24 @@ export interface PanelThreshold {
   label?: string;
 }
 
+/** Point-in-time data captured during an investigation, so panels render
+ *  the exact data that was observed rather than live queries. */
+export interface PanelSnapshotData {
+  /** For range visualizations (time_series, heatmap, status_timeline) */
+  range?: Array<{
+    refId: string;
+    legendFormat?: string;
+    series: Array<{ labels: Record<string, string>; points: Array<{ ts: number; value: number }> }>;
+    totalSeries: number;
+  }>;
+  /** For instant visualizations (stat, gauge, bar, pie, histogram) */
+  instant?: {
+    data: { result: Array<{ metric: Record<string, string>; value: [number, string] }> };
+  };
+  /** ISO timestamp when the data was captured */
+  capturedAt: string;
+}
+
 export interface PanelConfig {
   id: string;
   title: string;
@@ -48,6 +66,9 @@ export interface PanelConfig {
   // Section grouping (from Planner groups)
   sectionId?: string;
   sectionLabel?: string;
+  /** Static snapshot data captured during investigation — when set, panel
+   *  renders this data instead of executing live PromQL queries. */
+  snapshotData?: PanelSnapshotData;
 }
 
 export interface DashboardVariable {

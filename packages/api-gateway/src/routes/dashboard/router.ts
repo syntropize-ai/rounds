@@ -158,11 +158,14 @@ export function createDashboardRouter(deps: DashboardRouterDeps = {}): ExpressRo
   // DELETE /dashboards/:id
   router.delete('/:id', requirePermission('dashboard:write'), async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const deleted = await store.delete(req.params['id'] ?? '')
+      const id = req.params['id'] ?? ''
+      const deleted = await store.delete(id)
       if (!deleted) {
         res.status(404).json({ code: 'NOT_FOUND', message: 'Dashboard not found' })
         return
       }
+      // Cascade: remove associated conversation messages
+      defaultConversationStore.deleteConversation(id)
       res.status(204).send()
     }
     catch (err) {

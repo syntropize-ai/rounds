@@ -531,7 +531,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
         className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 transition-colors -ml-px"
       />
 
-      <div className="flex items-center justify-between p-6 border-b border-white/5 shrink-0">
+      <div className="flex items-center justify-between px-4 py-4 border-b border-white/5 shrink-0">
         <div className="flex items-center gap-3 flex-1">
           <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-tertiary to-tertiary/60 flex items-center justify-center">
             <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -539,7 +539,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
             </svg>
           </div>
           <div>
-            <p className="text-xs font-bold text-tertiary uppercase tracking-tight">Prism AI</p>
+            <p className="text-xs font-bold text-tertiary uppercase tracking-tight">Prism</p>
             <p className="text-[10px] text-on-surface-variant">
               {isGenerating ? 'Working...' : 'Ready'}
             </p>
@@ -556,7 +556,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-4 hide-scrollbar">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 hide-scrollbar">
         {events.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3 px-4 text-center h-full">
             <div className="w-10 h-10 rounded-xl bg-tertiary/10 flex items-center justify-center">
@@ -602,7 +602,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
         <div ref={bottomRef} />
       </div>
 
-      <div className="shrink-0 p-6 bg-surface-low border-t border-white/5 space-y-4">
+      <div className="shrink-0 px-4 py-4 bg-surface-low border-t border-white/5 space-y-4">
         <div className="relative">
           <textarea
             value={input}

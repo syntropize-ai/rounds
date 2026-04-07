@@ -114,7 +114,20 @@ function MarkdownText({ content }: { content: string }) {
 
 /* ── Section renderers ── */
 
+function formatCapturedAt(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function EvidenceSection({ section }: { section: InvestigationReportSection }) {
+  const capturedAt = section.panel?.snapshotData?.capturedAt;
   return (
     <div className="mt-8">
       {section.content && (
@@ -124,8 +137,13 @@ function EvidenceSection({ section }: { section: InvestigationReportSection }) {
       )}
 
       {section.panel && (
-        <div className="rounded-2xl overflow-hidden bg-surface-high" style={{ height: 280 }}>
+        <div className="rounded-2xl overflow-hidden bg-surface-high relative" style={{ height: 280 }}>
           <DashboardPanelCard panel={section.panel} />
+          {capturedAt && (
+            <div className="absolute top-2 right-3 text-[10px] text-on-surface-variant/60 font-mono select-none">
+              captured {formatCapturedAt(capturedAt)}
+            </div>
+          )}
         </div>
       )}
     </div>

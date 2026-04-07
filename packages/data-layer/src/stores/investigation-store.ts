@@ -247,6 +247,21 @@ export class InvestigationStore implements Persistable {
     return record;
   }
 
+  // -- Delete
+
+  delete(id: string): boolean {
+    const deleted = this.investigations.delete(id) || this.archivedItems.delete(id);
+    if (deleted) {
+      this.followUps.delete(id);
+      this.feedback.delete(id);
+      this.conclusions.delete(id);
+      this.tenants.delete(id);
+      this.workspaces.delete(id);
+      markDirty();
+    }
+    return deleted;
+  }
+
   // -- Utility
 
   get size(): number {

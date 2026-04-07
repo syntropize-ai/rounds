@@ -346,7 +346,7 @@ export default function InvestigationDetail() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-[100vh] overflow-hidden">
       {/* Header */}
       <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 border-b border-outline-variant/20">
         <button

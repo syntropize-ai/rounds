@@ -513,13 +513,7 @@ export default function Alerts() {
               </svg>
             </div>
             <div className="text-sm text-[var(--color-on-surface-variant)] mb-1">No alert rules yet</div>
-            <p className="text-xs text-[var(--color-outline)] mb-4">Create your first alert rule using natural language</p>
-            <button
-              onClick={() => navigate('/')}
-              className="px-4 py-2 bg-[var(--color-primary)] text-white rounded-lg hover:bg-[var(--color-primary)] transition-colors"
-            >
-              Create Alert Rule
-            </button>
+            <p className="text-xs text-[var(--color-outline)]">Create your first alert rule using the + Create Rule button above</p>
           </div>
         )}
 

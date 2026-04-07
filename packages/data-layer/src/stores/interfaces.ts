@@ -62,6 +62,9 @@ export interface IGatewayInvestigationStore {
   addFeedback(investigationId: string, body: FeedbackBody): MaybeAsync<StoredFeedback>
   getConclusion(id: string): MaybeAsync<ExplanationResult | undefined>
 
+  // Delete
+  delete(id: string): MaybeAsync<boolean>
+
   // Orchestrator write-back
   updateStatus(id: string, status: InvestigationStatus): MaybeAsync<Investigation | undefined>
   updatePlan(id: string, plan: Investigation['plan']): MaybeAsync<Investigation | undefined>

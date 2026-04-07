@@ -26,6 +26,19 @@ export interface PanelThreshold {
   label?: string;
 }
 
+export interface PanelSnapshotData {
+  range?: Array<{
+    refId: string;
+    legendFormat?: string;
+    series: Array<{ labels: Record<string, string>; points: Array<{ ts: number; value: number }> }>;
+    totalSeries: number;
+  }>;
+  instant?: {
+    data: { result: Array<{ metric: Record<string, string>; value: [number, string] }> };
+  };
+  capturedAt: string;
+}
+
 export interface PanelConfig {
   id: string;
   title: string;
@@ -61,6 +74,8 @@ export interface PanelConfig {
   // Section grouping
   sectionId?: string;
   sectionLabel?: string;
+  /** When set, panel renders this static data instead of live queries. */
+  snapshotData?: PanelSnapshotData;
 }
 
 interface PrometheusRangeResult {
@@ -483,7 +498,28 @@ export default function DashboardPanelCard({
     return true;
   }, [isRangeViz, queryKey, activeQuery, cacheMaxAgeMs, effectiveQueries]);
 
+  // Snapshot mode: when snapshotData is present, populate state directly
+  // and skip all live fetching, caching, and refresh intervals.
+  const hasSnapshot = !!panel.snapshotData;
+
   useEffect(() => {
+    if (hasSnapshot) {
+      const snap = panel.snapshotData!;
+      if (snap.range) {
+        setMultiRangeData(snap.range.map((r) => ({
+          refIds: r.refId,
+          legendFormat: r.legendFormat,
+          series: r.series,
+          totalSeries: r.totalSeries,
+        })));
+      }
+      if (snap.instant) {
+        setInstantData(snap.instant as InstantResponse);
+      }
+      setLoading(false);
+      return;
+    }
+
     setError(null);
     setIsTransientError(false);
     setMultiRangeData([]);
@@ -521,7 +557,7 @@ export default function DashboardPanelCard({
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       window.removeEventListener('dashboard:refresh-panels', handleRefresh as EventListener);
     };
-  }, [fetchData, restoreFromCache, panel.refreshIntervalSec]);
+  }, [fetchData, restoreFromCache, panel.refreshIntervalSec, hasSnapshot, panel.snapshotData]);
 
   // Visualization
 

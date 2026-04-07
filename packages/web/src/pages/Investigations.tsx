@@ -48,9 +48,6 @@ export default function Investigations() {
   const navigate = useNavigate();
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newPrompt, setNewPrompt] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [showNewForm, setShowNewForm] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -68,17 +65,6 @@ export default function Investigations() {
     const timer = setInterval(() => void load(), 5000);
     return () => clearInterval(timer);
   }, [investigations, load]);
-
-  const handleCreate = useCallback(async () => {
-    const trimmed = newPrompt.trim();
-    if (!trimmed || creating) return;
-    setCreating(true);
-    const res = await apiClient.post<{ id: string }>('/investigations', { question: trimmed });
-    setCreating(false);
-    if (!res.error) {
-      navigate(`/investigations/${res.data.id}`);
-    }
-  }, [newPrompt, creating, navigate]);
 
   const handleDelete = useCallback(async (id: string) => {
     await apiClient.delete(`/investigations/${id}`);
@@ -103,15 +89,13 @@ export default function Investigations() {
               Diagnose and troubleshoot production issues with AI-driven analysis.
             </p>
           </div>
-          {!showNewForm && (
-            <button
-              type="button"
-              onClick={() => setShowNewForm(true)}
-              className="px-4 py-2 bg-[var(--color-primary)] text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
-            >
-              + New Investigation
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="px-4 py-2 bg-[var(--color-primary)] text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
+          >
+            + New Investigation
+          </button>
         </div>
 
         {/* Stats */}
@@ -129,40 +113,6 @@ export default function Investigations() {
           </div>
         )}
 
-        {/* New investigation form */}
-        {showNewForm && (
-          <div className="mb-5 p-4 rounded-xl border border-[var(--color-primary)]/30 bg-[var(--color-surface-highest)]">
-            <h3 className="text-sm font-semibold text-[var(--color-on-surface)] mb-3">New Investigation</h3>
-            <input
-              type="text"
-              value={newPrompt}
-              onChange={(e) => setNewPrompt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) void handleCreate(); }}
-              placeholder="e.g. Why is API latency increasing? / Investigate high error rate on checkout service"
-              disabled={creating}
-              autoFocus
-              className="w-full bg-[var(--color-surface-lowest)] border border-[var(--color-outline-variant)] rounded-lg px-4 py-3 text-sm text-[var(--color-on-surface)] placeholder-[var(--color-outline)] focus:outline-none focus:border-[var(--color-primary)]"
-            />
-            <div className="flex items-center gap-2 mt-3">
-              <button
-                type="button"
-                onClick={() => void handleCreate()}
-                disabled={!newPrompt.trim() || creating}
-                className="px-4 py-2 bg-[var(--color-primary)] text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40 transition-opacity"
-              >
-                {creating ? 'Starting...' : 'Start Investigation'}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowNewForm(false); setNewPrompt(''); }}
-                className="px-3 py-2 text-sm text-[var(--color-on-surface-variant)] hover:text-[var(--color-on-surface)]"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Loading */}
         {loading && (
           <div className="flex justify-center py-16">
@@ -171,7 +121,7 @@ export default function Investigations() {
         )}
 
         {/* Empty state */}
-        {!loading && investigations.length === 0 && !showNewForm && (
+        {!loading && investigations.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-14 h-14 rounded-2xl bg-[var(--color-surface-high)] flex items-center justify-center mb-4">
               <svg className="w-7 h-7 text-[var(--color-outline)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -183,7 +133,7 @@ export default function Investigations() {
             <p className="text-xs text-[var(--color-outline)] mb-4">Start an investigation to diagnose production issues with AI</p>
             <button
               type="button"
-              onClick={() => setShowNewForm(true)}
+              onClick={() => navigate('/')}
               className="px-4 py-2 bg-[var(--color-primary)] text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
             >
               + New Investigation

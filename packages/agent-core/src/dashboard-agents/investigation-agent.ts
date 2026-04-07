@@ -9,6 +9,7 @@ import type {
   PanelConfig,
   PanelQuery,
   PanelVisualization,
+  PanelSnapshotData,
   DashboardSseEvent,
   InvestigationReport,
   InvestigationReportSection,
@@ -45,11 +46,17 @@ export interface InvestigationOutput {
 
 interface InvestigationPlan {
   hypothesis?: string
+  /** Explains the investigation strategy: why these queries were chosen,
+   *  how they relate to each other, and the logical flow of the investigation. */
+  reasoning?: string
   queries: Array<{
     id: string
     description: string
     expr: string
     instant: boolean
+    /** Why this query matters for the investigation and what its result
+     *  would mean in relation to other queries. */
+    rationale?: string
   }>
 }
 
@@ -148,6 +155,15 @@ export class InvestigationAgent {
       success: true,
     })
 
+    // Build a lookup from PromQL expr → raw evidence so we can attach
+    // snapshot data to each panel (panels should show point-in-time data,
+    // not live queries).
+    const evidenceByExpr = new Map<string, QueryEvidence>()
+    for (const e of evidence) {
+      evidenceByExpr.set(e.expr, e)
+    }
+    const capturedAt = new Date().toISOString()
+
     // Build structured report with panels
     const reportSections: InvestigationReportSection[] = []
     const panels: PanelConfig[] = []
@@ -157,6 +173,10 @@ export class InvestigationAgent {
     for (const section of analysis.sections) {
       if (section.panel) {
         const panel = this.toPanelConfig(section.panel, currentRow, currentCol)
+
+        // Attach snapshot data from the evidence we already collected
+        panel.snapshotData = this.buildSnapshotData(panel, evidenceByExpr, capturedAt)
+
         panels.push(panel)
 
         // Auto-layout
@@ -240,16 +260,19 @@ ${existingContext}${metricsContext}
 2. Based on the user's question, select the most relevant metrics from the list and plan 3-8 targeted PromQL queries to gather evidence
 3. Each query should test a specific aspect of the hypothesis
 4. Include both instant queries (for current state) and range queries (for trends)
+5. Think about query ORDER — the investigation should follow a logical thread. Each query should build on what the previous one might reveal.
 
 ## Output (JSON only, no markdown)
 {
   "hypothesis": "Brief initial hypothesis about what might be wrong",
+  "reasoning": "Explain your investigation strategy in 3-5 sentences: what you suspect, why you chose these queries in this order, and how the results of earlier queries inform what you'd look for in later ones. This reasoning will be used later to write a coherent narrative report.",
   "queries": [
     {
       "id": "q1",
       "description": "What this query checks",
       "expr": "PromQL expression using ONLY available metrics",
-      "instant": false
+      "instant": false,
+      "rationale": "Why this query matters and what its result means for the next step"
     }
   ]
 }`
@@ -270,6 +293,7 @@ ${existingContext}${metricsContext}
       log.info({ hypothesis: parsed.hypothesis, queryCount: queries.length }, 'investigation plan ready')
       return {
         hypothesis: parsed.hypothesis ?? 'Unknown',
+        reasoning: parsed.reasoning,
         queries,
       }
     }
@@ -315,33 +339,91 @@ ${existingContext}${metricsContext}
     )
   }
 
+  /** Summarise a single evidence item with key statistics instead of raw JSON */
+  private summarizeEvidence(e: QueryEvidence): string {
+    if (e.error) {
+      return `### ${e.id}: ${e.description}\nQuery: \`${e.expr}\`\nResult: ERROR — ${e.error}`
+    }
+
+    const data = e.result as { result?: Array<Record<string, unknown>>; resultType?: string } | null
+    const results = Array.isArray(data?.result) ? data.result : []
+    const resultType = data?.resultType ?? 'unknown'
+
+    if (resultType === 'matrix') {
+      // Time-series: extract key statistics per series
+      const seriesSummaries = results.slice(0, 10).map((r: Record<string, unknown>) => {
+        const metric = r.metric as Record<string, string> | undefined
+        const values = r.values as Array<[number, string]> | undefined
+        const label = metric
+          ? Object.entries(metric).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}=${v}`).join(', ') || metric['__name__'] || 'series'
+          : 'series'
+
+        if (!values || values.length === 0) return `  - {${label}}: no data points`
+
+        const nums = values.map(([, v]) => Number.parseFloat(v))
+        const min = Math.min(...nums)
+        const max = Math.max(...nums)
+        const avg = nums.reduce((a, b) => a + b, 0) / nums.length
+        const latest = nums[nums.length - 1]!
+        const first = nums[0]!
+        const trend = latest > first * 1.1 ? '↑ rising' : latest < first * 0.9 ? '↓ falling' : '→ stable'
+
+        return `  - {${label}}: min=${min.toPrecision(4)}, max=${max.toPrecision(4)}, avg=${avg.toPrecision(4)}, latest=${latest.toPrecision(4)}, trend=${trend} (${values.length} points)`
+      })
+
+      const extra = results.length > 10 ? `\n  ... and ${results.length - 10} more series` : ''
+      return `### ${e.id}: ${e.description}\nQuery: \`${e.expr}\`\nType: range, ${results.length} series\n${seriesSummaries.join('\n')}${extra}`
+    }
+
+    if (resultType === 'vector') {
+      // Instant: show all values compactly
+      const valueSummaries = results.slice(0, 15).map((r: Record<string, unknown>) => {
+        const metric = r.metric as Record<string, string> | undefined
+        const value = r.value as [number, string] | undefined
+        const label = metric
+          ? Object.entries(metric).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}=${v}`).join(', ') || metric['__name__'] || 'series'
+          : 'series'
+        return `  - {${label}}: ${value ? value[1] : 'N/A'}`
+      })
+      const extra = results.length > 15 ? `\n  ... and ${results.length - 15} more` : ''
+      return `### ${e.id}: ${e.description}\nQuery: \`${e.expr}\`\nType: instant, ${results.length} results\n${valueSummaries.join('\n')}${extra}`
+    }
+
+    // Fallback
+    const resultStr = JSON.stringify(data?.result ?? null, null, 2)
+    const truncated = resultStr.slice(0, 1500) + (resultStr.length > 1500 ? ' ... [truncated]' : '')
+    return `### ${e.id}: ${e.description}\nQuery: \`${e.expr}\`\nType: ${resultType}, ${results.length} results\n${truncated}`
+  }
+
   // Step 3: LLM analyzes evidence + structured report sections
   private async analyzeEvidence(
     input: InvestigationInput,
     plan: InvestigationPlan,
     evidence: QueryEvidence[],
   ): Promise<AnalysisResult> {
-    const evidenceSummary = evidence.map((e) => {
-      if (e.error) {
-        return `- ${e.description}\nQuery: ${e.expr}\nResult: ERROR - ${e.error}`
-      }
+    const evidenceSummary = evidence.map((e) => this.summarizeEvidence(e)).join('\n\n')
 
-      const data = e.result as { result?: unknown[]; resultType?: unknown } | null
-      const resultCount = Array.isArray(data?.result) ? data.result.length : 0
-      const resultStr = JSON.stringify(data?.result ?? null, null, 2)
-      const truncated = resultStr.slice(0, 1500) + (resultStr.length > 1500 ? ' ... [truncated]' : '')
-      return `- ${e.description}\nQuery: ${e.expr}\nType: ${data?.resultType ?? 'unknown'}, ${resultCount} series/data\n${truncated}`
-    }).join('\n\n')
+    // Build the query-level rationale context so the LLM knows the logical
+    // thread that ties the queries together.
+    const queryRationales = plan.queries
+      .map((q) => `- **${q.id}** (${q.description}): ${q.rationale ?? 'N/A'}`)
+      .join('\n')
 
     const systemPrompt = `You are a senior SRE writing an investigation report for your team. Write it like a real post-incident analysis — with your reasoning process, what you checked and why, what the data told you, and what conclusions you drew.
 
 The report is a narrative document with embedded metric panels. It should read like a story: "We started by looking at X because... The data showed Y, which told us... This led us to check Z..."
 
-## Initial hypothesis
-${plan.hypothesis}
-
 ## Investigation Goal
 ${input.goal}
+
+## Initial Hypothesis
+${plan.hypothesis}
+
+## Investigation Strategy
+${plan.reasoning ?? 'No explicit strategy recorded.'}
+
+## Query Rationales (the logical thread connecting each query)
+${queryRationales}
 
 ## Evidence Gathered
 ${evidenceSummary}
@@ -371,9 +453,10 @@ ${evidenceSummary}
 
 ## Writing Style
 - Write in first person plural ("We checked...", "Our investigation found...")
+- **Follow the Investigation Strategy and Query Rationales above** — they explain WHY each query was chosen and how they connect. Use this logical thread as the backbone of your narrative. Do NOT treat each query as an isolated finding.
 - Structure as a logical narrative: context → hypothesis → evidence → interpretation → conclusion
 - Start with a text section setting the scene: what the problem is, what your initial thinking was, and how you approached the investigation
-- For each evidence panel, explain your REASONING: why you checked this metric, what you expected to see, and what the actual data revealed. Connect each finding to the next — "This ruled out X, so we turned our attention to Y..."
+- For each evidence panel, use the query's rationale to explain your REASONING: why you checked this metric, what you expected to see, and what the actual data revealed. Transition naturally from one finding to the next — "This ruled out X, so we turned our attention to Y..." or "Having confirmed X, we needed to determine whether Y was also a factor..."
 - Don't just describe data mechanically ("The value is 0.043"). Instead, interpret it ("The error rate of 4.3% is significantly above the normal baseline of <0.1%, confirming our hypothesis that...")
 - End with TWO text sections (no panels):
   1. **Conclusion**: what you found, what the root cause is (or isn't)
@@ -447,5 +530,56 @@ ${evidenceSummary}
       sectionId: 'investigation',
       sectionLabel: 'Investigation Evidence',
     } as PanelConfig
+  }
+
+  /** Build snapshot data for a panel by matching its queries against the
+   *  evidence we already collected in Phase 2. */
+  private buildSnapshotData(
+    panel: PanelConfig,
+    evidenceByExpr: Map<string, QueryEvidence>,
+    capturedAt: string,
+  ): PanelSnapshotData {
+    const isRangeViz = panel.visualization === 'time_series'
+      || panel.visualization === 'heatmap'
+      || panel.visualization === 'status_timeline'
+
+    const snapshot: PanelSnapshotData = { capturedAt }
+
+    for (const pq of panel.queries ?? []) {
+      const ev = evidenceByExpr.get(pq.expr)
+      if (!ev || ev.error || !ev.result) continue
+
+      const raw = ev.result as { resultType?: string; result?: unknown[] }
+
+      if (isRangeViz && raw.resultType === 'matrix') {
+        if (!snapshot.range) snapshot.range = []
+        const matrixResults = (raw.result ?? []) as Array<{
+          metric: Record<string, string>
+          values: Array<[number, string]>
+        }>
+        snapshot.range.push({
+          refId: pq.refId,
+          legendFormat: pq.legendFormat,
+          series: matrixResults.map((r) => ({
+            labels: r.metric,
+            points: (r.values ?? []).map(([ts, val]) => ({
+              ts: ts * 1000,
+              value: Number.parseFloat(val),
+            })),
+          })),
+          totalSeries: matrixResults.length,
+        })
+      } else if (!isRangeViz && raw.resultType === 'vector') {
+        const vectorResults = (raw.result ?? []) as Array<{
+          metric: Record<string, string>
+          value: [number, string]
+        }>
+        snapshot.instant = {
+          data: { result: vectorResults },
+        }
+      }
+    }
+
+    return snapshot
   }
 }

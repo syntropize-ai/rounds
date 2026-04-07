@@ -153,7 +153,9 @@ function AlertRuleRow({
           <div className="mt-3">
             <span className="text-[10px] text-[var(--color-outline)] uppercase tracking-wider font-medium">Condition</span>
             <p className="mt-1 text-sm text-[var(--color-on-surface-variant)] font-mono bg-[#0B0B14] rounded-md px-3 py-2 break-all">
-              {rule.condition.query} {rule.condition.operator} {rule.condition.threshold}
+              {rule.condition.query.includes(String(rule.condition.threshold))
+                ? rule.condition.query
+                : `${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold}`}
               {rule.condition.forDurationSec > 0 ? ` for ${rule.condition.forDurationSec}s` : ''}
             </p>
           </div>

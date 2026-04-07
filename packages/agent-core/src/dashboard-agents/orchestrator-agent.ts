@@ -679,25 +679,49 @@ export class OrchestratorAgent {
             }
           }
 
-          const rule = await this.deps.alertRuleStore.create({
-            name: generated.name,
-            description: generated.description,
-            originalPrompt: prompt,
-            condition: generated.condition,
-            evaluationIntervalSec: generated.evaluationIntervalSec,
-            severity: generated.severity,
-            labels: {
-              ...generated.labels,
-              ...(dashboardId ? { dashboardId } : {}),
-            },
-            createdBy: 'llm',
-          })
+          // Upsert: if a rule with the same name exists, update it instead of creating a duplicate
+          let rule: Record<string, unknown> | undefined
+          let isUpdate = false
+          if (this.deps.alertRuleStore.findAll && this.deps.alertRuleStore.update) {
+            try {
+              const existing = await this.deps.alertRuleStore.findAll()
+              const list = (Array.isArray(existing) ? existing : (existing as { list: unknown[] }).list ?? []) as Array<{ id: string; name: string }>
+              const match = list.find((r) => r.name === generated.name)
+              if (match) {
+                rule = await this.deps.alertRuleStore.update(match.id, {
+                  description: generated.description,
+                  condition: generated.condition,
+                  evaluationIntervalSec: generated.evaluationIntervalSec,
+                  severity: generated.severity,
+                }) as Record<string, unknown> | undefined
+                isUpdate = true
+              }
+            } catch { /* fall through to create */ }
+          }
 
-          const observationText = `Created alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold} for ${rule.condition.forDurationSec}s.${generated.autoInvestigate ? ' Auto-investigation enabled on fire.' : ''}`
+          if (!rule) {
+            rule = await this.deps.alertRuleStore.create({
+              name: generated.name,
+              description: generated.description,
+              originalPrompt: prompt,
+              condition: generated.condition,
+              evaluationIntervalSec: generated.evaluationIntervalSec,
+              severity: generated.severity,
+              labels: {
+                ...generated.labels,
+                ...(dashboardId ? { dashboardId } : {}),
+              },
+              createdBy: 'llm',
+            }) as Record<string, unknown>
+          }
+
+          const rc = rule.condition as Record<string, unknown>
+          const verb = isUpdate ? 'Updated' : 'Created'
+          const observationText = `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.${generated.autoInvestigate ? ' Auto-investigation enabled on fire.' : ''}`
           this.deps.sendEvent({
             type: 'tool_result',
             tool: 'create_alert_rule',
-            summary: `Alert rule "${rule.name}" created`,
+            summary: `Alert rule "${rule.name}" ${verb.toLowerCase()}`,
             success: true,
           })
           this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'create_alert_rule', summary: observationText }));

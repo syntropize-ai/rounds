@@ -1,6 +1,5 @@
 import { DEFAULT_LLM_MODEL, type AlertRule } from '@agentic-obs/common';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
-import { defaultAlertRuleStore } from '@agentic-obs/data-layer';
 import { AlertRuleAgent } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
 import { getSetupConfig } from '../routes/setup.js';
@@ -14,7 +13,7 @@ export interface GenerateAlertRuleResult {
 export class AlertRuleService {
   private readonly store: IAlertRuleRepository;
 
-  constructor(store: IAlertRuleRepository = defaultAlertRuleStore) {
+  constructor(store: IAlertRuleRepository) {
     this.store = store;
   }
 

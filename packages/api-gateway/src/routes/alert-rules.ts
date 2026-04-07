@@ -16,7 +16,7 @@ export interface AlertRulesRouterDeps {
 export function createAlertRulesRouter(deps: AlertRulesRouterDeps = {}): Router {
   const store = deps.alertRuleStore ?? defaultAlertRuleStore;
   const router = Router();
-  const alertRuleService = new AlertRuleService();
+  const alertRuleService = new AlertRuleService(store);
 
   // -- POST /api/alert-rules/generate - NL -> alert rule (no dashboard needed)
   // IMPORTANT: must be before /:id routes

@@ -715,7 +715,7 @@ export default function DashboardPanelCard({
 
       <div className="flex-1 min-h-0 overflow-hidden">{renderContent()}</div>
 
-      {editMode && <QueryBadge queries={effectiveQueries} />}
+      <QueryBadge queries={effectiveQueries} />
     </div>
   );
 }

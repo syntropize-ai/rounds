@@ -18,5 +18,5 @@ export * from './adapters/index.js';
 // with domain-level agents (e.g. InvestigationAgent exists in both).
 // Import specific items: import { OrchestratorAgent, AlertRuleAgent } from '@agentic-obs/agent-core/dashboard-agents'
 // Or use the barrel: import { DashboardOrchestratorAgent } from '@agentic-obs/agent-core'
-export { OrchestratorAgent as DashboardOrchestratorAgent, DashboardGeneratorAgent, PanelAdderAgent, PanelEditorAgent, PanelBuilderAgent, InvestigationAgent as DashboardInvestigationAgent, AlertRuleAgent, ResearchAgent, DiscoveryAgent, ActionExecutor, } from './dashboard-agents/index.js';
+export { OrchestratorAgent as DashboardOrchestratorAgent, DashboardGeneratorAgent, PanelAdderAgent, PanelEditorAgent, PanelExplainAgent, PanelBuilderAgent, InvestigationAgent as DashboardInvestigationAgent, AlertRuleAgent, ResearchAgent, DiscoveryAgent, ActionExecutor, } from './dashboard-agents/index.js';
 //# sourceMappingURL=index.js.map

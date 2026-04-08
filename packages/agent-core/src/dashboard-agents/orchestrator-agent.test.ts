@@ -196,3 +196,103 @@ describe('OrchestratorAgent structured alert follow-up', () => {
     expect(reply.toLowerCase()).toContain('deleted')
   })
 })
+
+describe('OrchestratorAgent panel explanation', () => {
+  const sendEvent = vi.fn()
+  const gateway = {
+    complete: vi.fn(),
+  } as any
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('explains a panel using live data without routing to investigation', async () => {
+    const now = new Date().toISOString()
+    const dashboard: Dashboard = {
+      id: 'dash-1',
+      type: 'dashboard',
+      title: 'Latency',
+      description: '',
+      prompt: '',
+      userId: 'u1',
+      status: 'ready',
+      panels: [
+        {
+          id: 'panel-avg',
+          title: 'Average Latency',
+          description: '',
+          visualization: 'time_series',
+          queries: [{ refId: 'A', expr: 'rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])' }],
+          row: 0,
+          col: 0,
+          width: 6,
+          height: 3,
+        },
+      ],
+      variables: [],
+      refreshIntervalSec: 60,
+      datasourceIds: [],
+      useExistingMetrics: true,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    gateway.complete.mockResolvedValueOnce({
+      content: '过去 1 小时 Average Latency 基本稳定，最新值约 0.24 秒，区间大约在 0.21 到 0.27 秒之间，没有明显恶化趋势。',
+    })
+
+    const agent = new OrchestratorAgent({
+      gateway,
+      model: 'test-model',
+      store: {
+        findById: vi.fn().mockResolvedValue(dashboard),
+        update: vi.fn(),
+        updatePanels: vi.fn(),
+        updateVariables: vi.fn(),
+      },
+      conversationStore: {
+        addMessage: vi.fn(),
+        getMessages: vi.fn().mockResolvedValue([]),
+        clearMessages: vi.fn(),
+        deleteConversation: vi.fn(),
+      },
+      investigationReportStore: { save: vi.fn() },
+      alertRuleStore: { create: vi.fn() } as any,
+      metricsAdapter: {
+        listMetricNames: vi.fn(),
+        listLabels: vi.fn(),
+        listLabelValues: vi.fn(),
+        findSeries: vi.fn(),
+        fetchMetadata: vi.fn(),
+        instantQuery: vi.fn(),
+        rangeQuery: vi.fn().mockResolvedValue([
+          {
+            metric: {},
+            values: [
+              [1, '0.21'],
+              [2, '0.24'],
+              [3, '0.27'],
+            ],
+          },
+        ]),
+        testQuery: vi.fn(),
+        isHealthy: vi.fn(),
+      },
+      timeRange: {
+        start: '2026-04-08T00:00:00.000Z',
+        end: '2026-04-08T01:00:00.000Z',
+      },
+      sendEvent,
+    })
+
+    const reply = await agent.handleMessage('dash-1', '帮我讲一下Average latency的数据情况')
+
+    expect(reply).toContain('Average Latency')
+    expect(gateway.complete).toHaveBeenCalledTimes(1)
+    expect(sendEvent).toHaveBeenCalledWith({
+      type: 'reply',
+      content: '过去 1 小时 Average Latency 基本稳定，最新值约 0.24 秒，区间大约在 0.21 到 0.27 秒之间，没有明显恶化趋势。',
+    })
+  })
+})

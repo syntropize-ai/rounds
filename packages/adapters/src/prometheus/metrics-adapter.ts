@@ -95,10 +95,10 @@ export class PrometheusMetricsAdapter {
     return [...names].sort();
   }
 
-  async instantQuery(expr: string): Promise<MetricSample[]> {
+  async instantQuery(expr: string, time?: Date): Promise<MetricSample[]> {
     const params = new URLSearchParams();
     params.set('query', expr);
-    params.set('time', String(Math.floor(Date.now() / 1000)));
+    params.set('time', String(Math.floor((time ?? new Date()).getTime() / 1000)));
     const url = `${this.base}/api/v1/query?${params}`;
     const res = await this.fetch(url);
     if (!res.ok) {

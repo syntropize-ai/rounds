@@ -54,6 +54,15 @@ agentRegistry.register({
 });
 
 agentRegistry.register({
+  type: 'panel-explainer',
+  description: 'Explains what a dashboard panel is showing using real live metric data from its underlying queries',
+  allowedTools: ['prometheus.query', 'llm.complete'],
+  inputKinds: ['dashboard', 'panel'],
+  outputKinds: ['panel'],
+  permissionMode: 'read_only',
+});
+
+agentRegistry.register({
   type: 'investigation-runner',
   description: 'Runs an observability investigation: plans queries, gathers evidence, and produces a structured report with evidence panels',
   allowedTools: ['investigate', 'prometheus.query', 'prometheus.labels', 'llm.complete'],

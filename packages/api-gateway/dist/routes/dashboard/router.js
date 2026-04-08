@@ -43,7 +43,7 @@ export function createDashboardRouter(deps) {
                 const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore });
                 void withDashboardLock(dashboard.id, async () => {
                     try {
-                        await service.handleChatMessage(dashboard.id, dashboard.prompt, () => { });
+                        await service.handleChatMessage(dashboard.id, dashboard.prompt, undefined, () => { });
                     }
                     catch (err) {
                         log.error({ err, dashboardId: dashboard.id }, 'background generation failed');
@@ -224,7 +224,7 @@ export function createDashboardRouter(deps) {
                 res.status(400).json({ code: 'INVALID_INPUT', message: 'message is required and must be a non-empty string' });
                 return;
             }
-            await handleChatMessage(req, res, id, body.message.trim(), store, conversationStore, investigationReportStore, alertRuleStore);
+            await handleChatMessage(req, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore);
         }
         catch (err) {
             next(err);

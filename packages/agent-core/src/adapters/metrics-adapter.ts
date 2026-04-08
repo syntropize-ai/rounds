@@ -21,7 +21,7 @@ export interface IMetricsAdapter {
   listLabelValues(label: string): Promise<string[]>;
   findSeries(matchers: string[]): Promise<string[]>;
   fetchMetadata(metricNames?: string[]): Promise<Record<string, MetricMetadata>>;
-  instantQuery(expr: string): Promise<MetricSample[]>;
+  instantQuery(expr: string, time?: Date): Promise<MetricSample[]>;
   rangeQuery(expr: string, start: Date, end: Date, step: string): Promise<RangeResult[]>;
   testQuery(expr: string): Promise<{ ok: boolean; error?: string }>;
   isHealthy(): Promise<boolean>;

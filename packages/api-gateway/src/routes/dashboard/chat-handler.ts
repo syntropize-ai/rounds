@@ -19,6 +19,7 @@ export async function handleChatMessage(
   res: Response,
   dashboardId: string,
   message: string,
+  timeRange: { start?: string; end?: string; timezone?: string } | undefined,
   store: IGatewayDashboardStore,
   conversationStore: IConversationStore,
   investigationReportStore: IInvestigationReportRepository,
@@ -50,6 +51,7 @@ export async function handleChatMessage(
       const result = await service.handleChatMessage(
         dashboardId,
         message,
+        timeRange,
         (event) => { if (!closed) sendEvent(res, event) },
       )
 

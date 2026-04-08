@@ -8,6 +8,8 @@ export { PanelAdderAgent } from './panel-adder-agent.js'
 export type { PanelAdderInput, PanelAdderOutput } from './panel-adder-agent.js'
 export { PanelEditorAgent } from './panel-editor-agent.js'
 export type { PanelEditorInput, PanelEditorOutput } from './panel-editor-agent.js'
+export { PanelExplainAgent } from './panel-explain-agent.js'
+export type { PanelExplainDeps, PanelExplainInput } from './panel-explain-agent.js'
 
 export { PanelBuilderAgent } from './panel-builder-agent.js'
 export type { PanelBuilderInput, PanelBuilderOutput } from './panel-builder-agent.js'

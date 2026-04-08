@@ -49,6 +49,10 @@ function TimeRangePicker({ value, onChange, onRefresh }: {
   onChange: (v: string) => void;
   onRefresh: () => void;
 }) {
+  const browserTimeZone = React.useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Browser time',
+    [],
+  );
   const [open, setOpen] = React.useState(false);
   const [customFrom, setCustomFrom] = React.useState('');
   const [customTo, setCustomTo] = React.useState('');
@@ -71,12 +75,31 @@ function TimeRangePicker({ value, onChange, onRefresh }: {
     }
   }, [open]);
 
+  React.useEffect(() => {
+    if (!value.includes('|')) return;
+    const [from, to] = value.split('|');
+    const formatForInput = (raw: string | undefined) => {
+      if (!raw) return '';
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) return raw;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+    setCustomFrom(formatForInput(from));
+    setCustomTo(formatForInput(to));
+  }, [value]);
+
   const displayLabel = QUICK_RANGES.find((r) => r.value === value)?.label
     ?? (value.includes('|') ? 'Custom' : value);
 
   const applyCustom = () => {
     if (customFrom && customTo) {
-      onChange(`${customFrom}|${customTo}`);
+      const from = new Date(customFrom);
+      const to = new Date(customTo);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+        return;
+      }
+      onChange(`${from.toISOString()}|${to.toISOString()}`);
       setOpen(false);
     }
   };
@@ -118,6 +141,7 @@ function TimeRangePicker({ value, onChange, onRefresh }: {
 
             <div className="border-t border-outline-variant/20 mt-2 pt-2 px-3">
               <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">Custom range</p>
+              <p className="text-[10px] text-on-surface-variant mb-2">Timezone: {browserTimeZone}</p>
               <div className="space-y-2">
                 <div>
                   <label className="text-[10px] text-on-surface-variant mb-0.5 block">From</label>
@@ -485,7 +509,7 @@ export default function DashboardWorkspace() {
     setPanels,
     setVariables,
     investigationReport,
-  } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? []);
+  } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange);
   const [showReport, setShowReport] = useState(false);
 
   // Auto-show investigation report when it arrives
@@ -711,15 +735,15 @@ export default function DashboardWorkspace() {
             </button>
           )}
 
-          {!showReport && !isGenerating && dashboard.folder && (
-            <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
-              {dashboard.folder}
-            </span>
-          )}
+        {!showReport && !isGenerating && dashboard.folder && (
+          <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
+            {dashboard.folder}
+          </span>
+        )}
         </div>
 
         {/* Center: time range + refresh */}
-        {!showReport && !isGenerating && (
+        {!showReport && (
           <TimeRangePicker
             value={timeRange}
             onChange={(v) => {

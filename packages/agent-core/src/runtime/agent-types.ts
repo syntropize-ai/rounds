@@ -2,6 +2,7 @@ export type AgentType =
   | 'intent-router'
   | 'dashboard-builder'
   | 'dashboard-editor'
+  | 'panel-explainer'
   | 'investigation-runner'
   | 'alert-rule-builder'
   | 'execution'

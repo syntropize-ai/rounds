@@ -75,11 +75,40 @@ interface UseDashboardChatResult {
   investigationReport: InvestigationReport | null;
 }
 
+interface ChatTimeRange {
+  start: string;
+  end: string;
+  timezone?: string;
+}
+
+function resolveChatTimeRange(range: string): ChatTimeRange {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const end = new Date();
+  let ms = 30 * 60 * 1000;
+  const match = range.match(/^(\d+)(m|h|d)$/);
+  if (match) {
+    const [, n, unit] = match;
+    const num = parseInt(n ?? '30', 10);
+    if (unit === 'm') ms = num * 60 * 1000;
+    else if (unit === 'h') ms = num * 3600 * 1000;
+    else if (unit === 'd') ms = num * 86400 * 1000;
+  } else if (range.includes('|')) {
+    const parts = range.split('|');
+    const startDate = new Date(parts[0] ?? '');
+    const endDate = new Date(parts[1] ?? '');
+    if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime())) {
+      return { start: startDate.toISOString(), end: endDate.toISOString(), timezone };
+    }
+  }
+  return { start: new Date(end.getTime() - ms).toISOString(), end: end.toISOString(), timezone };
+}
+
 // Hook
 export function useDashboardChat(
   dashboardId: string,
   initialPanels: PanelConfig[],
   initialVariables: DashboardVariable[] = [],
+  timeRange = '1h',
 ): UseDashboardChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [investigationReport, setInvestigationReport] = useState<InvestigationReport | null>(null);
@@ -304,7 +333,7 @@ export function useDashboardChat(
       try {
         await apiClient.postStream(
           `/dashboards/${dashboardId}/chat`,
-          { message: content },
+          { message: content, timeRange: resolveChatTimeRange(timeRange) },
           handleSSEEvent,
           abortRef.current.signal,
         );
@@ -317,7 +346,7 @@ export function useDashboardChat(
         setIsGenerating(false);
       }
     },
-    [dashboardId, isGenerating, handleSSEEvent, appendEvent],
+    [dashboardId, isGenerating, handleSSEEvent, appendEvent, timeRange],
   );
 
   const stopGeneration = useCallback(() => {

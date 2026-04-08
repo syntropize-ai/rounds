@@ -20,6 +20,7 @@ vi.mock('@agentic-obs/agent-core', () => ({
 import { DashboardService } from '../dashboard-service.js';
 import { getSetupConfig } from '../../routes/setup.js';
 import type { IGatewayDashboardStore, IConversationStore } from '../../repositories/types.js';
+import { DashboardOrchestratorAgent } from '@agentic-obs/agent-core';
 
 // -- Minimal mock stores
 
@@ -82,7 +83,7 @@ describe('DashboardService', () => {
     });
 
     await expect(
-      service.handleChatMessage('dash-1', 'hello', mockSendEvent),
+      service.handleChatMessage('dash-1', 'hello', undefined, mockSendEvent),
     ).rejects.toThrow('LLM not configured');
   });
 
@@ -93,7 +94,7 @@ describe('DashboardService', () => {
       llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
     });
 
-    const result = await service.handleChatMessage('dash-1', 'Show CPU', mockSendEvent);
+    const result = await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent);
 
     expect(result.replyContent).toBe('Here is your dashboard analysis.');
     expect(result.assistantMessageId).toBeDefined();
@@ -106,7 +107,7 @@ describe('DashboardService', () => {
       llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
     });
 
-    await service.handleChatMessage('dash-1', 'Show CPU', mockSendEvent);
+    await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent);
 
     // Should have called addMessage twice: once for user, once for assistant
     expect(conversationStore.addMessage).toHaveBeenCalledTimes(2);
@@ -121,5 +122,34 @@ describe('DashboardService', () => {
     expect(calls[1]![0]).toBe('dash-1');
     expect(calls[1]![1]!.role).toBe('assistant');
     expect(calls[1]![1]!.content).toBe('Here is your dashboard analysis.');
+  });
+
+  it('handleChatMessage() forwards absolute time range and timezone to the orchestrator', async () => {
+    vi.mocked(getSetupConfig).mockReturnValue({
+      configured: true,
+      datasources: [],
+      llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
+    });
+
+    await service.handleChatMessage(
+      'dash-1',
+      'Explain Average Latency',
+      {
+        start: '2026-04-08T01:16:00.000Z',
+        end: '2026-04-08T01:45:00.000Z',
+        timezone: 'America/Toronto',
+      },
+      mockSendEvent,
+    );
+
+    expect(vi.mocked(DashboardOrchestratorAgent)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeRange: {
+          start: '2026-04-08T01:16:00.000Z',
+          end: '2026-04-08T01:45:00.000Z',
+          timezone: 'America/Toronto',
+        },
+      }),
+    );
   });
 });

@@ -19,6 +19,7 @@ import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import { DashboardGeneratorAgent } from './dashboard-generator-agent.js'
 import { PanelAdderAgent } from './panel-adder-agent.js'
 import { PanelEditorAgent } from './panel-editor-agent.js'
+import { PanelExplainAgent } from './panel-explain-agent.js'
 import { InvestigationAgent } from './investigation-agent.js'
 import { ActionExecutor } from './action-executor.js'
 import { AlertRuleAgent } from './alert-rule-agent.js'
@@ -40,6 +41,7 @@ export interface OrchestratorDeps {
   /** All configured datasources - used to inform the LLM about available environments */
   allDatasources?: DatasourceConfig[]
   sendEvent: (event: DashboardSseEvent) => void
+  timeRange?: { start: string; end: string; timezone?: string }
   /** Maximum total tokens per chat message. Default: 50000 */
   maxTokenBudget?: number
 }
@@ -76,6 +78,7 @@ export class OrchestratorAgent {
   private readonly generatorAgent: DashboardGeneratorAgent
   private readonly panelAdderAgent: PanelAdderAgent
   private readonly panelEditorAgent: PanelEditorAgent
+  private readonly panelExplainAgent?: PanelExplainAgent
   private readonly investigationAgent?: InvestigationAgent
   private readonly alertRuleAgent: AlertRuleAgent
   private readonly reactLoop: ReActLoop
@@ -99,6 +102,14 @@ export class OrchestratorAgent {
       model: deps.model,
       panelAdderAgent: this.panelAdderAgent,
     })
+
+    if (deps.metricsAdapter) {
+      this.panelExplainAgent = new PanelExplainAgent({
+        gateway: deps.gateway,
+        model: deps.model,
+        metrics: deps.metricsAdapter,
+      })
+    }
 
     if (deps.metricsAdapter) {
       this.investigationAgent = new InvestigationAgent({
@@ -326,6 +337,32 @@ export class OrchestratorAgent {
     }
   }
 
+  private isPanelExplanationRequest(message: string): boolean {
+    const text = message.trim().toLowerCase()
+    if (!text) return false
+    return /(讲|解释|说明|分析|看看|看下|什么情况|数据情况|走势|趋势|怎么样|how is|what.*show|explain|interpret|analy[sz]e)/i.test(text)
+      && /(panel|latency|error|rate|request|duration|p\d+|average|avg|http|数据|指标|面板)/i.test(text)
+  }
+
+  private findRelevantPanel(message: string, dashboard: Dashboard): Dashboard['panels'][number] | null {
+    const lowered = message.toLowerCase()
+    const scored = dashboard.panels.map((panel) => {
+      const title = panel.title.toLowerCase()
+      const description = (panel.description ?? '').toLowerCase()
+      let score = 0
+      if (lowered.includes(title)) score += 5
+      const titleTokens = title.split(/[^a-z0-9\u4e00-\u9fa5]+/i).filter((token) => token.length >= 2)
+      for (const token of titleTokens) {
+        if (lowered.includes(token)) score += 1
+      }
+      if (description && lowered.includes(description)) score += 2
+      return { panel, score }
+    })
+
+    scored.sort((left, right) => right.score - left.score)
+    return scored[0] && scored[0].score > 0 ? scored[0].panel : null
+  }
+
   private async composeAlertFollowUpReply(
     userMessage: string,
     action: ReActStep,
@@ -368,6 +405,28 @@ export class OrchestratorAgent {
     }
 
     const history = await this.deps.conversationStore.getMessages(dashboardId)
+
+    if (this.panelExplainAgent && this.isPanelExplanationRequest(message)) {
+      const panel = this.findRelevantPanel(message, dashboard)
+      if (panel && (panel.queries?.length || panel.query)) {
+        const explainablePanel = panel.queries?.length
+          ? panel
+          : {
+              ...panel,
+              queries: panel.query ? [{ refId: 'A', expr: panel.query, instant: panel.visualization !== 'time_series' }] : [],
+            }
+
+        const reply = await this.panelExplainAgent.explain({
+          userRequest: message,
+          dashboard,
+          panel: explainablePanel,
+          timeRange: this.deps.timeRange,
+        })
+        this.deps.sendEvent({ type: 'reply', content: reply })
+        this.emitAgentEvent(this.makeAgentEvent('agent.completed', { dashboardId, mode: 'panel_explanation', panelId: panel.id }))
+        return reply
+      }
+    }
 
     // Fetch existing alert rules so LLM can reference them for modify/delete
     let alertRules: AlertRuleContext[] = []

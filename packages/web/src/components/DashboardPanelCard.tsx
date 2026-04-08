@@ -308,7 +308,11 @@ function resolveTimeRange(range: string): { start: string; end: string } {
   } else if (range.includes('|')) {
     // Custom: "2024-01-01T00:00|2024-01-02T00:00"
     const parts = range.split('|');
-    return { start: new Date(parts[0] ?? '').toISOString(), end: new Date(parts[1] ?? '').toISOString() };
+    const startDate = new Date(parts[0] ?? '');
+    const endDate = new Date(parts[1] ?? '');
+    if (!Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime())) {
+      return { start: startDate.toISOString(), end: endDate.toISOString() };
+    }
   }
   return { start: new Date(end.getTime() - ms).toISOString(), end: end.toISOString() };
 }
@@ -350,11 +354,16 @@ export default function DashboardPanelCard({
 
   const isRangeViz = panel.visualization === 'time_series' || panel.visualization === 'status_timeline' || panel.visualization === 'heatmap';
   const activeQuery = effectiveQueries[0]?.expr ?? '';
+  const resolvedTimeRange = useMemo(() => resolveTimeRange(timeRange), [timeRange]);
 
   // Build a stable dedup key from queries
   const queryKey = useMemo(
     () => effectiveQueries.map((q) => q.expr).join('|') + `@${timeRange}`,
     [effectiveQueries, timeRange]
+  );
+  const instantQueryKey = useMemo(
+    () => `${activeQuery}@${resolvedTimeRange.end}`,
+    [activeQuery, resolvedTimeRange.end]
   );
 
   const cacheMaxAgeMs = (panel.refreshIntervalSec ?? 30) * 1000;
@@ -446,9 +455,9 @@ export default function DashboardPanelCard({
       } else {
         try {
           const res = await queryScheduler.schedule<{ data: InstantResponse | null; error?: unknown }>(
-            `instant:${activeQuery}`,
+            `instant:${instantQueryKey}`,
             () =>
-              apiClient.post('/query/instant', { query: activeQuery }) as Promise<{
+              apiClient.post('/query/instant', { query: activeQuery, time: resolvedTimeRange.end }) as Promise<{
                 data: InstantResponse | null;
                 error?: unknown;
               }>
@@ -467,12 +476,12 @@ export default function DashboardPanelCard({
 
       setLoading(false);
     },
-    [effectiveQueries, isRangeViz, activeQuery, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec]
+    [effectiveQueries, isRangeViz, activeQuery, instantQueryKey, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec, resolvedTimeRange.end]
   );
 
   // Try to restore from cache without fetching
   const restoreFromCache = useCallback(() => {
-    const cacheKey = isRangeViz ? `batch:${queryKey}` : `instant:${activeQuery}`;
+    const cacheKey = isRangeViz ? `batch:${queryKey}` : `instant:${instantQueryKey}`;
     const cached = queryScheduler.getCached<unknown>(cacheKey, cacheMaxAgeMs);
     if (!cached) return false;
 
@@ -496,7 +505,7 @@ export default function DashboardPanelCard({
 
     setLoading(false);
     return true;
-  }, [isRangeViz, queryKey, activeQuery, cacheMaxAgeMs, effectiveQueries]);
+  }, [isRangeViz, queryKey, instantQueryKey, cacheMaxAgeMs, effectiveQueries]);
 
   // Snapshot mode: when snapshotData is present, populate state directly
   // and skip all live fetching, caching, and refresh intervals.

@@ -66,6 +66,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
             await service.handleChatMessage(
               dashboard.id,
               dashboard.prompt,
+              undefined,
               () => {},  // no SSE sink for background generation
             )
           } catch (err) {
@@ -258,13 +259,13 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.post('/:id/chat', requirePermission('dashboard:write'), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
-      const body = req.body as { message?: string }
+      const body = req.body as { message?: string; timeRange?: { start?: string; end?: string; timezone?: string } }
       if (typeof body.message !== 'string' || body.message.trim() === '') {
         res.status(400).json({ code: 'INVALID_INPUT', message: 'message is required and must be a non-empty string' })
         return
       }
 
-      await handleChatMessage(req, res, id, body.message.trim(), store, conversationStore, investigationReportStore, alertRuleStore)
+      await handleChatMessage(req, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore)
     }
     catch (err) {
       next(err)
@@ -336,4 +337,3 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
 
   return router
 }
-

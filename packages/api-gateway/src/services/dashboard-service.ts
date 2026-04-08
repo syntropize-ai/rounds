@@ -60,6 +60,12 @@ export interface ChatResult {
   assistantMessageId: string;
 }
 
+export interface ChatTimeRange {
+  start?: string;
+  end?: string;
+  timezone?: string;
+}
+
 export interface DashboardServiceDeps {
   store: IGatewayDashboardStore;
   conversationStore: IConversationStore;
@@ -87,6 +93,7 @@ export class DashboardService {
   async handleChatMessage(
     dashboardId: string,
     message: string,
+    timeRange: ChatTimeRange | undefined,
     sendEvent: (event: DashboardSseEvent) => void,
   ): Promise<ChatResult> {
     const config = getSetupConfig();
@@ -121,6 +128,9 @@ export class DashboardService {
       metricsAdapter,
       allDatasources: config.datasources,
       sendEvent,
+      timeRange: timeRange?.start && timeRange?.end
+        ? { start: timeRange.start, end: timeRange.end, timezone: timeRange.timezone }
+        : undefined,
     });
 
     log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');

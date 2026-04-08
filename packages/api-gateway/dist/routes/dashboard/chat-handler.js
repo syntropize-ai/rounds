@@ -7,7 +7,7 @@ function sendEvent(res, event) {
 /**
  * Thin HTTP/SSE adapter — delegates all business logic to DashboardService.
  */
-export async function handleChatMessage(req, res, dashboardId, message, store, conversationStore) {
+export async function handleChatMessage(req, res, dashboardId, message, store, conversationStore, investigationReportStore, alertRuleStore) {
     const dashboard = await store.findById(dashboardId);
     if (!dashboard) {
         res.status(404).json({ code: 'NOT_FOUND', message: 'Dashboard not found' });
@@ -27,7 +27,7 @@ export async function handleChatMessage(req, res, dashboardId, message, store, c
     }, 30_000);
     try {
         await withDashboardLock(dashboardId, async () => {
-            const service = new DashboardService(store, conversationStore);
+            const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore });
             const result = await service.handleChatMessage(dashboardId, message, (event) => { if (!closed)
                 sendEvent(res, event); });
             if (!closed) {

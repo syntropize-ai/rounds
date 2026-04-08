@@ -10,6 +10,20 @@ import { PostgresFeedRepository } from './postgres/feed.js';
 import { PostgresCaseRepository } from './postgres/case.js';
 import { PostgresApprovalRepository } from './postgres/approval.js';
 import { PostgresShareRepository } from './postgres/share.js';
+import { SqliteInvestigationRepository } from './sqlite/investigation.js';
+import { SqliteIncidentRepository } from './sqlite/incident.js';
+import { SqliteFeedItemRepository } from './sqlite/feed.js';
+import { SqliteApprovalRequestRepository } from './sqlite/approval.js';
+import { SqliteShareLinkRepository } from './sqlite/share.js';
+import { SqliteDashboardRepository } from './sqlite/dashboard.js';
+import { SqliteConversationRepository } from './sqlite/conversation.js';
+import { SqliteFolderRepository } from './sqlite/folder.js';
+import { SqliteAlertRuleRepository } from './sqlite/alert-rule.js';
+import { SqliteNotificationRepository } from './sqlite/notification.js';
+import { SqliteVersionRepository } from './sqlite/version.js';
+import { SqliteWorkspaceRepository } from './sqlite/workspace.js';
+import { SqliteInvestigationReportRepository } from './sqlite/investigation-report.js';
+import { SqlitePostMortemRepository } from './sqlite/post-mortem.js';
 export function createInMemoryRepositories() {
     return {
         investigations: new InMemoryInvestigationRepository(),
@@ -28,6 +42,24 @@ export function createPostgresRepositories(db) {
         cases: new PostgresCaseRepository(db),
         approvals: new PostgresApprovalRepository(db),
         shares: new PostgresShareRepository(db),
+    };
+}
+export function createSqliteRepositories(db) {
+    return {
+        investigations: new SqliteInvestigationRepository(db),
+        incidents: new SqliteIncidentRepository(db),
+        feedItems: new SqliteFeedItemRepository(db),
+        approvals: new SqliteApprovalRequestRepository(db),
+        shares: new SqliteShareLinkRepository(db),
+        dashboards: new SqliteDashboardRepository(db),
+        conversations: new SqliteConversationRepository(db),
+        folders: new SqliteFolderRepository(db),
+        alertRules: new SqliteAlertRuleRepository(db),
+        notifications: new SqliteNotificationRepository(db),
+        versions: new SqliteVersionRepository(db),
+        workspaces: new SqliteWorkspaceRepository(db),
+        investigationReports: new SqliteInvestigationReportRepository(db),
+        postMortems: new SqlitePostMortemRepository(db),
     };
 }
 export function createRepositories(backend, db) {

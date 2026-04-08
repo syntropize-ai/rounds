@@ -510,11 +510,15 @@ export default function DashboardWorkspace() {
     if (wasGeneratingRef.current && !isGenerating && id) {
       // Generation just finished — fetch final dashboard state once
       void apiClient.get<Dashboard>(`/dashboards/${id}`).then((res) => {
-        if (!res.error && res.data) setDashboard(res.data);
+        if (!res.error && res.data) {
+          setDashboard(res.data);
+          setPanels(res.data.panels ?? []);
+          setVariables(res.data.variables ?? []);
+        }
       });
     }
     wasGeneratingRef.current = isGenerating;
-  }, [isGenerating, id]);
+  }, [isGenerating, id, setPanels, setVariables]);
 
   // Variable changes
   const handleVariableChange = useCallback((name: string, value: string) => {

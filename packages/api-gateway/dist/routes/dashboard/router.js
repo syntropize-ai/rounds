@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { authMiddleware } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/rbac.js';
-import { defaultConversationStore, defaultInvestigationReportStore } from '@agentic-obs/data-layer';
 import { handleChatMessage } from './chat-handler.js';
 import { VariableResolver } from './variable-resolver.js';
 import { getSetupConfig } from '../setup.js';
@@ -10,9 +9,11 @@ import { getWorkspaceId } from '../../middleware/workspace-context.js';
 import { DashboardService, withDashboardLock } from '../../services/dashboard-service.js';
 import { createLogger } from '@agentic-obs/common';
 const log = createLogger('dashboard-router');
-export function createDashboardRouter(deps = {}) {
+export function createDashboardRouter(deps) {
     const store = deps.store;
-    const conversationStore = deps.conversationStore ?? defaultConversationStore;
+    const conversationStore = deps.conversationStore;
+    const investigationReportStore = deps.investigationReportStore;
+    const alertRuleStore = deps.alertRuleStore;
     const router = Router();
     // All dashboard routes require authentication
     router.use(authMiddleware);
@@ -39,7 +40,7 @@ export function createDashboardRouter(deps = {}) {
             res.status(201).json(dashboard);
             // Trigger generation in background via the orchestrator agent (same path as chat)
             if (!body.stream) {
-                const service = new DashboardService(store, conversationStore);
+                const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore });
                 void withDashboardLock(dashboard.id, async () => {
                     try {
                         await service.handleChatMessage(dashboard.id, dashboard.prompt, () => { });
@@ -58,56 +59,15 @@ export function createDashboardRouter(deps = {}) {
     // GET /dashboards
     router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
         try {
-            const typeFilter = req.query['type'];
             const workspaceId = getWorkspaceId(req);
             let all = await store.findAll();
             // Filter by workspace
             all = all.filter((d) => (d.workspaceId ?? 'default') === workspaceId);
-            if (typeFilter) {
-                all = all.filter((d) => d.type === typeFilter);
-            }
-            else {
-                // By default, exclude investigations from the dashboard list
-                all = all.filter((d) => d.type !== 'investigation');
-            }
             res.json(all);
         }
         catch (err) {
             next(err);
         }
-    });
-    // GET /dashboards/investigations
-    // IMPORTANT: these routes must be defined before /:id to avoid Express treating investigations as an id
-    router.get('/investigations', requirePermission('dashboard:read'), (_req, res) => {
-        res.json(defaultInvestigationReportStore.findAll());
-    });
-    // GET /dashboards/investigations/:reportId
-    router.get('/investigations/:reportId', requirePermission('dashboard:read'), (req, res) => {
-        const report = defaultInvestigationReportStore.findById(req.params['reportId'] ?? '');
-        if (!report) {
-            res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation report not found' });
-            return;
-        }
-        res.json(report);
-    });
-    // DELETE /dashboards/investigations/:reportId
-    router.delete('/investigations/:reportId', requirePermission('dashboard:write'), (req, res) => {
-        const deleted = defaultInvestigationReportStore.delete(req.params['reportId'] ?? '');
-        if (!deleted) {
-            res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation report not found' });
-            return;
-        }
-        res.status(204).send();
-    });
-    // GET /dashboards/:id/investigation-report
-    router.get('/:id/investigation-report', requirePermission('dashboard:read'), (req, res) => {
-        const reports = defaultInvestigationReportStore.findByDashboard(req.params['id'] ?? '');
-        if (!reports.length) {
-            res.status(404).json({ code: 'NOT_FOUND', message: 'No investigation report for this dashboard' });
-            return;
-        }
-        // Return the most recent one
-        res.json(reports[reports.length - 1]);
     });
     // GET /dashboards/:id/export — download as JSON file
     router.get('/:id/export', requirePermission('dashboard:read'), async (req, res, next) => {
@@ -173,11 +133,14 @@ export function createDashboardRouter(deps = {}) {
     // DELETE /dashboards/:id
     router.delete('/:id', requirePermission('dashboard:write'), async (req, res, next) => {
         try {
-            const deleted = await store.delete(req.params['id'] ?? '');
+            const id = req.params['id'] ?? '';
+            const deleted = await store.delete(id);
             if (!deleted) {
                 res.status(404).json({ code: 'NOT_FOUND', message: 'Dashboard not found' });
                 return;
             }
+            // Cascade: remove associated conversation messages
+            await conversationStore.deleteConversation(id);
             res.status(204).send();
         }
         catch (err) {
@@ -261,7 +224,7 @@ export function createDashboardRouter(deps = {}) {
                 res.status(400).json({ code: 'INVALID_INPUT', message: 'message is required and must be a non-empty string' });
                 return;
             }
-            await handleChatMessage(req, res, id, body.message.trim(), store, conversationStore);
+            await handleChatMessage(req, res, id, body.message.trim(), store, conversationStore, investigationReportStore, alertRuleStore);
         }
         catch (err) {
             next(err);
@@ -312,7 +275,7 @@ export function createDashboardRouter(deps = {}) {
                 res.status(404).json({ code: 'NOT_FOUND', message: 'Dashboard not found' });
                 return;
             }
-            res.json({ messages: conversationStore.getMessages(id) });
+            res.json({ messages: await conversationStore.getMessages(id) });
         }
         catch (err) {
             next(err);
@@ -320,6 +283,4 @@ export function createDashboardRouter(deps = {}) {
     });
     return router;
 }
-// Default router instance using the module-level store
-export const dashboardRouter = createDashboardRouter();
 //# sourceMappingURL=router.js.map

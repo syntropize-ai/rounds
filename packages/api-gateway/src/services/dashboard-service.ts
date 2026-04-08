@@ -125,6 +125,7 @@ export class DashboardService {
 
     log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');
     const replyContent = await orchestrator.handleMessage(dashboardId, message);
+    const assistantActions = orchestrator.consumeConversationActions();
     log.info({ dashboardId, reply: replyContent.slice(0, 100) }, 'orchestrator done');
 
     // Mark dashboard as ready (stops frontend polling)
@@ -136,6 +137,7 @@ export class DashboardService {
       id: assistantMessageId,
       role: 'assistant',
       content: replyContent,
+      ...(assistantActions.length > 0 ? { actions: assistantActions } : {}),
       timestamp: new Date().toISOString(),
     });
 

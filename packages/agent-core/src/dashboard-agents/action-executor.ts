@@ -79,6 +79,14 @@ export class ActionExecutor {
         this.sendEvent({ type: 'thinking', content: 'Dashboard title updated' })
         break
       }
+
+      case 'create_alert_rule':
+      case 'modify_alert_rule':
+      case 'delete_alert_rule': {
+        // Alert rule actions are persisted in chat history for conversational context,
+        // not applied through the dashboard mutation executor.
+        break
+      }
     }
   }
 }

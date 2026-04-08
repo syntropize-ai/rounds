@@ -59,6 +59,15 @@ function checkPermission(mode: AgentPermissionMode, action: string): 'allow' | '
 
 const log = createLogger('orchestrator')
 
+interface AlertRuleContext {
+  id: string
+  name: string
+  severity: string
+  condition: Record<string, unknown>
+  createdAt?: string
+  updatedAt?: string
+}
+
 export class OrchestratorAgent {
   static readonly definition = agentRegistry.get('intent-router')!;
 
@@ -69,6 +78,7 @@ export class OrchestratorAgent {
   private readonly alertRuleAgent: AlertRuleAgent
   private readonly reactLoop: ReActLoop
   private readonly verifierAgent: VerifierAgent
+  private pendingConversationActions: DashboardAction[] = []
 
   constructor(private deps: OrchestratorDeps) {
     this.actionExecutor = new ActionExecutor(deps.store, deps.sendEvent)
@@ -126,8 +136,180 @@ export class OrchestratorAgent {
     };
   }
 
+  consumeConversationActions(): DashboardAction[] {
+    const actions = [...this.pendingConversationActions]
+    this.pendingConversationActions = []
+    return actions
+  }
+
+  private normalizePanelPatch(
+    existingPanel: Dashboard['panels'][number] | undefined,
+    patch: Partial<Dashboard['panels'][number]>,
+  ): Partial<Dashboard['panels'][number]> {
+    const normalized = { ...patch }
+
+    if ('queries' in normalized) {
+      const rawQueries = Array.isArray(normalized.queries) ? normalized.queries : []
+      const fallbackQueries = existingPanel?.queries ?? (existingPanel?.query ? [{ refId: 'A', expr: existingPanel.query, instant: existingPanel.visualization !== 'time_series' }] : [])
+
+      const queries = rawQueries
+        .map((query, index) => {
+          const q = (query ?? {}) as Record<string, unknown>
+          const expr = typeof q.expr === 'string'
+            ? q.expr.trim()
+            : typeof q.query === 'string'
+              ? q.query.trim()
+              : typeof q.promql === 'string'
+                ? q.promql.trim()
+                : ''
+          if (!expr) return null
+
+          const fallbackRefId = fallbackQueries[index]?.refId ?? String.fromCharCode(65 + index)
+          return {
+            refId: typeof q.refId === 'string' && q.refId.trim() ? q.refId.trim() : fallbackRefId,
+            expr,
+            ...(typeof q.legendFormat === 'string' ? { legendFormat: q.legendFormat } : {}),
+            ...(typeof q.instant === 'boolean' ? { instant: q.instant } : {}),
+            ...(typeof q.datasourceId === 'string' ? { datasourceId: q.datasourceId } : {}),
+          }
+        })
+        .filter((query): query is NonNullable<typeof query> => query !== null)
+
+      normalized.queries = queries
+      normalized.query = queries[0]?.expr ?? existingPanel?.query
+    }
+
+    return normalized
+  }
+
+  private getStructuredAlertRuleContext(history: DashboardMessage[], alertRules: AlertRuleContext[]): AlertRuleContext | null {
+    if (alertRules.length === 0) return null
+
+    const byId = new Map(alertRules.map((rule) => [rule.id, rule]))
+
+    for (const message of [...history].reverse()) {
+      const actions = message.actions ?? []
+      for (const action of [...actions].reverse()) {
+        if (
+          action.type === 'create_alert_rule'
+          || action.type === 'modify_alert_rule'
+          || action.type === 'delete_alert_rule'
+        ) {
+          const match = byId.get(action.ruleId)
+          if (match) return match
+        }
+      }
+    }
+
+    return null
+  }
+
+  private buildStructuredAlertHistory(history: DashboardMessage[]): string {
+    const entries: string[] = []
+
+    for (const message of history.slice(-10)) {
+      const actions = message.actions ?? []
+      for (const action of actions) {
+        if (action.type === 'create_alert_rule') {
+          entries.push(`- Assistant created alert [${action.ruleId}] "${action.name}" (${action.severity}) - ${action.query} ${action.operator} ${action.threshold}`)
+        }
+        else if (action.type === 'modify_alert_rule') {
+          entries.push(`- Assistant modified alert [${action.ruleId}] with patch ${JSON.stringify(action.patch)}`)
+        }
+        else if (action.type === 'delete_alert_rule') {
+          entries.push(`- Assistant deleted alert [${action.ruleId}]${action.name ? ` "${action.name}"` : ''}`)
+        }
+      }
+    }
+
+    return entries.join('\n')
+  }
+
+  private parseAlertFollowUpAction(
+    message: string,
+    activeAlertRule: AlertRuleContext | null,
+  ): ReActStep | null {
+    if (!activeAlertRule) return null
+
+    const trimmed = message.trim()
+    if (!trimmed) return null
+
+    if (/(^|\b)(delete|remove)\b|删掉|删除|移除|去掉/.test(trimmed)) {
+      return {
+        thought: 'Structured alert follow-up delete',
+        action: 'delete_alert_rule',
+        args: { ruleId: activeAlertRule.id },
+      }
+    }
+
+    const thresholdMatch = trimmed.match(/(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds|m|min|mins|minutes)?/i)
+    const hasModifyIntent = /(改|修改|调成|调整|change|update|make|set)/i.test(trimmed)
+      || /通知我|告诉我|alert me|notify me/i.test(trimmed)
+      || thresholdMatch !== null
+
+    if (!hasModifyIntent || !thresholdMatch) return null
+
+    const numericValue = Number(thresholdMatch[1])
+    if (!Number.isFinite(numericValue)) return null
+
+    const unit = (thresholdMatch[2] ?? '').toLowerCase()
+    const normalizedThreshold =
+      unit === 's' || unit === 'sec' || unit === 'secs' || unit === 'seconds'
+        ? numericValue * 1000
+        : unit === 'm' || unit === 'min' || unit === 'mins' || unit === 'minutes'
+          ? numericValue * 60 * 1000
+          : numericValue
+
+    const patch: Record<string, unknown> = { threshold: normalizedThreshold }
+    if (/小于|低于|less than|below|under/i.test(trimmed)) patch.operator = '<'
+    if (/小于等于|不高于|at most|no more than/i.test(trimmed)) patch.operator = '<='
+    if (/大于等于|至少|at least|not less than/i.test(trimmed)) patch.operator = '>='
+    if (/大于|高于|超过|more than|greater than|over/i.test(trimmed)) patch.operator = '>'
+
+    return {
+      thought: 'Structured alert follow-up modify',
+      action: 'modify_alert_rule',
+      args: {
+        ruleId: activeAlertRule.id,
+        patch,
+      },
+    }
+  }
+
+  private async composeAlertFollowUpReply(
+    userMessage: string,
+    action: ReActStep,
+    observationText: string,
+  ): Promise<string> {
+    try {
+      const resp = await this.deps.gateway.complete([
+        {
+          role: 'system',
+          content: 'You are writing a short assistant reply for an observability dashboard chat. The requested action has already succeeded. Reply in one natural sentence. Do not mention tool names, internal IDs, or implementation details.',
+        },
+        {
+          role: 'user',
+          content: `User request: ${userMessage}\nExecuted action: ${action.action}\nResult: ${observationText}`,
+        },
+      ], {
+        model: this.deps.model,
+        maxTokens: 80,
+        temperature: 0.2,
+      })
+
+      const text = resp.content.trim()
+      if (text) return text
+    }
+    catch {
+      // Fall back to the execution summary below.
+    }
+
+    return observationText
+  }
+
   async handleMessage(dashboardId: string, message: string): Promise<string> {
     this.emitAgentEvent(this.makeAgentEvent('agent.started', { dashboardId, message }));
+    this.pendingConversationActions = []
 
     const dashboard = await this.deps.store.findById(dashboardId)
     if (!dashboard) {
@@ -138,7 +320,7 @@ export class OrchestratorAgent {
     const history = await this.deps.conversationStore.getMessages(dashboardId)
 
     // Fetch existing alert rules so LLM can reference them for modify/delete
-    let alertRules: Array<{ id: string; name: string; severity: string; condition: Record<string, unknown> }> = []
+    let alertRules: AlertRuleContext[] = []
     if (this.deps.alertRuleStore.findAll) {
       try {
         const result = await this.deps.alertRuleStore.findAll()
@@ -146,7 +328,21 @@ export class OrchestratorAgent {
       } catch { /* ignore */ }
     }
 
-    const systemPrompt = this.buildSystemPrompt(dashboard, history, alertRules)
+    const activeAlertRule = this.getStructuredAlertRuleContext(history, alertRules)
+    const directFollowUpAction = this.parseAlertFollowUpAction(message, activeAlertRule)
+    if (directFollowUpAction) {
+      const result = await this.executeAction(dashboardId, directFollowUpAction)
+      const finalReply = result
+        ? await this.composeAlertFollowUpReply(message, directFollowUpAction, result)
+        : ''
+      if (finalReply) {
+        this.deps.sendEvent({ type: 'reply', content: finalReply })
+      }
+      this.emitAgentEvent(this.makeAgentEvent('agent.completed', { dashboardId, mode: 'structured_alert_followup' }));
+      return finalReply
+    }
+
+    const systemPrompt = this.buildSystemPrompt(dashboard, history, alertRules, activeAlertRule)
 
     try {
       const result = await this.reactLoop.runLoop(
@@ -336,16 +532,16 @@ export class OrchestratorAgent {
 
         case 'add_panels': {
           const goal = String(args.goal ?? '')
+          const currentDash = await this.deps.store.findById(dashboardId)
+          if (!currentDash)
+            throw new Error('Dashboard not found')
+
           this.deps.sendEvent({
             type: 'tool_call',
             tool: 'add_panels',
             args: { goal },
             displayText: `Adding panels: ${goal}`,
           })
-
-          const currentDash = await this.deps.store.findById(dashboardId)
-          if (!currentDash)
-            throw new Error('Dashboard not found')
 
           // Discover available metrics and labels before generating panels
           let availableMetrics: string[] = []
@@ -422,18 +618,18 @@ export class OrchestratorAgent {
             }));
             if (verificationReport.status === 'failed') {
               addPanelsVerificationFailed = true
+              await this.deps.store.updatePanels(dashboardId, currentDash.panels)
             }
           }
 
-          const observationText
-            = `Added ${result.panels.length} panel(s)`
-            + (result.variables?.length ? ` and ${result.variables.length} variable(s)` : '')
-            + (addPanelsVerificationFailed ? ' (verification FAILED)' : '')
+          const observationText = addPanelsVerificationFailed
+            ? 'The new panels were not applied because verification found problems with the result.'
+            : `Added ${result.panels.length} panel(s)` + (result.variables?.length ? ` and ${result.variables.length} variable(s)` : '')
 
           this.deps.sendEvent({
             type: 'tool_result',
             tool: 'add_panels',
-            summary: observationText,
+            summary: addPanelsVerificationFailed ? 'Panel addition was reverted after verification failed' : observationText,
             success: result.panels.length > 0 && !addPanelsVerificationFailed,
           })
           this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'add_panels', summary: observationText }));
@@ -531,7 +727,13 @@ export class OrchestratorAgent {
 
         case 'modify_panel': {
           const panelId = String(args.panelId ?? '')
-          const patch = (args.patch ?? {}) as Partial<Dashboard['panels'][number]>
+          const rawPatch = (args.patch ?? {}) as Partial<Dashboard['panels'][number]>
+          const currentDash = await this.deps.store.findById(dashboardId)
+          if (!currentDash)
+            throw new Error('Dashboard not found')
+          const existingPanel = currentDash.panels.find((panel) => panel.id === panelId)
+          const patch = this.normalizePanelPatch(existingPanel, rawPatch)
+
           this.deps.sendEvent({
             type: 'tool_call',
             tool: 'modify_panel',
@@ -541,6 +743,40 @@ export class OrchestratorAgent {
 
           const modifyAction: DashboardAction = { type: 'modify_panel', panelId, patch }
           await this.actionExecutor.execute(dashboardId, [modifyAction])
+
+          const updatedDash = await this.deps.store.findById(dashboardId)
+          if (updatedDash) {
+            const verificationReport = await this.verifierAgent.verify('dashboard', updatedDash, {
+              metricsAdapter: this.deps.metricsAdapter,
+            })
+            this.deps.sendEvent({ type: 'verification_report', report: verificationReport })
+            this.emitAgentEvent(this.makeAgentEvent('agent.artifact_verified', {
+              tool: 'modify_panel',
+              status: verificationReport.status,
+              summary: verificationReport.summary,
+            }));
+
+            if (verificationReport.status === 'failed') {
+              await this.deps.store.updatePanels(dashboardId, currentDash.panels)
+              const failIssues = verificationReport.issues
+                .filter((i) => i.severity === 'error' && i.artifactId === panelId)
+                .map((i) => i.message)
+                .join('; ')
+              const observationText = failIssues
+                ? `Panel update was reverted because it would hide or distort data: ${failIssues}`
+                : 'Panel update was reverted because verification failed.'
+
+              this.deps.sendEvent({
+                type: 'tool_result',
+                tool: 'modify_panel',
+                summary: 'Panel update reverted after verification failed',
+                success: false,
+              })
+              this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', { tool: 'modify_panel', summary: observationText }));
+              return observationText
+            }
+          }
+
           const observationText = `Modified panel ${panelId}.`
 
           this.deps.sendEvent({
@@ -642,7 +878,10 @@ export class OrchestratorAgent {
 
           const currentDash = await this.deps.store.findById(dashboardId)
           const existingQueries = (currentDash?.panels ?? [])
-            .flatMap((p) => (p.queries ?? []).map((q) => q.expr))
+            .flatMap((p) => [
+              ...(p.queries ?? []).map((q) => q.expr),
+              ...(typeof p.query === 'string' && p.query.trim().length > 0 ? [p.query] : []),
+            ])
             .filter(Boolean)
           const variables = (currentDash?.variables ?? []).map((v) => ({
             name: v.name,
@@ -717,6 +956,17 @@ export class OrchestratorAgent {
 
           const rc = rule.condition as Record<string, unknown>
           const verb = isUpdate ? 'Updated' : 'Created'
+          this.pendingConversationActions.push({
+            type: 'create_alert_rule',
+            ruleId: String(rule.id ?? ''),
+            name: String(rule.name ?? generated.name),
+            severity: String(rule.severity ?? generated.severity),
+            query: String(rc.query ?? ''),
+            operator: String(rc.operator ?? ''),
+            threshold: Number(rc.threshold ?? 0),
+            forDurationSec: Number(rc.forDurationSec ?? 0),
+            evaluationIntervalSec: Number(rule.evaluationIntervalSec ?? generated.evaluationIntervalSec),
+          })
           const observationText = `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.${generated.autoInvestigate ? ' Auto-investigation enabled on fire.' : ''}`
           this.deps.sendEvent({
             type: 'tool_result',
@@ -764,9 +1014,27 @@ export class OrchestratorAgent {
             }
           }
 
-          await this.deps.alertRuleStore.update(ruleId, updatePatch)
+          const updatedRule = await this.deps.alertRuleStore.update(ruleId, updatePatch) as Record<string, unknown> | undefined
 
-          const observationText = `Alert rule ${ruleId} updated successfully.`
+          this.pendingConversationActions.push({
+            type: 'modify_alert_rule',
+            ruleId,
+            patch: {
+              ...(patch.threshold !== undefined ? { threshold: Number(patch.threshold) } : {}),
+              ...(typeof patch.operator === 'string' ? { operator: patch.operator } : {}),
+              ...(typeof patch.severity === 'string' ? { severity: patch.severity } : {}),
+              ...(patch.forDurationSec !== undefined ? { forDurationSec: Number(patch.forDurationSec) } : {}),
+              ...(patch.evaluationIntervalSec !== undefined ? { evaluationIntervalSec: Number(patch.evaluationIntervalSec) } : {}),
+              ...(typeof patch.query === 'string' ? { query: patch.query } : {}),
+              ...(typeof patch.name === 'string' ? { name: patch.name } : {}),
+            },
+          })
+
+          const updatedRuleName = String(updatedRule?.name ?? existingRule.name ?? 'the alert rule')
+          const updatedCondition = ((updatedRule?.condition ?? updatePatch.condition ?? existingCondition) as Record<string, unknown>)
+          const thresholdText = updatedCondition.threshold !== undefined ? ` to ${updatedCondition.threshold}` : ''
+          const operatorText = typeof updatedCondition.operator === 'string' ? ` (${updatedCondition.operator})` : ''
+          const observationText = `Updated "${updatedRuleName}"${thresholdText}${operatorText}.`
           this.deps.sendEvent({
             type: 'tool_result',
             tool: 'modify_alert_rule',
@@ -789,12 +1057,22 @@ export class OrchestratorAgent {
           })
 
           // alertRuleStore may have delete via the repository interface
+          const existingRule = this.deps.alertRuleStore.findById
+            ? await this.deps.alertRuleStore.findById(ruleId) as Record<string, unknown> | undefined
+            : undefined
+
           const store = this.deps.alertRuleStore as unknown as { delete?(id: string): unknown }
           if (store.delete) {
             await store.delete(ruleId)
           }
 
-          const observationText = `Alert rule ${ruleId} deleted.`
+          this.pendingConversationActions.push({
+            type: 'delete_alert_rule',
+            ruleId,
+          })
+
+          const deletedRuleName = String(existingRule?.name ?? 'the alert rule')
+          const observationText = `Deleted "${deletedRuleName}".`
           this.deps.sendEvent({
             type: 'tool_result',
             tool: 'delete_alert_rule',
@@ -830,7 +1108,12 @@ export class OrchestratorAgent {
     // but if we did get here, emit completed
   }
 
-  private buildSystemPrompt(dashboard: Dashboard, history: DashboardMessage[], alertRules: Array<{ id: string; name: string; severity: string; condition: Record<string, unknown> }> = []): string {
+  private buildSystemPrompt(
+    dashboard: Dashboard,
+    history: DashboardMessage[],
+    alertRules: AlertRuleContext[] = [],
+    activeAlertRule: AlertRuleContext | null = null,
+  ): string {
     const panelsSummary = dashboard.panels.length > 0
       ? dashboard.panels.map((p) => `- [${p.id}] ${p.title} (${p.visualization})`).join('\n')
       : '(no panels yet)'
@@ -845,6 +1128,15 @@ export class OrchestratorAgent {
 
     const alertRulesSection = alertRules.length > 0
       ? `\n## Existing Alert Rules\n${alertRules.map((r) => `- [${r.id}] "${r.name}" (${r.severity}) — ${(r.condition as Record<string, unknown>).query ?? ''} ${(r.condition as Record<string, unknown>).operator ?? ''} ${(r.condition as Record<string, unknown>).threshold ?? ''}`).join('\n')}\nUse these IDs with modify_alert_rule or delete_alert_rule.\n`
+      : ''
+
+    const structuredAlertHistory = this.buildStructuredAlertHistory(history)
+    const structuredAlertHistorySection = structuredAlertHistory
+      ? `\n## Structured Alert History\n${structuredAlertHistory}\n`
+      : ''
+
+    const activeAlertRuleSection = activeAlertRule
+      ? `\n## Active Alert Rule Context\nThe latest structured alert action in this conversation refers to [${activeAlertRule.id}] "${activeAlertRule.name}" (${activeAlertRule.severity}). If the user says "it", "this alert", "change it to 400ms", "改成400ms", or "删掉它", interpret that as this alert unless they explicitly mention a different one.\n`
       : ''
 
     const datasources = this.deps.allDatasources ?? []
@@ -865,7 +1157,7 @@ ${panelsSummary}
 
 ## Variables
 ${variablesSummary}
-${historySection}${datasourceSection}${alertRulesSection}
+${historySection}${datasourceSection}${alertRulesSection}${structuredAlertHistorySection}${activeAlertRuleSection}
 ## Available Tools
 
 ## Sub-agents (for complex work - these handle research, discovery, and panel generation internally)
@@ -907,6 +1199,9 @@ Classify the user's intent based on what they are trying to accomplish, not by m
 
 **reply** — The user is asking a question that can be answered conversationally without taking action.
 
+Prefer the Active Alert Rule Context and Structured Alert History over free-form chat text when deciding whether a follow-up should modify/delete an existing alert or create a new one.
+When modifying or merging panels, preserve all user-requested signals. Choose a visualization that can clearly display every retained series or value. Do not compress multiple important metrics into a single-value visualization when that would hide distinctions between them.
+
 ## Guidelines
 1. You are an autonomous agent. Take action immediately using the tools above.
 2. ALWAYS include a "message" field before EXECUTING actions.
@@ -919,7 +1214,8 @@ Classify the user's intent based on what they are trying to accomplish, not by m
 7. NEVER ask more than one clarifying question. If you already have some context (e.g. dashboard panels show specific services), infer that context instead of asking.
 8. If you receive an observation starting with "CLARIFICATION_NEEDED:", use the ask_user tool to relay the clarification message to the user. Do NOT try to generate a dashboard without relevant metrics.
 9. NEVER modify the dashboard (set_title, modify_panel, remove_panels, add_panels, generate_dashboard) as a side effect of another action. If the user asks to create an alert rule, ONLY create the alert rule — do NOT change the dashboard title, panels, or layout. Each user request should do exactly one thing.
-10. After completing an action, use "reply" to confirm the result. Do NOT chain additional actions unless the user explicitly asked for multiple things.
+10. When the current message is a follow-up about an existing alert rule, use the Active Alert Rule Context and Structured Alert History to decide between modify_alert_rule and delete_alert_rule. Do not create a new alert rule unless the user is clearly asking for an additional alert.
+11. After completing an action, use "reply" to confirm the result. Do NOT chain additional actions unless the user explicitly asked for multiple things.
 
 ## Response Format
 Return JSON on every step.

@@ -1,9 +1,7 @@
 import { Router } from 'express';
-import { InMemoryApprovalRepository } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-const defaultRepo = new InMemoryApprovalRepository();
-export function createApprovalRouter(repo = defaultRepo) {
+export function createApprovalRouter(repo) {
     const router = Router();
     // GET /api/approvals - list pending approvals
     // Requires execution:read (operator, investigator, admin)
@@ -111,5 +109,4 @@ export function createApprovalRouter(repo = defaultRepo) {
     });
     return router;
 }
-export const approvalRouter = createApprovalRouter();
 //# sourceMappingURL=approval.js.map

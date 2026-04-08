@@ -13,6 +13,7 @@ vi.mock('../../routes/llm-factory.js', () => ({
 vi.mock('@agentic-obs/agent-core', () => ({
   DashboardOrchestratorAgent: vi.fn().mockImplementation(() => ({
     handleMessage: vi.fn().mockResolvedValue('Here is your dashboard analysis.'),
+    consumeConversationActions: vi.fn().mockReturnValue([]),
   })),
 }));
 

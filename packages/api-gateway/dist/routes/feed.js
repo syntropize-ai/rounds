@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { feedStore, } from '@agentic-obs/data-layer';
 import { initSse, sendSseEvent, sendSseKeepAlive } from './investigation/sse.js';
 const VALID_FEED_TYPES = [
     'investigation_complete',
@@ -14,7 +13,7 @@ const VALID_FEED_TYPES = [
     'approval_resolved',
     'verification_complete',
 ];
-export function createFeedRouter(store = feedStore) {
+export function createFeedRouter(store) {
     const router = Router();
     // All feed routes require authentication and feed:read permission
     router.use(authMiddleware);
@@ -206,6 +205,4 @@ export function createFeedRouter(store = feedStore) {
     });
     return router;
 }
-// Default singleton router - preserves backward compatibility for imports.
-export const feedRouter = createFeedRouter();
 //# sourceMappingURL=feed.js.map

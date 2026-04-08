@@ -1,15 +1,16 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { incidentStore, defaultInvestigationStore, postMortemStore as postmortemStore, } from '@agentic-obs/data-layer';
 import { getWorkspaceId } from '../middleware/workspace-context.js';
 const VALID_STATUSES = ['open', 'mitigated', 'resolved'];
 const VALID_SEVERITIES = ['P1', 'P2', 'P3', 'P4'];
-export function createIncidentRouter(store = incidentStore, extras = {}) {
+export function createIncidentRouter(deps) {
     const router = Router();
     router.use(authMiddleware);
-    const pmStore = extras.pmStore ?? postmortemStore;
-    const generator = extras.generator;
+    const store = deps.store;
+    const investigationStore = deps.investigationStore;
+    const pmStore = deps.pmStore;
+    const generator = deps.generator;
     // POST /api/incidents - create
     router.post('/', requirePermission('incident:create'), async (req, res, next) => {
         try {
@@ -184,8 +185,8 @@ export function createIncidentRouter(store = incidentStore, extras = {}) {
             }
             // Return cached report unless force=true
             const body = req.body;
-            if (!body?.force && pmStore.has(id)) {
-                res.json(pmStore.get(id));
+            if (!body?.force && await pmStore.has(id)) {
+                res.json(await pmStore.get(id));
                 return;
             }
             if (!generator) {
@@ -194,8 +195,8 @@ export function createIncidentRouter(store = incidentStore, extras = {}) {
                 return;
             }
             // Build investigation data from linked investigation IDs
-            const investigations = incident.investigationIds
-                .map((invId) => defaultInvestigationStore.findById(invId))
+            const resolvedInvs = await Promise.all(incident.investigationIds.map((invId) => investigationStore.findById(invId)));
+            const investigations = resolvedInvs
                 .filter(Boolean)
                 .map((inv) => ({
                 id: inv.id,
@@ -231,7 +232,7 @@ export function createIncidentRouter(store = incidentStore, extras = {}) {
                 verificationOutcomes: Array.isArray(body?.verificationOutcomes) ? body.verificationOutcomes : [],
             };
             const report = await generator.generate(input);
-            pmStore.set(id, report);
+            await pmStore.set(id, report);
             res.status(201).json(report);
         }
         catch (err) {
@@ -247,7 +248,7 @@ export function createIncidentRouter(store = incidentStore, extras = {}) {
                 res.status(404).json(err);
                 return;
             }
-            const report = pmStore.get(id);
+            const report = await pmStore.get(id);
             if (!report) {
                 const err = { code: 'NOT_FOUND', message: 'Post-mortem report not yet generated. Use POST to generate one.' };
                 res.status(404).json(err);
@@ -261,5 +262,4 @@ export function createIncidentRouter(store = incidentStore, extras = {}) {
     });
     return router;
 }
-export const incidentRouter = createIncidentRouter();
 //# sourceMappingURL=incident.js.map

@@ -28,7 +28,7 @@ export const agentRegistry = new AgentRegistry();
 agentRegistry.register({
   type: 'intent-router',
   description: 'Classifies user intent and routes to the appropriate specialist agent',
-  allowedTools: ['generate_dashboard', 'add_panels', 'investigate', 'create_alert_rule', 'modify_panel', 'remove_panels', 'rearrange', 'add_variable', 'set_title'],
+  allowedTools: ['generate_dashboard', 'add_panels', 'investigate', 'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule', 'modify_panel', 'remove_panels', 'rearrange', 'add_variable', 'set_title'],
   inputKinds: ['dashboard'],
   outputKinds: ['dashboard', 'panel', 'dashboard_variable', 'investigation_report', 'alert_rule'],
   permissionMode: 'artifact_mutation',

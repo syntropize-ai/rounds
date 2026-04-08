@@ -1,17 +1,15 @@
 import { Router } from 'express';
 import { getSetupConfig } from './setup.js';
 import { IntentService } from '../services/intent-service.js';
-// SSE-streaming intent endpoint.
-//
-// Flow:
-// 1. Classify intent via LLM (stream progress events)
-// 2. Execute alert rule; dashboard/investigate -> create workspace
-// 3. Send final "done" event with navigation target
-//
-// The home page stays visible throughout, showing real-time progress.
-export function createIntentRouter(dashboardStore) {
+export function createIntentRouter(deps) {
     const router = Router();
-    const intentService = new IntentService(dashboardStore);
+    const intentService = new IntentService({
+        dashboardStore: deps.dashboardStore,
+        alertRuleStore: deps.alertRuleStore,
+        investigationStore: deps.investigationStore,
+        feedStore: deps.feedStore,
+        reportStore: deps.reportStore,
+    });
     router.post('/', async (req, res, _next) => {
         const body = req.body;
         if (!body?.message || typeof body.message !== 'string' || body.message.trim() === '') {

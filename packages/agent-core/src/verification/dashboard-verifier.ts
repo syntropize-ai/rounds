@@ -102,7 +102,22 @@ export class DashboardVerifier {
       }
     }
 
-    // 6. query_valid - test queries against Prometheus if adapter or URL is provided
+    // 6. visualization_capacity - catch panels whose visualization cannot represent all configured queries
+    checksRun.push('visualization_capacity');
+    for (const panel of dashboard.panels ?? []) {
+      const queries = this.getPanelQueries(panel);
+      if ((panel.visualization === 'stat' || panel.visualization === 'gauge') && queries.length > 1) {
+        issues.push({
+          code: 'visualization_capacity',
+          severity: 'error',
+          message: `Panel "${panel.title}" (${panel.id}) uses ${panel.visualization} with ${queries.length} queries. This visualization shows a single value and will hide or collapse part of the requested data.`,
+          artifactKind: 'dashboard',
+          artifactId: panel.id,
+        });
+      }
+    }
+
+    // 7. query_valid - test queries against Prometheus if adapter or URL is provided
     const queryTarget = metricsAdapter ?? prometheusUrl;
     if (queryTarget) {
       checksRun.push('query_valid');
@@ -144,7 +159,7 @@ export class DashboardVerifier {
       }
     }
 
-    // 7. panel_semantics - catch mismatches between query shape, unit, and visualization
+    // 8. panel_semantics - catch mismatches between query shape, unit, and visualization
     if (metricsAdapter) {
       checksRun.push('panel_semantics');
       for (const panel of dashboard.panels ?? []) {

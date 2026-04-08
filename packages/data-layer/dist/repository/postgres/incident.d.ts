@@ -18,5 +18,9 @@ export declare class PostgresIncidentRepository implements IIncidentRepository {
     findByService(serviceId: string, tenantId?: string): Promise<Incident[]>;
     archive(id: string): Promise<Incident | undefined>;
     restore(id: string): Promise<Incident | undefined>;
+    findArchived(tenantId?: string): Promise<Incident[]>;
+    findByWorkspace(_workspaceId: string): Promise<Incident[]>;
+    addInvestigation(incidentId: string, investigationId: string): Promise<Incident | undefined>;
+    getTimeline(incidentId: string): Promise<IncidentTimelineEntry[] | undefined>;
 }
 //# sourceMappingURL=incident.d.ts.map

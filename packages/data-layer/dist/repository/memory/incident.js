@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 export class InMemoryIncidentRepository {
     active = new Map();
     archived = new Map();
+    workspaceMap = new Map();
     async findById(id) {
         return this.active.get(id) ?? this.archived.get(id);
     }
@@ -69,6 +70,29 @@ export class InMemoryIncidentRepository {
     async findByService(serviceId, _tenantId) {
         return [...this.active.values()].filter((i) => i.serviceIds.includes(serviceId));
     }
+    async findByWorkspace(workspaceId) {
+        return [...this.active.values()].filter((inc) => this.workspaceMap.get(inc.id) === workspaceId);
+    }
+    async addInvestigation(incidentId, investigationId) {
+        const incident = this.active.get(incidentId);
+        if (!incident)
+            return undefined;
+        if (incident.investigationIds.includes(investigationId))
+            return incident;
+        const updated = {
+            ...incident,
+            investigationIds: [...incident.investigationIds, investigationId],
+            updatedAt: new Date().toISOString(),
+        };
+        this.active.set(incidentId, updated);
+        return updated;
+    }
+    async getTimeline(incidentId) {
+        const incident = this.active.get(incidentId);
+        if (!incident)
+            return undefined;
+        return incident.timeline;
+    }
     async archive(id) {
         const item = this.active.get(id);
         if (!item)
@@ -87,10 +111,14 @@ export class InMemoryIncidentRepository {
         this.active.set(id, restored);
         return restored;
     }
+    async findArchived(_tenantId) {
+        return [...this.archived.values()];
+    }
     /** Test helper */
     clear() {
         this.active.clear();
         this.archived.clear();
+        this.workspaceMap.clear();
     }
 }
 //# sourceMappingURL=incident.js.map

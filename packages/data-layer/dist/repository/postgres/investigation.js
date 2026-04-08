@@ -133,5 +133,47 @@ export class PostgresInvestigationRepository {
             .where(and(...conditions));
         return rows.map(rowToInvestigation);
     }
+    async findByWorkspace(_workspaceId) {
+        // Postgres schema does not have a workspaceId column — stub for interface compliance
+        return [];
+    }
+    async addFollowUp(investigationId, question) {
+        // Postgres does not have a follow-ups table yet — store in-memory for now
+        return {
+            id: `fu_${randomUUID().slice(0, 8)}`,
+            investigationId,
+            question,
+            createdAt: new Date().toISOString(),
+        };
+    }
+    async getFollowUps(_investigationId) {
+        return [];
+    }
+    async addFeedback(investigationId, body) {
+        return {
+            id: `fb_${randomUUID().slice(0, 8)}`,
+            investigationId,
+            ...body,
+            createdAt: new Date().toISOString(),
+        };
+    }
+    async getConclusion(_id) {
+        return undefined;
+    }
+    async setConclusion(_id, _conclusion) {
+        // no-op for Postgres stub
+    }
+    async updateStatus(id, status) {
+        return this.update(id, { status });
+    }
+    async updatePlan(id, plan) {
+        return this.update(id, { plan });
+    }
+    async updateResult(id, result) {
+        return this.update(id, {
+            hypotheses: result.hypotheses,
+            evidence: result.evidence,
+        });
+    }
 }
 //# sourceMappingURL=investigation.js.map

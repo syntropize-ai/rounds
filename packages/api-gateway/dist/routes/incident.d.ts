@@ -1,14 +1,15 @@
 import { Router } from 'express';
-import { postMortemStore as postmortemStore } from '@agentic-obs/data-layer';
 import type { PostMortemInput, PostMortemReport } from '@agentic-obs/agent-core';
-import type { IGatewayIncidentStore } from '../repositories/types.js';
+import type { IGatewayIncidentStore, IGatewayInvestigationStore } from '../repositories/types.js';
+import type { IPostMortemRepository } from '@agentic-obs/data-layer';
 export interface PostMortemGeneratorDep {
     generate(input: PostMortemInput): Promise<PostMortemReport>;
 }
-export interface IncidentRouterExtras {
-    pmStore?: typeof postmortemStore;
+export interface IncidentRouterDeps {
+    store: IGatewayIncidentStore;
+    investigationStore: IGatewayInvestigationStore;
+    pmStore: IPostMortemRepository;
     generator?: PostMortemGeneratorDep;
 }
-export declare function createIncidentRouter(store?: IGatewayIncidentStore, extras?: IncidentRouterExtras): Router;
-export declare const incidentRouter: Router;
+export declare function createIncidentRouter(deps: IncidentRouterDeps): Router;
 //# sourceMappingURL=incident.d.ts.map

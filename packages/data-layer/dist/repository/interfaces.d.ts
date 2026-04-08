@@ -1,5 +1,12 @@
-import type { Investigation, Incident, IncidentTimelineEntry, IncidentTimelineEntryType } from '@agentic-obs/common';
+import type { Investigation, Incident, IncidentTimelineEntry, IncidentTimelineEntryType, Dashboard, DashboardStatus, DashboardVariable, DashboardMessage, PanelConfig, AlertRule, AlertRuleState, AlertHistoryEntry, AlertSilence, NotificationPolicy, ContactPoint, ContactPointIntegration, NotificationPolicyNode, MuteTiming, TimeInterval, Workspace, WorkspaceMember, AssetType, AssetVersion, EditSource, SavedInvestigationReport, PostMortemReport } from '@agentic-obs/common';
+import type { ExplanationResult } from '@agentic-obs/common';
 import type { FeedEvent, Case, ApprovalRecord, ShareLink } from './types.js';
+import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../stores/investigation-store.js';
+import type { FeedItem, FeedPage, FeedListOptions, FeedEventType, FeedSeverity, FeedFeedback, HypothesisFeedback, ActionFeedback, FeedbackStats } from '../stores/feed-store.js';
+import type { ApprovalAction, ApprovalContext, ApprovalRequest } from '../stores/approval-store.js';
+import type { SharePermission, ShareLink as StoreShareLink } from '../stores/share-store.js';
+import type { Folder } from '../stores/folder-store.js';
+export type MaybeAsync<T> = T | Promise<T>;
 export interface FindAllOptions<T> {
     filter?: Partial<T>;
     limit?: number;
@@ -8,67 +15,254 @@ export interface FindAllOptions<T> {
 export interface IRepository<T extends {
     id: string;
 }> {
-    findById(id: string): Promise<T | undefined>;
-    findAll(opts?: FindAllOptions<T>): Promise<T[]>;
+    findById(id: string): MaybeAsync<T | undefined>;
+    findAll(opts?: FindAllOptions<T>): MaybeAsync<T[]>;
     create(entity: Omit<T, 'id' | 'createdAt'> & {
         id?: string;
-    }): Promise<T>;
-    update(id: string, patch: Partial<Omit<T, 'id'>>): Promise<T | undefined>;
-    delete(id: string): Promise<boolean>;
-    count(): Promise<number>;
+    }): MaybeAsync<T>;
+    update(id: string, patch: Partial<Omit<T, 'id'>>): MaybeAsync<T | undefined>;
+    delete(id: string): MaybeAsync<boolean>;
+    count(): MaybeAsync<number>;
 }
 export interface InvestigationFindAllOptions extends FindAllOptions<Investigation> {
     tenantId?: string;
     status?: string;
 }
 export interface IInvestigationRepository extends IRepository<Investigation> {
-    findAll(opts?: InvestigationFindAllOptions): Promise<Investigation[]>;
-    findBySession(sessionId: string): Promise<Investigation[]>;
-    findByUser(userId: string, tenantId?: string): Promise<Investigation[]>;
-    archive(id: string): Promise<Investigation | undefined>;
-    restore(id: string): Promise<Investigation | undefined>;
-    findArchived(tenantId?: string): Promise<Investigation[]>;
+    findAll(opts?: InvestigationFindAllOptions): MaybeAsync<Investigation[]>;
+    findBySession(sessionId: string): MaybeAsync<Investigation[]>;
+    findByUser(userId: string, tenantId?: string): MaybeAsync<Investigation[]>;
+    findByWorkspace(workspaceId: string): MaybeAsync<Investigation[]>;
+    archive(id: string): MaybeAsync<Investigation | undefined>;
+    restore(id: string): MaybeAsync<Investigation | undefined>;
+    findArchived(tenantId?: string): MaybeAsync<Investigation[]>;
+    addFollowUp(investigationId: string, question: string): MaybeAsync<FollowUpRecord>;
+    getFollowUps(investigationId: string): MaybeAsync<FollowUpRecord[]>;
+    addFeedback(investigationId: string, body: FeedbackBody): MaybeAsync<StoredFeedback>;
+    getConclusion(id: string): MaybeAsync<ExplanationResult | undefined>;
+    setConclusion(id: string, conclusion: ExplanationResult): MaybeAsync<void>;
+    updateStatus(id: string, status: string): MaybeAsync<Investigation | undefined>;
+    updatePlan(id: string, plan: Investigation['plan']): MaybeAsync<Investigation | undefined>;
+    updateResult(id: string, result: {
+        hypotheses: Investigation['hypotheses'];
+        evidence: Investigation['evidence'];
+        conclusion: ExplanationResult | null;
+    }): MaybeAsync<Investigation | undefined>;
 }
 export interface IncidentFindAllOptions extends FindAllOptions<Incident> {
     tenantId?: string;
     status?: string;
 }
 export interface IIncidentRepository extends IRepository<Incident> {
-    findAll(opts?: IncidentFindAllOptions): Promise<Incident[]>;
+    findAll(opts?: IncidentFindAllOptions): MaybeAsync<Incident[]>;
     addTimelineEntry(incidentId: string, entry: Omit<IncidentTimelineEntry, 'id' | 'timestamp'> & {
         type?: IncidentTimelineEntryType;
-    }): Promise<IncidentTimelineEntry | undefined>;
-    findByService(serviceId: string, tenantId?: string): Promise<Incident[]>;
-    archive(id: string): Promise<Incident | undefined>;
-    restore(id: string): Promise<Incident | undefined>;
+    }): MaybeAsync<IncidentTimelineEntry | undefined>;
+    findByService(serviceId: string, tenantId?: string): MaybeAsync<Incident[]>;
+    findByWorkspace(workspaceId: string): MaybeAsync<Incident[]>;
+    addInvestigation(incidentId: string, investigationId: string): MaybeAsync<Incident | undefined>;
+    getTimeline(incidentId: string): MaybeAsync<IncidentTimelineEntry[] | undefined>;
+    archive(id: string): MaybeAsync<Incident | undefined>;
+    restore(id: string): MaybeAsync<Incident | undefined>;
+    findArchived(tenantId?: string): MaybeAsync<Incident[]>;
 }
 export interface FeedFindAllOptions extends FindAllOptions<FeedEvent> {
     tenantId?: string;
 }
 export interface IFeedRepository extends IRepository<FeedEvent> {
-    findAll(opts?: FeedFindAllOptions): Promise<FeedEvent[]>;
-    add(event: Omit<FeedEvent, 'id' | 'createdAt'>): Promise<FeedEvent>;
-    findByType(type: string, tenantId?: string): Promise<FeedEvent[]>;
-    findBySeverity(severity: string, tenantId?: string): Promise<FeedEvent[]>;
+    findAll(opts?: FeedFindAllOptions): MaybeAsync<FeedEvent[]>;
+    add(event: Omit<FeedEvent, 'id' | 'createdAt'>): MaybeAsync<FeedEvent>;
+    findByType(type: string, tenantId?: string): MaybeAsync<FeedEvent[]>;
+    findBySeverity(severity: string, tenantId?: string): MaybeAsync<FeedEvent[]>;
+}
+export interface IFeedItemRepository {
+    add(type: FeedEventType, title: string, summary: string, severity: FeedSeverity, investigationId?: string, tenantId?: string): MaybeAsync<FeedItem>;
+    get(id: string): MaybeAsync<FeedItem | undefined>;
+    list(options?: FeedListOptions): MaybeAsync<FeedPage>;
+    markRead(id: string): MaybeAsync<FeedItem | undefined>;
+    markFollowedUp(id: string): MaybeAsync<FeedItem | undefined>;
+    addFeedback(id: string, feedback: FeedFeedback, comment?: string): MaybeAsync<FeedItem | undefined>;
+    addHypothesisFeedback(id: string, feedback: HypothesisFeedback): MaybeAsync<FeedItem | undefined>;
+    addActionFeedback(id: string, feedback: ActionFeedback): MaybeAsync<FeedItem | undefined>;
+    getUnreadCount(): MaybeAsync<number>;
+    getStats(): MaybeAsync<FeedbackStats>;
 }
 export interface IApprovalRepository extends IRepository<ApprovalRecord> {
-    submit(data: Omit<ApprovalRecord, 'id' | 'createdAt'>): Promise<ApprovalRecord>;
-    listPending(tenantId?: string): Promise<ApprovalRecord[]>;
-    approve(id: string, by: string, roles?: string[]): Promise<ApprovalRecord | undefined>;
-    reject(id: string, by: string, roles?: string[]): Promise<ApprovalRecord | undefined>;
-    override(id: string, by: string, roles?: string[]): Promise<ApprovalRecord | undefined>;
+    submit(data: Omit<ApprovalRecord, 'id' | 'createdAt'>): MaybeAsync<ApprovalRecord>;
+    listPending(tenantId?: string): MaybeAsync<ApprovalRecord[]>;
+    approve(id: string, by: string, roles?: string[]): MaybeAsync<ApprovalRecord | undefined>;
+    reject(id: string, by: string, roles?: string[]): MaybeAsync<ApprovalRecord | undefined>;
+    override(id: string, by: string, roles?: string[]): MaybeAsync<ApprovalRecord | undefined>;
+}
+export interface IApprovalRequestRepository {
+    findById(id: string): MaybeAsync<ApprovalRequest | undefined>;
+    submit(params: {
+        action: ApprovalAction;
+        context: ApprovalContext;
+        ttlMs?: number;
+    }): MaybeAsync<ApprovalRequest>;
+    listPending(): MaybeAsync<ApprovalRequest[]>;
+    approve(id: string, by: string, roles?: string[]): MaybeAsync<ApprovalRequest | undefined>;
+    reject(id: string, by: string, roles?: string[]): MaybeAsync<ApprovalRequest | undefined>;
+    override(id: string, by: string, roles?: string[]): MaybeAsync<ApprovalRequest | undefined>;
 }
 export interface IShareRepository extends IRepository<ShareLink> {
-    findByToken(token: string): Promise<ShareLink | undefined>;
-    findByInvestigation(investigationId: string): Promise<ShareLink[]>;
-    revoke(token: string): Promise<boolean>;
+    findByToken(token: string): MaybeAsync<ShareLink | undefined>;
+    findByInvestigation(investigationId: string): MaybeAsync<ShareLink[]>;
+    revoke(token: string): MaybeAsync<boolean>;
+}
+export interface IShareLinkRepository {
+    create(params: {
+        investigationId: string;
+        createdBy: string;
+        permission?: SharePermission;
+        expiresInMs?: number;
+    }): MaybeAsync<StoreShareLink>;
+    findByToken(token: string): MaybeAsync<StoreShareLink | undefined>;
+    findByInvestigation(investigationId: string): MaybeAsync<StoreShareLink[]>;
+    revoke(token: string): MaybeAsync<boolean>;
 }
 export interface CaseFindAllOptions extends FindAllOptions<Case> {
     tenantId?: string;
 }
 export interface ICaseRepository extends IRepository<Case> {
-    findAll(opts?: CaseFindAllOptions): Promise<Case[]>;
-    search(query: string, limit?: number, tenantId?: string): Promise<Case[]>;
-    findByService(serviceId: string, tenantId?: string): Promise<Case[]>;
+    findAll(opts?: CaseFindAllOptions): MaybeAsync<Case[]>;
+    search(query: string, limit?: number, tenantId?: string): MaybeAsync<Case[]>;
+    findByService(serviceId: string, tenantId?: string): MaybeAsync<Case[]>;
+}
+export interface IDashboardRepository {
+    create(params: {
+        title: string;
+        description: string;
+        prompt: string;
+        userId: string;
+        datasourceIds: string[];
+        useExistingMetrics?: boolean;
+        folder?: string;
+        workspaceId?: string;
+    }): MaybeAsync<Dashboard>;
+    findById(id: string): MaybeAsync<Dashboard | undefined>;
+    findAll(userId?: string): MaybeAsync<Dashboard[]>;
+    listByWorkspace(workspaceId: string): MaybeAsync<Dashboard[]>;
+    update(id: string, patch: Partial<Pick<Dashboard, 'type' | 'title' | 'description' | 'panels' | 'variables' | 'refreshIntervalSec' | 'folder'>>): MaybeAsync<Dashboard | undefined>;
+    updateStatus(id: string, status: DashboardStatus, error?: string): MaybeAsync<Dashboard | undefined>;
+    updatePanels(id: string, panels: PanelConfig[]): MaybeAsync<Dashboard | undefined>;
+    updateVariables(id: string, variables: DashboardVariable[]): MaybeAsync<Dashboard | undefined>;
+    delete(id: string): MaybeAsync<boolean>;
+}
+export interface IConversationRepository {
+    addMessage(dashboardId: string, msg: DashboardMessage): MaybeAsync<DashboardMessage>;
+    getMessages(dashboardId: string): MaybeAsync<DashboardMessage[]>;
+    clearMessages(dashboardId: string): MaybeAsync<void>;
+    deleteConversation(dashboardId: string): MaybeAsync<void>;
+}
+export interface IFolderRepository {
+    create(params: {
+        name: string;
+        parentId?: string;
+    }): MaybeAsync<Folder>;
+    findAll(): MaybeAsync<Folder[]>;
+    findById(id: string): MaybeAsync<Folder | undefined>;
+    findByParent(parentId?: string): MaybeAsync<Folder[]>;
+    rename(id: string, name: string): MaybeAsync<Folder | undefined>;
+    delete(id: string): MaybeAsync<boolean>;
+    getPath(id: string): MaybeAsync<string>;
+}
+export interface AlertRuleFindAllOptions {
+    state?: AlertRuleState;
+    severity?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+}
+export interface IAlertRuleRepository {
+    create(data: Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>): MaybeAsync<AlertRule>;
+    findById(id: string): MaybeAsync<AlertRule | undefined>;
+    findAll(filter?: AlertRuleFindAllOptions): MaybeAsync<{
+        list: AlertRule[];
+        total: number;
+    }>;
+    findByWorkspace(workspaceId: string): MaybeAsync<AlertRule[]>;
+    update(id: string, patch: Partial<Omit<AlertRule, 'id' | 'createdAt'>>): MaybeAsync<AlertRule | undefined>;
+    delete(id: string): MaybeAsync<boolean>;
+    transition(id: string, newState: AlertRuleState, value?: number): MaybeAsync<AlertRule | undefined>;
+    getHistory(ruleId: string, limit?: number): MaybeAsync<AlertHistoryEntry[]>;
+    getAllHistory(limit?: number): MaybeAsync<AlertHistoryEntry[]>;
+    createSilence(data: Omit<AlertSilence, 'id' | 'createdAt'>): MaybeAsync<AlertSilence>;
+    findSilences(): MaybeAsync<AlertSilence[]>;
+    findAllSilencesIncludingExpired(): MaybeAsync<AlertSilence[]>;
+    updateSilence(id: string, patch: Partial<Omit<AlertSilence, 'id' | 'createdAt'>>): MaybeAsync<AlertSilence | undefined>;
+    deleteSilence(id: string): MaybeAsync<boolean>;
+    createPolicy(data: Omit<NotificationPolicy, 'id' | 'createdAt' | 'updatedAt'>): MaybeAsync<NotificationPolicy>;
+    findAllPolicies(): MaybeAsync<NotificationPolicy[]>;
+    findPolicyById(id: string): MaybeAsync<NotificationPolicy | undefined>;
+    updatePolicy(id: string, patch: Partial<Omit<NotificationPolicy, 'id' | 'createdAt'>>): MaybeAsync<NotificationPolicy | undefined>;
+    deletePolicy(id: string): MaybeAsync<boolean>;
+}
+export interface INotificationRepository {
+    createContactPoint(data: {
+        name: string;
+        integrations: ContactPointIntegration[];
+    }): MaybeAsync<ContactPoint>;
+    findAllContactPoints(): MaybeAsync<ContactPoint[]>;
+    findContactPointById(id: string): MaybeAsync<ContactPoint | undefined>;
+    updateContactPoint(id: string, patch: Partial<Omit<ContactPoint, 'id' | 'createdAt'>>): MaybeAsync<ContactPoint | undefined>;
+    deleteContactPoint(id: string): MaybeAsync<boolean>;
+    getPolicyTree(): MaybeAsync<NotificationPolicyNode>;
+    updatePolicyTree(tree: NotificationPolicyNode): MaybeAsync<void>;
+    addChildPolicy(parentId: string, policy: Omit<NotificationPolicyNode, 'id' | 'children' | 'createdAt' | 'updatedAt'>): MaybeAsync<NotificationPolicyNode | undefined>;
+    updatePolicy(id: string, patch: Partial<Omit<NotificationPolicyNode, 'id' | 'children' | 'createdAt'>>): MaybeAsync<NotificationPolicyNode | undefined>;
+    deletePolicy(id: string): MaybeAsync<boolean>;
+    createMuteTiming(data: {
+        name: string;
+        timeIntervals: TimeInterval[];
+    }): MaybeAsync<MuteTiming>;
+    findAllMuteTimings(): MaybeAsync<MuteTiming[]>;
+    findMuteTimingById(id: string): MaybeAsync<MuteTiming | undefined>;
+    updateMuteTiming(id: string, patch: Partial<Omit<MuteTiming, 'id' | 'createdAt'>>): MaybeAsync<MuteTiming | undefined>;
+    deleteMuteTiming(id: string): MaybeAsync<boolean>;
+    isMuted(muteTimingIds: string[], now?: Date): MaybeAsync<boolean>;
+    routeAlert(labels: Record<string, string>): MaybeAsync<Array<{
+        contactPointId: string;
+        groupBy: string[];
+        isMuted: boolean;
+    }>>;
+}
+export interface IVersionRepository {
+    record(assetType: AssetType, assetId: string, snapshot: unknown, editedBy: string, editSource: EditSource, message?: string): MaybeAsync<AssetVersion>;
+    getHistory(assetType: AssetType, assetId: string): MaybeAsync<AssetVersion[]>;
+    getVersion(assetType: AssetType, assetId: string, version: number): MaybeAsync<AssetVersion | undefined>;
+    getLatest(assetType: AssetType, assetId: string): MaybeAsync<AssetVersion | undefined>;
+    rollback(assetType: AssetType, assetId: string, version: number): MaybeAsync<unknown | undefined>;
+}
+export interface IWorkspaceRepository {
+    create(params: {
+        name: string;
+        slug: string;
+        ownerId: string;
+        settings?: Workspace['settings'];
+    }): MaybeAsync<Workspace>;
+    findById(id: string): MaybeAsync<Workspace | undefined>;
+    findBySlug(slug: string): MaybeAsync<Workspace | undefined>;
+    findByMember(userId: string): MaybeAsync<Workspace[]>;
+    update(id: string, patch: Partial<Pick<Workspace, 'name' | 'slug' | 'settings'>>): MaybeAsync<Workspace | undefined>;
+    delete(id: string): MaybeAsync<boolean>;
+    addMember(workspaceId: string, member: {
+        userId: string;
+        role: WorkspaceMember['role'];
+    }): MaybeAsync<Workspace | undefined>;
+    removeMember(workspaceId: string, userId: string): MaybeAsync<Workspace | undefined>;
+}
+export interface IInvestigationReportRepository {
+    save(report: SavedInvestigationReport): MaybeAsync<void>;
+    findById(id: string): MaybeAsync<SavedInvestigationReport | undefined>;
+    findAll(): MaybeAsync<SavedInvestigationReport[]>;
+    findByDashboard(dashboardId: string): MaybeAsync<SavedInvestigationReport[]>;
+    delete(id: string): MaybeAsync<boolean>;
+}
+export interface IPostMortemRepository {
+    set(incidentId: string, report: PostMortemReport): MaybeAsync<void>;
+    get(incidentId: string): MaybeAsync<PostMortemReport | undefined>;
+    has(incidentId: string): MaybeAsync<boolean>;
 }
 //# sourceMappingURL=interfaces.d.ts.map

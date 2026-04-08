@@ -3,15 +3,15 @@ import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/rbac.js';
 import { investigationOpenApiSpec } from './openapi.js';
-import { defaultInvestigationStore, feedStore as defaultFeed, defaultShareStore } from '@agentic-obs/data-layer';
 import { initSse, sendSseEvent, sendSseKeepAlive, closeSse } from './sse.js';
 import { LiveOrchestratorRunner } from './live-orchestrator-runner.js';
 import { getWorkspaceId } from '../../middleware/workspace-context.js';
-export function createInvestigationRouter(deps = {}) {
-    const store = deps.store ?? defaultInvestigationStore;
-    const feed = deps.feed ?? defaultFeed;
-    const orchestrator = deps.orchestrator ?? new LiveOrchestratorRunner(store, feed);
-    const shareRepo = deps.shareRepo ?? defaultShareStore;
+export function createInvestigationRouter(deps) {
+    const store = deps.store;
+    const feed = deps.feed;
+    const reportStore = deps.reportStore;
+    const orchestrator = deps.orchestrator ?? new LiveOrchestratorRunner(store, feed, reportStore);
+    const shareRepo = deps.shareRepo;
     const router = Router();
     // All investigation routes require authentication
     router.use(authMiddleware);
@@ -103,6 +103,53 @@ export function createInvestigationRouter(deps = {}) {
                 return;
             }
             res.json(inv);
+        }
+        catch (err) {
+            next(err);
+        }
+    });
+    // -- DELETE /investigations/:id
+    router.delete('/:id', requirePermission('investigation:write'), async (req, res, next) => {
+        try {
+            const id = req.params['id'] ?? '';
+            const inv = await store.findById(id);
+            if (!inv) {
+                res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation not found' });
+                return;
+            }
+            const workspaceId = getWorkspaceId(req);
+            if ((inv.workspaceId ?? 'default') !== workspaceId) {
+                res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation not found' });
+                return;
+            }
+            await store.delete(id);
+            // Cascade: remove associated investigation reports
+            const reports = await reportStore.findByDashboard(id);
+            for (const r of reports) {
+                await reportStore.delete(r.id);
+            }
+            res.status(204).end();
+        }
+        catch (err) {
+            next(err);
+        }
+    });
+    // -- GET /investigations/:id/report
+    router.get('/:id/report', requirePermission('investigation:read'), async (req, res, next) => {
+        try {
+            const id = req.params['id'] ?? '';
+            const inv = await store.findById(id);
+            if (!inv) {
+                res.status(404).json({ code: 'NOT_FOUND', message: 'Investigation not found' });
+                return;
+            }
+            // Reports are stored with investigationId in the dashboardId field
+            const reports = await reportStore.findByDashboard(id);
+            if (!reports.length) {
+                res.status(404).json({ code: 'NOT_FOUND', message: 'Report not yet available' });
+                return;
+            }
+            res.json(reports[reports.length - 1]);
         }
         catch (err) {
             next(err);
@@ -275,8 +322,6 @@ export function createInvestigationRouter(deps = {}) {
     });
     return router;
 }
-// Default router instance using the module-level store
-export const InvestigationRouter = createInvestigationRouter();
 // OpenAPI spec endpoint (no auth required)
 export const openApiRouter = Router();
 openApiRouter.get('/', (_req, res) => {

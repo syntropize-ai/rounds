@@ -4,11 +4,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
-import { defaultInvestigationStore, feedStore } from '@agentic-obs/data-layer';
-export const metaRouter = Router();
-// All meta routes require authentication and meta:read permission
-metaRouter.use(authMiddleware);
-metaRouter.use(requirePermission('meta:read'));
 // -- Helpers
 function toYMD(iso) {
     return iso.slice(0, 10); // "YYYY-MM-DD"
@@ -22,11 +17,11 @@ function toWeekStart(isoDate) {
     return d.toISOString().slice(0, 10);
 }
 // -- Computation
-export function computeQualityMetrics() {
-    const investigations = defaultInvestigationStore.findAll();
+export async function computeQualityMetrics(investigationStore, feedStoreInstance) {
+    const investigations = await investigationStore.findAll();
     const total_investigations = investigations.length;
     // -- adoption rate
-    const feedStats = feedStore.getStats();
+    const feedStats = await feedStoreInstance.getStats();
     const positive = (feedStats.byVerdict['useful'] ?? 0)
         + (feedStats.byVerdict['root_cause_correct'] ?? 0);
     const adoption_rate = feedStats.withFeedback > 0 ? positive / feedStats.withFeedback : 0;
@@ -110,9 +105,16 @@ export function computeQualityMetrics() {
         computed_at: new Date().toISOString(),
     };
 }
-// -- Route
-metaRouter.get('/quality', (_req, res) => {
-    const metrics = computeQualityMetrics();
-    res.json(metrics);
-});
+export function createMetaRouter(deps) {
+    const invStore = deps.investigationStore;
+    const feed = deps.feedStore;
+    const router = Router();
+    router.use(authMiddleware);
+    router.use(requirePermission('meta:read'));
+    router.get('/quality', async (_req, res) => {
+        const metrics = await computeQualityMetrics(invStore, feed);
+        res.json(metrics);
+    });
+    return router;
+}
 //# sourceMappingURL=meta.js.map

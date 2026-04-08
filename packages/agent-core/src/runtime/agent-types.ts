@@ -9,7 +9,7 @@ export type AgentType =
 
 export type AgentToolName =
   | 'generate_dashboard' | 'add_panels' | 'investigate'
-  | 'create_alert_rule' | 'modify_panel' | 'remove_panels'
+  | 'create_alert_rule' | 'modify_alert_rule' | 'delete_alert_rule' | 'modify_panel' | 'remove_panels'
   | 'rearrange' | 'add_variable' | 'set_title'
   | 'prometheus.query' | 'prometheus.labels'
   | 'web.search' | 'llm.complete'

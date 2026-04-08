@@ -67,6 +67,20 @@ interface StepRow {
   subStepCount: number;
 }
 
+const USER_VISIBLE_TOOLS = new Set([
+  'generate_dashboard',
+  'add_panels',
+  'remove_panels',
+  'modify_panel',
+  'rearrange',
+  'add_variable',
+  'set_title',
+  'investigate',
+  'create_alert_rule',
+  'modify_alert_rule',
+  'delete_alert_rule',
+]);
+
 /**
  * Derive a phase key from a tool name.
  * Tools sharing a phase merge into one step row.
@@ -106,6 +120,9 @@ function buildSteps(events: ChatEvent[]): { steps: StepRow[]; preStatus: string 
 
     if (evt.kind === 'tool_call') {
       const tool = evt.tool ?? 'unknown';
+      if (!USER_VISIBLE_TOOLS.has(tool)) {
+        continue;
+      }
       const phase = phaseOf(tool);
       const displayText = evt.content ?? TOOL_LABELS[tool] ?? tool;
 
@@ -132,6 +149,9 @@ function buildSteps(events: ChatEvent[]): { steps: StepRow[]; preStatus: string 
 
     if (evt.kind === 'tool_result') {
       const tool = evt.tool ?? 'unknown';
+      if (!USER_VISIBLE_TOOLS.has(tool)) {
+        continue;
+      }
       const phase = phaseOf(tool);
       const match = phaseMap.get(phase);
       if (match) {
@@ -188,6 +208,9 @@ const TOOL_LABELS: Record<string, string> = {
   add_variable: 'Adding variable',
   set_title: 'Setting title',
   investigate: 'Investigating',
+  create_alert_rule: 'Creating alert',
+  modify_alert_rule: 'Updating alert',
+  delete_alert_rule: 'Deleting alert',
   investigate_plan: 'Planning investigation',
   investigate_query: 'Querying Prometheus',
   investigate_analyze: 'Analyzing evidence',

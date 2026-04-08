@@ -1,10 +1,8 @@
 // Shared investigation access - public token-based endpoint
 import { Router } from 'express';
-import { InMemoryShareRepository } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
-export const defaultShareRepo = new InMemoryShareRepository();
-export function createSharedRouter(deps = {}) {
-    const shareRepo = deps.shareRepo ?? defaultShareRepo;
+export function createSharedRouter(deps) {
+    const shareRepo = deps.shareRepo;
     const investigationStore = deps.investigationStore;
     const router = Router();
     // GET /shared/:token - access a shared investigation (no auth required)
@@ -66,5 +64,4 @@ export function createSharedRouter(deps = {}) {
     });
     return router;
 }
-export const sharedRouter = createSharedRouter();
 //# sourceMappingURL=shared.js.map

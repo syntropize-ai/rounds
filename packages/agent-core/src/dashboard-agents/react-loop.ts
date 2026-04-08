@@ -35,12 +35,47 @@ export interface ReActDeps {
 export class ReActLoop {
   constructor(private deps: ReActDeps) {}
 
+  private async composePostActionReply(
+    userMessage: string,
+    action: string,
+    draftReply: string | undefined,
+    observationText: string,
+  ): Promise<string> {
+    try {
+      const resp = await this.deps.gateway.complete([
+        {
+          role: 'system',
+          content: 'You are writing the final assistant reply for an observability dashboard chat after an action has already completed. Write one short, natural sentence in plain language. Do not mention internal tool names, JSON, or implementation details.',
+        },
+        {
+          role: 'user',
+          content: `User request: ${userMessage}\nAction: ${action}\nDraft reply: ${draftReply ?? '(none)'}\nResult: ${observationText}`,
+        },
+      ], {
+        model: this.deps.model,
+        maxTokens: 100,
+        temperature: 0.2,
+      })
+
+      const text = resp.content.trim()
+      if (text) return text
+    }
+    catch {
+      // Fall back to the execution summary below.
+    }
+
+    return draftReply?.trim() || observationText
+  }
+
   async runLoop(
     systemPrompt: string,
     userMessage: string,
     executeAction: (step: ReActStep) => Promise<string | null>,
   ): Promise<string> {
     const observations: ReActObservation[] = []
+    let lastAction: string | null = null
+    let lastDraftReply: string | undefined
+    let lastObservation: string | null = null
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const messages = this.buildMessages(systemPrompt, userMessage, observations)
@@ -63,12 +98,9 @@ export class ReActLoop {
 
       const { message: chatReply, action, args = {} } = step
       step.args = args // normalize undefined to empty object
+      lastAction = action
+      lastDraftReply = chatReply
       log.info({ step: i, action, message: chatReply?.slice(0, 80), args: JSON.stringify(args).slice(0, 200) }, 'ReAct step')
-
-      // Send conversational message to user before executing the action
-      if (chatReply) {
-        this.deps.sendEvent({ type: 'reply', content: chatReply })
-      }
 
       if (action === 'reply') {
         const text = chatReply ?? (typeof step.args.text === 'string' ? step.args.text : '')
@@ -80,7 +112,7 @@ export class ReActLoop {
 
       if (action === 'ask_user') {
         const question = chatReply ?? (typeof step.args.question === 'string' ? step.args.question : '')
-        if (!chatReply && question) {
+        if (question) {
           this.deps.sendEvent({ type: 'reply', content: question })
         }
         return question
@@ -93,7 +125,26 @@ export class ReActLoop {
       if (observationText === null)
         return ''
 
-      observations.push({ action, args: step.args ?? {}, result: observationText })
+      const observation = observationText
+      lastObservation = observation
+
+      if (observation.startsWith('CLARIFICATION_NEEDED:')) {
+        observations.push({ action, args: step.args ?? {}, result: observation })
+        continue
+      }
+
+      observations.push({ action, args: step.args ?? {}, result: observation })
+    }
+
+    if (lastAction && lastObservation) {
+      const finalReply = await this.composePostActionReply(
+        userMessage,
+        lastAction,
+        lastDraftReply,
+        lastObservation,
+      )
+      this.deps.sendEvent({ type: 'reply', content: finalReply })
+      return finalReply
     }
 
     // Max iterations reached - emit a fallback reply

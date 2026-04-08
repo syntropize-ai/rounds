@@ -96,7 +96,10 @@ export type DashboardAction =
   | { type: 'modify_panel'; panelId: string; patch: Partial<PanelConfig> }
   | { type: 'rearrange'; layout: Array<{ panelId: string; row: number; col: number; width: number; height: number }> }
   | { type: 'add_variable'; variable: DashboardVariable }
-  | { type: 'set_title'; title: string; description?: string };
+  | { type: 'set_title'; title: string; description?: string }
+  | { type: 'create_alert_rule'; ruleId: string; name: string; severity: string; query: string; operator: string; threshold: number; forDurationSec: number; evaluationIntervalSec: number }
+  | { type: 'modify_alert_rule'; ruleId: string; patch: { threshold?: number; operator?: string; severity?: string; forDurationSec?: number; evaluationIntervalSec?: number; query?: string; name?: string } }
+  | { type: 'delete_alert_rule'; ruleId: string; name?: string };
 
 export interface InvestigationReportSection {
   type: 'text' | 'evidence';

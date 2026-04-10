@@ -15,29 +15,17 @@ export interface AuthenticatedRequest extends Request {
   }
 }
 
-const isProd = process.env['NODE_ENV'] === 'production'
-
-if (isProd && !process.env['JWT_SECRET']) {
-  throw new Error(
-    '[auth] FATAL: JWT_SECRET environment variable is required in production. ' +
+const JWT_SECRET: string = (() => {
+  const secret = process.env['JWT_SECRET']
+  if (!secret) throw new Error(
+    '[auth] FATAL: JWT_SECRET environment variable is required. ' +
     'Set a cryptographically random secret of at least 32 characters.',
   )
-}
-
-if (isProd && !process.env['API_KEYS']) {
-  throw new Error(
-    '[auth] FATAL: API_KEYS environment variable is required in production. ' +
-    'Set a comma-separated list of valid API keys.',
-  )
-}
-
-const JWT_SECRET = process.env['JWT_SECRET'] ?? 'dev-secret-change-in-prod'
-if (!isProd && !process.env['JWT_SECRET']) {
-  log.warn('JWT_SECRET not set - using insecure dev default. Do NOT use in production.')
-}
+  return secret
+})()
 
 const VALID_API_KEYS = new Set(
-  (process.env['API_KEYS'] ?? 'test-api-key').split(',').map((k) => k.trim()).filter(Boolean),
+  (process.env['API_KEYS'] ?? '').split(',').map((k) => k.trim()).filter(Boolean),
 )
 
 function resolveRoleInfo(
@@ -112,6 +100,14 @@ export function authMiddleware(
       res.status(401).json(error)
       return
     }
+  }
+
+  // In development mode, allow unauthenticated requests with default permissions
+  if (process.env['NODE_ENV'] !== 'production') {
+    const { roles, permissions } = resolveRoleInfo(req)
+    req.auth = { sub: 'anonymous-dev', type: 'apikey', roles, permissions }
+    next()
+    return
   }
 
   const error: ApiError = { code: 'UNAUTHORIZED', message: 'Authentication required' }

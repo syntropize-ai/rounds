@@ -23,7 +23,7 @@ export function useSocket(namespace: string): UseSocketResult {
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
-    const apiKey = localStorage.getItem('api_key') ?? 'test-api-key';
+    const apiKey = localStorage.getItem('api_key') ?? '';
 
     const socket = io(`${BASE_URL}${namespace}`, {
       path: WS_PATH,

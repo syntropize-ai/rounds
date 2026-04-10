@@ -6,6 +6,7 @@
 // 3. Dedup: if retriever.search() returns a hit with score > 0.8 -> skip (return null).
 // 4. On pass, add the record via caseStore and return it.
 import { DEFAULT_LLM_MODEL } from '@agentic-obs/common';
+import { stripCodeFences } from '../utils/llm-parse.js';
 export class CaseWriter {
     llm;
     caseStore;
@@ -147,11 +148,6 @@ export class CaseWriter {
             tags: toStringArray(obj.tags),
         };
     }
-}
-function stripCodeFences(raw) {
-    const trimmed = raw.trim();
-    const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
-    return match ? match[1].trim() : trimmed;
 }
 function toStringArray(value) {
     if (!Array.isArray(value))

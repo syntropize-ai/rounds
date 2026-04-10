@@ -1,6 +1,9 @@
 // NotificationAdapter - ExecutionAdapter implementation for Slack / Teams webhooks
 
 import { randomUUID } from 'crypto';
+import { createLogger } from '@agentic-obs/common';
+
+const log = createLogger('notification-adapter');
 import type {
   ExecutionAdapter,
   AdapterAction,
@@ -150,7 +153,8 @@ export class NotificationAdapter implements ExecutionAdapter {
         rollbackable: false,
         executionId,
       };
-    } catch {
+    } catch (err) {
+      log.warn({ err }, 'notification delivery failed');
       return {
         success: false,
         output: null,

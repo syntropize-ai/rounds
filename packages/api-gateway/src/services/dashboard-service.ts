@@ -58,6 +58,7 @@ export async function withDashboardLock<T>(dashboardId: string, fn: () => Promis
 export interface ChatResult {
   replyContent: string;
   assistantMessageId: string;
+  navigate?: string;
 }
 
 export interface ChatTimeRange {
@@ -143,6 +144,7 @@ export class DashboardService {
     log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');
     const replyContent = await orchestrator.handleMessage(dashboardId, message);
     const assistantActions = orchestrator.consumeConversationActions();
+    const navigate = orchestrator.consumeNavigate();
     log.info({ dashboardId, reply: replyContent.slice(0, 100) }, 'orchestrator done');
 
     // Mark dashboard as ready (stops frontend polling)
@@ -158,6 +160,6 @@ export class DashboardService {
       timestamp: new Date().toISOString(),
     });
 
-    return { replyContent, assistantMessageId };
+    return { replyContent, assistantMessageId, navigate };
   }
 }

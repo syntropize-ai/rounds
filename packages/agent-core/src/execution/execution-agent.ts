@@ -14,6 +14,7 @@ import type {
   ResultEvaluation,
   InvestigationConclusion,
 } from './execution-agent-types.js';
+import { stripCodeFences } from '../utils/llm-parse.js';
 
 export interface ExecutionAgentConfig {
   llm: LLMGateway;
@@ -397,12 +398,6 @@ export class LLMExecutionAgent {
       this.auditTrail.shift();
     }
   }
-}
-
-function stripCodeFences(raw: string): string {
-  const trimmed = raw.trim();
-  const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  return match?.[1]?.trim() ?? trimmed;
 }
 
 function isRiskLevel(v: unknown): v is PlannedAction['riskLevel'] {

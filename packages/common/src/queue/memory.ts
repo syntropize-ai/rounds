@@ -1,7 +1,10 @@
 // InMemoryWorkerQueue - synchronous, in-process queue for testing
 
 import { randomUUID } from 'crypto';
+import { createLogger } from '../logging/index.js';
 import type { IWorkerQueue, JobOptions, JobRecord, JobHandler, QueueStats } from './interface.js';
+
+const log = createLogger('memory-queue');
 
 interface PendingJob<T = unknown> {
   record: JobRecord<T>;
@@ -30,7 +33,8 @@ export class InMemoryWorkerQueue implements IWorkerQueue {
     };
 
     if (!this.queues.has(queueName)) this.queues.set(queueName, []);
-    this.queues.get(queueName)!.push(job as PendingJob);
+    const queue = this.queues.get(queueName);
+    if (queue) queue.push(job as PendingJob);
 
     this.incrementStat(queueName, 'waiting', 1);
 
@@ -42,14 +46,15 @@ export class InMemoryWorkerQueue implements IWorkerQueue {
         const queue = this.queues.get(queueName);
         const idx = queue?.findIndex((j) => j.record.id === id) ?? -1;
         if (idx === -1) return;
-        queue!.splice(idx, 1);
+        queue?.splice(idx, 1);
         this.incrementStat(queueName, 'waiting', -1);
         this.incrementStat(queueName, 'active', 1);
         try {
           await handler(record as JobRecord);
           this.incrementStat(queueName, 'active', -1);
           this.incrementStat(queueName, 'completed', 1);
-        } catch {
+        } catch (err) {
+          log.warn({ err, queueName }, 'job handler failed');
           this.incrementStat(queueName, 'active', -1);
           this.incrementStat(queueName, 'failed', 1);
         }
@@ -83,11 +88,13 @@ export class InMemoryWorkerQueue implements IWorkerQueue {
   }
 
   private initStat(queueName: string): QueueStats {
-    if (!this.stats.has(queueName)) {
-      this.stats.set(queueName, { waiting: 0, active: 0, completed: 0, failed: 0 });
+    let stat = this.stats.get(queueName);
+    if (!stat) {
+      stat = { waiting: 0, active: 0, completed: 0, failed: 0 };
+      this.stats.set(queueName, stat);
     }
 
-    return this.stats.get(queueName)!;
+    return stat;
   }
 
   private incrementStat(queueName: string, key: keyof QueueStats, delta: number): void {

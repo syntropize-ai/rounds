@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import type { PanelConfig } from '../components/DashboardPanelCard.js';
 
@@ -110,6 +111,7 @@ export function useDashboardChat(
   initialVariables: DashboardVariable[] = [],
   timeRange = '1h',
 ): UseDashboardChatResult {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [investigationReport, setInvestigationReport] = useState<InvestigationReport | null>(null);
   const [events, setEvents] = useState<ChatEvent[]>([]);
@@ -298,6 +300,11 @@ export function useDashboardChat(
         }
 
         case 'done': {
+          const navigateTo = parsed.navigate as string | undefined;
+          if (navigateTo && navigateTo !== `/dashboards/${dashboardId}`) {
+            navigate(navigateTo);
+            break;
+          }
           appendEvent({ id, kind: 'done', content: 'Generation complete' });
           break;
         }
@@ -312,7 +319,7 @@ export function useDashboardChat(
           break;
       }
     },
-    [appendEvent],
+    [appendEvent, dashboardId, navigate],
   );
 
   const sendMessage = useCallback(

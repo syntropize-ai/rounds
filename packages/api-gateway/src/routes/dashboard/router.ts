@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { requirePermission } from '../../middleware/rbac.js'
-import type { IGatewayDashboardStore, IConversationStore, IInvestigationReportRepository, IAlertRuleRepository } from '@agentic-obs/data-layer'
+import type { IGatewayDashboardStore, IConversationStore, IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore } from '@agentic-obs/data-layer'
 import { handleChatMessage } from './chat-handler.js'
 import { VariableResolver } from './variable-resolver.js'
 import type { PanelConfig } from '@agentic-obs/common'
@@ -21,6 +21,8 @@ export interface DashboardRouterDeps {
   conversationStore: IConversationStore
   investigationReportStore: IInvestigationReportRepository
   alertRuleStore: IAlertRuleRepository
+  investigationStore?: IGatewayInvestigationStore
+  feedStore?: IGatewayFeedStore
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
@@ -28,6 +30,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   const conversationStore = deps.conversationStore
   const investigationReportStore = deps.investigationReportStore
   const alertRuleStore = deps.alertRuleStore
+  const investigationStore = deps.investigationStore
+  const feedStore = deps.feedStore
 
   const router = Router()
 
@@ -60,7 +64,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
 
       // Trigger generation in background via the orchestrator agent (same path as chat)
       if (!body.stream) {
-        const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore })
+        const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore, investigationStore, feedStore })
         void withDashboardLock(dashboard.id, async () => {
           try {
             await service.handleChatMessage(
@@ -265,7 +269,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
-      await handleChatMessage(req, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore)
+      await handleChatMessage(req, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, investigationStore, feedStore)
     }
     catch (err) {
       next(err)

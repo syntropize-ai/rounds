@@ -1,10 +1,11 @@
 // Normalize webhook payloads from various sources into the common Change model
 
+import { randomUUID } from 'node:crypto';
 import type { Change } from '@agentic-obs/common';
 import type { WebhookPayload, GenericWebhookPayload, GitHubDeploymentPayload } from './types.js';
 
 function generateId(): string {
-  return `chg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  return `chg_${randomUUID()}`;
 }
 
 function normalizeGeneric(payload: GenericWebhookPayload): Change {

@@ -9,19 +9,19 @@ export declare const hypothesisSchema: z.ZodObject<{
     counterEvidenceIds: z.ZodArray<z.ZodString, "many">;
     status: z.ZodEnum<["proposed", "investigating", "supported", "refuted", "inconclusive"]>;
 }, "strip", z.ZodTypeAny, {
-    description: string;
-    status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
     id: string;
+    status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
     investigationId: string;
+    description: string;
     confidence: number;
     confidenceBasis: string;
     evidenceIds: string[];
     counterEvidenceIds: string[];
 }, {
-    description: string;
-    status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
     id: string;
+    status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
     investigationId: string;
+    description: string;
     confidence: number;
     confidenceBasis: string;
     evidenceIds: string[];
@@ -42,34 +42,34 @@ export declare const investigationOutputSchema: z.ZodObject<{
                 queries: z.ZodNumber;
                 latencyMs: z.ZodNumber;
             }, "strip", z.ZodTypeAny, {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             }, {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             }>>;
         }, "strip", z.ZodTypeAny, {
-            type: string;
-            description: string;
-            status: "failed" | "pending" | "running" | "completed" | "skipped";
             id: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
+            description: string;
+            type: string;
             result?: unknown;
             cost?: {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             } | undefined;
         }, {
-            type: string;
-            description: string;
-            status: "failed" | "pending" | "running" | "completed" | "skipped";
             id: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
+            description: string;
+            type: string;
             result?: unknown;
             cost?: {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             } | undefined;
         }>, "many">;
@@ -77,49 +77,49 @@ export declare const investigationOutputSchema: z.ZodObject<{
             type: z.ZodEnum<["high_confidence_hypothesis", "max_cost", "max_queries", "time_budget"]>;
             params: z.ZodRecord<z.ZodString, z.ZodNumber>;
         }, "strip", z.ZodTypeAny, {
-            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
             params: Record<string, number>;
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }, {
-            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
             params: Record<string, number>;
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }>, "many">;
     }, "strip", z.ZodTypeAny, {
         entity: string;
         objective: string;
         steps: {
-            type: string;
-            description: string;
-            status: "failed" | "pending" | "running" | "completed" | "skipped";
             id: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
+            description: string;
+            type: string;
             result?: unknown;
             cost?: {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             } | undefined;
         }[];
         stopConditions: {
-            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
             params: Record<string, number>;
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     }, {
         entity: string;
         objective: string;
         steps: {
-            type: string;
-            description: string;
-            status: "failed" | "pending" | "running" | "completed" | "skipped";
             id: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
+            description: string;
+            type: string;
             result?: unknown;
             cost?: {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             } | undefined;
         }[];
         stopConditions: {
-            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
             params: Record<string, number>;
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     }>;
     hypotheses: z.ZodArray<z.ZodObject<{
@@ -132,19 +132,19 @@ export declare const investigationOutputSchema: z.ZodObject<{
         counterEvidenceIds: z.ZodArray<z.ZodString, "many">;
         status: z.ZodEnum<["proposed", "investigating", "supported", "refuted", "inconclusive"]>;
     }, "strip", z.ZodTypeAny, {
-        description: string;
-        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         id: string;
+        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         investigationId: string;
+        description: string;
         confidence: number;
         confidenceBasis: string;
         evidenceIds: string[];
         counterEvidenceIds: string[];
     }, {
-        description: string;
-        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         id: string;
+        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         investigationId: string;
+        description: string;
         confidence: number;
         confidenceBasis: string;
         evidenceIds: string[];
@@ -159,17 +159,17 @@ export declare const investigationOutputSchema: z.ZodObject<{
         isAnomaly: z.ZodBoolean;
         rawData: z.ZodOptional<z.ZodUnknown>;
     }, "strip", z.ZodTypeAny, {
-        summary: string;
         stepType: string;
         isAnomaly: boolean;
+        summary: string;
         value?: number | undefined;
         rawData?: unknown;
         baseline?: number | undefined;
         deviationRatio?: number | undefined;
     }, {
-        summary: string;
         stepType: string;
         isAnomaly: boolean;
+        summary: string;
         value?: number | undefined;
         rawData?: unknown;
         baseline?: number | undefined;
@@ -181,36 +181,36 @@ export declare const investigationOutputSchema: z.ZodObject<{
         entity: string;
         objective: string;
         steps: {
-            type: string;
-            description: string;
-            status: "failed" | "pending" | "running" | "completed" | "skipped";
             id: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
+            description: string;
+            type: string;
             result?: unknown;
             cost?: {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             } | undefined;
         }[];
         stopConditions: {
-            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
             params: Record<string, number>;
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     };
     hypotheses: {
-        description: string;
-        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         id: string;
+        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         investigationId: string;
+        description: string;
         confidence: number;
         confidenceBasis: string;
         evidenceIds: string[];
         counterEvidenceIds: string[];
     }[];
     findings: {
-        summary: string;
         stepType: string;
         isAnomaly: boolean;
+        summary: string;
         value?: number | undefined;
         rawData?: unknown;
         baseline?: number | undefined;
@@ -222,36 +222,36 @@ export declare const investigationOutputSchema: z.ZodObject<{
         entity: string;
         objective: string;
         steps: {
-            type: string;
-            description: string;
-            status: "failed" | "pending" | "running" | "completed" | "skipped";
             id: string;
+            status: "failed" | "pending" | "running" | "completed" | "skipped";
+            description: string;
+            type: string;
             result?: unknown;
             cost?: {
-                queries: number;
                 tokens: number;
+                queries: number;
                 latencyMs: number;
             } | undefined;
         }[];
         stopConditions: {
-            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
             params: Record<string, number>;
+            type: "high_confidence_hypothesis" | "max_cost" | "time_budget" | "max_queries";
         }[];
     };
     hypotheses: {
-        description: string;
-        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         id: string;
+        status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
         investigationId: string;
+        description: string;
         confidence: number;
         confidenceBasis: string;
         evidenceIds: string[];
         counterEvidenceIds: string[];
     }[];
     findings: {
-        summary: string;
         stepType: string;
         isAnomaly: boolean;
+        summary: string;
         value?: number | undefined;
         rawData?: unknown;
         baseline?: number | undefined;

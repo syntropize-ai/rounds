@@ -1,12 +1,13 @@
 // In-memory store for dashboards
 
+import { randomUUID } from 'node:crypto'
 import type { Dashboard, DashboardStatus, DashboardVariable, PanelConfig } from '@agentic-obs/common'
 import type { Persistable } from './persistence.js'
 import { markDirty } from './persistence.js'
 import { defaultVersionStore } from './version-store.js'
 
 function uid(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return randomUUID()
 }
 
 export class DashboardStore implements Persistable {

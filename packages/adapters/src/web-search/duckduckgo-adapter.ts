@@ -6,6 +6,10 @@
  * (agent-core depends on adapters).
  */
 
+import { createLogger } from '@agentic-obs/common';
+
+const log = createLogger('duckduckgo-adapter');
+
 export interface WebSearchResult {
   title?: string;
   snippet: string;
@@ -44,7 +48,8 @@ export class DuckDuckGoSearchAdapter {
 
       return results
     }
-    catch {
+    catch (err) {
+      log.warn({ err }, 'failed to fetch DuckDuckGo search results');
       return []
     }
   }

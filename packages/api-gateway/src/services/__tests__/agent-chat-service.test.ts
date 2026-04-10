@@ -5,6 +5,7 @@ vi.mock('../dashboard-service.js', () => ({
     handleChatMessage: vi.fn().mockResolvedValue({
       replyContent: 'Dashboard reply',
       assistantMessageId: 'msg-1',
+      navigate: '/investigations/inv-2',
     }),
   })),
 }));
@@ -99,7 +100,7 @@ describe('AgentChatService', () => {
     const result = await service.chat('Explain this panel', { kind: 'dashboard', id: 'dash-1' }, sendEvent as any);
 
     expect(DashboardService).toHaveBeenCalled();
-    expect(result.navigate).toBe('/dashboards/dash-1');
+    expect(result.navigate).toBe('/investigations/inv-2');
     expect(result.replyContent).toBe('Dashboard reply');
   });
 

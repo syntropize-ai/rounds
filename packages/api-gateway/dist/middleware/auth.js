@@ -2,20 +2,14 @@ import jwt from 'jsonwebtoken';
 import { createLogger } from '@agentic-obs/common';
 import { roleStore } from './rbac.js';
 const log = createLogger('auth');
-const isProd = process.env['NODE_ENV'] === 'production';
-if (isProd && !process.env['JWT_SECRET']) {
-    throw new Error('[auth] FATAL: JWT_SECRET environment variable is required in production. ' +
-        'Set a cryptographically random secret of at least 32 characters.');
-}
-if (isProd && !process.env['API_KEYS']) {
-    throw new Error('[auth] FATAL: API_KEYS environment variable is required in production. ' +
-        'Set a comma-separated list of valid API keys.');
-}
-const JWT_SECRET = process.env['JWT_SECRET'] ?? 'dev-secret-change-in-prod';
-if (!isProd && !process.env['JWT_SECRET']) {
-    log.warn('JWT_SECRET not set - using insecure dev default. Do NOT use in production.');
-}
-const VALID_API_KEYS = new Set((process.env['API_KEYS'] ?? 'test-api-key').split(',').map((k) => k.trim()).filter(Boolean));
+const JWT_SECRET = (() => {
+    const secret = process.env['JWT_SECRET'];
+    if (!secret)
+        throw new Error('[auth] FATAL: JWT_SECRET environment variable is required. ' +
+            'Set a cryptographically random secret of at least 32 characters.');
+    return secret;
+})();
+const VALID_API_KEYS = new Set((process.env['API_KEYS'] ?? '').split(',').map((k) => k.trim()).filter(Boolean));
 function resolveRoleInfo(req, jwtPayload) {
     let roles;
     if (jwtPayload) {
@@ -76,6 +70,13 @@ export function authMiddleware(req, res, next) {
             res.status(401).json(error);
             return;
         }
+    }
+    // In development mode, allow unauthenticated requests with default permissions
+    if (process.env['NODE_ENV'] !== 'production') {
+        const { roles, permissions } = resolveRoleInfo(req);
+        req.auth = { sub: 'anonymous-dev', type: 'apikey', roles, permissions };
+        next();
+        return;
     }
     const error = { code: 'UNAUTHORIZED', message: 'Authentication required' };
     res.status(401).json(error);

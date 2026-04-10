@@ -8,6 +8,9 @@
 
 import { Redis } from 'ioredis';
 import { randomUUID } from 'crypto';
+import { createLogger } from '../logging/index.js';
+
+const log = createLogger('redis-event-bus');
 import type { IEventBus, EventHandler } from './interface.js';
 import type { EventEnvelope } from './types.js';
 
@@ -92,8 +95,8 @@ export class RedisEventBus implements IEventBus {
       // Ensure consumer group exists (idempotent)
       try {
         await this.sub.xgroup('CREATE', topic, this.group, '$', 'MKSTREAM');
-      } catch {
-        // Group already exists - ignore BUSYGROUP error
+      } catch (err) {
+        log.debug({ err }, 'consumer group may already exist (BUSYGROUP)');
       }
 
       while (active && !this.closed) {
@@ -121,12 +124,13 @@ export class RedisEventBus implements IEventBus {
                   }
                 }
                 await this.sub.xack(topic, this.group, msgId);
-              } catch {
-                // Skip malformed messages
+              } catch (err) {
+                log.warn({ err }, 'failed to parse or handle stream message');
               }
             }
           }
-        } catch {
+        } catch (err) {
+          log.warn({ err }, 'redis stream read error, retrying');
           if (active && !this.closed) {
             await new Promise((r) => setTimeout(r, 500));
           }

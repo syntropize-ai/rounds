@@ -12,7 +12,6 @@ export declare class AuthManager {
     private oidcProvider?;
     private githubProvider?;
     private googleProvider?;
-    private samlProvider?;
     configure(config: AuthProviderConfig): void;
     getEnabledProviders(): Array<{
         id: string;

@@ -13,6 +13,21 @@ const typeConfig = {
   thinking: { icon: '◦', label: 'Thinking', color: 'text-[var(--color-on-surface-variant)]' },
 };
 
+function renderContent(text: string): React.ReactNode {
+  const parts = text.split(/(\[[^\]]+\]\([^)]+\))/g);
+  return parts.map((part, i) => {
+    const match = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (match) {
+      return (
+        <a key={i} href={match[2]} className="text-[var(--color-primary)] hover:underline">
+          {match[1]}
+        </a>
+      );
+    }
+    return part;
+  });
+}
+
 export function SSEEventCard({ type, tool, content, success }: SSEEventCardProps) {
   const config = typeConfig[type];
 
@@ -33,7 +48,7 @@ export function SSEEventCard({ type, tool, content, success }: SSEEventCardProps
             </span>
           )}
         </div>
-        <p className="text-[var(--color-on-surface-variant)] truncate">{content}</p>
+        <p className="text-[var(--color-on-surface-variant)]">{renderContent(content)}</p>
       </div>
     </div>
   );

@@ -17,18 +17,8 @@ export class CaseStore implements ICaseStore {
     return this.records.get(id);
   }
 
-  /** @deprecated Use get() - kept for back-compat with partial stubs */
-  findById(id: string): CaseRecord | undefined {
-    return this.get(id);
-  }
-
   list(): CaseRecord[] {
     return [...this.records.values()];
-  }
-
-  /** @deprecated Use list() - kept for back-compat with partial stubs */
-  getAll(): CaseRecord[] {
-    return this.list();
   }
 
   update(

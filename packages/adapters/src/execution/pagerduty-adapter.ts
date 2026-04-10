@@ -1,6 +1,9 @@
 // PagerDutyAdapter - ExecutionAdapter for PagerDuty incident management
 
 import { randomUUID } from 'crypto';
+import { createLogger } from '@agentic-obs/common';
+
+const log = createLogger('pagerduty-adapter');
 import type {
   ExecutionAdapter,
   AdapterAction,
@@ -245,7 +248,8 @@ export class PagerDutyAdapter implements ExecutionAdapter {
       }
 
       return { success: false, output: null, rollbackable: false, executionId, error: `Unknown operation: ${op}` };
-    } catch {
+    } catch (err) {
+      log.warn({ err }, 'PagerDuty operation failed');
       return { success: false, output: null, rollbackable: false, executionId, error: 'PagerDuty operation failed due to an internal error' };
     }
   }

@@ -11,6 +11,7 @@ import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { CaseRecord, CaseRetriever, ICaseStore } from './types.js';
 import type { InvestigationOutput } from '../investigation/types.js';
 import type { StructuredConclusion } from '../explanation/types.js';
+import { stripCodeFences } from '../utils/llm-parse.js';
 
 export interface InvestigationFeedback {
   adopted: boolean;
@@ -222,12 +223,6 @@ export class CaseWriter {
       tags: toStringArray(obj.tags),
     };
   }
-}
-
-function stripCodeFences(raw: string): string {
-  const trimmed = raw.trim();
-  const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
-  return match ? match[1]!.trim() : trimmed;
 }
 
 function toStringArray(value: unknown): string[] {

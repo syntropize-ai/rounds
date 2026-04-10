@@ -217,11 +217,6 @@ export default function Login() {
             </form>
           )}
 
-          {process.env['NODE_ENV'] !== 'production' && (
-            <p className="mt-6 text-center text-xs text-[var(--color-on-surface-variant)]">
-              Dev: `admin@example.com` / `admin123`
-            </p>
-          )}
         </div>
       </div>
     </div>

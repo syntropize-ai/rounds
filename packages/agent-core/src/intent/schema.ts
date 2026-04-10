@@ -1,10 +1,5 @@
 import type { StructuredIntent } from '@agentic-obs/common';
-
-function stripCodeFences(raw: string): string {
-  const trimmed = raw.trim();
-  const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  return match?.[1]?.trim() ?? trimmed;
-}
+import { stripCodeFences } from '../utils/llm-parse.js';
 
 const TASK_TYPES = new Set([
   'explain_latency',

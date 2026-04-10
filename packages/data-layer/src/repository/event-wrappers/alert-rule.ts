@@ -1,4 +1,7 @@
+import { createLogger } from '@agentic-obs/common';
 import type { MaybeAsync, IAlertRuleRepository, AlertRuleFindAllOptions } from '../interfaces.js';
+
+const log = createLogger('alert-rule-events');
 import type {
   AlertRule,
   AlertRuleState,
@@ -121,7 +124,9 @@ export class EventEmittingAlertRuleRepository implements IAlertRuleRepository {
     for (const cb of this.listeners) {
       try {
         cb(event, rule);
-      } catch {}
+      } catch (err) {
+        log.warn({ err }, 'alert rule change listener threw');
+      }
     }
   }
 }

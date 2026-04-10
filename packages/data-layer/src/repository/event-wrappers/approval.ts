@@ -1,4 +1,7 @@
+import { createLogger } from '@agentic-obs/common';
 import type { MaybeAsync, IApprovalRequestRepository } from '../interfaces.js';
+
+const log = createLogger('approval-events');
 import type { ApprovalRequest, ApprovalAction, ApprovalContext } from '../../stores/approval-store.js';
 import type { IGatewayApprovalStore } from '../../stores/interfaces.js';
 
@@ -48,7 +51,9 @@ export class EventEmittingApprovalRepository implements IGatewayApprovalStore {
     for (const cb of this.callbacks) {
       try {
         cb(request);
-      } catch {}
+      } catch (err) {
+        log.warn({ err }, 'approval resolved callback threw');
+      }
     }
   }
 }

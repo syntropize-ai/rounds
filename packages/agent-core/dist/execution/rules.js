@@ -1,4 +1,5 @@
 // LLM-based action classification (replaces hardcoded keyword rules)
+import { stripCodeFences } from '../utils/llm-parse.js';
 let _seq = 0;
 function nextId() {
     return `act-${(++_seq).toString(36)}`;
@@ -73,11 +74,6 @@ function buildClassificationPrompt(hypotheses, entity) {
 // ---------------------------------------------------------------------------
 // Response parser
 // ---------------------------------------------------------------------------
-function stripCodeFences(raw) {
-    const trimmed = raw.trim();
-    const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-    return match?.[1]?.trim() ?? trimmed;
-}
 function parseClassificationResponse(raw, hypotheses, entity) {
     let parsed;
     try {

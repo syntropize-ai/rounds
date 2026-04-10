@@ -89,6 +89,7 @@ export class OrchestratorAgent {
   private readonly reactLoop: ReActLoop
   private readonly verifierAgent: VerifierAgent
   private pendingConversationActions: DashboardAction[] = []
+  private pendingNavigateTo?: string
 
   constructor(private deps: OrchestratorDeps) {
     this.actionExecutor = new ActionExecutor(deps.store, deps.sendEvent)
@@ -163,6 +164,12 @@ export class OrchestratorAgent {
     const actions = [...this.pendingConversationActions]
     this.pendingConversationActions = []
     return actions
+  }
+
+  consumeNavigate(): string | undefined {
+    const navigateTo = this.pendingNavigateTo
+    this.pendingNavigateTo = undefined
+    return navigateTo
   }
 
   private async executePanelEdit(
@@ -402,6 +409,7 @@ export class OrchestratorAgent {
   async handleMessage(dashboardId: string, message: string): Promise<string> {
     this.emitAgentEvent(this.makeAgentEvent('agent.started', { dashboardId, message }));
     this.pendingConversationActions = []
+    this.pendingNavigateTo = undefined
 
     const dashboard = await this.deps.store.findById(dashboardId)
     if (!dashboard) {
@@ -870,16 +878,17 @@ export class OrchestratorAgent {
               evidence,
               conclusion,
             })
-            await this.deps.investigationReportStore.save({
-              id: randomUUID(),
-              dashboardId: investigation.id,
-              goal,
-              summary: result.report.summary,
-              sections: result.report.sections,
-              createdAt: new Date().toISOString(),
-            })
-            await this.deps.investigationStore.updateStatus(investigation.id, 'completed')
-          }
+              await this.deps.investigationReportStore.save({
+                id: randomUUID(),
+                dashboardId: investigation.id,
+                goal,
+                summary: result.report.summary,
+                sections: result.report.sections,
+                createdAt: new Date().toISOString(),
+              })
+              await this.deps.investigationStore.updateStatus(investigation.id, 'completed')
+              this.pendingNavigateTo = `/investigations/${investigation.id}`
+            }
 
           const observationText = result.summary
           this.deps.sendEvent({

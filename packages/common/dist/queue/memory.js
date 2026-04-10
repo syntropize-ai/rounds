@@ -1,5 +1,7 @@
 // InMemoryWorkerQueue - synchronous, in-process queue for testing
 import { randomUUID } from 'crypto';
+import { createLogger } from '../logging/index.js';
+const log = createLogger('memory-queue');
 export class InMemoryWorkerQueue {
     queues = new Map();
     handlers = new Map();
@@ -20,7 +22,9 @@ export class InMemoryWorkerQueue {
         };
         if (!this.queues.has(queueName))
             this.queues.set(queueName, []);
-        this.queues.get(queueName).push(job);
+        const queue = this.queues.get(queueName);
+        if (queue)
+            queue.push(job);
         this.incrementStat(queueName, 'waiting', 1);
         // Dispatch asynchronously after optional delay
         const handler = this.handlers.get(queueName);
@@ -32,7 +36,7 @@ export class InMemoryWorkerQueue {
                 const idx = queue?.findIndex((j) => j.record.id === id) ?? -1;
                 if (idx === -1)
                     return;
-                queue.splice(idx, 1);
+                queue?.splice(idx, 1);
                 this.incrementStat(queueName, 'waiting', -1);
                 this.incrementStat(queueName, 'active', 1);
                 try {
@@ -40,7 +44,8 @@ export class InMemoryWorkerQueue {
                     this.incrementStat(queueName, 'active', -1);
                     this.incrementStat(queueName, 'completed', 1);
                 }
-                catch {
+                catch (err) {
+                    log.warn({ err, queueName }, 'job handler failed');
                     this.incrementStat(queueName, 'active', -1);
                     this.incrementStat(queueName, 'failed', 1);
                 }
@@ -69,10 +74,12 @@ export class InMemoryWorkerQueue {
         this.queues.clear();
     }
     initStat(queueName) {
-        if (!this.stats.has(queueName)) {
-            this.stats.set(queueName, { waiting: 0, active: 0, completed: 0, failed: 0 });
+        let stat = this.stats.get(queueName);
+        if (!stat) {
+            stat = { waiting: 0, active: 0, completed: 0, failed: 0 };
+            this.stats.set(queueName, stat);
         }
-        return this.stats.get(queueName);
+        return stat;
     }
     incrementStat(queueName, key, delta) {
         const s = this.initStat(queueName);

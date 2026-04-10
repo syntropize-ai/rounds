@@ -6,10 +6,8 @@ import type {
   StructuredResult,
   Capabilities,
   AdapterHealth,
-  StreamSubscription,
-  EventStream,
 } from '../types.js';
-import type { PrometheusAdapterConfig, TimeSeries, TimeSeriesPoint } from './types.js';
+import type { PrometheusAdapterConfig, TimeSeries } from './types.js';
 import type { IPrometheusClient } from './client.js';
 import { PrometheusHttpClient } from './client.js';
 import { translateToPromQL, getSupportedMetrics } from './translator.js';
@@ -134,9 +132,6 @@ export class PrometheusAdapter implements DataAdapter {
       };
     }
   }
-
-  // PrometheusAdapter does not support streaming
-  stream?: <T = unknown>(subscription: StreamSubscription) => EventStream<T>;
 
   // -- Helpers --
 

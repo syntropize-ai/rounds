@@ -10,7 +10,7 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  /** Build auth headers from localStorage JWT or fallback to dev API key */
+  /** Build auth headers from localStorage JWT or API key */
   private authHeaders(): Record<string, string> {
     try {
       const raw = localStorage.getItem('agentic_obs_auth');
@@ -21,8 +21,10 @@ class ApiClient {
     } catch {
       // ignore
     }
-    // Dev fallback: use the default API key
-    return { 'x-api-key': 'test-api-key' };
+    // Fall back to API key from localStorage (set during setup or login)
+    const apiKey = localStorage.getItem('api_key');
+    if (apiKey) return { 'x-api-key': apiKey };
+    return {};
   }
 
   private async request<T>(

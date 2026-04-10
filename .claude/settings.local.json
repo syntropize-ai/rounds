@@ -77,7 +77,22 @@
       "Bash(node:*)",
       "Bash(npx tsx:*)",
       "Bash(python -c \"import json,sys; tasks=json.load\\(sys.stdin\\); [print\\(json.dumps\\(t,indent=2\\)\\) for t in tasks if t.get\\('id'\\)=='6' or t.get\\('id'\\)==6]\")",
-      "WebSearch"
+      "WebSearch",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('status:', d['status']\\); print\\('evidence:', len\\(d.get\\('evidence',[]\\)\\)\\); print\\('hypotheses:', len\\(d.get\\('hypotheses',[]\\)\\)\\)\")",
+      "Bash(find:*)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(npx eslint:*)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(rm -f .uname-data/prism.db .uname-data/stores.json .uname-data/stores.json.migrated)",
+      "Bash(rm -rf prism-website)",
+      "Bash(npm create:*)",
+      "WebFetch(domain:opencode.ai)",
+      "Bash(rm -f App.css App.tsx)",
+      "Bash(mkdir -p components/layout components/sections components/ui lib pages assets/images)",
+      "Bash(JWT_SECRET=\"openobs-dev-secret-change-me-in-production-32chars\" API_KEYS=\"dev-local-key\" npm run start)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); dashboards=d.get\\('dashboards',[]\\); [print\\(f'{x[\\\\\"id\\\\\"]}: {x[\\\\\"title\\\\\"]} \\({len\\(x.get\\(\\\\\"panels\\\\\",[]\\)\\)} panels\\)'\\) for x in \\(dashboards if isinstance\\(dashboards,list\\) else []\\)]\")",
+      "Bash(npx better-sqlite3:*)",
+      "Bash(sqlite3 .uname-data/prism.db \"SELECT id, title, status, length\\(panels\\) as panels_len FROM dashboards WHERE id LIKE '%mnsbu4w2%' OR id LIKE '%vkigyh%'\")"
     ]
   }
 }

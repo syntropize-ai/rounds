@@ -1,6 +1,9 @@
 // NotificationClient - interface + stub + formatters for Slack and Teams webhooks
 
 import { randomUUID } from 'crypto';
+import { createLogger } from '@agentic-obs/common';
+
+const log = createLogger('notification-client');
 
 // -- Slack types --
 
@@ -105,7 +108,8 @@ export function validateWebhookUrl(url: string): { valid: boolean; reason?: stri
   let parsed: URL;
   try {
     parsed = new URL(url);
-  } catch {
+  } catch (err) {
+    log.debug({ err }, 'failed to parse webhook URL');
     return { valid: false, reason: 'Invalid URL format' };
   }
 

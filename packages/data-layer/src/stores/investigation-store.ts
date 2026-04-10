@@ -1,12 +1,13 @@
 // In-memory store for investigations, follow-ups, and feedback
 
+import { randomUUID } from 'node:crypto';
 import type { Investigation, InvestigationStatus, Hypothesis, Evidence } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
 import type { Persistable } from './persistence.js';
 import { markDirty } from './persistence.js';
 
 function uid(): string {
-  return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return randomUUID();
 }
 
 function emptyPlan(entity = '', objective = ''): Investigation['plan'] {

@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 function randomId() {
-    return Math.random().toString(36).slice(2, 10);
+    return randomUUID();
 }
 export class TopologyStore {
     graph = {

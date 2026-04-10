@@ -18,7 +18,8 @@ async function loadConfig() {
         const raw = await fs.readFile(CONFIG_FILE, 'utf-8');
         return JSON.parse(raw);
     }
-    catch {
+    catch (err) {
+        log.debug({ err }, 'failed to load config file, using in-memory config');
         return inMemoryConfig;
     }
 }
@@ -28,8 +29,8 @@ async function saveConfig(config) {
         await fs.mkdir(CONFIG_DIR, { recursive: true });
         await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
     }
-    catch {
-        // File persistence is best-effort; in-memory is always authoritative
+    catch (err) {
+        log.debug({ err }, 'failed to persist config file (best-effort)');
     }
 }
 // -- LLM Connectivity Test
@@ -139,33 +140,7 @@ async function testLlmConnection(cfg) {
     }
 }
 // -- Datasource Connectivity Test
-async function testDatasourceConnection(ds) {
-    try {
-        const headers = {};
-        if (ds.apiKey)
-            headers['Authorization'] = `Bearer ${ds.apiKey}`;
-        if (ds.username && ds.password)
-            headers['Authorization'] = `Basic ${Buffer.from(`${ds.username}:${ds.password}`).toString('base64')}`;
-        let testUrl = ds.url;
-        if (ds.type === 'loki')
-            testUrl = `${ds.url}/ready`;
-        else if (ds.type === 'elasticsearch')
-            testUrl = `${ds.url}/_cluster/health`;
-        else if (ds.type === 'prometheus')
-            testUrl = `${ds.url}/-/healthy`;
-        else if (ds.type === 'tempo')
-            testUrl = `${ds.url}/ready`;
-        else if (ds.type === 'jaeger')
-            testUrl = `${ds.url}/api/services`;
-        const res = await fetch(testUrl, { headers, signal: AbortSignal.timeout(5_000) });
-        if (res.ok)
-            return { ok: true, message: 'Connected successfully' };
-        return { ok: false, message: `HTTP ${res.status}` };
-    }
-    catch (err) {
-        return { ok: false, message: err instanceof Error ? err.message : 'Connection failed' };
-    }
-}
+import { testDatasourceConnection } from '../utils/datasource.js';
 // -- Model Listing
 async function fetchModels(cfg) {
     try {

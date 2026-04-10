@@ -1,6 +1,10 @@
 // Types are structurally compatible with IMetricsAdapter from @agentic-obs/agent-core.
 // We avoid importing from agent-core directly to prevent a circular package dependency.
 
+import { createLogger } from '@agentic-obs/common';
+
+const log = createLogger('metrics-adapter');
+
 interface MetricSample {
   labels: Record<string, string>;
   value: number;
@@ -166,7 +170,8 @@ export class PrometheusMetricsAdapter {
         }
       }
       return result;
-    } catch {
+    } catch (err) {
+      log.warn({ err }, 'failed to fetch metric metadata');
       return {};
     }
   }
@@ -195,7 +200,8 @@ export class PrometheusMetricsAdapter {
     try {
       const res = await this.fetch(`${this.base}/-/healthy`, 5_000);
       return res.ok;
-    } catch {
+    } catch (err) {
+      log.debug({ err }, 'failed to check Prometheus health');
       return false;
     }
   }

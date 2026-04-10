@@ -1,5 +1,9 @@
 // Prometheus HTTP API client (real + mock)
 
+import { createLogger } from '@agentic-obs/common';
+
+const log = createLogger('prometheus-client');
+
 import type {
   PrometheusAdapterConfig,
   PrometheusQueryResponse,
@@ -60,7 +64,8 @@ export class PrometheusHttpClient implements IPrometheusClient {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
       return res.ok;
-    } catch {
+    } catch (err) {
+      log.debug({ err }, 'failed to check Prometheus health');
       return false;
     }
   }

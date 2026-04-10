@@ -512,10 +512,8 @@ export default function DashboardWorkspace() {
   } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange);
   const [showReport, setShowReport] = useState(false);
 
-  // Auto-show investigation report when it arrives
-  useEffect(() => {
-    if (investigationReport) setShowReport(true);
-  }, [investigationReport]);
+  // Investigation reports are now handled in the Investigations page.
+  // No auto-show on dashboard — the chat will display a link instead.
 
   // Auto-send initial prompt from Home page
   useEffect(() => {

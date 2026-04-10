@@ -1,19 +1,24 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { createLogger } from '@agentic-obs/common';
 import { OidcProvider } from './oidc-provider.js';
+const log = createLogger('auth-manager');
 import { OAuthProvider } from './oauth-provider.js';
-import { SamlProvider } from './saml-provider.js';
 import { localLogin, createLocalUser } from './local-provider.js';
 import { sessionStore } from './session-store.js';
 import { userStore } from './user-store.js';
-const JWT_SECRET = process.env['JWT_SECRET'] ?? 'dev-secret-change-in-prod';
+const JWT_SECRET = (() => {
+    const secret = process.env['JWT_SECRET'];
+    if (!secret)
+        throw new Error('[auth-manager] FATAL: JWT_SECRET environment variable is required. Set a cryptographically random secret of at least 32 characters.');
+    return secret;
+})();
 const ACCESS_TOKEN_TTL_SEC = 15 * 60; // 15 minutes
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export class AuthManager {
     oidcProvider;
     githubProvider;
     googleProvider;
-    samlProvider;
     configure(config) {
         if (config.oidc)
             this.oidcProvider = new OidcProvider(config.oidc);
@@ -21,8 +26,6 @@ export class AuthManager {
             this.githubProvider = new OAuthProvider(config.github);
         if (config.google)
             this.googleProvider = new OAuthProvider(config.google);
-        if (config.saml)
-            this.samlProvider = new SamlProvider(config.saml);
     }
     getEnabledProviders() {
         const providers = [
@@ -30,8 +33,6 @@ export class AuthManager {
         ];
         if (this.oidcProvider)
             providers.push({ id: 'oidc', name: 'SSO (OIDC)', type: 'oidc' });
-        if (this.samlProvider)
-            providers.push({ id: 'saml', name: 'SSO (SAML)', type: 'saml' });
         if (this.githubProvider)
             providers.push({ id: 'github', name: 'GitHub', type: 'oauth' });
         if (this.googleProvider)
@@ -108,7 +109,8 @@ export class AuthManager {
                 roles: payload['roles'] ?? [String(payload['role'] ?? 'viewer')],
             };
         }
-        catch {
+        catch (err) {
+            log.debug({ err }, 'failed to verify access token');
             return null;
         }
     }
@@ -145,10 +147,14 @@ export class AuthManager {
     }
 }
 export const authManager = new AuthManager();
-// Dev seed: create a default admin account if no users exist
-if (process.env['NODE_ENV'] !== 'production' && userStore.count() === 0) {
-    createLocalUser('admin@example.com', 'admin123', 'Admin User', 'admin').catch(() => {
-        // Silently ignore if it already exists from a previous import
-    });
+// Optional admin seed: set SEED_ADMIN=true plus SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD
+if (process.env['SEED_ADMIN'] === 'true' && userStore.count() === 0) {
+    const seedEmail = process.env['SEED_ADMIN_EMAIL'];
+    const seedPassword = process.env['SEED_ADMIN_PASSWORD'];
+    if (seedEmail && seedPassword) {
+        createLocalUser(seedEmail, seedPassword, 'Admin User', 'admin').catch((err) => {
+            log.debug({ err }, 'failed to seed admin user (may already exist)');
+        });
+    }
 }
 //# sourceMappingURL=auth-manager.js.map

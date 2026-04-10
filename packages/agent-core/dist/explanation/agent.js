@@ -4,12 +4,7 @@ const log = createLogger('explanation-agent');
 import { ExplanationParseError } from './types.js';
 import { getSystemPrompt, buildExplanationUserMessage } from './prompts.js';
 import { structuredConclusionSchema } from './schema.js';
-// -- Helpers --------------------------------------------------------------
-function stripCodeFences(raw) {
-    const trimmed = raw.trim();
-    const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-    return match?.[1]?.trim() ?? trimmed;
-}
+import { stripCodeFences } from '../utils/llm-parse.js';
 const DEFAULT_OPTIONS = {
     temperature: 0.1,
     maxTokens: 2048,

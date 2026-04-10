@@ -1,4 +1,8 @@
 import type { LogLine, LogAdapterConfig, LokiQueryResponse, LogLevel } from './types.js';
+import { createLogger } from '@agentic-obs/common';
+import { escapeLabelValue } from '../utils/escape.js';
+
+const log = createLogger('loki-client');
 
 // -- Client interface --
 
@@ -42,14 +46,6 @@ const KNOWN_LOG_LEVELS = new Set([
 /** Return true only for well-known log-level strings (whitelist). */
 function isKnownLogLevel(value: string): boolean {
   return KNOWN_LOG_LEVELS.has(value.toLowerCase());
-}
-
-/**
- * Escape double-quote characters inside a Loki label value.
- * Prevents injection through label matchers like `service="..."`.
- */
-function escapeLabelValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 /**
@@ -115,7 +111,8 @@ export class LokiHttpClient implements ILogClient {
         signal: AbortSignal.timeout(5_000),
       });
       return res.ok;
-    } catch {
+    } catch (err) {
+      log.debug({ err }, 'failed to check Loki health');
       return false;
     }
   }

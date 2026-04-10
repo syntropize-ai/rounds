@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type {
   SemanticMetric,
   SemanticMetricName,
@@ -7,7 +8,7 @@ import type {
 } from './types.js';
 
 function randomId(): string {
-  return Math.random().toString(36).slice(2, 10);
+  return randomUUID();
 }
 
 function now(): string {

@@ -1,6 +1,7 @@
 // SemanticQuery → PromQL translator
 
 import type { SemanticQuery, AggregationFunction } from '../types.js';
+import { escapeLabelValue } from '../utils/escape.js';
 
 /** Map semantic metric names to PromQL template functions */
 const METRIC_TEMPLATES: Record<
@@ -50,14 +51,6 @@ const METRIC_TEMPLATES: Record<
 };
 
 /**
- * Escape a PromQL label value to prevent injection.
- * Backslashes must be escaped first, then double quotes.
- */
-function escapePromQLLabelValue(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-/**
  * Escape a string for safe use inside a PromQL regex matcher (~=).
  * Escapes regex metacharacters so user-provided values match literally.
  */
@@ -71,7 +64,7 @@ function buildLabelSelector(labels: Record<string, string>): string {
     .map(([k, v]) => {
       // Support ~"..." regex matchers passed as values (internal use only, not from user input)
       if (v.startsWith('~')) return `${k}=${v}`;
-      return `${k}="${escapePromQLLabelValue(v)}"`;
+      return `${k}="${escapeLabelValue(v)}"`;
     })
     .join(',');
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Service } from '@agentic-obs/common';
 import type {
   TopologyNode,
@@ -9,7 +10,7 @@ import type {
 } from './types.js';
 
 function randomId(): string {
-  return Math.random().toString(36).slice(2, 10);
+  return randomUUID();
 }
 
 export class TopologyStore {

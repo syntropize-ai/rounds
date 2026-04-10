@@ -12,19 +12,19 @@ export declare const structuredConclusionSchema: z.ZodObject<{
             counterEvidenceIds: z.ZodArray<z.ZodString, "many">;
             status: z.ZodEnum<["proposed", "investigating", "supported", "refuted", "inconclusive"]>;
         }, "strip", z.ZodTypeAny, {
-            description: string;
-            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             id: string;
+            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             investigationId: string;
+            description: string;
             confidence: number;
             confidenceBasis: string;
             evidenceIds: string[];
             counterEvidenceIds: string[];
         }, {
-            description: string;
-            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             id: string;
+            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             investigationId: string;
+            description: string;
             confidence: number;
             confidenceBasis: string;
             evidenceIds: string[];
@@ -35,10 +35,10 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         confidenceExplanation: z.ZodString;
     }, "strip", z.ZodTypeAny, {
         hypothesis: {
-            description: string;
-            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             id: string;
+            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             investigationId: string;
+            description: string;
             confidence: number;
             confidenceBasis: string;
             evidenceIds: string[];
@@ -49,10 +49,10 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         confidenceExplanation: string;
     }, {
         hypothesis: {
-            description: string;
-            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             id: string;
+            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             investigationId: string;
+            description: string;
             confidence: number;
             confidenceBasis: string;
             evidenceIds: string[];
@@ -69,12 +69,12 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         description: z.ZodString;
     }, "strip", z.ZodTypeAny, {
         description: string;
-        severity: "critical" | "high" | "medium" | "low";
+        severity: "low" | "medium" | "high" | "critical";
         affectedServices: string[];
         affectedUsers: string;
     }, {
         description: string;
-        severity: "critical" | "high" | "medium" | "low";
+        severity: "low" | "medium" | "high" | "critical";
         affectedServices: string[];
         affectedUsers: string;
     }>;
@@ -93,40 +93,40 @@ export declare const structuredConclusionSchema: z.ZodObject<{
                 message: z.ZodString;
                 executedAt: z.ZodOptional<z.ZodString>;
             }, "strip", z.ZodTypeAny, {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             }, {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             }>>;
         }, "strip", z.ZodTypeAny, {
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-            description: string;
-            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             id: string;
             params: Record<string, unknown>;
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
+            description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
-            risk: "high" | "medium" | "low";
+            risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         }, {
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-            description: string;
-            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             id: string;
             params: Record<string, unknown>;
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
+            description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
-            risk: "high" | "medium" | "low";
+            risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         }>;
@@ -134,41 +134,41 @@ export declare const structuredConclusionSchema: z.ZodObject<{
         expectedOutcome: z.ZodString;
         risk: z.ZodString;
     }, "strip", z.ZodTypeAny, {
+        risk: string;
         action: {
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-            description: string;
-            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             id: string;
             params: Record<string, unknown>;
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
+            description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
-            risk: "high" | "medium" | "low";
+            risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };
-        risk: string;
         rationale: string;
         expectedOutcome: string;
     }, {
+        risk: string;
         action: {
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-            description: string;
-            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             id: string;
             params: Record<string, unknown>;
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
+            description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
-            risk: "high" | "medium" | "low";
+            risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };
-        risk: string;
         rationale: string;
         expectedOutcome: string;
     }>, "many">;
@@ -179,10 +179,10 @@ export declare const structuredConclusionSchema: z.ZodObject<{
     summary: string;
     hypotheses: {
         hypothesis: {
-            description: string;
-            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             id: string;
+            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             investigationId: string;
+            description: string;
             confidence: number;
             confidenceBasis: string;
             evidenceIds: string[];
@@ -194,27 +194,27 @@ export declare const structuredConclusionSchema: z.ZodObject<{
     }[];
     impact: {
         description: string;
-        severity: "critical" | "high" | "medium" | "low";
+        severity: "low" | "medium" | "high" | "critical";
         affectedServices: string[];
         affectedUsers: string;
     };
     recommendedActions: {
+        risk: string;
         action: {
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-            description: string;
-            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             id: string;
             params: Record<string, unknown>;
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
+            description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
-            risk: "high" | "medium" | "low";
+            risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };
-        risk: string;
         rationale: string;
         expectedOutcome: string;
     }[];
@@ -225,10 +225,10 @@ export declare const structuredConclusionSchema: z.ZodObject<{
     summary: string;
     hypotheses: {
         hypothesis: {
-            description: string;
-            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             id: string;
+            status: "proposed" | "investigating" | "supported" | "refuted" | "inconclusive";
             investigationId: string;
+            description: string;
             confidence: number;
             confidenceBasis: string;
             evidenceIds: string[];
@@ -240,27 +240,27 @@ export declare const structuredConclusionSchema: z.ZodObject<{
     }[];
     impact: {
         description: string;
-        severity: "critical" | "high" | "medium" | "low";
+        severity: "low" | "medium" | "high" | "critical";
         affectedServices: string[];
         affectedUsers: string;
     };
     recommendedActions: {
+        risk: string;
         action: {
-            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
-            description: string;
-            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             id: string;
             params: Record<string, unknown>;
+            status: "failed" | "proposed" | "completed" | "approved" | "executing" | "denied";
             investigationId: string;
+            description: string;
+            type: "scale" | "feature_flag" | "rollback" | "restart" | "ticket" | "notify" | "runbook";
             policyTag: "suggest" | "approve_required" | "deny";
-            risk: "high" | "medium" | "low";
+            risk: "low" | "medium" | "high";
             result?: {
-                message: string;
                 success: boolean;
+                message: string;
                 executedAt?: string | undefined;
             } | undefined;
         };
-        risk: string;
         rationale: string;
         expectedOutcome: string;
     }[];

@@ -11,16 +11,8 @@ export class CaseStore {
     get(id) {
         return this.records.get(id);
     }
-    /** @deprecated Use get() - kept for back-compat with partial stubs */
-    findById(id) {
-        return this.get(id);
-    }
     list() {
         return [...this.records.values()];
-    }
-    /** @deprecated Use list() - kept for back-compat with partial stubs */
-    getAll() {
-        return this.list();
     }
     update(id, patch) {
         const existing = this.records.get(id);

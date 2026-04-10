@@ -32,7 +32,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
       const duration = Date.now() - start;
       const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
       httpLogger[level](
-        { body: req.method, url: req.url, status: res.statusCode, duration },
+        { method: req.method, url: req.url, status: res.statusCode, duration },
         'request completed',
       );
     });

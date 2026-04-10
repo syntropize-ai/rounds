@@ -1,16 +1,17 @@
 import type { LLMProvider, LLMOptions, LLMResponse, CompletionMessage, ModelInfo } from '../types.js';
 
+const DEFAULT_MAX_TOKENS = 4096;
+const DEFAULT_API_VERSION = '2023-06-01';
+
 export interface AnthropicConfig {
   apiKey: string;
   baseUrl?: string;
   apiType?: 'api-key' | 'bearer';
   /** Sends x-api-key (default: 'apiKey') sends Authorization: Bearer. */
-  tokenEndpoint?: string;
-  /** Token endpoint for OAuth/Enterprise gateway. External on each request if set. Takes precedence over apiKey. */
+  apiVersion?: string;
+  /** Anthropic API version header. Defaults to DEFAULT_API_VERSION. */
   cacheControl?: boolean;
   /** If true, sends cache-control headers to enable prompt caching. */
-  tokenExpiresIn?: number;
-  /** How long the token stays on in Cloudflare 300_000 = 5 min). Set 0 to disable caching. */
 }
 
 interface AnthropicResponseBody {
@@ -31,44 +32,17 @@ export class AnthropicProvider implements LLMProvider {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly cacheControl: boolean;
-  private readonly tokenEndpoint: string | undefined;
-  private readonly tokenExpiresIn: number;
-  private cachedToken: string | undefined;
-  private cachedTokenExpiresAt: number = 0;
+  private readonly apiVersion: string;
 
-  constructor(config: AnthropicConfig) {
+  constructor(private readonly config: AnthropicConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || 'https://api.anthropic.com';
     this.cacheControl = config.cacheControl ?? false;
-    this.tokenEndpoint = config.tokenEndpoint;
-    this.tokenExpiresIn = config.tokenExpiresIn ?? 300_000;
-  }
-
-  private getToken(): string {
-    if (this.tokenEndpoint) {
-      if (this.cachedToken) {
-        const now = Date.now();
-        if (this.cachedTokenExpiresAt > now) {
-          return this.cachedToken;
-        }
-      }
-
-      try {
-        // Sync token fetch for simplicity
-        this.cachedToken = this.apiKey;
-        this.cachedTokenExpiresAt = Date.now() + this.tokenExpiresIn;
-        return this.cachedToken;
-      } catch (err) {
-        throw new Error(`Token helper command failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    return this.apiKey;
+    this.apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
   }
 
   async complete(messages: CompletionMessage[], options: LLMOptions): Promise<LLMResponse> {
     const startTime = Date.now();
-    const token = this.getToken();
 
     // Anthropic separates system messages from the messages array
     const systemParts = messages.filter((m) => m.role === 'system');
@@ -78,15 +52,15 @@ export class AnthropicProvider implements LLMProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': token,
-        'anthropic-version': '2023-06-01',
+        'x-api-key': this.apiKey,
+        'anthropic-version': this.apiVersion,
       },
       body: JSON.stringify({
         model: options.model,
-        system: systemParts.length > 0 ? systemParts.join('\n') : undefined,
+        system: systemParts.length > 0 ? systemParts.map((m) => m.content).join('\n') : undefined,
         messages: conversationParts,
         temperature: options.temperature,
-        max_tokens: options.maxTokens ?? 4096,
+        max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
       }),
     });
 
@@ -98,7 +72,32 @@ export class AnthropicProvider implements LLMProvider {
     const data = (await response.json()) as AnthropicResponseBody;
     const latencyMs = Date.now() - startTime;
 
-    const firstBlock = data.content[0]!;
+    if (!data.content || data.content.length === 0) {
+      return {
+        content: '',
+        usage: {
+          promptTokens: data.usage?.input_tokens ?? 0,
+          completionTokens: data.usage?.output_tokens ?? 0,
+          totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
+        },
+        model: data.model,
+        latencyMs,
+      };
+    }
+
+    const firstBlock = data.content[0];
+    if (!firstBlock || firstBlock.type !== 'text') {
+      return {
+        content: '',
+        usage: {
+          promptTokens: data.usage.input_tokens,
+          completionTokens: data.usage.output_tokens,
+          totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+        },
+        model: data.model,
+        latencyMs,
+      };
+    }
 
     // If output was truncated due to max_tokens, throw so callers can retry with higher limit
     if (data.stop_reason === 'max_tokens' && options.responseFormat === 'json') {
@@ -120,9 +119,8 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const token = this.getToken();
     const response = await fetch(`${this.baseUrl}/v1/models`, {
-      headers: { 'x-api-key': token, 'anthropic-version': '2023-06-01' },
+      headers: { 'x-api-key': this.apiKey, 'anthropic-version': this.apiVersion },
     });
     if (!response.ok) return [];
     const data = (await response.json()) as { data: Array<{ id: string; display_name?: string }> };

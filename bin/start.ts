@@ -7,6 +7,7 @@
 //   node bin/start.js          # from repo root after tsc build
 //   npx tsx bin/start.ts       # directly via tsx
 
+import 'dotenv/config';
 import { execSync, spawn } from 'child_process';
 import { createServer } from 'net';
 import { existsSync } from 'fs';

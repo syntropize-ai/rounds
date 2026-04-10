@@ -10,21 +10,14 @@ import { roleStore } from '../middleware/rbac.js';
 
 const log = createLogger('websocket-gateway');
 
-const JWT_SECRET = (() => {
+const JWT_SECRET: string = (() => {
   const secret = process.env['JWT_SECRET'];
-  if (secret) {
-    return secret;
-  }
-
-  if (process.env['NODE_ENV'] === 'production') {
-    throw new Error('JWT_SECRET environment variable must be set in production');
-  }
-
-  return 'dev-secret-change-in-prod';
+  if (!secret) throw new Error('[websocket-gateway] FATAL: JWT_SECRET environment variable is required. Set a cryptographically random secret of at least 32 characters.');
+  return secret;
 })();
 
 const VALID_API_KEYS = new Set(
-  (process.env['API_KEYS'] ?? 'test-api-key').split(',').map((k) => k.trim()).filter(Boolean),
+  (process.env['API_KEYS'] ?? '').split(',').map((k) => k.trim()).filter(Boolean),
 );
 
 export interface SocketAuth {

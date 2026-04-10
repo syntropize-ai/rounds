@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import { relativeTime } from '../utils/time.js';
 
 // Types
 
@@ -35,16 +36,6 @@ interface AlertRule {
 }
 
 // Helpers
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
 
 /** Convert PascalCase/camelCase rule names to readable text: "PrometheusQueryLatencyHigh" → "Prometheus Query Latency High" */
 function humanizeName(name: string): string {

@@ -14,6 +14,8 @@ export function createDashboardRouter(deps) {
     const conversationStore = deps.conversationStore;
     const investigationReportStore = deps.investigationReportStore;
     const alertRuleStore = deps.alertRuleStore;
+    const investigationStore = deps.investigationStore;
+    const feedStore = deps.feedStore;
     const router = Router();
     // All dashboard routes require authentication
     router.use(authMiddleware);
@@ -40,7 +42,7 @@ export function createDashboardRouter(deps) {
             res.status(201).json(dashboard);
             // Trigger generation in background via the orchestrator agent (same path as chat)
             if (!body.stream) {
-                const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore });
+                const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore, investigationStore, feedStore });
                 void withDashboardLock(dashboard.id, async () => {
                     try {
                         await service.handleChatMessage(dashboard.id, dashboard.prompt, undefined, () => { });
@@ -224,7 +226,7 @@ export function createDashboardRouter(deps) {
                 res.status(400).json({ code: 'INVALID_INPUT', message: 'message is required and must be a non-empty string' });
                 return;
             }
-            await handleChatMessage(req, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore);
+            await handleChatMessage(req, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, investigationStore, feedStore);
         }
         catch (err) {
             next(err);

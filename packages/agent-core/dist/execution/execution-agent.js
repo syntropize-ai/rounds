@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger, DEFAULT_LLM_MODEL, LLMUnavailableError } from '@agentic-obs/common';
 const log = createLogger('execution-agent');
+import { stripCodeFences } from '../utils/llm-parse.js';
 export class LLMExecutionAgent {
     llm;
     adapterRegistry;
@@ -330,11 +331,6 @@ export class LLMExecutionAgent {
             this.auditTrail.shift();
         }
     }
-}
-function stripCodeFences(raw) {
-    const trimmed = raw.trim();
-    const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-    return match?.[1]?.trim() ?? trimmed;
 }
 function isRiskLevel(v) {
     return v === 'low' || v === 'medium' || v === 'high' || v === 'critical';

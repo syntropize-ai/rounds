@@ -136,12 +136,19 @@ export class ChangeEventAdapter implements DataAdapter {
   // -- Utility --
 
   private enforceMaxEvents(): void {
-    // Simple eviction: if we blow past maxEvents, the store keeps all events for now.
-    // A production store would use a ring buffer or TTL-based eviction.
-    // For in-memory MVP this is a no-op safety valve.
-    if (this.store.size > this.maxEvents) {
-      // Re-initialize: keep only the most recent maxEvents
-      // This is acceptable for the in-memory MVP
+    if (this.store.size <= this.maxEvents) return;
+    // Query all events sorted by timestamp descending, keep only the most recent maxEvents
+    const all = this.store.query({
+      startTime: new Date(0),
+      endTime: new Date(),
+    });
+    // all is sorted descending (most recent first) — keep the first maxEvents
+    const toKeep = new Set(all.slice(0, this.maxEvents));
+    this.store.clear();
+    // Re-add in chronological order (reverse of descending)
+    const kept = [...toKeep].reverse();
+    for (const event of kept) {
+      this.store.add(event);
     }
   }
 

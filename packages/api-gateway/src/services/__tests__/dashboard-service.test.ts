@@ -14,6 +14,7 @@ vi.mock('@agentic-obs/agent-core', () => ({
   DashboardOrchestratorAgent: vi.fn().mockImplementation(() => ({
     handleMessage: vi.fn().mockResolvedValue('Here is your dashboard analysis.'),
     consumeConversationActions: vi.fn().mockReturnValue([]),
+    consumeNavigate: vi.fn().mockReturnValue(undefined),
   })),
 }));
 
@@ -177,6 +178,7 @@ describe('DashboardService', () => {
           return 'Investigation summary.';
         }),
         consumeConversationActions: vi.fn().mockReturnValue([]),
+        consumeNavigate: vi.fn().mockReturnValue('/investigations/inv-1'),
       } as any;
     });
 

@@ -121,7 +121,7 @@ export class AgentChatService {
     });
     const result = await service.handleChatMessage(dashboardId, message, timeRange, sendEvent);
     return {
-      navigate: `/dashboards/${dashboardId}`,
+      navigate: result.navigate ?? `/dashboards/${dashboardId}`,
       replyContent: result.replyContent,
       assistantMessageId: result.assistantMessageId,
       sessionId: sessionId ?? `ses_dash_${dashboardId}`,

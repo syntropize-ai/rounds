@@ -396,7 +396,11 @@ export default function InvestigationDetail() {
 
         if (eventType === 'done') {
           if (typeof parsed.navigate === 'string' && parsed.navigate !== `/investigations/${id}`) {
-            navigate(parsed.navigate);
+            if (parsed.intent === 'dashboard') {
+              navigate(parsed.navigate, { state: { initialPrompt: content } });
+            } else {
+              navigate(parsed.navigate);
+            }
             return;
           }
           setAgentEvents((prev) => [...prev, { id: eventId, kind: 'done' }]);

@@ -3,6 +3,7 @@
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { ActionRule } from './types.js';
 import type { Action, Hypothesis, Evidence } from '@agentic-obs/common';
+import { stripCodeFences } from '../utils/llm-parse.js';
 
 let _seq = 0;
 function nextId(): string {
@@ -120,12 +121,6 @@ function buildClassificationPrompt(
 // ---------------------------------------------------------------------------
 // Response parser
 // ---------------------------------------------------------------------------
-
-function stripCodeFences(raw: string): string {
-  const trimmed = raw.trim();
-  const match = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  return match?.[1]?.trim() ?? trimmed;
-}
 
 function parseClassificationResponse(
   raw: string,

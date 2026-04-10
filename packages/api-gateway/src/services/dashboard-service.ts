@@ -4,7 +4,7 @@ import type { DashboardSseEvent } from '@agentic-obs/common';
 
 const log = createLogger('dashboard-service');
 import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
-import type { IInvestigationReportRepository, IAlertRuleRepository } from '@agentic-obs/data-layer';
+import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore } from '@agentic-obs/data-layer';
 import { getSetupConfig, type DatasourceConfig } from '../routes/setup.js';
 import { createLlmGateway } from '../routes/llm-factory.js';
 import { DashboardOrchestratorAgent as OrchestratorAgent } from '@agentic-obs/agent-core';
@@ -71,6 +71,8 @@ export interface DashboardServiceDeps {
   conversationStore: IConversationStore;
   investigationReportStore: IInvestigationReportRepository;
   alertRuleStore: IAlertRuleRepository;
+  investigationStore?: IGatewayInvestigationStore;
+  feedStore?: IGatewayFeedStore;
 }
 
 export class DashboardService {
@@ -78,11 +80,15 @@ export class DashboardService {
   private conversationStore: IConversationStore;
   private investigationReportStore: IInvestigationReportRepository;
   private alertRuleStore: IAlertRuleRepository;
+  private investigationStore?: IGatewayInvestigationStore;
+  private feedStore?: IGatewayFeedStore;
 
   constructor(deps: DashboardServiceDeps) {
     this.store = deps.store;
     this.conversationStore = deps.conversationStore;
     this.investigationReportStore = deps.investigationReportStore;
+    this.investigationStore = deps.investigationStore;
+    this.feedStore = deps.feedStore;
     this.alertRuleStore = deps.alertRuleStore;
   }
 

@@ -152,4 +152,45 @@ describe('DashboardService', () => {
       }),
     );
   });
+
+  it('handleChatMessage() does not create a duplicate investigation when dashboard investigate emits completion', async () => {
+    const investigationStore = {
+      create: vi.fn(),
+      updateStatus: vi.fn(),
+    };
+
+    vi.mocked(getSetupConfig).mockReturnValue({
+      configured: true,
+      datasources: [{ id: 'ds-1', type: 'prometheus', name: 'Prom', url: 'http://prom:9090' }],
+      llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
+    });
+
+    vi.mocked(DashboardOrchestratorAgent).mockImplementationOnce((args: any) => {
+      return {
+        handleMessage: vi.fn().mockImplementation(async () => {
+          args.sendEvent({
+            type: 'tool_result',
+            tool: 'investigate',
+            summary: 'Investigation complete — 3 evidence panels added.',
+            success: true,
+          });
+          return 'Investigation summary.';
+        }),
+        consumeConversationActions: vi.fn().mockReturnValue([]),
+      } as any;
+    });
+
+    service = new DashboardService({
+      store: dashboardStore,
+      conversationStore,
+      investigationReportStore: {} as any,
+      alertRuleStore: {} as any,
+      investigationStore: investigationStore as any,
+    });
+
+    await service.handleChatMessage('dash-1', 'Why is p95 high?', undefined, mockSendEvent);
+
+    expect(investigationStore.create).not.toHaveBeenCalled();
+    expect(investigationStore.updateStatus).not.toHaveBeenCalled();
+  });
 });

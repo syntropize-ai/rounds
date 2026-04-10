@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import { relativeTime } from '../utils/time.js';
 
 // Types — matches the summary returned by GET /investigations
 
@@ -28,16 +29,6 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }>
   failed:        { bg: 'bg-red-500/15',    text: 'text-red-400',     label: 'Failed' },
 };
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
 function isActive(status: string) {
   return status !== 'completed' && status !== 'failed';
 }
@@ -51,8 +42,12 @@ export default function Investigations() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await apiClient.get<InvestigationSummary[]>('/investigations');
-    if (!res.error) setInvestigations(res.data);
+    const invRes = await apiClient.get<InvestigationSummary[]>('/investigations');
+    if (!invRes.error && invRes.data) {
+      setInvestigations(invRes.data);
+    } else {
+      setInvestigations([]);
+    }
     setLoading(false);
   }, []);
 
@@ -66,9 +61,11 @@ export default function Investigations() {
     return () => clearInterval(timer);
   }, [investigations, load]);
 
-  const handleDelete = useCallback(async (id: string) => {
-    await apiClient.delete(`/investigations/${id}`);
-    setInvestigations((prev) => prev.filter((inv) => inv.id !== id));
+  const handleDelete = useCallback(async (investigation: InvestigationSummary) => {
+    const result = await apiClient.delete(`/investigations/${investigation.id}`);
+    if (!result.error) {
+      setInvestigations((prev) => prev.filter((inv) => inv.id !== investigation.id));
+    }
   }, []);
 
   const sorted = useMemo(() =>
@@ -150,12 +147,12 @@ export default function Investigations() {
               return (
                 <div
                   key={inv.id}
-                  className="group rounded-xl border border-[var(--color-outline-variant)] hover:border-[var(--color-outline)] bg-[var(--color-surface-highest)] transition-colors"
+                  className="group relative rounded-xl border border-[var(--color-outline-variant)] hover:border-[var(--color-outline)] bg-[var(--color-surface-highest)] transition-colors"
                 >
                   <button
                     type="button"
                     onClick={() => navigate(`/investigations/${inv.id}`)}
-                    className="w-full text-left px-4 py-3.5 flex items-center gap-3"
+                    className="w-full text-left px-4 py-3.5 pr-14 flex items-center gap-3"
                   >
                     {/* Status indicator */}
                     <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${style.bg}`}>
@@ -182,18 +179,18 @@ export default function Investigations() {
                         <span className="text-[11px] text-[var(--color-outline)]">{relativeTime(inv.createdAt)}</span>
                       </div>
                     </div>
-
-                    {/* Delete */}
+                  </button>
+                  <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center">
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setDeletingId(inv.id); }}
-                      className="p-1.5 rounded-lg text-[var(--color-outline)] hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-all"
+                      onClick={() => setDeletingId(inv.id)}
+                      className="pointer-events-auto p-1.5 rounded-lg text-[var(--color-outline)] hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-all"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
-                  </button>
+                  </div>
                 </div>
               );
             })}
@@ -204,7 +201,12 @@ export default function Investigations() {
           open={deletingId !== null}
           title="Delete investigation?"
           message="This investigation and all its evidence will be permanently removed."
-          onConfirm={() => { if (deletingId) void handleDelete(deletingId); setDeletingId(null); }}
+          onConfirm={() => {
+            const investigation = deletingId ? investigations.find((inv) => inv.id === deletingId) : null;
+            if (investigation)
+              void handleDelete(investigation);
+            setDeletingId(null);
+          }}
           onCancel={() => setDeletingId(null)}
         />
       </div>

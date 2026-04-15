@@ -527,14 +527,33 @@ export async function handlePrometheusMetadata(ctx: ActionContext, args: Record<
   }
 }
 
-export async function handlePrometheusMetricNames(ctx: ActionContext): Promise<string> {
+export async function handlePrometheusMetricNames(ctx: ActionContext, args: Record<string, unknown> = {}): Promise<string> {
   if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.metric_names', args: {}, displayText: 'Listing all metric names' })
+  const filter = typeof args.filter === 'string' ? args.filter.toLowerCase() : undefined
+
+  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.metric_names', args: filter ? { filter } : {}, displayText: filter ? `Searching metrics matching "${filter}"` : 'Listing metric names' })
   try {
-    const names = await ctx.metricsAdapter.listMetricNames()
+    const allNames = await ctx.metricsAdapter.listMetricNames()
+    const totalCount = allNames.length
+
+    let names: string[]
+    if (filter) {
+      // Filter by substring match (case-insensitive)
+      names = allNames.filter((n) => n.toLowerCase().includes(filter))
+    } else if (totalCount <= 500) {
+      // Small cluster — safe to return all
+      names = allNames
+    } else {
+      // Large cluster — return a sample + count, ask the model to use filter
+      const sample = allNames.slice(0, 50)
+      const summary = `${totalCount} metrics available (too many to list). Showing first 50:\n${sample.join('\n')}\n\nUse prometheus.metric_names({ filter: "keyword" }) to search for specific metrics.`
+      ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.metric_names', summary: `${totalCount} metrics (sampled)`, success: true })
+      return summary
+    }
+
     const summary = names.length === 0
-      ? 'No metrics found.'
-      : `${names.length} metrics available.\n` + names.slice(0, 100).join('\n') + (names.length > 100 ? `\n... and ${names.length - 100} more` : '')
+      ? filter ? `No metrics matching "${filter}" (${totalCount} total metrics in cluster).` : 'No metrics found.'
+      : `${names.length} metrics${filter ? ` matching "${filter}"` : ''} (${totalCount} total).\n` + names.join('\n')
     ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.metric_names', summary: `${names.length} metrics`, success: true })
     return summary
   } catch (err) {

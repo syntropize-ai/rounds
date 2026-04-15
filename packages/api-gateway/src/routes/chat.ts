@@ -13,6 +13,58 @@ function sendSseEvent(res: Response, event: DashboardSseEvent): void {
   res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
+/**
+ * Handle a chat message via SSE — extracted as a standalone function
+ * (same pattern as dashboard chat-handler.ts which works correctly).
+ */
+async function handleChatStream(
+  req: Request,
+  res: Response,
+  message: string,
+  sessionId: string | undefined,
+  deps: ChatServiceDeps,
+): Promise<void> {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  let closed = false;
+  res.on('close', () => { closed = true; });
+
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(': heartbeat\n\n');
+  }, 30_000);
+
+  try {
+    const service = new ChatService(deps);
+    const result = await service.handleMessage(
+      message,
+      sessionId,
+      (event) => { if (!closed) sendSseEvent(res, event); },
+    );
+
+    if (!closed) {
+      sendSseEvent(res, {
+        type: 'done',
+        messageId: result.assistantMessageId,
+        sessionId: result.sessionId,
+      } as DashboardSseEvent & { sessionId: string });
+    }
+  } catch (err) {
+    log.error({ err }, 'chat handler error');
+    const errMsg = err instanceof Error ? err.message : 'Internal error';
+    if (!closed) {
+      res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', message: errMsg })}\n\n`);
+    }
+  } finally {
+    clearInterval(heartbeat);
+    res.end();
+  }
+}
+
 export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
   const router = Router();
 
@@ -32,46 +84,7 @@ export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
         ? body.sessionId.trim()
         : undefined;
 
-      // SSE setup
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no',
-      });
-
-      let closed = false;
-      req.on('close', () => { closed = true; });
-
-      const heartbeat = setInterval(() => {
-        if (!closed) res.write(': heartbeat\n\n');
-      }, 30_000);
-
-      try {
-        const service = new ChatService(deps);
-        const result = await service.handleMessage(
-          message,
-          sessionId,
-          (event) => { if (!closed) sendSseEvent(res, event); },
-        );
-
-        if (!closed) {
-          sendSseEvent(res, {
-            type: 'done',
-            messageId: result.assistantMessageId,
-            sessionId: result.sessionId,
-          } as DashboardSseEvent & { sessionId: string });
-        }
-      } catch (err) {
-        log.error({ err }, 'chat handler error');
-        const errMsg = err instanceof Error ? err.message : 'Internal error';
-        if (!closed) {
-          res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', message: errMsg })}\n\n`);
-        }
-      } finally {
-        clearInterval(heartbeat);
-        res.end();
-      }
+      await handleChatStream(req, res, message, sessionId, deps);
     } catch (err) {
       next(err);
     }

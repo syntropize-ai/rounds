@@ -159,8 +159,8 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
               </svg>
             </div>
             <div>
-              <p className="text-sm text-on-surface">Ask a question or request changes to your dashboard.</p>
-              <p className="text-xs text-on-surface-variant mt-1">Try: "Add a CPU usage panel" or "Investigate high error rates"</p>
+              <p className="text-sm text-on-surface">Ask me to build dashboards, investigate issues, or create alerts.</p>
+              <p className="text-xs text-on-surface-variant mt-1">Try: "Create a Kubernetes monitoring dashboard" or "Investigate high error rates"</p>
             </div>
           </div>
         )}
@@ -202,7 +202,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask AI to investigate..."
+            placeholder="Ask anything..."
             rows={1}
             disabled={isGenerating}
             className="w-full bg-surface-bright ring-1 ring-white/5 focus:ring-tertiary/50 rounded-xl py-4 pl-5 pr-14 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-all disabled:opacity-50"

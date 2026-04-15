@@ -300,7 +300,7 @@ export class OrchestratorAgent {
         case 'prometheus.label_values': return handlePrometheusLabelValues(ctx, args)
         case 'prometheus.series': return handlePrometheusSeries(ctx, args)
         case 'prometheus.metadata': return handlePrometheusMetadata(ctx, args)
-        case 'prometheus.metric_names': return handlePrometheusMetricNames(ctx)
+        case 'prometheus.metric_names': return handlePrometheusMetricNames(ctx, args)
         case 'prometheus.validate': return handlePrometheusValidate(ctx, args)
         // Web search
         case 'web.search': return handleWebSearch(ctx, args)

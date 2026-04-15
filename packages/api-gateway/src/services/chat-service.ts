@@ -58,15 +58,6 @@ export class ChatService {
 
     const resolvedSessionId = sessionId ?? randomUUID();
 
-    // Save user message
-    const userMessageId = randomUUID();
-    await this.deps.conversationStore.addMessage(resolvedSessionId, {
-      id: userMessageId,
-      role: 'user',
-      content: message,
-      timestamp: new Date().toISOString(),
-    });
-
     const gateway = createLlmGateway(config.llm);
     const model = config.llm.model;
     const prom = resolvePrometheusDatasource(config.datasources);
@@ -94,16 +85,6 @@ export class ChatService {
     const navigate = orchestrator.consumeNavigate();
     log.info({ sessionId: resolvedSessionId, reply: replyContent.slice(0, 100) }, 'session orchestrator done');
 
-    // Save assistant message
-    const assistantMessageId = randomUUID();
-    await this.deps.conversationStore.addMessage(resolvedSessionId, {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: replyContent,
-      ...(assistantActions.length > 0 ? { actions: assistantActions } : {}),
-      timestamp: new Date().toISOString(),
-    });
-
-    return { sessionId: resolvedSessionId, replyContent, assistantMessageId, navigate };
+    return { sessionId: resolvedSessionId, replyContent, assistantMessageId: randomUUID(), navigate };
   }
 }

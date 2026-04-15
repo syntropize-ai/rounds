@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { apiClient } from '../api/client.js';
@@ -65,17 +65,11 @@ const QUICK_ACTIONS = [
 
 export default function Home() {
   const navigate = useNavigate();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const globalChat = useGlobalChat();
 
-  const [prompt, setPrompt] = useState('');
-  const [focused, setFocused] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [alertCount, setAlertCount] = useState<number | null>(null);
   const [deletingDashId, setDeletingDashId] = useState<string | null>(null);
-
-  const submitting = globalChat.isGenerating;
 
   const handleDeleteDashboard = useCallback(async (id: string) => {
     const res = await apiClient.delete(`/dashboards/${id}`);
@@ -96,32 +90,8 @@ export default function Home() {
     });
   }, []);
 
-  const handleSubmit = useCallback(
-    async (e?: React.FormEvent) => {
-      e?.preventDefault();
-      const trimmed = prompt.trim();
-      if (!trimmed || submitting) return;
-
-      setSubmitError(null);
-      setPrompt('');
-
-      // Send through the global chat — the agent will create a dashboard if needed
-      // and emit a navigate event that Layout handles automatically
-      void globalChat.sendMessage(trimmed);
-    },
-    [prompt, submitting, globalChat],
-  );
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      void handleSubmit();
-    }
-  };
-
   const handleQuickAction = (actionPrompt: string) => {
-    setPrompt(actionPrompt);
-    textareaRef.current?.focus();
+    void globalChat.sendMessage(actionPrompt);
   };
 
   return (
@@ -144,106 +114,8 @@ export default function Home() {
           </p>
         </motion.div>
 
-        {/* Prompt input */}
+        {/* Quick action cards — clicking sends to global chat */}
         <motion.div
-          className="w-full relative group"
-          variants={fadeIn}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.05 }}
-        >
-          <div
-            className={`absolute inset-0 blur-2xl rounded-3xl transition-all duration-500 ${
-              focused ? 'bg-primary/20' : 'bg-primary/10'
-            }`}
-          />
-
-          <form
-            onSubmit={(e) => {
-              void handleSubmit(e);
-            }}
-          >
-            <div className="relative bg-surface-bright/80 backdrop-blur-xl rounded-[2rem] p-6 shadow-2xl">
-              <div className="flex items-start gap-4">
-                <div className="mt-1 flex items-center justify-center w-10 h-10 rounded-full bg-surface-high">
-                  <svg className="w-5 h-5 text-primary" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z" />
-                  </svg>
-                </div>
-                <textarea
-                  ref={textareaRef}
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
-                  placeholder="Ask OpenObs to analyze, explain, or visualize..."
-                  rows={2}
-                  disabled={submitting}
-                  className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm text-on-surface placeholder:text-on-surface-variant/50 resize-none py-2"
-                />
-              </div>
-
-              <div className="mt-4 flex justify-between items-center">
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="p-2 rounded-xl hover:bg-surface-highest text-on-surface-variant transition-colors"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    className="p-2 rounded-xl hover:bg-surface-highest text-on-surface-variant transition-colors"
-                  >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                  </button>
-                </div>
-
-                {submitError && (
-                  <span className="text-xs text-error truncate max-w-xs">{submitError}</span>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={!prompt.trim() || submitting}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 shrink-0 ${
-                    prompt.trim()
-                      ? 'bg-primary text-on-primary-fixed hover:opacity-90'
-                      : 'bg-surface-high text-on-surface-variant/40'
-                  }`}
-                >
-                  {submitting ? (
-                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.25" strokeWidth="4" />
-                      <path d="M22 12a10 10 0 00-10-10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15M19.5 4.5H8.5M19.5 4.5v11" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-          </form>
-
-          {/* Thinking / intent status */}
-          {submitting && (
-            <div className="mt-4 flex items-center justify-center gap-2.5 py-3">
-              <span className="inline-block w-4 h-4 rounded-full animate-spin border-2 border-outline border-t-primary" />
-              <span className="text-xs text-on-surface-variant">Processing...</span>
-            </div>
-          )}
-        </motion.div>
-
-        {/* Quick action cards */}
-        {!submitting && (
-          <motion.div
             className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-4 w-full"
             variants={fadeIn}
             initial="hidden"
@@ -269,7 +141,6 @@ export default function Home() {
               </button>
             ))}
           </motion.div>
-        )}
 
         {/* Recent dashboards */}
         {dashboards.length > 0 && (

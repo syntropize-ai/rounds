@@ -5,6 +5,7 @@ import { apiClient } from '../api/client.js';
 import { fadeIn } from '../animations.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { relativeTime } from '../utils/time.js';
+import { useGlobalChat } from '../contexts/ChatContext.js';
 
 // Types
 
@@ -65,14 +66,16 @@ const QUICK_ACTIONS = [
 export default function Home() {
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const globalChat = useGlobalChat();
 
   const [prompt, setPrompt] = useState('');
   const [focused, setFocused] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [alertCount, setAlertCount] = useState<number | null>(null);
   const [deletingDashId, setDeletingDashId] = useState<string | null>(null);
+
+  const submitting = globalChat.isGenerating;
 
   const handleDeleteDashboard = useCallback(async (id: string) => {
     const res = await apiClient.delete(`/dashboards/${id}`);
@@ -99,32 +102,14 @@ export default function Home() {
       const trimmed = prompt.trim();
       if (!trimmed || submitting) return;
 
-      setSubmitting(true);
       setSubmitError(null);
+      setPrompt('');
 
-      try {
-        // Create a new dashboard and navigate to it — the agent handles everything from there
-        const res = await apiClient.post<{ id: string }>('/dashboards', {
-          prompt: trimmed,
-          title: 'Untitled Dashboard',
-          stream: true, // don't trigger background generation — let the chat handle it
-        });
-
-        if (res.error || !res.data?.id) {
-          setSubmitError(typeof res.error === 'string' ? res.error : 'Failed to create dashboard');
-          setSubmitting(false);
-          return;
-        }
-
-        navigate(`/dashboards/${res.data.id}`, { state: { initialPrompt: trimmed } });
-      } catch (err) {
-        if (err instanceof Error) {
-          setSubmitError(err.message || 'Network error - please try again.');
-        }
-        setSubmitting(false);
-      }
+      // Send through the global chat — the agent will create a dashboard if needed
+      // and emit a navigate event that Layout handles automatically
+      void globalChat.sendMessage(trimmed);
     },
-    [prompt, submitting, navigate]
+    [prompt, submitting, globalChat],
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

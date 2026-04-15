@@ -4,10 +4,10 @@ import { apiClient } from '../api/client.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import DashboardGrid from '../components/DashboardGrid.js';
 import PanelEditor from '../components/PanelEditor.js';
-import ChatPanel from '../components/ChatPanel.js';
 import VariableBar from '../components/VariableBar.js';
 import InvestigationReportView from '../components/InvestigationReportView.js';
 import { useDashboardChat } from '../hooks/useDashboardChat.js';
+import { useGlobalChat } from '../contexts/ChatContext.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import TimeRangePicker from '../components/TimeRangePicker.js';
 import FolderDialog from '../components/FolderDialog.js';
@@ -116,20 +116,21 @@ export default function DashboardWorkspace() {
     investigationReport,
   } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange);
   const [showReport, setShowReport] = useState(false);
+  const globalChat = useGlobalChat();
 
   // Investigation reports are now handled in the Investigations page.
   // No auto-show on dashboard — the chat will display a link instead.
 
-  // Auto-send initial prompt from Home page
+  // Auto-send initial prompt from Home page via the global chat
   useEffect(() => {
-    if (initialPrompt && dashboard && !initialPromptSent.current && !isGenerating) {
+    if (initialPrompt && dashboard && !initialPromptSent.current && !globalChat.isGenerating) {
       initialPromptSent.current = true;
       if (location.state) {
         window.history.replaceState({}, '');
       }
-      void sendMessage(initialPrompt);
+      void globalChat.sendMessage(initialPrompt);
     }
-  }, [initialPrompt, dashboard, isGenerating, sendMessage]);
+  }, [initialPrompt, dashboard, globalChat]);
 
   // Reload dashboard once when generation completes (SSE done → isGenerating becomes false)
   const wasGeneratingRef = useRef(false);
@@ -462,14 +463,6 @@ export default function DashboardWorkspace() {
           </div>
         </div>
 
-        <ChatPanel
-          events={events}
-          isGenerating={isGenerating}
-          onSendMessage={(msg) => {
-            void sendMessage(msg);
-          }}
-          onStop={stopGeneration}
-        />
       </div>
 
       {editingPanel && (

@@ -39,14 +39,76 @@ export interface ActionContext {
 }
 
 // ---------------------------------------------------------------------------
+// Dashboard lifecycle
+// ---------------------------------------------------------------------------
+
+export async function handleDashboardCreate(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  if (!ctx.store.create) {
+    return 'Error: dashboard store does not support creation.'
+  }
+
+  const title = String(args.title ?? 'Untitled Dashboard')
+  const description = String(args.description ?? '')
+  const prompt = String(args.prompt ?? args.description ?? '')
+
+  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard.create', args: { title }, displayText: `Creating dashboard: "${title}"` })
+
+  const dashboard = await ctx.store.create({
+    title,
+    description,
+    prompt,
+    userId: 'agent',
+    datasourceIds: [],
+  })
+
+  const observationText = `Created dashboard "${dashboard.title}" (id: ${dashboard.id}).`
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.create', summary: observationText, success: true })
+  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard.create', dashboardId: dashboard.id, summary: observationText }))
+  return observationText
+}
+
+// ---------------------------------------------------------------------------
+// Investigation lifecycle
+// ---------------------------------------------------------------------------
+
+export async function handleInvestigationCreate(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  if (!ctx.investigationStore) {
+    return 'Error: investigation store is not available.'
+  }
+
+  const question = String(args.question ?? '')
+  if (!question) return 'Error: "question" is required.'
+
+  ctx.sendEvent({ type: 'tool_call', tool: 'investigation.create', args: { question }, displayText: `Creating investigation: "${question.slice(0, 60)}"` })
+
+  const investigation = await ctx.investigationStore.create({
+    question,
+    sessionId: randomUUID(),
+    userId: 'agent',
+  })
+
+  const observationText = `Created investigation "${question.slice(0, 60)}" (id: ${investigation.id}).`
+  ctx.sendEvent({ type: 'tool_result', tool: 'investigation.create', summary: observationText, success: true })
+  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'investigation.create', investigationId: investigation.id, summary: observationText }))
+  return observationText
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard mutation primitives — model constructs panel configs directly
 // ---------------------------------------------------------------------------
 
 export async function handleDashboardAddPanels(
   ctx: ActionContext,
-  dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  const dashboardId = String(args.dashboardId ?? '')
+  if (!dashboardId) return 'Error: "dashboardId" is required.'
   const panels = args.panels as Array<Record<string, unknown>> | undefined
   if (!panels || !Array.isArray(panels) || panels.length === 0) {
     return 'Error: "panels" array is required with at least one panel config.'
@@ -86,9 +148,10 @@ export async function handleDashboardAddPanels(
 
 export async function handleDashboardSetTitle(
   ctx: ActionContext,
-  dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  const dashboardId = String(args.dashboardId ?? '')
+  if (!dashboardId) return 'Error: "dashboardId" is required.'
   const title = String(args.title ?? '')
   const description = typeof args.description === 'string' ? args.description : undefined
   if (!title) return 'Error: "title" is required.'
@@ -103,9 +166,10 @@ export async function handleDashboardSetTitle(
 
 export async function handleDashboardRemovePanels(
   ctx: ActionContext,
-  dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  const dashboardId = String(args.dashboardId ?? '')
+  if (!dashboardId) return 'Error: "dashboardId" is required.'
   const panelIds = Array.isArray(args.panelIds) ? args.panelIds.map(String) : []
   if (panelIds.length === 0) return 'Error: "panelIds" array is required.'
 
@@ -119,9 +183,10 @@ export async function handleDashboardRemovePanels(
 
 export async function handleDashboardModifyPanel(
   ctx: ActionContext,
-  dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  const dashboardId = String(args.dashboardId ?? '')
+  if (!dashboardId) return 'Error: "dashboardId" is required.'
   const panelId = String(args.panelId ?? '')
   if (!panelId) return 'Error: "panelId" is required.'
   const patch = { ...args } as Record<string, unknown>
@@ -137,9 +202,10 @@ export async function handleDashboardModifyPanel(
 
 export async function handleDashboardAddVariable(
   ctx: ActionContext,
-  dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
+  const dashboardId = String(args.dashboardId ?? '')
+  if (!dashboardId) return 'Error: "dashboardId" is required.'
   const variable = args.variable as import('@agentic-obs/common').DashboardVariable ?? {
     name: String(args.name ?? ''),
     label: String(args.label ?? args.name ?? ''),
@@ -164,10 +230,10 @@ export async function handleDashboardAddVariable(
 
 export async function handleCreateAlertRule(
   ctx: ActionContext,
-  dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
   const prompt = String(args.prompt ?? args.goal ?? '')
+  const dashboardId = String(args.dashboardId ?? '')
   ctx.sendEvent({
     type: 'tool_call',
     tool: 'create_alert_rule',
@@ -175,7 +241,7 @@ export async function handleCreateAlertRule(
     displayText: `Creating alert rule: ${prompt.slice(0, 60)}`,
   })
 
-  const currentDash = await ctx.store.findById(dashboardId)
+  const currentDash = dashboardId ? await ctx.store.findById(dashboardId) : undefined
   const existingQueries = (currentDash?.panels ?? [])
     .flatMap((p) => [
       ...(p.queries ?? []).map((q) => q.expr),
@@ -249,7 +315,6 @@ export async function handleCreateAlertRule(
 
 export async function handleModifyAlertRule(
   ctx: ActionContext,
-  dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
   const ruleId = String(args.ruleId ?? '')
@@ -308,7 +373,6 @@ export async function handleModifyAlertRule(
 
 export async function handleDeleteAlertRule(
   ctx: ActionContext,
-  _dashboardId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
   const ruleId = String(args.ruleId ?? '')

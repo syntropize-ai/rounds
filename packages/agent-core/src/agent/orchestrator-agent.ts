@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createLogger, getErrorMessage } from '@agentic-obs/common'
 import type {
   DashboardSseEvent,
@@ -29,6 +30,8 @@ import {
 import { buildSystemPrompt } from './orchestrator-prompt.js'
 import type { ActionContext } from './orchestrator-action-handlers.js'
 import {
+  handleDashboardCreate,
+  handleInvestigationCreate,
   handleCreateAlertRule,
   handleModifyAlertRule,
   handleDeleteAlertRule,
@@ -65,8 +68,9 @@ export interface OrchestratorDeps {
 }
 
 const MUTATION_ACTIONS = [
-  'dashboard.add_panels', 'dashboard.remove_panels', 'dashboard.modify_panel',
+  'dashboard.create', 'dashboard.add_panels', 'dashboard.remove_panels', 'dashboard.modify_panel',
   'dashboard.rearrange', 'dashboard.add_variable', 'dashboard.set_title',
+  'investigation.create',
   'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule',
 ] as const;
 
@@ -89,8 +93,10 @@ export class OrchestratorAgent {
   private readonly reactLoop: ReActLoop
   private pendingConversationActions: DashboardAction[] = []
   private pendingNavigateTo?: string
+  readonly sessionId: string
 
-  constructor(private deps: OrchestratorDeps) {
+  constructor(private deps: OrchestratorDeps, sessionId?: string) {
+    this.sessionId = sessionId ?? randomUUID()
     this.actionExecutor = new ActionExecutor(deps.store, deps.sendEvent)
 
     this.alertRuleAgent = new AlertRuleAgent({
@@ -137,18 +143,27 @@ export class OrchestratorAgent {
     return navigateTo
   }
 
-  async handleMessage(dashboardId: string, message: string): Promise<string> {
+  /**
+   * Handle a user message. When dashboardId is provided, the agent is scoped
+   * to that dashboard (backward compat). When omitted, the agent operates in
+   * session mode — it can create dashboards/investigations via tools.
+   */
+  async handleMessage(message: string, dashboardId?: string): Promise<string> {
     this.emitAgentEvent(this.makeAgentEvent('agent.started', { dashboardId, message }));
     this.pendingConversationActions = []
     this.pendingNavigateTo = undefined
 
-    const dashboard = await this.deps.store.findById(dashboardId)
-    if (!dashboard) {
+    // Resolve dashboard context (optional in session mode)
+    const dashboard = dashboardId
+      ? await this.deps.store.findById(dashboardId)
+      : undefined
+    if (dashboardId && !dashboard) {
       this.emitAgentEvent(this.makeAgentEvent('agent.failed', { reason: 'Dashboard not found' }));
       throw new Error(`Dashboard ${dashboardId} not found`)
     }
 
-    const history = await this.deps.conversationStore.getMessages(dashboardId)
+    const conversationKey = dashboardId ?? this.sessionId
+    const history = await this.deps.conversationStore.getMessages(conversationKey)
 
     // Fetch existing alert rules so LLM can reference them for modify/delete
     let alertRules: AlertRuleSummary[] = []
@@ -162,7 +177,7 @@ export class OrchestratorAgent {
     const activeAlertRule = getStructuredAlertRuleContext(history, alertRules)
     const directFollowUpAction = parseAlertFollowUpAction(message, activeAlertRule)
     if (directFollowUpAction) {
-      const result = await this.executeAction(dashboardId, directFollowUpAction)
+      const result = await this.executeAction(directFollowUpAction)
       const finalReply = result
         ? await composeAlertFollowUpReply(this.deps.gateway, this.deps.model, message, directFollowUpAction, result)
         : ''
@@ -173,7 +188,7 @@ export class OrchestratorAgent {
       return finalReply
     }
 
-    const systemPrompt = buildSystemPrompt(dashboard, history, alertRules, activeAlertRule, this.deps.allDatasources ?? [], {
+    const systemPrompt = buildSystemPrompt(dashboard ?? null, history, alertRules, activeAlertRule, this.deps.allDatasources ?? [], {
       hasPrometheus: !!this.deps.metricsAdapter,
     })
 
@@ -181,7 +196,7 @@ export class OrchestratorAgent {
       const result = await this.reactLoop.runLoop(
         systemPrompt,
         message,
-        (step) => this.executeAction(dashboardId, step, message),
+        (step) => this.executeAction(step, message),
       )
       this.emitAgentEvent(this.makeAgentEvent('agent.completed', { dashboardId }));
       return result;
@@ -216,7 +231,7 @@ export class OrchestratorAgent {
     }
   }
 
-  private async executeAction(dashboardId: string, step: ReActStep, _userMessage = ''): Promise<string | null> {
+  private async executeAction(step: ReActStep, _userMessage = ''): Promise<string | null> {
     const { action, args } = step
     const agentDef = OrchestratorAgent.definition;
 
@@ -264,16 +279,20 @@ export class OrchestratorAgent {
 
     try {
       switch (action) {
-        // Dashboard mutation primitives
-        case 'dashboard.add_panels': return handleDashboardAddPanels(ctx, dashboardId, args)
-        case 'dashboard.set_title': return handleDashboardSetTitle(ctx, dashboardId, args)
-        case 'dashboard.remove_panels': return handleDashboardRemovePanels(ctx, dashboardId, args)
-        case 'dashboard.modify_panel': return handleDashboardModifyPanel(ctx, dashboardId, args)
-        case 'dashboard.add_variable': return handleDashboardAddVariable(ctx, dashboardId, args)
+        // Dashboard lifecycle
+        case 'dashboard.create': return handleDashboardCreate(ctx, args)
+        // Dashboard mutation primitives (dashboardId comes from args)
+        case 'dashboard.add_panels': return handleDashboardAddPanels(ctx, args)
+        case 'dashboard.set_title': return handleDashboardSetTitle(ctx, args)
+        case 'dashboard.remove_panels': return handleDashboardRemovePanels(ctx, args)
+        case 'dashboard.modify_panel': return handleDashboardModifyPanel(ctx, args)
+        case 'dashboard.add_variable': return handleDashboardAddVariable(ctx, args)
+        // Investigation lifecycle
+        case 'investigation.create': return handleInvestigationCreate(ctx, args)
         // Alert rules
-        case 'create_alert_rule': return handleCreateAlertRule(ctx, dashboardId, args)
-        case 'modify_alert_rule': return handleModifyAlertRule(ctx, dashboardId, args)
-        case 'delete_alert_rule': return handleDeleteAlertRule(ctx, dashboardId, args)
+        case 'create_alert_rule': return handleCreateAlertRule(ctx, args)
+        case 'modify_alert_rule': return handleModifyAlertRule(ctx, args)
+        case 'delete_alert_rule': return handleDeleteAlertRule(ctx, args)
         // Prometheus primitives
         case 'prometheus.query': return handlePrometheusQuery(ctx, args)
         case 'prometheus.range_query': return handlePrometheusRangeQuery(ctx, args)

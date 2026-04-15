@@ -68,17 +68,18 @@ function getWorkflowsSection(): string {
 
 These are the standard workflows for common tasks. Follow them step by step. Do NOT skip steps — especially discovery and validation.
 
-## 1. Creating a Dashboard (empty dashboard, user wants monitoring for a topic)
-1. Use web.search to understand what metrics and panels are standard for this topic (e.g. "kubernetes pod monitoring prometheus metrics")
-2. Use prometheus.metric_names or prometheus.series to discover what metrics actually exist in the cluster
-3. Use prometheus.metadata on the discovered metrics to understand their types (counter/gauge/histogram)
-4. Set the dashboard title with dashboard.set_title
-5. Construct panel configs based on discovered metrics. For each panel:
+## 1. Creating a Dashboard (user wants monitoring for a topic)
+1. Create the dashboard with dashboard.create({ title, description, prompt }) — this returns the dashboardId
+2. Use web.search to understand what metrics and panels are standard for this topic (e.g. "kubernetes pod monitoring prometheus metrics")
+3. Use prometheus.metric_names or prometheus.series to discover what metrics actually exist in the cluster
+4. Use prometheus.metadata on the discovered metrics to understand their types (counter/gauge/histogram)
+5. Set the dashboard title with dashboard.set_title({ dashboardId, title }) if needed
+6. Construct panel configs based on discovered metrics. For each panel:
    a. Write the PromQL query using correct functions for the metric type
    b. Validate with prometheus.validate
    c. Only if valid, include in your panels array
-6. Add all panels in one dashboard.add_panels call (batch, don't add one-by-one)
-7. Use finish to report what was created
+7. Add all panels in one dashboard.add_panels({ dashboardId, panels }) call (batch, don't add one-by-one)
+8. Use finish to report what was created
 
 IMPORTANT: Do NOT guess metric names. If prometheus.series returns nothing for a pattern, tell the user — don't fabricate queries. A dashboard with 6 working panels is better than 12 broken ones.
 
@@ -169,11 +170,14 @@ These are your eyes into the cluster. Use them to discover what metrics exist, u
 
   return `# Available Tools
 ${prometheusTools}
-## Dashboard Tools (write — mutate the dashboard)
+## Dashboard Tools (write — mutate dashboards)
 You construct panel configurations yourself: choose the title, PromQL queries, visualization type, and unit. These tools apply your configs to the dashboard immediately.
 
-- dashboard.set_title(title, description?) — Set the dashboard title and optional description. Use early when creating a new dashboard.
-- dashboard.add_panels(panels) — Add one or more panels to the dashboard. Each panel object:
+All dashboard mutation tools require a "dashboardId" argument. If you don't have one yet, create a dashboard first with dashboard.create.
+
+- dashboard.create(title?, description?, prompt?) — Create a new empty dashboard. Returns the dashboardId. Use this first when the user wants a new dashboard.
+- dashboard.set_title(dashboardId, title, description?) — Set the dashboard title and optional description.
+- dashboard.add_panels(dashboardId, panels) — Add one or more panels to the dashboard. Each panel object:
   { title: string, description?: string, visualization: "time_series"|"stat"|"gauge"|"bar"|"table"|"pie"|"heatmap"|"histogram"|"status_timeline", queries: [{ refId: "A", expr: "rate(http_requests_total[5m])", legendFormat?: "{{method}}", instant?: true }], unit?: "bytes"|"bytes/s"|"seconds"|"ms"|"percentunit"|"percent"|"reqps"|"short"|"none", width?: 6, height?: 3 }
   Tips:
   - Always validate queries with prometheus.validate before adding
@@ -181,9 +185,12 @@ You construct panel configurations yourself: choose the title, PromQL queries, v
   - stat/gauge panels must be single-value — don't use grouped queries that return multiple series
   - For multi-series comparison, use separate queries with refId "A", "B", "C"
   - Width is 1-12 (12-column grid), height is in grid units (default 3)
-- dashboard.remove_panels(panelIds) — Remove panels by their ID. Check the Dashboard State context for panel IDs.
-- dashboard.modify_panel(panelId, ...patch) — Modify an existing panel. You can patch any property: title, queries, visualization, unit, etc. Check the Dashboard State context for the current panel configuration.
-- dashboard.add_variable(name, label?, type?, query?, multi?, includeAll?) — Add a template variable. type is "query", "custom", or "datasource". For query type, provide a PromQL label_values expression.
+- dashboard.remove_panels(dashboardId, panelIds) — Remove panels by their ID. Check the Dashboard State context for panel IDs.
+- dashboard.modify_panel(dashboardId, panelId, ...patch) — Modify an existing panel. You can patch any property: title, queries, visualization, unit, etc. Check the Dashboard State context for the current panel configuration.
+- dashboard.add_variable(dashboardId, name, label?, type?, query?, multi?, includeAll?) — Add a template variable. type is "query", "custom", or "datasource". For query type, provide a PromQL label_values expression.
+
+## Investigation Tools
+- investigation.create(question) — Create a new investigation. Returns the investigationId. Use when the user wants to start a deep-dive investigation into an issue.
 
 ## Web Search
 - web.search(query) — Search the web for monitoring best practices, metric naming conventions, dashboard design patterns, alerting strategies. Use when you need domain knowledge about a technology you're not familiar with — e.g., "nginx prometheus metrics", "kubernetes pod monitoring best practices", "redis alerting thresholds".
@@ -342,7 +349,7 @@ export interface SystemPromptOptions {
 }
 
 export function buildSystemPrompt(
-  dashboard: Dashboard,
+  dashboard: Dashboard | null,
   history: DashboardMessage[],
   alertRules: AlertRuleSummary[],
   activeAlertRule: AlertRuleSummary | null,
@@ -366,11 +373,16 @@ export function buildSystemPrompt(
 
   // Dynamic sections (change per request)
   const dynamicSections = [
-    getDashboardContextSection(dashboard),
+    dashboard ? getDashboardContextSection(dashboard) : getSessionModeSection(),
     getHistorySection(history),
     getDatasourceSection(allDatasources),
     getAlertRulesSection(alertRules, activeAlertRule, history),
   ]
 
   return [...staticSections, ...dynamicSections].filter(Boolean).join('\n\n')
+}
+
+function getSessionModeSection(): string {
+  return `# Session Mode
+You are operating in session mode — not scoped to a specific dashboard. You can create new dashboards and investigations using dashboard.create and investigation.create. All dashboard mutation tools (add_panels, set_title, etc.) require a dashboardId argument — use the ID returned by dashboard.create.`
 }

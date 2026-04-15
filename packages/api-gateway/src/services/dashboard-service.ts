@@ -158,7 +158,7 @@ export class DashboardService {
     });
 
     log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');
-    const replyContent = await orchestrator.handleMessage(dashboardId, message);
+    const replyContent = await orchestrator.handleMessage(message, dashboardId);
     const assistantActions = orchestrator.consumeConversationActions();
     const navigate = orchestrator.consumeNavigate();
     log.info({ dashboardId, reply: replyContent.slice(0, 100) }, 'orchestrator done');

@@ -28,6 +28,7 @@ import { createWorkspaceRouter } from './routes/workspaces.js';
 import { createVersionRouter } from './routes/versions.js';
 import { createFolderRouter } from './routes/folders.js';
 import { createSearchRouter } from './routes/search.js';
+import { createChatRouter } from './routes/chat.js';
 import {
   createSqliteClient,
   createSqliteRepositories,
@@ -158,6 +159,13 @@ export function createApp(): Application {
       investigationStore: repos.investigations,
       feedStore: eventFeedStore,
     }));
+    app.use('/api/chat', createChatRouter({
+      dashboardStore: repos.dashboards,
+      conversationStore: repos.conversations,
+      investigationReportStore: repos.investigationReports,
+      alertRuleStore: eventAlertRuleStore,
+      investigationStore: repos.investigations,
+    }));
     app.use('/api/alert-rules', createAlertRulesRouter({
       alertRuleStore: eventAlertRuleStore,
       investigationStore: repos.investigations,
@@ -202,6 +210,13 @@ export function createApp(): Application {
       alertRuleStore: defaultAlertRuleStore,
       investigationStore: defaultInvestigationStore,
       feedStore,
+    }));
+    app.use('/api/chat', createChatRouter({
+      dashboardStore: defaultDashboardStore,
+      conversationStore: defaultConversationStore,
+      investigationReportStore: defaultInvestigationReportStore,
+      alertRuleStore: defaultAlertRuleStore,
+      investigationStore: defaultInvestigationStore,
     }));
     app.use('/api/alert-rules', createAlertRulesRouter({
       alertRuleStore: defaultAlertRuleStore,

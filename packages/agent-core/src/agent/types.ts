@@ -102,8 +102,19 @@ export interface GenerateOutput {
 // only on these narrow interfaces.
 
 export interface IDashboardAgentStore {
+  create?(params: {
+    title: string
+    description: string
+    prompt: string
+    userId: string
+    datasourceIds: string[]
+    useExistingMetrics?: boolean
+    folder?: string
+    workspaceId?: string
+  }): import('@agentic-obs/common').Dashboard | Promise<import('@agentic-obs/common').Dashboard>
   findById(id: string): import('@agentic-obs/common').Dashboard | Promise<import('@agentic-obs/common').Dashboard | undefined> | undefined
   update(id: string, patch: Partial<Pick<import('@agentic-obs/common').Dashboard, 'type' | 'title' | 'description' | 'panels' | 'variables' | 'refreshIntervalSec' | 'folder'>>): unknown
+  updateStatus?(id: string, status: string, error?: string): unknown
   updatePanels(id: string, panels: PanelConfig[]): unknown
   updateVariables(id: string, variables: DashboardVariable[]): unknown
 }

@@ -29,9 +29,12 @@ agentRegistry.register({
   type: 'orchestrator',
   description: 'Autonomous observability agent that uses primitive tools to build dashboards, investigate issues, and manage alerts',
   allowedTools: [
-    // Dashboard mutation primitives
+    // Dashboard lifecycle + mutation primitives
+    'dashboard.create',
     'dashboard.add_panels', 'dashboard.remove_panels', 'dashboard.modify_panel',
     'dashboard.rearrange', 'dashboard.add_variable', 'dashboard.set_title',
+    // Investigation lifecycle
+    'investigation.create',
     // Prometheus primitives
     'prometheus.query', 'prometheus.range_query', 'prometheus.labels', 'prometheus.label_values',
     'prometheus.series', 'prometheus.metadata', 'prometheus.metric_names', 'prometheus.validate',

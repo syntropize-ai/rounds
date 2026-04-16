@@ -168,6 +168,21 @@ User: "Go to the alerts page"
   2. finish("Opened the alerts page.")
 </example>
 
+## Listing Resources
+When the user asks "what X do I have", "list my X", "我有哪些 X", "列出所有 X" — enumerate them with the matching list tool and report the results in the finish message. Do NOT navigate unless the user asked to open something.
+
+<example>
+User: "我有哪些 dashboard"
+  1. dashboard.list({}) → Found [abc-123] "HTTP Service Monitoring", [def-456] "Redis Monitoring"
+  2. finish("您有 2 个 dashboard：HTTP Service Monitoring、Redis Monitoring。")
+</example>
+
+<example>
+User: "List my alert rules"
+  1. alert_rule.list({}) → Found [rule-1] "High Error Rate", [rule-2] "Disk Full"
+  2. finish("You have 2 alert rules: High Error Rate, Disk Full.")
+</example>
+
 ## Answering Questions
 <example>
 User: "What's the difference between rate() and irate()?"

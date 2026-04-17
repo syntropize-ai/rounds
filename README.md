@@ -14,8 +14,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/openobs/openobs/actions/workflows/ci.yml"><img src="https://github.com/openobs/openobs/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/openobs/openobs/blob/main/LICENSE"><img src="https://img.shields.io/github/license/openobs/openobs" alt="License" /></a>
+  <a href="https://github.com/PerforMance308/prism/actions/workflows/ci.yml"><img src="https://github.com/PerforMance308/prism/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/PerforMance308/prism/blob/main/LICENSE"><img src="https://img.shields.io/github/license/PerforMance308/prism" alt="License" /></a>
   <a href="https://docs.openobs.com"><img src="https://img.shields.io/badge/docs-docs.openobs.com-blue" alt="Docs" /></a>
 </p>
 
@@ -27,6 +27,10 @@
 </p>
 
 ---
+
+<p align="center">
+  <img src="docs/demo.gif" width="760" alt="OpenObs demo" />
+</p>
 
 ## What is OpenObs?
 
@@ -40,7 +44,7 @@ OpenObs turns natural language into production-grade observability workflows:
 ## Quick Start
 
 ```bash
-git clone https://github.com/openobs/openobs.git && cd openobs
+git clone https://github.com/PerforMance308/prism.git && cd prism
 npm install
 cp .env.example .env      # set JWT_SECRET (min 32 chars)
 npm run build
@@ -75,7 +79,7 @@ Then open **http://localhost:3000**.
 ```bash
 helm upgrade --install openobs ./helm/openobs \
   --namespace observability --create-namespace \
-  --set image.repository=ghcr.io/openobs/openobs \
+  --set image.repository=ghcr.io/PerforMance308/prism \
   --set image.tag=latest \
   --set secretEnv.LLM_API_KEY='your-provider-key'
 ```

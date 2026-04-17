@@ -353,6 +353,17 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   // appears on every panel via uPlot's sync hub, but the tooltip belongs
   // to the panel the user is actually looking at.
   const [isPointerInside, setIsPointerInside] = useState(false);
+  // True whenever the uPlot crosshair should be visible on this panel —
+  // either because our own pointer is inside the plot area (hasOwnCursor)
+  // or because a sibling panel is publishing a synced cursor
+  // (hasSyncedCursor). We cannot rely on `isPointerInside` alone: it tracks
+  // the outer container (title / legend / axes all count as "inside") but
+  // uPlot's own crosshair only has meaningful state while the pointer is
+  // actually over the plot. And `plot.setCursor({left:-10, top:-10})` does
+  // NOT remove the crosshair DOM — the lines freeze at their last position
+  // until something hides them via CSS.
+  const [hasOwnCursor, setHasOwnCursor] = useState(false);
+  const [hasSyncedCursor, setHasSyncedCursor] = useState(false);
   // Set to true while we're applying a cursor position received from the
   // cross-panel bus. The setCursor hook checks it and skips publishing back,
   // breaking the publish→subscribe→publish loop that would otherwise make A
@@ -371,11 +382,18 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
       applyingExternalRef.current = true;
       try {
         if (detail.ts === null) {
-          plot.setCursor({ left: -10, top: -10 });
+          // Don't touch plot.setCursor here — calling setCursor(-10,-10)
+          // synchronously repaints uPlot's crosshair divs at (0,0) before
+          // React applies the `ts-no-cursor` class, producing a visible
+          // flash in the top-left corner. The CSS hide alone is enough;
+          // the uPlot cursor divs just stay at their last position
+          // underneath, invisible.
+          setHasSyncedCursor(false);
           return;
         }
         const left = plot.valToPos(detail.ts, 'x');
         if (!Number.isFinite(left) || left < 0) return;
+        setHasSyncedCursor(true);
         // Map the publisher's Y-fraction onto this panel's own plot height
         // so the horizontal crosshair tracks the source's pointer instead
         // of sitting at a fixed mid-plot line. Fall back to mid when no
@@ -440,19 +458,34 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
       const idx = u.cursor.idx;
       const cLeft = u.cursor.left ?? -1;
       const cTop = u.cursor.top ?? -1;
+      // "Real mouse over this plot" = our own pointer is physically above
+      // the `over` element right now. Can't rely on pointerenter/leave
+      // listeners (browser drops them under fast motion) or on
+      // applyingExternalRef (uPlot's cursor-sync hub triggers setCursor on
+      // receiver panels without going through our subscribe handler). A
+      // live CSS :hover match on the over element is the authoritative
+      // signal and updates synchronously with the pointer.
+      const over = (u as unknown as { over?: HTMLElement }).over;
+      const isLocal = !!over && over.matches(':hover');
       if (idx === null || idx === undefined || idx < 0 || cLeft < 0) {
         scheduleTooltip({ idx: -1, left: 0, top: 0, visible: false });
-        if (!applyingExternalRef.current) {
+        setHasOwnCursor(false);
+        // Only the panel whose own mouse just left should broadcast the
+        // clear. Without the `isLocal` gate, a setCursor frame caused by
+        // uPlot's sync hub (our own bus publish bouncing via uPlot's x-sync
+        // to peers) re-publishes null/non-null and re-syncs the original
+        // panel, leaving its crosshair stuck.
+        if (!applyingExternalRef.current && isLocal) {
           publishCursor({ ts: null, sourceId, syncKey: syncKey ?? 'prism-panels' });
         }
         return;
       }
+      setHasOwnCursor(isLocal);
       // uPlot's cursor coords are relative to its `over` element (the inner
       // plot area, after axes). Tooltip lives in the TimeSeriesViz container,
       // so translate by the over element's offset within the container — else
       // the tooltip's flip math against `containerRef.clientWidth` is off by
       // the y-axis gutter and the tooltip drifts left of the crosshair.
-      const over = (u as unknown as { over?: HTMLElement }).over;
       const containerEl = containerRef.current;
       let absLeft = cLeft;
       let absTop = cTop;
@@ -467,7 +500,12 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
       // change came from THIS chart's user interaction, not from a bus event
       // we just applied. The flag is the loop-breaker: external apply →
       // setCursor → flag is true → no publish → no echo.
-      if (!applyingExternalRef.current) {
+      // Only publish when OUR mouse is really in the plot — not when this
+      // frame was triggered by uPlot's x-sync hub forwarding a peer's
+      // cursor. Without the gate, receiver panels echo every synced frame
+      // back to the bus and the original publisher gets stuck in its own
+      // reflection.
+      if (!applyingExternalRef.current && isLocal) {
         const ts = u.data[0]?.[idx];
         if (typeof ts === 'number') {
           // Report pointer Y as a fraction of the plot area height so
@@ -544,9 +582,35 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
     }
   }, [hidden, built]);
 
-  const handleReady = useCallback((plot: uPlot) => {
-    plotRef.current = plot;
-  }, []);
+  const handleReady = useCallback(
+    (plot: uPlot) => {
+      plotRef.current = plot;
+      // The setCursor hook can't publish the "cursor left" clear reliably:
+      // by the time it fires with idx=null, `over.matches(':hover')` is
+      // already false, which is exactly the gate we use to distinguish a
+      // real local pointer from a uPlot-sync echo. Bind a dedicated
+      // pointerleave listener on the over element so the null-publish
+      // happens exactly once per real leave, independent of that gate.
+      const over = (plot as unknown as { over?: HTMLElement }).over;
+      if (!over) return;
+      const onLeave = (): void => {
+        // Hide the crosshair and tooltip BEFORE uPlot runs its own
+        // mouseleave repaint. React state updates are async and the
+        // `setTooltip({visible:false})` that the setCursor hook normally
+        // issues lands a frame after the pointerleave — long enough for
+        // the still-visible tooltip card to flash at its last position.
+        // Imperative DOM writes here close that gap for both elements.
+        containerRef.current?.classList.add('ts-no-cursor');
+        flushSync(() =>
+          setTooltip({ idx: -1, left: 0, top: 0, visible: false }),
+        );
+        setHasOwnCursor(false);
+        publishCursor({ ts: null, sourceId, syncKey: syncKey ?? 'prism-panels' });
+      };
+      over.addEventListener('pointerleave', onLeave);
+    },
+    [sourceId, syncKey],
+  );
 
   const toggleSeries = useCallback((name: string) => {
     setHidden((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -607,7 +671,9 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   return (
     <div
       ref={containerRef}
-      className={`flex h-full w-full flex-col ${isPointerInside ? '' : 'ts-passive'}`}
+      className={`flex h-full w-full flex-col ${hasOwnCursor ? '' : 'ts-passive'} ${
+        !hasOwnCursor && !hasSyncedCursor ? 'ts-no-cursor' : ''
+      }`}
       style={{ position: 'relative' }}
       onMouseEnter={() => setIsPointerInside(true)}
       onMouseLeave={() => setIsPointerInside(false)}
@@ -813,6 +879,7 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef }: Toolti
 
   return (
     <div
+      className="ts-tooltip"
       style={{
         position: 'absolute',
         left,

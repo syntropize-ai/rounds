@@ -324,6 +324,8 @@ export default function HeatmapViz({
     | {
         left: number;
         top: number;
+        flipX: boolean;
+        flipY: boolean;
         time: string;
         bucket: string;
         value: string;
@@ -564,19 +566,23 @@ export default function HeatmapViz({
       ys.every((y) => y === '+Inf' || y === '-Inf' || Number.isFinite(parseFloat(y)));
     const bucketLabel = isHistogram && unit ? `≤${formatValueForDisplay(parseFloat(row), unit)}` : row;
     // Smart placement: flip to the opposite side of the cursor when the
-    // tooltip would overflow the container (right edge or bottom edge). The
-    // dimensions are estimates — we avoid measuring the rendered tooltip to
-    // skip a second render pass per pixel of mouse travel.
-    const TOOLTIP_W = 160;
-    const TOOLTIP_H = 76;
+    // tooltip would overflow the container edge. Instead of subtracting a
+    // fixed TOOLTIP_W estimate (which visibly gaps when the rendered
+    // tooltip is narrower than the estimate), anchor the tooltip's
+    // relevant edge at cursor±OFFSET and let CSS transform peg the box
+    // to its real rendered width — same approach as TimeSeriesViz.
+    const TOOLTIP_W_ESTIMATE = 160;
+    const TOOLTIP_H_ESTIMATE = 76;
     const OFFSET = 12;
     const cursorLeft = e.clientX - containerRect.left;
     const cursorTop = e.clientY - containerRect.top;
-    const flipX = cursorLeft + OFFSET + TOOLTIP_W > containerRect.width;
-    const flipY = cursorTop + OFFSET + TOOLTIP_H > containerRect.height;
+    const flipX = cursorLeft + OFFSET + TOOLTIP_W_ESTIMATE > containerRect.width;
+    const flipY = cursorTop + OFFSET + TOOLTIP_H_ESTIMATE > containerRect.height;
     setTooltip({
-      left: flipX ? Math.max(0, cursorLeft - OFFSET - TOOLTIP_W) : cursorLeft + OFFSET,
-      top: flipY ? Math.max(0, cursorTop - OFFSET - TOOLTIP_H) : cursorTop + OFFSET,
+      left: flipX ? cursorLeft - OFFSET : cursorLeft + OFFSET,
+      top: flipY ? cursorTop - OFFSET : cursorTop + OFFSET,
+      flipX,
+      flipY,
       time: formatTime(col),
       bucket: bucketLabel === '≤NaN' ? row : bucketLabel,
       value:
@@ -688,6 +694,9 @@ export default function HeatmapViz({
             position: 'absolute',
             left: tooltip.left,
             top: tooltip.top,
+            transform: `${tooltip.flipX ? 'translateX(-100%)' : ''} ${
+              tooltip.flipY ? 'translateY(-100%)' : ''
+            }`.trim() || undefined,
             pointerEvents: 'none',
             background: VIZ_TOKENS.tooltip.background,
             border: VIZ_TOKENS.tooltip.border,

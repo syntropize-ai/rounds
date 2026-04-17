@@ -110,6 +110,18 @@ body {
   display: none !important;
 }
 
+/* No active cursor anywhere (mouse not over this panel AND no synced
+   cursor from a sibling): hide the crosshair lines entirely. uPlot's
+   setCursor({ left: -10, top: -10 }) only clears its internal state; the
+   crosshair divs stay pinned at their last position and show as stuck
+   lines at the edge of the plot without this rule. */
+.ts-no-cursor .uplot .u-cursor-x,
+.ts-no-cursor .uplot .u-cursor-y,
+.ts-no-cursor .uplot .u-cursor-pt,
+.ts-no-cursor .ts-tooltip {
+  display: none !important;
+}
+
 .react-grid-item.react-draggable-dragging {
   z-index: 100;
   box-shadow: 0 8px 40px -5px rgba(163, 166, 255, 0.05);

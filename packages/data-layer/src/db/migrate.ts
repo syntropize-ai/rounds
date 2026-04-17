@@ -1,7 +1,23 @@
 import { sql } from 'drizzle-orm';
 import type { SqliteClient } from './sqlite-client.js';
+import { loadSqlMigrations, type SqlMigration } from '../migrations/index.js';
 
 // -- Schema versioning ---------------------------------------------------------
+//
+// There are two migration mechanisms tracked in the same `_migrations` table:
+//
+//  1. Legacy integer versioned path (V1..V4). Columns: `version INTEGER PK`.
+//     These created the pre-auth-perm schema (investigations, dashboards,
+//     etc.). Keep as-is — they're already applied on existing deployments.
+//
+//  2. Name-based path. Any `packages/data-layer/src/migrations/*.sql` file.
+//     Tracked via a new `name TEXT NULL` column on `_migrations`. Added
+//     lazily via ALTER TABLE so existing deployments don't need a schema
+//     reset. Applied in filename order (numeric NNN_ prefix).
+//
+// The two mechanisms coexist indefinitely; the legacy rows keep `name NULL`
+// and name-based rows keep `version NULL` (via a value outside the INTEGER
+// sequence — we use rowid autoincrement style via large offset).
 
 const SCHEMA_VERSION = 4;
 
@@ -319,4 +335,124 @@ export function ensureSchema(db: SqliteClient): void {
 
   // Record migration
   db.run(sql`INSERT INTO _migrations (version) VALUES (${SCHEMA_VERSION})`);
+}
+
+// -- Name-based migration runner ---------------------------------------------
+
+interface MigrationNameRow {
+  name: string | null;
+}
+
+/**
+ * Ensure the `_migrations` table has a `name TEXT NULL` column. Idempotent —
+ * safe to call on fresh installs (column doesn't exist yet) and on existing
+ * deployments (column already exists from prior runs).
+ *
+ * SQLite `ALTER TABLE ADD COLUMN` errors if the column exists; we swallow
+ * that specific failure because there's no portable `IF NOT EXISTS` for
+ * column-level ALTERs.
+ */
+function ensureMigrationsNameColumn(db: SqliteClient): void {
+  // Short-circuit if the column already exists. PRAGMA table_info is cheap
+  // and avoids having to swallow the ALTER-TABLE error (better-sqlite3 wraps
+  // it in a DrizzleError that makes `.cause` inspection awkward).
+  const cols = db.all<{ name: string }>(sql.raw(`PRAGMA table_info(_migrations)`));
+  if (cols.some((c) => c.name === 'name')) {
+    return;
+  }
+  db.run(sql.raw(`ALTER TABLE _migrations ADD COLUMN name TEXT NULL`));
+}
+
+/**
+ * Return the set of `name`s already applied (name-based migrations only).
+ * Legacy V1..V4 rows have `name IS NULL` so they are filtered out by the WHERE.
+ */
+function loadAppliedNames(db: SqliteClient): Set<string> {
+  const rows = db.all<MigrationNameRow>(
+    sql`SELECT name FROM _migrations WHERE name IS NOT NULL`,
+  );
+  const applied = new Set<string>();
+  for (const r of rows) {
+    if (r.name) applied.add(r.name);
+  }
+  return applied;
+}
+
+/**
+ * Execute a multi-statement SQL script. better-sqlite3's `exec` handles semicolons
+ * but drizzle's `db.run(sql.raw(...))` binds to a single `.prepare().run()` call
+ * which will fail on multi-statement strings. We split on the statement boundary
+ * (`;\s*\n` or `;` at end of file), trim empties and comments, and run each
+ * statement individually inside the same caller-provided transaction.
+ */
+function execScript(db: SqliteClient, script: string): void {
+  const statements = splitSqlStatements(script);
+  for (const stmt of statements) {
+    db.run(sql.raw(stmt));
+  }
+}
+
+/**
+ * Split a SQL script into individual statements. Strips `--` line comments
+ * and skips whitespace-only chunks. Does NOT attempt full SQL lexing — our
+ * migrations are DDL + simple seed inserts with no string literals containing
+ * semicolons, which keeps this safe. If that invariant ever breaks, revisit
+ * with a proper tokenizer.
+ */
+export function splitSqlStatements(script: string): string[] {
+  // Strip `-- ...` line comments (not block comments — our migrations don't use them).
+  const sansComments = script
+    .split(/\r?\n/)
+    .map((line) => {
+      const idx = line.indexOf('--');
+      return idx >= 0 ? line.slice(0, idx) : line;
+    })
+    .join('\n');
+
+  return sansComments
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Apply any pending name-based migrations. Each migration runs in its own
+ * transaction: on failure the partial CREATE/INSERT effects are rolled back
+ * and `_migrations` is not updated.
+ *
+ * Idempotent — already-applied migrations (by filename) are skipped.
+ */
+export function applyNamedMigrations(db: SqliteClient, migrations?: SqlMigration[]): void {
+  ensureMigrationsNameColumn(db);
+  const applied = loadAppliedNames(db);
+
+  const toApply = (migrations ?? loadSqlMigrations()).filter(
+    (m) => !applied.has(m.name),
+  );
+
+  for (const mig of toApply) {
+    db.run(sql.raw('BEGIN TRANSACTION'));
+    try {
+      execScript(db, mig.sql);
+      db.run(sql`INSERT INTO _migrations (name) VALUES (${mig.name})`);
+      db.run(sql.raw('COMMIT'));
+    } catch (err) {
+      db.run(sql.raw('ROLLBACK'));
+      throw new Error(
+        `[data-layer] migration ${mig.name} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
+
+/**
+ * Top-level migration entrypoint. Runs the legacy versioned migrations first,
+ * then the name-based migrations (new auth/perm tables etc.). Idempotent.
+ *
+ * Callers that only need the legacy schema should keep calling `ensureSchema`
+ * directly; callers that need the full Grafana-parity schema call this.
+ */
+export function migrate(db: SqliteClient, migrations?: SqlMigration[]): void {
+  ensureSchema(db);
+  applyNamedMigrations(db, migrations);
 }

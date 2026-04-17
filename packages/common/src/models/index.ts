@@ -13,3 +13,16 @@ export * from './postmortem.js';
 export * from './explanation.js';
 export * from './workspace.js';
 export * from './version.js';
+
+// — Auth / permissions (Grafana-parity) —
+// See docs/auth-perm-design/ for the design. Wave 1 (T1.1–T1.3).
+export * from './org.js';
+export * from './user.js';
+export * from './team.js';
+export * from './api-key.js';
+export * from './rbac.js';
+export * from './folder.js';
+export * from './dashboard-acl.js';
+export * from './preferences.js';
+export * from './quota.js';
+export * from './audit-log.js';

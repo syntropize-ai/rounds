@@ -8,4 +8,5 @@ export * from './queue/index.js';
 export * from './lifecycle/index.js';
 export * from './errors/index.js';
 export * from './models/index.js';
+export * from './repositories/index.js';
 export * from './adapter-types.js';

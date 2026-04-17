@@ -17,6 +17,13 @@ export * from './cache/index.js';
 // ── Repository interfaces ────────────────────────────────────────────────
 export * from './repository/index.js';
 
+// ── Auth / permissions repositories (Grafana-parity, Wave 1) ────────────
+export * from './repository/auth/index.js';
+
+// ── Test fixtures & in-memory DB helper (exported so other workspaces can
+// ── use them in integration tests).
+export * from './test-support/index.js';
+
 // ── Store implementations ────────────────────────────────────────────────
 // Re-exported selectively to avoid name conflicts with repository types.
 // For the full store API, import from '@agentic-obs/data-layer/stores'.

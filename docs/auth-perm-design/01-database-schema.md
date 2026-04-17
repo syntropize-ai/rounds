@@ -14,9 +14,11 @@ Grafana supports SQLite, PostgreSQL, and MySQL. We target SQLite-only for now bu
 | Concept | Grafana | openobs | Rationale |
 |---|---|---|---|
 | Primary key | `BIGSERIAL` int64 | `TEXT` (uuid v4) | Existing openobs convention across all repos. `[openobs-deviation]` |
-| Timestamps | `TIMESTAMP` | `INTEGER` epoch ms | Existing openobs convention. `[openobs-deviation]` |
+| Timestamps | `TIMESTAMP` | `TEXT` ISO-8601 string | Existing openobs convention (see `packages/data-layer/src/db/migrate.ts`). All 14 pre-existing tables use `created_at TEXT NOT NULL` etc. `[openobs-deviation]` |
 | Booleans | `BOOLEAN` | `INTEGER 0/1` | SQLite has no native bool. |
 | Text | `VARCHAR(N)` | `TEXT` (unbounded) | SQLite ignores length anyway. |
+
+> **Note to implementing agents**: Every `INTEGER` timestamp column in the DDL blocks below is short-hand for `TEXT NOT NULL` (ISO-8601 e.g. `'2026-04-17T16:23:45.123Z'`). The actual migration SQL MUST emit `TEXT NOT NULL`, not `INTEGER`. Parse in application code with `Date.parse(row.created)`. Grafana uses real TIMESTAMP types; our runtime is SQLite + drizzle where TEXT is the idiomatic choice.
 
 Every other aspect (column names, semantics, indexes, FKs, unique constraints) must match Grafana.
 

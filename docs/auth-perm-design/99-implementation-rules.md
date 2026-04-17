@@ -8,6 +8,32 @@
 
 Simplification is the default failure mode for engineering work delegated to agents. It feels like progress but it's drift. The whole point of this design is parity — the moment you cut a corner, the product stops being Grafana-compatible.
 
+## The rule that matters second-most: license hygiene
+
+**Grafana is AGPL-3.0. Do not copy source code from it.** AGPL is infectious — a verbatim block would force openobs under AGPL, which is unacceptable. This means:
+
+- Read Grafana source to *understand* schema, flow, semantics. Then **close the file** and write your own implementation from understanding, in idiomatic openobs-style TypeScript.
+- No line-by-line Go→TypeScript translation.
+- No copied comments longer than a few standard words.
+- No copied DDL — rewrite using our conventions (`TEXT` uuid PKs, `TEXT` ISO timestamps, our naming).
+- No copied test case names / data.
+- No copied error message strings beyond short standard phrases.
+
+**What IS fine to share with Grafana** (interface facts, de-facto standards, operator-facing vocabulary — not copyrightable expression):
+- Table names (`user`, `org`, `team`, `api_key`, ...).
+- Self-descriptive column names (`name`, `email`, `created`, `role`, `scope`, `action`).
+- Endpoint paths (`/api/orgs`, `/api/teams/search`) — API contracts are widely compatible.
+- Action strings (`dashboards:read`, `folders:write`) — operator-facing vocabulary.
+- Role names: `Admin`, `Editor`, `Viewer`, `None`.
+- Permission bit values (1 / 2 / 4 for View / Edit / Admin).
+- HTTP status codes and response shape (`{ message: "..." }`).
+
+**Attribution comments**: a short reference like `// Schema follows grafana's org_user conventions (role enum + indexes).` is fine. Do NOT include verbatim excerpts as "documentation."
+
+**Test scenarios**: use the scenarios listed in the design docs as the source of truth. Do not copy from Grafana `*_test.go` files.
+
+If you've already written anything that's a verbatim port, rewrite it before proceeding. Every final report MUST include a "License hygiene" subsection confirming: you only read Grafana for understanding, you did not copy blocks, and nothing in your diff would look like a literal translation to a lawyer.
+
 ## Before you write a line of code
 
 1. Read [00-overview.md](00-overview.md) to understand where your task fits.
@@ -114,9 +140,14 @@ Before declaring a task done, verify:
 - All passing: <yes/no>
 
 **Grafana reference check:**
-- `pkg/services/user/user.go` — matched, see user.ts:42
-- `pkg/services/user/model.go` — deviated: openobs uses TEXT ID (uuid) vs grafana int64; see user.ts:15 `[openobs-deviation]`
+- `pkg/services/user/user.go` — read for semantics; our impl re-written from scratch
+- `pkg/services/user/model.go` — read; we diverge on PK type (TEXT uuid) by design
 - ...
+
+**License hygiene:**
+- Grafana source was read only to understand schema and behavior. No code, comments, or DDL blocks were copied.
+- Attribution references in comments are short factual pointers (e.g. "matches grafana's rotation cadence"), not excerpts.
+- I inspected my final diff for AGPL leakage; nothing would look like a literal translation to a lawyer.
 
 **Deviations from design doc:**
 - <none>, OR

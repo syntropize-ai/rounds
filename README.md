@@ -1,175 +1,135 @@
-# OpenObs
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/public/openobs-logo.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/public/openobs-logo-dark.svg" />
+    <img src="docs/public/openobs-logo-dark.svg" width="80" height="80" alt="OpenObs logo" />
+  </picture>
+</p>
 
-AI-native observability platform. Investigate incidents, generate dashboards, and manage alert rules — powered by LLMs.
+<h1 align="center">OpenObs</h1>
 
-![OpenObs demo](docs/demo.gif)
+<p align="center">
+  <strong>The open-source AI-native observability platform.</strong><br />
+  Investigate incidents, generate dashboards, and manage alerts — powered by LLMs.
+</p>
 
-## What It Does
+<p align="center">
+  <a href="https://github.com/openobs/openobs/actions/workflows/ci.yml"><img src="https://github.com/openobs/openobs/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/openobs/openobs/blob/main/LICENSE"><img src="https://img.shields.io/github/license/openobs/openobs" alt="License" /></a>
+  <a href="https://docs.openobs.com"><img src="https://img.shields.io/badge/docs-docs.openobs.com-blue" alt="Docs" /></a>
+</p>
 
-- **Dashboard generation** — Describe what you want to monitor and OpenObs builds a Grafana-style dashboard with real PromQL queries, auto-discovered from your Prometheus instance.
-- **Incident investigation** — Ask a question about your system and OpenObs plans an investigation, queries your metrics, and writes a structured report with evidence panels.
-- **Alert rule management** — Create and modify alert rules through natural language. "Alert me when p95 latency exceeds 500ms."
-- **Conversational editing** — Chat with your dashboard to add panels, rearrange layouts, modify queries, or dig deeper into anomalies.
+<p align="center">
+  <a href="https://openobs.com">Website</a> &middot;
+  <a href="https://docs.openobs.com">Documentation</a> &middot;
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#deploy-with-helm">Helm Install</a>
+</p>
 
-## Install Paths
+---
 
-OpenObs now ships in two modes:
+## What is OpenObs?
 
-- **Source mode** for local development: `npm install && npm run start`
-- **Cluster mode** for deployment: `helm upgrade --install openobs ./helm/openobs ...`
+OpenObs turns natural language into production-grade observability workflows:
 
-This mirrors the way projects like Grafana separate **developer setup** from **product installation**.
+- **Dashboard generation** &mdash; Describe what you want to monitor. OpenObs discovers metrics from your Prometheus instance and builds dashboards with real PromQL queries.
+- **Incident investigation** &mdash; Ask a question about your system. OpenObs plans an investigation, queries your metrics, and writes a structured report with evidence.
+- **Alert rule management** &mdash; Create alert rules through conversation. *"Alert me when p95 latency exceeds 500ms."*
+- **Conversational editing** &mdash; Chat with any dashboard to add panels, rearrange layouts, modify queries, or dig deeper into anomalies.
 
-## Quick Start (Source)
+## Quick Start
 
 ```bash
-git clone <repo-url> && cd openobs
+git clone https://github.com/openobs/openobs.git && cd openobs
 npm install
-cp .env.example .env        # set JWT_SECRET (min 32 chars)
+cp .env.example .env      # set JWT_SECRET (min 32 chars)
 npm run build
-npm run start               # api on :3000, web on :5173
+npm run start              # API on :3000, Web on :5173
 ```
 
-Open `http://localhost:5173` — the setup wizard walks you through connecting an LLM provider and data sources.
+Open **http://localhost:5173** &mdash; the setup wizard walks you through connecting an LLM provider and data sources.
 
 ### Requirements
 
-- Node.js 20+
-- An LLM provider (Anthropic, OpenAI, Gemini, Ollama, or Azure/Bedrock)
-- A Prometheus-compatible metrics backend (optional — dashboards work without one, but investigation and metric discovery require it)
+| Requirement | Notes |
+|---|---|
+| **Node.js 20+** | Required |
+| **LLM provider** | Anthropic, OpenAI, Gemini, DeepSeek, Ollama, or Azure/Bedrock |
+| **Prometheus** | Optional &mdash; dashboards work without one, but metric discovery and investigation require it |
+
+## Deploy with Docker
+
+```bash
+docker build -t openobs:latest .
+docker run --rm -p 3000:3000 \
+  -e JWT_SECRET='your-secret-min-32-chars' \
+  -e LLM_API_KEY='your-provider-key' \
+  -v openobs-data:/var/lib/openobs \
+  openobs:latest
+```
+
+Then open **http://localhost:3000**.
+
+## Deploy with Helm
+
+```bash
+helm upgrade --install openobs ./helm/openobs \
+  --namespace observability --create-namespace \
+  --set image.repository=ghcr.io/openobs/openobs \
+  --set image.tag=latest \
+  --set secretEnv.LLM_API_KEY='your-provider-key'
+```
+
+See the full [Kubernetes install guide](https://docs.openobs.com/install/kubernetes) for ingress, Postgres, Redis, and persistence options.
 
 ## Architecture
 
 OpenObs is a TypeScript monorepo with 9 packages:
 
 ```
-common          shared types, errors, utilities
-llm-gateway     LLM provider abstraction (Anthropic, OpenAI, Gemini, Ollama, ...)
-data-layer      SQLite persistence (Drizzle ORM)
-adapters        observability backend connectors (Prometheus, logs, traces)
-adapter-sdk     SDK for building custom execution adapters
-guardrails      safety guards (cost, rate limiting, action policy)
-agent-core      AI agent logic (orchestration, investigation, dashboard generation)
-api-gateway     Express HTTP server + REST API
-web             React SPA (Vite + Tailwind CSS)
+common            Shared types, errors, and utilities
+llm-gateway       Multi-provider LLM abstraction (Anthropic, OpenAI, Gemini, Ollama, ...)
+data-layer        Persistence layer (SQLite / Postgres via Drizzle ORM)
+adapters          Observability backend connectors (Prometheus, logs, traces)
+adapter-sdk       SDK for building custom execution adapters
+guardrails        Safety guards, cost controls, and action policies
+agent-core        AI agent logic — orchestration, investigation, dashboard generation
+api-gateway       Express HTTP server, REST API, WebSocket
+web               React SPA (Vite + Tailwind CSS)
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full dependency graph, design patterns, and layer diagram.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full dependency graph and design patterns.
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` and fill in your values:
+All configuration is via environment variables or the interactive setup wizard at `/setup`.
+
+<details>
+<summary><strong>Environment variable reference</strong></summary>
 
 | Variable | Required | Description |
-|----------|----------|-------------|
-| `JWT_SECRET` | Yes | Secret for signing auth tokens (min 32 chars) |
-| `API_KEYS` | No | Comma-separated service API keys for server-to-server access |
-| `PORT` | No | API server port |
-| `HOST` | No | API bind host |
-| `CORS_ORIGINS` | No | Comma-separated allowed origins |
-| `LLM_PROVIDER` | No | Default LLM provider (set via setup wizard) |
+|---|---|---|
+| `JWT_SECRET` | Yes | Signing key for auth tokens (min 32 chars) |
+| `LLM_PROVIDER` | No | Default LLM provider (configured via setup wizard) |
 | `LLM_API_KEY` | No | API key for the LLM provider |
-| `LLM_MODEL` | No | Default model for the selected LLM provider |
-| `LLM_FALLBACK_PROVIDER` | No | Optional fallback provider |
-| `DATABASE_URL` | No | Postgres connection string; omit to use local SQLite mode |
-| `DATABASE_POOL_SIZE` | No | Database connection pool size |
-| `DATABASE_SSL` | No | Enable SSL for Postgres connections |
+| `LLM_MODEL` | No | Default model name |
+| `DATABASE_URL` | No | Postgres connection string; omit for SQLite |
 | `REDIS_URL` | No | Redis connection string |
-| `REDIS_PREFIX` | No | Redis key prefix |
-| `API_KEY_HEADER` | No | Header name for API key auth |
-| `SESSION_TTL` | No | Session TTL in seconds |
-| `PROACTIVE_CHECK_INTERVAL_MS` | No | Background proactive-check interval |
-| `PROACTIVE_HISTORY_SIZE` | No | Number of historic events to keep for proactive analysis |
-| `LOG_LEVEL` | No | `debug`, `info`, `warn`, or `error` |
-| `LOG_FORMAT` | No | `json` or `text` |
+| `CORS_ORIGINS` | No | Comma-separated allowed origins |
+| `API_KEYS` | No | Service API keys for server-to-server access |
+| `LOG_LEVEL` | No | `debug` / `info` / `warn` / `error` |
 
-The setup wizard (`/setup`) configures LLM, data sources, and notifications interactively.
+Copy `.env.example` for the full list with defaults.
+
+</details>
 
 ## Development
 
 ```bash
-npm run build          # TypeScript build (all packages)
-npm test               # vitest (all packages)
-npm run start          # start API + web dev servers
-```
-
-## Documentation
-
-First-party documentation now lives in this repository under [`docs/`](./docs). The recommended setup is:
-
-- product code + docs source in the main `openobs` repository
-- marketing site in the separate website repository
-- published docs site from this repo, for example `docs.openobs.dev`
-
-Run the docs locally with:
-
-```bash
-npm run docs:dev
-```
-
-Build the docs with:
-
-```bash
-npm run docs:build
-```
-
-## Docker Image
-
-OpenObs can be packaged as a single production image that serves both the API and the built React app:
-
-```bash
-docker build -t openobs:latest .
-docker run --rm -p 3000:3000 \
-  -e JWT_SECRET='replace-with-a-32-char-secret' \
-  -e LLM_API_KEY='replace-with-your-provider-key' \
-  -v openobs-data:/var/lib/openobs \
-  openobs:latest
-```
-
-Then open `http://localhost:3000`.
-
-## Kubernetes Install (Helm)
-
-The repository includes a first-party Helm chart at [`helm/openobs`](./helm/openobs).
-
-Minimal install:
-
-```bash
-helm upgrade --install openobs ./helm/openobs \
-  --namespace observability \
-  --create-namespace \
-  --set image.repository=ghcr.io/your-org/openobs \
-  --set image.tag=latest \
-  --set secretEnv.LLM_API_KEY='replace-with-your-provider-key'
-```
-
-Ingress example:
-
-```bash
-helm upgrade --install openobs ./helm/openobs \
-  --namespace observability \
-  --create-namespace \
-  --set image.repository=ghcr.io/your-org/openobs \
-  --set image.tag=latest \
-  --set ingress.enabled=true \
-  --set ingress.className=nginx \
-  --set ingress.hosts[0].host=openobs.example.com \
-  --set env.CORS_ORIGINS=https://openobs.example.com \
-  --set secretEnv.LLM_API_KEY='replace-with-your-provider-key'
-```
-
-Useful chart knobs:
-
-- `secretEnv.JWT_SECRET`: optional explicit JWT secret; if omitted, the chart generates one and keeps it on upgrade
-- `secretEnv.DATABASE_URL`: switch from local SQLite mode to Postgres
-- `secretEnv.REDIS_URL`: enable Redis-backed queue/event features
-- `persistence.enabled`: keep SQLite and local state on a PVC
-- `env.*`: configure runtime settings such as `LLM_PROVIDER`, `LOG_LEVEL`, and proactive analysis intervals
-
-Render the chart locally with:
-
-```bash
-npm run helm:template
+npm run build        # TypeScript build (all packages)
+npm test             # Vitest (all packages)
+npm run start        # API + web dev servers
+npm run docs:dev     # VitePress docs dev server
 ```
 
 ## Contributing
@@ -178,4 +138,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, code style, and 
 
 ## License
 
-MIT
+[MIT](./LICENSE)

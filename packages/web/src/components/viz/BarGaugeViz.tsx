@@ -19,6 +19,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { formatValueForDisplay } from '../../lib/format/index.js';
 import {
+  PALETTE,
   VIZ_TOKENS,
   resolveThresholdColor,
   type Threshold,
@@ -158,7 +159,7 @@ export default function BarGaugeViz({
           const ratio = finite ? Math.max(0, Math.min(1, item.value / ceiling)) : 0;
           const filledW = trackW * ratio;
           const fill = finite
-            ? resolveThresholdColor(item.value, thresholds, '#3e7bfa')
+            ? resolveThresholdColor(item.value, thresholds, PALETTE.blue.base)
             : trackColor;
           const valueText = finite ? formatValueForDisplay(item.value, unit) : '\u2014';
 
@@ -269,8 +270,12 @@ function LcdSegments({
         ry={1}
         fill={lit ? color : 'transparent'}
         fillOpacity={lit ? 0.85 : 0}
-        stroke={lit ? color : 'rgba(255,255,255,0.05)'}
-        strokeOpacity={lit ? 0 : 1}
+        // Unlit segment: a faint 1px outline in outline-variant so the LCD
+        // "empty cell" grid reads on any theme. On dark this lands near the
+        // previous rgba(255,255,255,0.05); on light it becomes a pale neutral
+        // line instead of invisible white-on-white.
+        stroke={lit ? color : 'var(--color-outline-variant)'}
+        strokeOpacity={lit ? 0 : 0.6}
         strokeWidth={1}
       />,
     );

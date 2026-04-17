@@ -20,19 +20,19 @@ const SEVERITY_PILL_STYLES: Record<
   { active: string; inactive: string }
 > = {
   critical: {
-    active: 'bg-[#EF4444] text-white',
+    active: 'bg-[#EF4444] text-[#ffffff]',
     inactive: 'bg-[#EF4444]/10 text-[#EF4444] hover:bg-[#EF4444]/20',
   },
   high: {
-    active: 'bg-[#F97316] text-white',
+    active: 'bg-[#F97316] text-[#ffffff]',
     inactive: 'bg-[#F97316]/10 text-[#F97316] hover:bg-[#F97316]/20',
   },
   medium: {
-    active: 'bg-[#F59E0B] text-white',
+    active: 'bg-[#F59E0B] text-[#ffffff]',
     inactive: 'bg-[#F59E0B]/10 text-[#F59E0B] hover:bg-[#F59E0B]/20',
   },
   low: {
-    active: 'bg-[var(--color-on-surface-variant)] text-white',
+    active: 'bg-[var(--color-on-surface-variant)] text-[var(--color-surface-low)]',
     inactive: 'bg-[var(--color-surface-high)] text-[var(--color-on-surface-variant)] hover:bg-[var(--color-outline-variant)]',
   },
 };
@@ -149,7 +149,7 @@ export default function Feed() {
             onClick={() => setSeverity('')}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               severity === ''
-                ? 'bg-[var(--color-primary)] text-white'
+                ? 'bg-[var(--color-primary)] text-[var(--color-on-primary-fixed)]'
                 : 'bg-[var(--color-surface-high)] text-[var(--color-on-surface-variant)] hover:bg-[var(--color-outline-variant)]'
             }`}
           >

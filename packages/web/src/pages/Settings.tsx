@@ -84,7 +84,7 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 
 const inputCls = 'w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-lowest)] text-[var(--color-on-surface)] text-sm placeholder-[var(--color-outline)] focus:outline-none focus:border-[var(--color-primary)] transition-colors';
 const selectCls = inputCls;
-const btnPrimary = 'px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity';
+const btnPrimary = 'px-4 py-2 rounded-lg bg-[var(--color-primary)] text-[var(--color-on-primary-fixed)] text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity';
 const btnSecondary = 'px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] text-sm font-medium text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] disabled:opacity-50 transition-colors';
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -465,13 +465,13 @@ function LlmTab() {
             </button>
           )}
         </div>
-        {modelsFetched && remoteModels.length === 0 && <p className="text-xs text-amber-400 mt-1">Could not fetch models. Check your API key / URL.</p>}
-        {remoteModels.length > 0 && <p className="text-xs text-emerald-400 mt-1">Found {remoteModels.length} models</p>}
+        {modelsFetched && remoteModels.length === 0 && <p className="text-xs text-tertiary mt-1">Could not fetch models. Check your API key / URL.</p>}
+        {remoteModels.length > 0 && <p className="text-xs text-secondary mt-1">Found {remoteModels.length} models</p>}
       </div>
 
       <div className="flex items-center gap-3 pt-2 border-t border-[var(--color-outline-variant)]/30">
         <button type="button" onClick={() => void handleTest()} disabled={testing} className={btnSecondary}>{testing ? 'Testing...' : 'Test Connection'}</button>
-        {testResult && <span className={`text-sm font-medium ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>{testResult.message}</span>}
+        {testResult && <span className={`text-sm font-medium ${testResult.ok ? 'text-secondary' : 'text-error'}`}>{testResult.message}</span>}
         <div className="flex-1" />
         <button type="button" onClick={() => void handleSave()} disabled={saving} className={btnPrimary}>
           {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
@@ -535,13 +535,13 @@ function DangerTab() {
         Reset all configuration and return to the setup wizard. This cannot be undone.
       </p>
       {!confirming ? (
-        <button type="button" onClick={() => setConfirming(true)} className="px-4 py-2 rounded-lg border border-red-500/50 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors">
+        <button type="button" onClick={() => setConfirming(true)} className="px-4 py-2 rounded-lg border border-error/50 text-error text-sm font-medium hover:bg-error/10 transition-colors">
           Reset Configuration
         </button>
       ) : (
         <div className="flex items-center gap-3">
           <span className="text-sm text-[var(--color-on-surface)]">Are you sure?</span>
-          <button type="button" onClick={() => void handleReset()} disabled={done} className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-40">Yes, Reset</button>
+          <button type="button" onClick={() => void handleReset()} disabled={done} className="px-4 py-2 rounded-lg bg-error text-[var(--color-on-primary-fixed)] text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity">Yes, Reset</button>
           <button type="button" onClick={() => setConfirming(false)} className="px-4 py-2 text-sm text-[var(--color-on-surface-variant)] hover:text-[var(--color-on-surface)]">Cancel</button>
         </div>
       )}

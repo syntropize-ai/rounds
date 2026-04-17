@@ -33,24 +33,24 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     if (this.state.error) {
       if (this.props.fallback) return this.props.fallback;
       return (
-        <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] p-8">
-          <div className="max-w-lg w-full rounded-xl border border-red-500/30 bg-red-900/10 p-6 space-y-4">
-            <h1 className="text-xl font-semibold text-red-400">Something went wrong</h1>
-            <p className="text-sm text-[var(--color-on-surface)]">
+        <div className="min-h-screen flex items-center justify-center bg-surface p-8">
+          <div className="max-w-lg w-full rounded-xl border border-error/30 bg-error/10 p-6 space-y-4">
+            <h1 className="text-xl font-semibold text-error">Something went wrong</h1>
+            <p className="text-sm text-on-surface">
               {this.state.error.message || 'An unexpected error occurred.'}
             </p>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={this.handleReset}
-                className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                className="px-4 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-medium hover:opacity-90 transition-opacity"
               >
                 Try again
               </button>
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="px-4 py-2 rounded-lg bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm font-medium hover:bg-[var(--color-surface-highest)]"
+                className="px-4 py-2 rounded-lg bg-surface-high text-on-surface text-sm font-medium hover:bg-surface-highest transition-colors"
               >
                 Reload page
               </button>

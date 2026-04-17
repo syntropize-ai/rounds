@@ -42,6 +42,61 @@
   --color-chart-blue: #3b82f6;
   --color-chart-yellow: #eab308;
   --color-chart-purple: #a855f7;
+
+  /* Cursor / crosshair tone — follows on-surface so it reads on any theme. */
+  --color-cursor: rgba(226, 232, 240, 0.55);
+
+  /* Translucent primary tint used for overlays (drag placeholder, etc.). */
+  --color-primary-overlay: rgba(163, 166, 255, 0.1);
+  --color-primary-overlay-strong: rgba(163, 166, 255, 0.4);
+
+  /* Glassmorphism background — translucent variant of surface-bright. */
+  --color-glass: rgba(50, 56, 72, 0.6);
+}
+
+/* ---------------------------------------------------------------------------
+   Grafana-style light theme. Activated by adding data-theme="light" to <html>.
+   Only CSS variables are overridden — every component already references these
+   tokens, so nothing else has to change.
+   --------------------------------------------------------------------------- */
+:root[data-theme="light"] {
+  /* Surface hierarchy — Grafana light canvas → white panels */
+  --color-surface-lowest: #f4f5f5;    /* page canvas */
+  --color-surface: #f4f5f5;           /* body bg */
+  --color-surface-low: #ffffff;        /* panel bg */
+  --color-surface-container: #ffffff;
+  --color-surface-high: #ebebeb;       /* raised surfaces, badges, inputs */
+  --color-surface-highest: #e4e7eb;
+  --color-surface-bright: #ffffff;
+  --color-surface-variant: #ebebeb;
+
+  /* Text */
+  --color-on-surface: #24292f;
+  --color-on-surface-variant: #6b7280;
+
+  /* Primary — Grafana blue */
+  --color-primary: #3871dc;
+  --color-primary-container: #5794f2;
+  --color-on-primary-fixed: #ffffff;
+
+  --color-secondary: #27aeae;
+  --color-tertiary: #8f3bbf;
+  --color-error: #e02f44;
+
+  --color-outline: #d0d1d3;
+  --color-outline-variant: #e9edf2;
+
+  --color-surface-tint: #3871dc;
+
+  /* Cursor must read on white — dark neutral with opacity */
+  --color-cursor: rgba(36, 41, 47, 0.35);
+
+  /* Primary overlay retuned to Grafana blue */
+  --color-primary-overlay: rgba(56, 113, 220, 0.1);
+  --color-primary-overlay-strong: rgba(56, 113, 220, 0.4);
+
+  /* Glass on light — barely-tinted white */
+  --color-glass: rgba(255, 255, 255, 0.75);
 }
 
 *, *::before, *::after {
@@ -63,21 +118,21 @@ body {
 
 /* Glassmorphism utility */
 .glass {
-  background: rgba(50, 56, 72, 0.6);
+  background: var(--color-glass);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
 
 /* Customize grid layout appearance */
 .react-grid-item.react-grid-placeholder {
-  background: rgba(163, 166, 255, 0.1);
-  border: 2px dashed rgba(163, 166, 255, 0.4);
+  background: var(--color-primary-overlay);
+  border: 2px dashed var(--color-primary-overlay-strong);
   border-radius: 12px;
   opacity: 1 !important;
 }
 
 .react-grid-item > .react-resizable-handle::after {
-  border-color: #a3a6ff;
+  border-color: var(--color-primary);
 }
 
 /* Thin scrollbar for all scrollable areas */
@@ -96,7 +151,7 @@ body {
    horizontal lines stay readable when overlapping data. */
 .uplot .u-cursor-x,
 .uplot .u-cursor-y {
-  border-color: rgba(226, 232, 240, 0.55) !important;
+  border-color: var(--color-cursor) !important;
   z-index: 5;
 }
 
@@ -124,7 +179,7 @@ body {
 
 .react-grid-item.react-draggable-dragging {
   z-index: 100;
-  box-shadow: 0 8px 40px -5px rgba(163, 166, 255, 0.05);
+  box-shadow: 0 8px 40px -5px var(--color-primary-overlay);
 }
 
 @keyframes spin-slow {

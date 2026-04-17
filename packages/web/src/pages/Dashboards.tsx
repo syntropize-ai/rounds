@@ -166,7 +166,7 @@ function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, 
           {/* Dashboards in this folder */}
           {node.dashboards.map((dash) => (
             <div key={dash.id} onClick={() => navigate(itemLink(dash.id))}
-              className="flex items-center gap-3 py-2.5 hover:bg-white/[0.02] transition-colors cursor-pointer group border-t border-outline-variant/10"
+              className="flex items-center gap-3 py-2.5 hover:bg-surface-high/40 transition-colors cursor-pointer group border-t border-outline-variant/10"
               style={{ paddingLeft: (depth + 1) * 20 + 16, paddingRight: 16 }}>
               <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-primary/10">
                 <svg className="w-3.5 h-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -536,7 +536,7 @@ export default function Dashboards() {
                   navigate(r.navigateTo);
                 }
               }}
-                className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02] transition-colors cursor-pointer border-t border-outline-variant/10 first:border-t-0">
+                className="px-5 py-3 flex items-center gap-3 hover:bg-surface-high/40 transition-colors cursor-pointer border-t border-outline-variant/10 first:border-t-0">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
                   r.type === 'alert' ? 'bg-error/10 text-error'
                     : r.type === 'folder' ? 'bg-primary/10 text-primary'

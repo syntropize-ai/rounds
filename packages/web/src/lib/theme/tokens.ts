@@ -13,7 +13,11 @@ export const VIZ_TOKENS = {
     color: 'var(--color-on-surface-variant)',
   },
   grid: {
-    color: 'rgba(148, 163, 184, 0.06)',
+    // `--color-outline-variant` is tuned per-theme to be faintly visible against
+    // the panel background (a translucent bluish-gray on dark, a pale neutral
+    // on light). `resolveCssVar` is used at read time so canvas/uPlot code
+    // gets a real color string even though this value is a CSS var reference.
+    color: 'var(--color-outline-variant)',
     lineWidth: 1,
     dashed: false,
   },

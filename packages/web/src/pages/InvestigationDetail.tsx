@@ -486,8 +486,8 @@ export default function InvestigationDetail() {
           isGenerating
             ? 'bg-primary/10 text-primary'
             : investigation.status === 'completed'
-            ? 'bg-emerald-500/15 text-emerald-400'
-            : 'bg-red-500/15 text-red-400'
+            ? 'bg-secondary/15 text-secondary'
+            : 'bg-error/15 text-error'
         }`}>
           {isGenerating && <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
           {getInvestigationStatusStyle(investigation.status).label}

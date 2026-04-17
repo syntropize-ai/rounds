@@ -496,7 +496,7 @@ export default function DashboardPanelCard({
     const queryErrors = multiRangeData.filter((r) => r.error).map((r) => `${r.refIds}: ${r.error}`);
     if (queryErrors.length > 0 && multiRangeData.every((r) => r.series.length === 0)) {
       return (
-        <div className="text-red-400 text-xs p-3 space-y-1">
+        <div className="text-error text-xs p-3 space-y-1">
           {queryErrors.map((msg, i) => (
             <div key={i}>Query error: {msg}</div>
           ))}
@@ -676,7 +676,7 @@ export default function DashboardPanelCard({
   if (isStat) {
     return (
       <div
-        className={`bg-surface-container border border-white/5 rounded-xl h-full px-3 py-2 relative group transition-all duration-200 panel-drag-handle cursor-grab active:cursor-grabbing flex flex-col hover:border-white/10 ${
+        className={`bg-surface-container border border-outline-variant rounded-xl h-full px-3 py-2 relative group transition-all duration-200 panel-drag-handle cursor-grab active:cursor-grabbing flex flex-col hover:border-outline ${
           editMode ? 'ring-1 ring-dashed ring-outline-variant' : ''
         }`}
       >
@@ -699,7 +699,7 @@ export default function DashboardPanelCard({
   // Standard panel layout (time_series, bar, pie, etc.)
   return (
     <div
-      className={`bg-surface-container border border-white/5 rounded-xl h-full flex flex-col relative group transition-all duration-200 hover:border-white/10 ${
+      className={`bg-surface-container border border-outline-variant rounded-xl h-full flex flex-col relative group transition-all duration-200 hover:border-outline ${
         editMode ? 'ring-1 ring-dashed ring-outline-variant' : ''
       }`}
     >

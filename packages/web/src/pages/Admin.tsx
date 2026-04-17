@@ -41,11 +41,11 @@ type Tab = 'users' | 'teams' | 'audit';
 const ROLES = ['admin', 'operator', 'investigator', 'viewer', 'readonly'] as const;
 
 const ROLE_COLORS: Record<string, string> = {
-  admin: 'bg-red-900/30 text-red-400',
-  operator: 'bg-amber-900/30 text-amber-400',
-  investigator: 'bg-violet-900/30 text-violet-400',
+  admin: 'bg-error/15 text-error',
+  operator: 'bg-tertiary/15 text-tertiary',
+  investigator: 'bg-primary/15 text-primary',
   viewer: 'bg-[var(--color-outline-variant)] text-[var(--color-on-surface)]',
-  readonly: 'bg-[var(--color-surface-high)] text-[#B8B8A0]',
+  readonly: 'bg-[var(--color-surface-high)] text-on-surface-variant',
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -121,20 +121,20 @@ function UsersTab() {
     }
   };
 
-  if (loading) return <div className="text-[#B8B8A0] text-sm py-8 text-center">Loading users…</div>;
+  if (loading) return <div className="text-on-surface-variant text-sm py-8 text-center">Loading users…</div>;
 
   return (
     <div>
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-sm">{error}</div>
+        <div className="mb-4 px-4 py-3 rounded-lg bg-error/10 border border-error/30 text-error text-sm">{error}</div>
       )}
 
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-[#B8B8A0]">{users.length} user{users.length === 1 ? '' : 's'}</p>
+        <p className="text-sm text-on-surface-variant">{users.length} user{users.length === 1 ? '' : 's'}</p>
         <button
           type="button"
           onClick={() => setInviteOpen(true)}
-          className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
+          className="px-4 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-medium hover:opacity-90 transition-colors"
         >
           Invite user
         </button>
@@ -178,14 +178,14 @@ function UsersTab() {
               type="button"
               onClick={() => void handleInvite()}
               disabled={saving || !invite.email || !invite.name}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+              className="px-4 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               {saving ? 'Creating…' : 'Create user'}
             </button>
             <button
               type="button"
               onClick={() => setInviteOpen(false)}
-              className="px-4 py-2 text-sm text-[#B8B8A0] hover:text-[var(--color-on-surface)]"
+              className="px-4 py-2 text-sm text-on-surface-variant hover:text-[var(--color-on-surface)]"
             >
               Cancel
             </button>
@@ -198,11 +198,11 @@ function UsersTab() {
         <table className="w-full text-sm">
           <thead className="bg-[var(--color-surface-high)] border-b border-[var(--color-outline-variant)]">
             <tr>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">User</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Provider</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Role</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Last login</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Actions</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">User</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Provider</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Role</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Last login</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--color-outline-variant)]">
@@ -219,34 +219,34 @@ function UsersTab() {
                     )}
                     <div>
                       <div className="font-medium text-[var(--color-on-surface)]">{u.name}</div>
-                      <div className="text-[#B8B8A0] text-xs">{u.email}</div>
+                      <div className="text-on-surface-variant text-xs">{u.email}</div>
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-[#B8B8A0]">{PROVIDER_LABELS[u.authProvider] ?? u.authProvider}</td>
+                <td className="px-4 py-3 text-on-surface-variant">{PROVIDER_LABELS[u.authProvider] ?? u.authProvider}</td>
                 <td className="px-4 py-3">
                   <select
                     value={u.role}
                     onChange={(e) => { void handleRoleChange(u.id, e.target.value); }}
-                    className={`px-3 py-1 rounded-full text-xs focus:outline-none focus:ring-2 cursor-pointer ${ROLE_COLORS[u.role] ?? 'bg-slate-700 text-white'}`}
+                    className={`px-3 py-1 rounded-full text-xs focus:outline-none focus:ring-2 cursor-pointer ${ROLE_COLORS[u.role] ?? 'bg-surface-high text-on-surface'}`}
                   >
                     {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </td>
-                <td className="px-4 py-3 text-[#B8B8A0] text-xs">{new Date(u.lastLoginAt).toLocaleString()}</td>
+                <td className="px-4 py-3 text-on-surface-variant text-xs">{new Date(u.lastLoginAt).toLocaleString()}</td>
                 <td className="px-4 py-3">
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => { void handleToggleDisable(u); }}
-                      className="text-xs text-[#B8B8A0] hover:text-[var(--color-on-surface)] underline"
+                      className="text-xs text-on-surface-variant hover:text-[var(--color-on-surface)] underline"
                     >
                       {u.disabled ? 'Enable' : 'Disable'}
                     </button>
                     <button
                       type="button"
                       onClick={() => { void handleDelete(u.id); }}
-                      className="text-xs text-red-500 hover:text-red-700 underline"
+                      className="text-xs text-error hover:opacity-80 underline"
                     >
                       Delete
                     </button>
@@ -257,7 +257,7 @@ function UsersTab() {
           </tbody>
         </table>
         {users.length === 0 && (
-          <div className="py-8 text-center text-[#B8B8A0] text-sm">No users found</div>
+          <div className="py-8 text-center text-on-surface-variant text-sm">No users found</div>
         )}
       </div>
     </div>
@@ -335,18 +335,18 @@ function TeamsTab() {
     }
   };
 
-  if (loading) return <div className="text-[#B8B8A0] text-sm py-8 text-center">Loading teams…</div>;
+  if (loading) return <div className="text-on-surface-variant text-sm py-8 text-center">Loading teams…</div>;
 
   return (
     <div>
-      {error && <div className="mb-4 px-4 py-3 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-sm">{error}</div>}
+      {error && <div className="mb-4 px-4 py-3 rounded-lg bg-error/10 border border-error/30 text-error text-sm">{error}</div>}
 
       <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-[#B8B8A0]">{teams.length} team{teams.length === 1 ? '' : 's'}</p>
+        <p className="text-sm text-on-surface-variant">{teams.length} team{teams.length === 1 ? '' : 's'}</p>
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors"
+          className="px-4 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-medium hover:opacity-90 transition-colors"
         >
           New team
         </button>
@@ -365,11 +365,11 @@ function TeamsTab() {
             type="button"
             onClick={() => void handleCreate()}
             disabled={saving || !newTeamName.trim()}
-            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            className="px-4 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             Create
           </button>
-          <button type="button" onClick={() => setCreating(false)} className="px-3 py-2 text-sm text-[#B8B8A0]">Cancel</button>
+          <button type="button" onClick={() => setCreating(false)} className="px-3 py-2 text-sm text-on-surface-variant">Cancel</button>
         </div>
       )}
 
@@ -381,7 +381,7 @@ function TeamsTab() {
             <div key={team.id} className="border border-[var(--color-outline-variant)] rounded-xl p-4 bg-[var(--color-surface-highest)]">
               <div className="flex justify-between items-center mb-3">
                 <div className="font-semibold text-[var(--color-on-surface)]">{team.name}</div>
-                <button type="button" onClick={() => { void handleDelete(team.id); }} className="text-xs text-red-500 hover:text-red-700">
+                <button type="button" onClick={() => { void handleDelete(team.id); }} className="text-xs text-error hover:opacity-80">
                   Delete
                 </button>
               </div>
@@ -390,17 +390,17 @@ function TeamsTab() {
                 {memberUsers.map(({ user, role }) => (
                   user ? (
                     <div key={user.id} className="flex items-center gap-2 text-sm">
-                      <div className="h-8 w-8 rounded-full bg-indigo-700/20 flex items-center justify-center text-xs font-bold text-indigo-300">
+                      <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">
                         {user.name.charAt(0)}
                       </div>
                       <div className="flex-1">
                         <div className="text-[var(--color-on-surface)]">{user.name}</div>
-                        <span className="text-xs text-[#B8B8A0]">{role}</span>
+                        <span className="text-xs text-on-surface-variant">{role}</span>
                       </div>
                       <button
                         type="button"
                         onClick={() => { void handleRemoveMember(team.id, user.id); }}
-                        className="text-xs text-[#B8B8A0] hover:text-red-400"
+                        className="text-xs text-on-surface-variant hover:text-error"
                       >
                         Remove
                       </button>
@@ -424,7 +424,7 @@ function TeamsTab() {
         })}
 
         {teams.length === 0 && (
-          <div className="py-8 text-center text-[#B8B8A0] text-sm">No teams yet</div>
+          <div className="py-8 text-center text-on-surface-variant text-sm">No teams yet</div>
         )}
       </div>
     </div>
@@ -455,37 +455,37 @@ function AuditLogTab() {
   useEffect(() => { void load(offset); }, [load, offset]);
 
   const ACTION_COLORS: Record<string, string> = {
-    login: 'text-emerald-600',
-    logout: 'text-slate-500',
-    login_failed: 'text-red-600',
-    user_created: 'text-blue-600',
-    user_deleted: 'text-red-600',
-    role_changed: 'text-amber-600',
-    team_created: 'text-blue-600',
-    team_deleted: 'text-red-600',
+    login: 'text-secondary',
+    logout: 'text-on-surface-variant',
+    login_failed: 'text-error',
+    user_created: 'text-primary',
+    user_deleted: 'text-error',
+    role_changed: 'text-tertiary',
+    team_created: 'text-primary',
+    team_deleted: 'text-error',
   };
 
-  if (loading) return <div className="text-[#B8B8A0] text-sm py-8 text-center">Loading audit log…</div>;
+  if (loading) return <div className="text-on-surface-variant text-sm py-8 text-center">Loading audit log…</div>;
 
   return (
     <div>
-      <div className="text-sm text-[#B8B8A0] mb-4">{total} total entr{total === 1 ? 'y' : 'ies'}</div>
+      <div className="text-sm text-on-surface-variant mb-4">{total} total entr{total === 1 ? 'y' : 'ies'}</div>
       <div className="overflow-x-auto rounded-xl border border-[var(--color-outline-variant)]">
         <table className="w-full text-sm">
           <thead className="bg-[var(--color-surface-high)] border-b border-[var(--color-outline-variant)]">
             <tr>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Time</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Action</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Actor</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Target</th>
-              <th className="text-left px-4 py-3 text-[#B8B8A0] font-medium">Provider</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Time</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Action</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Actor</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Target</th>
+              <th className="text-left px-4 py-3 text-on-surface-variant font-medium">Provider</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--color-outline-variant)]">
             {entries.map((e) => (
               <tr key={e.id}>
-                <td className="px-4 py-2.5 text-[#B8B8A0] text-xs whitespace-nowrap">{new Date(e.timestamp).toLocaleString()}</td>
-                <td className={`px-4 py-2.5 font-medium text-xs ${ACTION_COLORS[e.action] ?? 'text-slate-700'}`}>{e.action.replace(/_/g, ' ')}</td>
+                <td className="px-4 py-2.5 text-on-surface-variant text-xs whitespace-nowrap">{new Date(e.timestamp).toLocaleString()}</td>
+                <td className={`px-4 py-2.5 font-medium text-xs ${ACTION_COLORS[e.action] ?? 'text-on-surface'}`}>{e.action.replace(/_/g, ' ')}</td>
                 <td className="px-4 py-2.5 text-xs text-[var(--color-on-surface)]">{e.actorEmail ?? '-'}</td>
                 <td className="px-4 py-2.5 text-xs text-[var(--color-on-surface)]">{e.targetEmail ?? '-'}</td>
                 <td className="px-4 py-2.5 text-xs text-[var(--color-on-surface)]">{e.provider ?? '-'}</td>
@@ -496,7 +496,7 @@ function AuditLogTab() {
       </div>
 
       {entries.length === 0 && (
-        <div className="py-8 text-center text-[#B8B8A0] text-sm">No audit events yet</div>
+        <div className="py-8 text-center text-on-surface-variant text-sm">No audit events yet</div>
       )}
 
       {total > LIMIT && (
@@ -505,18 +505,18 @@ function AuditLogTab() {
             type="button"
             onClick={() => { const o = Math.max(0, offset - LIMIT); setOffset(o); void load(o); }}
             disabled={offset === 0}
-            className="px-4 py-2 text-sm text-[#B8B8A0] hover:text-[var(--color-on-surface)] disabled:opacity-40"
+            className="px-4 py-2 text-sm text-on-surface-variant hover:text-[var(--color-on-surface)] disabled:opacity-40"
           >
             Previous
           </button>
-          <span className="text-sm text-[#B8B8A0] self-center">
+          <span className="text-sm text-on-surface-variant self-center">
             {offset + 1}–{Math.min(offset + LIMIT, total)} of {total}
           </span>
           <button
             type="button"
             onClick={() => { const o = offset + LIMIT; setOffset(o); void load(o); }}
             disabled={offset + LIMIT >= total}
-            className="px-4 py-2 text-sm text-[#B8B8A0] hover:text-[var(--color-on-surface)] disabled:opacity-40"
+            className="px-4 py-2 text-sm text-on-surface-variant hover:text-[var(--color-on-surface)] disabled:opacity-40"
           >
             Next
           </button>
@@ -549,7 +549,7 @@ export default function Admin() {
     <div className="max-w-5xl mx-auto px-6 py-8">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-[var(--color-on-surface)]">Administration</h1>
-        <p className="text-[#B8B8A0] mt-1">Manage users, teams, and access control</p>
+        <p className="text-on-surface-variant mt-1">Manage users, teams, and access control</p>
       </div>
 
       {/* Tab navigation */}
@@ -562,7 +562,7 @@ export default function Admin() {
             className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
               tab === t.id
                 ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
-                : 'border-transparent text-[#B8B8A0] hover:text-[var(--color-on-surface)] hover:border-[var(--color-outline-variant)]'
+                : 'border-transparent text-on-surface-variant hover:text-[var(--color-on-surface)] hover:border-[var(--color-outline-variant)]'
             }`}
           >
             {t.label}

@@ -50,7 +50,7 @@ function actionRisk(type: string): RiskLevel {
 }
 
 const RISK_STYLES: Record<RiskLevel, string> = {
-  low: 'bg-[var(--color-surface-high)] text-[#B8B8A0]',
+  low: 'bg-[var(--color-surface-high)] text-on-surface-variant',
   medium: 'bg-[#F59E0B]/10 text-[#F59E0B]',
   high: 'bg-[#F97316]/10 text-[#F97316]',
   critical: 'bg-[#EF4444]/10 text-[#EF4444]',
@@ -81,7 +81,7 @@ function ActionCard({ request, processing, onApprove, onReject }: ActionCardProp
       {/* Header row */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="font-mono text-sm font-semibold text-[#EAE8DE]">
+          <span className="font-mono text-sm font-semibold text-on-surface">
             {request.action.type}
           </span>
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${RISK_STYLES[risk]}`}>
@@ -95,17 +95,17 @@ function ActionCard({ request, processing, onApprove, onReject }: ActionCardProp
       </div>
 
       {/* Target service */}
-      <div className="text-sm text-[#B8B8A0]">
+      <div className="text-sm text-on-surface-variant">
         <span className="text-[var(--color-outline)]">Target:</span>{' '}
         <span className="font-medium">{request.action.targetService}</span>
       </div>
 
       {/* Reason */}
-      <p className="text-sm text-[#B8B8A0]">{request.context.reason}</p>
+      <p className="text-sm text-on-surface-variant">{request.context.reason}</p>
 
       {/* Params (collapsed preview) */}
       {Object.keys(request.action.params).length > 0 && (
-        <pre className="text-xs bg-[#0B0B14] rounded-lg p-3 overflow-auto text-[#B8B8A0] border border-[var(--color-outline-variant)]">
+        <pre className="text-xs bg-[var(--color-surface-lowest)] rounded-lg p-3 overflow-auto text-on-surface-variant border border-[var(--color-outline-variant)]">
           {JSON.stringify(request.action.params, null, 2)}
         </pre>
       )}
@@ -124,7 +124,7 @@ function ActionCard({ request, processing, onApprove, onReject }: ActionCardProp
               type="button"
               disabled={processing}
               onClick={() => onReject(request.id)}
-              className="flex-1 self-stretch px-4 py-2.5 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium border border-[var(--color-outline-variant)] text-[#B8B8A0] hover:bg-[var(--color-surface-high)] hover:text-[#E8E8E0] disabled:opacity-50 transition-colors"
+              className="flex-1 self-stretch px-4 py-2.5 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium border border-[var(--color-outline-variant)] text-on-surface-variant hover:bg-[var(--color-surface-high)] hover:text-on-surface disabled:opacity-50 transition-colors"
             >
               Reject
             </button>
@@ -132,7 +132,7 @@ function ActionCard({ request, processing, onApprove, onReject }: ActionCardProp
               type="button"
               disabled={processing}
               onClick={() => onApprove(request.id)}
-              className="flex-1 sm:flex-none px-4 py-2.5 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary)] disabled:opacity-50 transition-colors"
+              className="flex-1 sm:flex-none px-4 py-2.5 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium bg-[var(--color-primary)] text-[var(--color-on-primary-fixed)] hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               {processing ? 'Processing…' : 'Approve'}
             </button>
@@ -203,15 +203,15 @@ export default function ActionCenter() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#EAE8DE]">Action Center</h1>
-          <p className="text-sm text-[#B8B8A0]">
+          <h1 className="text-2xl font-bold text-on-surface">Action Center</h1>
+          <p className="text-sm text-on-surface-variant">
             Recommended operations awaiting human approval
           </p>
         </div>
         <button
           type="button"
           onClick={() => void loadApprovals()}
-          className="text-xs text-[#B8B8A0] hover:text-[var(--color-primary)] px-3 py-1.5 rounded-lg border border-[var(--color-outline-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
+          className="text-xs text-on-surface-variant hover:text-[var(--color-primary)] px-3 py-1.5 rounded-lg border border-[var(--color-outline-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
         >
           Refresh
         </button>
@@ -247,7 +247,7 @@ export default function ActionCenter() {
             className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
               tab === t
                 ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
-                : 'border-transparent text-[var(--color-outline)] hover:text-[#4E8EDE]'
+                : 'border-transparent text-[var(--color-outline)] hover:text-[var(--color-primary)]'
             }`}
           >
             {t}

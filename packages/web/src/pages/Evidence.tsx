@@ -32,7 +32,7 @@ export default function EvidencePage() {
   if (loading) {
     return (
       <div className="p-8 flex items-center justify-center min-h-[40vh]">
-        <div className="text-slate-400 text-sm animate-pulse">Loading evidence canvas...</div>
+        <div className="text-on-surface-variant text-sm animate-pulse">Loading evidence canvas...</div>
       </div>
     );
   }
@@ -40,9 +40,9 @@ export default function EvidencePage() {
   if (error || !investigation) {
     return (
       <div className="p-8 max-w-4xl mx-auto">
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+        <div className="bg-error/10 border border-error/30 rounded-xl p-4 text-sm text-error">
           {error ?? 'Investigation not found.'}
-          <Link to="/" className="mt-4 inline-block text-sm text-blue-600 hover:underline">
+          <Link to="/" className="mt-4 inline-block text-sm text-primary hover:underline">
             ← Back to Feed
           </Link>
         </div>
@@ -66,38 +66,38 @@ export default function EvidencePage() {
   const dotColor = getInvestigationStatusStyle(investigation.status).dot;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-surface-lowest">
       <div className="max-w-7xl mx-auto">
         <div className="py-6">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Evidence</h1>
-              <p className="text-slate-600 text-sm leading-relaxed max-w-2xl">
+              <h1 className="text-2xl font-bold text-on-surface">Evidence</h1>
+              <p className="text-on-surface-variant text-sm leading-relaxed max-w-2xl">
                 Investigation evidence and hypothesis coverage for <code>{investigation.id}</code>
               </p>
             </div>
 
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-              <span className="text-slate-600 font-medium capitalize">{investigation.status}</span>
+              <span className="text-on-surface-variant font-medium capitalize">{investigation.status}</span>
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-on-surface-variant">
             <span>
-              ID: <code className="font-mono text-slate-600">{investigation.id}</code>
+              ID: <code className="font-mono text-on-surface">{investigation.id}</code>
             </span>
             <span>{hypotheses.length} hypothesis{hypotheses.length === 1 ? '' : 'es'}</span>
             <span>{allEvidence.length} evidence items</span>
           </div>
 
           {investigation.status === 'completed' && sorted[0] && (
-            <div className="mt-5 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-1">
+            <div className="mt-5 bg-secondary/10 border border-secondary/30 rounded-xl p-4">
+              <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-1">
                 Top hypothesis
               </p>
-              <p className="text-sm text-emerald-900">{sorted[0].description}</p>
-              <p className="text-xs text-emerald-600 mt-1">
+              <p className="text-sm text-on-surface">{sorted[0].description}</p>
+              <p className="text-xs text-secondary mt-1">
                 Confidence: {Math.round(sorted[0].confidence * 100)}% • Status: {sorted[0].status}
               </p>
             </div>
@@ -109,9 +109,9 @@ export default function EvidencePage() {
           />
 
           {sorted.length === 0 ? (
-            <div className="mt-5 border border-slate-200 rounded-xl p-10 text-center">
-              <p className="text-slate-500 text-sm">No hypotheses generated yet.</p>
-              <p className="text-slate-300 text-xs mt-1">Investigation may still be in progress.</p>
+            <div className="mt-5 border border-outline-variant rounded-xl p-10 text-center">
+              <p className="text-on-surface-variant text-sm">No hypotheses generated yet.</p>
+              <p className="text-on-surface-variant/60 text-xs mt-1">Investigation may still be in progress.</p>
             </div>
           ) : (
             <div className="space-y-3 mt-5">

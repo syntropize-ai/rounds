@@ -5,7 +5,7 @@ import React from 'react';
 export function UserMessage({ content }: { content: string }) {
   return (
     <div className="flex flex-col items-end gap-2 my-4">
-      <div className="max-w-[90%] p-4 text-sm leading-relaxed bg-surface-variant rounded-xl rounded-tr-none text-on-surface">
+      <div className="max-w-[90%] p-4 text-sm leading-relaxed bg-primary/10 border border-primary/20 rounded-xl rounded-tr-none text-on-surface">
         {content}
       </div>
       <span className="text-[10px] text-on-surface-variant uppercase tracking-widest">You</span>

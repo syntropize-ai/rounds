@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.js';
+import { useTheme } from '../contexts/ThemeContext.js';
 import { OpenObsLogo } from './OpenObsLogo.js';
 
 /* ───── Icon components ───── */
@@ -48,6 +49,25 @@ function SettingsIcon({ className }: { className?: string }) {
     <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+/* Sun / Moon icons for theme toggle */
+
+function SunIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <circle cx="12" cy="12" r="4" strokeLinecap="round" strokeLinejoin="round" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </svg>
+  );
+}
+
+function MoonIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
     </svg>
   );
 }
@@ -105,6 +125,7 @@ export default function Navigation() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   // Default expanded on Home page, collapsed on others
   const [expanded, setExpanded] = useState(location.pathname === '/');
 
@@ -126,7 +147,7 @@ export default function Navigation() {
 
   return (
     <nav
-      className={`flex flex-col h-full bg-surface-lowest border-r border-white/10 py-3 shrink-0 transition-all duration-200 ${
+      className={`flex flex-col h-full bg-surface-lowest border-r border-outline py-3 shrink-0 transition-all duration-200 ${
         expanded ? 'w-48 px-2' : 'w-14 items-center'
       }`}
     >
@@ -181,6 +202,23 @@ export default function Navigation() {
 
       {/* Bottom nav items */}
       <div className={`flex flex-col gap-1 mt-auto ${expanded ? '' : 'items-center'}`}>
+        {/* Theme toggle */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          className={`flex items-center gap-3 h-10 rounded-lg transition-colors text-on-surface-variant hover:text-on-surface hover:bg-surface-high/60 ${
+            expanded ? 'px-3 w-full' : 'justify-center w-10'
+          }`}
+        >
+          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+          {expanded && (
+            <span className="text-sm font-medium truncate">
+              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+            </span>
+          )}
+        </button>
+
         <SidebarItem to="/settings" label="Settings" icon={<SettingsIcon />} expanded={expanded} />
 
         {/* User avatar */}

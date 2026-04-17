@@ -154,7 +154,7 @@ export default function Home() {
           placeholder="Ask anything about your systems..."
           rows={1}
           disabled={isGenerating}
-          className="w-full bg-surface-bright/95 backdrop-blur-xl ring-1 ring-white/10 focus:ring-tertiary/50 rounded-3xl py-5 pl-6 pr-16 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-all disabled:opacity-50 shadow-2xl shadow-black/40"
+          className="w-full bg-surface-bright/95 backdrop-blur-xl ring-1 ring-outline focus:ring-tertiary/50 rounded-3xl py-5 pl-6 pr-16 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-all disabled:opacity-50 shadow-2xl shadow-outline/40"
           style={{ minHeight: '64px', maxHeight: '220px' }}
           onInput={(e) => {
             const el = e.target as HTMLTextAreaElement;
@@ -178,7 +178,7 @@ export default function Home() {
           type="button"
           onClick={handleSend}
           disabled={!input.trim() || isGenerating}
-          className="absolute right-3 bottom-3.5 w-10 h-10 bg-gradient-to-br from-tertiary to-tertiary/80 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-tertiary/40 hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:hover:scale-100 disabled:shadow-none"
+          className="absolute right-3 bottom-3.5 w-10 h-10 bg-gradient-to-br from-tertiary to-tertiary/80 rounded-2xl flex items-center justify-center text-on-primary-fixed shadow-lg shadow-tertiary/40 hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:hover:scale-100 disabled:shadow-none"
           title="Send"
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -215,15 +215,15 @@ export default function Home() {
                 <div className="absolute inset-0 bg-tertiary/30 blur-2xl rounded-full scale-150" />
                 <OpenObsLogo className="relative w-14 h-14 text-tertiary" size={56} />
               </div>
-              <h1 className="font-[Manrope] text-5xl md:text-6xl font-extrabold tracking-tight mb-4 leading-[1.1]">
-                <span className="bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent">
+              <h1 className="font-[Manrope] text-5xl md:text-6xl font-extrabold tracking-tight mb-4 leading-[1.1] text-on-surface">
+                <span>
                   What are we
                 </span>
                 <br />
                 <span className="bg-gradient-to-r from-tertiary via-primary to-tertiary bg-clip-text text-transparent italic">
                   investigating
                 </span>
-                <span className="bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent">
+                <span>
                   {' '}today?
                 </span>
               </h1>
@@ -255,7 +255,7 @@ export default function Home() {
                   key={action.category}
                   type="button"
                   onClick={() => handleQuickAction(action.prompt)}
-                  className="group/action relative p-4 bg-surface-low/60 backdrop-blur-sm hover:bg-surface-high/80 border border-white/5 hover:border-white/10 rounded-2xl text-left transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/20"
+                  className="group/action relative p-4 bg-surface-low/60 backdrop-blur-sm hover:bg-surface-high/80 border border-outline-variant hover:border-outline rounded-2xl text-left transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-outline/20"
                 >
                   <div className={`inline-flex items-center justify-center w-8 h-8 rounded-lg bg-surface-high/80 ${action.colorClass} mb-2.5 group-hover/action:scale-110 transition-transform`}>
                     {action.icon}
@@ -324,7 +324,7 @@ export default function Home() {
       </div>
 
       {/* Input fixed at bottom */}
-      <div className="shrink-0 border-t border-white/5 bg-surface-lowest">
+      <div className="shrink-0 border-t border-outline-variant bg-surface-lowest">
         <div className="max-w-3xl mx-auto px-6 py-4 w-full">
           {inputArea}
           <p className="mt-2 text-[10px] text-center text-on-surface-variant/40">

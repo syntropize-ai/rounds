@@ -673,7 +673,10 @@ export default function HeatmapViz({
             color: 'var(--color-on-surface)',
             padding: '6px 10px',
             whiteSpace: 'nowrap',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+            // Drop shadow is intentionally subtle — on dark it reads as depth,
+            // on light the light-variant box-shadow-xl utility would be too
+            // strong. 12% alpha works on both themes.
+            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.12)',
             zIndex: 10,
           }}
         >

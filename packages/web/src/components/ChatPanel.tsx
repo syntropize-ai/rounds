@@ -118,7 +118,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
       variants={slideIn}
       initial="hidden"
       animate="visible"
-      className="shrink-0 flex flex-col bg-surface-lowest border-l border-white/10 h-full relative"
+      className="shrink-0 flex flex-col bg-surface-lowest border-l border-outline-variant h-full relative"
       style={{ width: chatWidth }}
     >
       <div
@@ -126,7 +126,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
         className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 transition-colors -ml-px"
       />
 
-      <div className="flex items-center justify-between px-4 py-4 border-b border-white/5 shrink-0">
+      <div className="flex items-center justify-between px-4 py-4 border-b border-outline-variant shrink-0">
         <div className="flex items-center gap-3 flex-1">
           <OpenObsLogo
             className={`w-7 h-7 text-tertiary${isGenerating ? ' animate-spin-slow' : ''}`}
@@ -196,7 +196,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
         <div ref={bottomRef} />
       </div>
 
-      <div className="shrink-0 px-4 py-4 bg-surface-lowest border-t border-white/5 space-y-4">
+      <div className="shrink-0 px-4 py-4 bg-surface-lowest border-t border-outline-variant space-y-4">
         <div className="relative">
           <textarea
             value={input}
@@ -205,7 +205,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
             placeholder="Ask anything..."
             rows={1}
             disabled={isGenerating}
-            className="w-full bg-surface-bright ring-1 ring-white/5 focus:ring-tertiary/50 rounded-xl py-4 pl-5 pr-14 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-all disabled:opacity-50"
+            className="w-full bg-surface-bright ring-1 ring-outline-variant focus:ring-tertiary/50 rounded-xl py-4 pl-5 pr-14 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-all disabled:opacity-50"
             style={{ minHeight: '52px', maxHeight: '120px' }}
             onInput={(e) => {
               const el = e.target as HTMLTextAreaElement;

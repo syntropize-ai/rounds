@@ -517,7 +517,7 @@ export default function Alerts() {
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              className="mt-2 text-xs text-[var(--color-primary)] hover:text-[#A3BCFB]"
+              className="mt-2 text-xs text-[var(--color-primary)] hover:opacity-80"
             >
               Clear search
             </button>

@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext.js';
+import { ThemeProvider } from './contexts/ThemeContext.js';
 import Layout from './components/Layout.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { apiClient } from './api/client.js';
@@ -67,9 +68,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <ErrorBoundary>
-      <BrowserRouter>
-        <AuthProvider>
-          <Suspense fallback={<RouteFallback />}>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <Suspense fallback={<RouteFallback />}>
             <SetupGuard>
               <Routes>
                 <Route path="/login" element={<Login />} />
@@ -100,10 +102,11 @@ export default function App() {
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>
               </Routes>
-            </SetupGuard>
-          </Suspense>
-        </AuthProvider>
-      </BrowserRouter>
+              </SetupGuard>
+            </Suspense>
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

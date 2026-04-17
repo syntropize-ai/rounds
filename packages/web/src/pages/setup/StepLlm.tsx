@@ -203,12 +203,12 @@ export function StepLlm({
             )}
           </div>
           {modelsFetched && remoteModels.length === 0 && (
-            <p className="text-xs text-amber-400 mt-1">
+            <p className="text-xs text-tertiary mt-1">
               Could not fetch models. Check your API key / URL and try again.
             </p>
           )}
           {remoteModels.length > 0 && (
-            <p className="text-xs text-emerald-400 mt-1">
+            <p className="text-xs text-secondary mt-1">
               Found {remoteModels.length} models from provider
             </p>
           )}
@@ -224,7 +224,7 @@ export function StepLlm({
             {testing ? 'Testing...' : 'Test Connection'}
           </button>
           {testResult && (
-            <span className={`text-sm font-medium ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            <span className={`text-sm font-medium ${testResult.ok ? 'text-secondary' : 'text-error'}`}>
               {testResult.ok ? '✓ ' : '✗ '}
               {testResult.message}
             </span>
@@ -239,7 +239,7 @@ export function StepLlm({
             type="button"
             onClick={() => void handleNext()}
             disabled={!canProceed}
-            className="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40"
+            className="px-5 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
             Continue
           </button>

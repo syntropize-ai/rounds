@@ -899,7 +899,9 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef }: Toolti
           minWidth: 160,
           maxWidth: 320,
           color: 'var(--color-on-surface)',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.18)',
+          // Soft drop-shadow. Kept at low alpha so it lands readably on both
+          // dark (subtle lift off panel) and light (halo around tooltip).
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.12)',
         }}
       >
         <div

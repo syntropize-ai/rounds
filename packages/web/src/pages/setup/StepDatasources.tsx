@@ -64,7 +64,7 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
                 Test
               </button>
               {testResults[i] && (
-                <span className={`text-xs font-medium ${testResults[i].ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`text-xs font-medium ${testResults[i].ok ? 'text-secondary' : 'text-error'}`}>
                   {testResults[i].ok ? '✓ ' : '✗ '}
                   {testResults[i].message}
                 </span>
@@ -142,7 +142,7 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
               type="button"
               onClick={() => void handleAdd()}
               disabled={!form.url || saving}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40"
+              className="px-4 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
             >
               {saving ? 'Adding...' : 'Add'}
             </button>
@@ -176,7 +176,7 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
           <button
             type="button"
             onClick={onNext}
-            className="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+            className="px-5 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-semibold hover:opacity-90 transition-opacity"
           >
             Continue →
           </button>

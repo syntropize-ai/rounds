@@ -193,6 +193,10 @@ export function createApp(): Application {
     const repos = buildSqliteRepositories();
     // — Auth subsystem wiring (Wave 2 / T2) ————————————————————————
     const sqliteDb = repos._sqliteClient;
+    // T7 folder backend — shared across RBAC seeder (above in the auth block)
+    // and chat/dashboard services (below) so agent folder.* tools reach the
+    // same table UI folders use.
+    const sharedFolderRepo = new FolderRepository(sqliteDb);
     const authRepos = {
       users: new UserRepository(sqliteDb),
       userAuth: new UserAuthRepository(sqliteDb),
@@ -319,7 +323,7 @@ export function createApp(): Application {
       const rbacUserRoles = new UserRoleRepository(sqliteDb);
       const rbacTeamRoles = new TeamRoleRepository(sqliteDb);
       const rbacTeamMembers = new TeamMemberRepository(sqliteDb);
-      const rbacFolders = new FolderRepository(sqliteDb);
+      const rbacFolders = sharedFolderRepo;
 
       try {
         await seedRbacForOrg(sqliteDb, 'org_main');
@@ -534,12 +538,20 @@ export function createApp(): Application {
           ac: accessControl,
         }),
       );
-    })().catch((err) => {
-      log.error(
-        { err: err instanceof Error ? err.message : err },
-        'failed to initialize auth subsystem',
-      );
-    });
+    })()
+      .catch((err) => {
+        log.error(
+          { err: err instanceof Error ? err.message : err },
+          'failed to initialize auth subsystem',
+        );
+      })
+      .finally(() => {
+        // Mount 404 + error handlers LAST — after the async auth routes get
+        // appended. Without this, notFoundHandler would capture requests
+        // before the auth IIFE's app.use calls take effect.
+        app.use(notFoundHandler);
+        app.use(errorHandler);
+      });
 
     // Wrap repos with event emitters for pub/sub
     const eventFeedStore = new EventEmittingFeedRepository(repos.feedItems);
@@ -576,6 +588,7 @@ export function createApp(): Application {
       feedStore: eventFeedStore,
       accessControl: accessControlHolder,
       auditWriter: auditWriterHolder,
+      folderRepository: sharedFolderRepo,
     }));
     app.use('/api/chat', createChatRouter({
       dashboardStore: repos.dashboards,
@@ -588,6 +601,7 @@ export function createApp(): Application {
       chatEventStore: repos.chatSessionEvents,
       accessControl: accessControlHolder,
       auditWriter: auditWriterHolder,
+      folderRepository: sharedFolderRepo,
     }));
     app.use('/api/alert-rules', createAlertRulesRouter({
       alertRuleStore: eventAlertRuleStore,
@@ -663,11 +677,15 @@ export function createApp(): Application {
 
   mountStaticAssets(app);
 
-  // 404 for unmatched routes
-  app.use(notFoundHandler);
-
-  // Centralized error handler (must be last)
-  app.use(errorHandler);
+  // 404 + error handlers are mounted LAST, after every route registration
+  // completes. For the sqlite branch, this happens in the auth IIFE's
+  // `.finally()` above (because /api/user, /api/admin, etc. are added
+  // asynchronously). For the legacy in-memory branch, we mount them here
+  // since all routes in that path are synchronous.
+  if (process.env['DATABASE_URL']) {
+    app.use(notFoundHandler);
+    app.use(errorHandler);
+  }
 
   return app;
 }

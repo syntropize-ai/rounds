@@ -96,6 +96,8 @@ export interface DashboardServiceDeps {
   accessControl: AccessControlSurface;
   /** Audit-log writer. */
   auditWriter?: AuditWriter;
+  /** Folder backend for agent folder.* tools; optional. */
+  folderRepository?: import('@agentic-obs/common').IFolderRepository;
 }
 
 export class DashboardService {
@@ -107,6 +109,7 @@ export class DashboardService {
   private feedStore?: IGatewayFeedStore;
   private accessControl: AccessControlSurface;
   private auditWriter?: AuditWriter;
+  private folderRepository?: import('@agentic-obs/common').IFolderRepository;
 
   constructor(deps: DashboardServiceDeps) {
     this.store = deps.store;
@@ -117,6 +120,7 @@ export class DashboardService {
     this.alertRuleStore = deps.alertRuleStore;
     this.accessControl = deps.accessControl;
     this.auditWriter = deps.auditWriter;
+    this.folderRepository = deps.folderRepository;
   }
 
   /**
@@ -160,6 +164,7 @@ export class DashboardService {
       investigationReportStore: this.investigationReportStore,
       investigationStore: this.investigationStore as IInvestigationStore | undefined,
       alertRuleStore: toAlertRuleStore(this.alertRuleStore),
+      ...(this.folderRepository ? { folderRepository: this.folderRepository } : {}),
       metricsAdapter,
       allDatasources: config.datasources,
       sendEvent,
@@ -169,6 +174,9 @@ export class DashboardService {
       identity,
       accessControl: this.accessControl,
       ...(this.auditWriter ? { auditWriter: this.auditWriter } : {}),
+      // Dashboard-scoped chat → dashboard-assistant ceiling (no alert / user /
+      // team management from a dashboard chat panel, even for admins).
+      agentType: 'dashboard-assistant',
     });
 
     log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');

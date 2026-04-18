@@ -43,6 +43,31 @@ export interface ChatServiceDeps {
   accessControl: AccessControlSurface;
   /** Audit-log writer. Optional but strongly recommended in production. */
   auditWriter?: AuditWriter;
+  /** Folder backend — enables agent folder.create / folder.list tools. Optional
+   *  (in-memory deployments can omit; those tools return a clear
+   *  "not configured" observation). */
+  folderRepository?: import('@agentic-obs/common').IFolderRepository;
+}
+
+/**
+ * Pick the narrowest specialized agent type given a page context.
+ * Falls back to `orchestrator` when no tighter ceiling applies. Specialized
+ * types enforce Layer 1 of the permission gate (AgentDef.allowedTools), so a
+ * chat panel opened on a dashboard page cannot, say, create alert rules even
+ * if the user would otherwise have permission — the tool isn't in the
+ * agent's capability ceiling.
+ */
+function pickAgentTypeFromContext(
+  pageContext?: { kind: string; id?: string } | undefined,
+): 'orchestrator' | 'dashboard-assistant' | 'alert-advisor' | 'incident-responder' | 'readonly-analyst' {
+  switch (pageContext?.kind) {
+    case 'dashboard':       return 'dashboard-assistant';
+    case 'alert':
+    case 'alerts':          return 'alert-advisor';
+    case 'investigation':
+    case 'investigations':  return 'incident-responder';
+    default:                return 'orchestrator';
+  }
 }
 
 // Event kinds that represent transient signalling (terminator, navigation
@@ -205,6 +230,7 @@ export class ChatService {
       investigationReportStore: this.deps.investigationReportStore,
       investigationStore: this.deps.investigationStore as IInvestigationStore | undefined,
       alertRuleStore: toAlertRuleStore(this.deps.alertRuleStore),
+      ...(this.deps.folderRepository ? { folderRepository: this.deps.folderRepository } : {}),
       metricsAdapter,
       allDatasources: config.datasources,
       sendEvent: wrappedSendEvent,
@@ -213,6 +239,9 @@ export class ChatService {
       identity,
       accessControl: this.deps.accessControl,
       ...(this.deps.auditWriter ? { auditWriter: this.deps.auditWriter } : {}),
+      // Page-based specialized agent selection (§D-layer-1). Falls back to
+      // the full orchestrator when the page has no tight capability ceiling.
+      agentType: pickAgentTypeFromContext(pageContext),
     }, resolvedSessionId);
 
     // If the user is viewing a specific dashboard, scope the agent to it

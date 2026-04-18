@@ -4,6 +4,7 @@ import type {
   DashboardSseEvent,
   DashboardAction,
   Identity,
+  IFolderRepository,
 } from '@agentic-obs/common'
 import type {
   IDashboardAgentStore,
@@ -64,6 +65,8 @@ import {
   handleAlertRuleList,
   handleAlertRuleHistory,
   handleNavigate,
+  handleFolderCreate,
+  handleFolderList,
 } from './orchestrator-action-handlers.js'
 
 export interface OrchestratorDeps {
@@ -74,6 +77,10 @@ export interface OrchestratorDeps {
   investigationReportStore: IInvestigationReportStore
   investigationStore?: IInvestigationStore
   alertRuleStore: IAlertRuleStore
+  /** Folder backend for agent folder.* tools. Optional — omitted in pure
+   *  in-memory deployments; folder.* tools return a clear "not configured"
+   *  observation if absent. */
+  folderRepository?: IFolderRepository
   metricsAdapter?: IMetricsAdapter
   webSearchAdapter?: IWebSearchAdapter
   allDatasources?: DatasourceConfig[]
@@ -336,6 +343,7 @@ export class OrchestratorAgent {
       investigationReportStore: this.deps.investigationReportStore,
       investigationStore: this.deps.investigationStore,
       alertRuleStore: this.deps.alertRuleStore,
+      folderRepository: this.deps.folderRepository,
       metricsAdapter: this.deps.metricsAdapter,
       webSearchAdapter: this.deps.webSearchAdapter,
       allDatasources: this.deps.allDatasources,
@@ -421,6 +429,9 @@ export class OrchestratorAgent {
         case 'delete_alert_rule': return handleDeleteAlertRule(ctx, args)
         case 'alert_rule.list': return handleAlertRuleList(ctx, args)
         case 'alert_rule.history': return handleAlertRuleHistory(ctx, args)
+        // Folder lifecycle (minimal — organize dashboards)
+        case 'folder.create': return handleFolderCreate(ctx, args)
+        case 'folder.list': return handleFolderList(ctx, args)
         // Navigation
         case 'navigate': return handleNavigate(ctx, args)
         // Prometheus primitives

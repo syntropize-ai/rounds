@@ -40,6 +40,8 @@ export interface DashboardRouterDeps {
   accessControl: AccessControlSurface
   /** Audit writer for agent tool calls. */
   auditWriter?: AuditWriter
+  /** Folder backend — enables agent folder.* tools. Optional. */
+  folderRepository?: import('@agentic-obs/common').IFolderRepository
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
@@ -51,6 +53,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   const feedStore = deps.feedStore
   const accessControl = deps.accessControl
   const auditWriter = deps.auditWriter
+  const folderRepository = deps.folderRepository
 
   const router = Router()
 
@@ -93,6 +96,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
             store, conversationStore, investigationReportStore, alertRuleStore,
             investigationStore, feedStore, accessControl,
             ...(auditWriter ? { auditWriter } : {}),
+            ...(folderRepository ? { folderRepository } : {}),
           })
           void withDashboardLock(dashboard.id, async () => {
             try {
@@ -300,7 +304,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
-      await handleChatMessage(req as AuthenticatedRequest, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, accessControl, investigationStore, feedStore, auditWriter)
+      await handleChatMessage(req as AuthenticatedRequest, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, accessControl, investigationStore, feedStore, auditWriter, folderRepository)
     }
     catch (err) {
       next(err)

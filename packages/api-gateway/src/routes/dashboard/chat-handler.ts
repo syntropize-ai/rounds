@@ -31,6 +31,7 @@ export async function handleChatMessage(
   investigationStore?: IGatewayInvestigationStore,
   feedStore?: IGatewayFeedStore,
   auditWriter?: AuditWriter,
+  folderRepository?: import('@agentic-obs/common').IFolderRepository,
 ): Promise<void> {
   if (!req.auth) {
     res.status(401).json({ message: 'authentication required' })
@@ -62,6 +63,7 @@ export async function handleChatMessage(
         store, conversationStore, investigationReportStore, alertRuleStore,
         investigationStore, feedStore, accessControl,
         ...(auditWriter ? { auditWriter } : {}),
+        ...(folderRepository ? { folderRepository } : {}),
       })
       const result = await service.handleChatMessage(
         dashboardId,

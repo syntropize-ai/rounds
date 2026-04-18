@@ -23,6 +23,7 @@ export * from './api-key.js';
 export * from './rbac.js';
 export * from './folder.js';
 export * from './dashboard-acl.js';
+export * from './permission.js';
 export * from './preferences.js';
 export * from './quota.js';
 export * from './audit-log.js';

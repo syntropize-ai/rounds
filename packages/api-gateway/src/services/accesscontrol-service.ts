@@ -31,8 +31,10 @@ import type {
   ITeamMemberRepository,
   IOrgUserRepository,
 } from '@agentic-obs/common';
+import { PermissionLevel } from '@agentic-obs/common';
 import type { Evaluator } from '@agentic-obs/common';
 import type { ResolverRegistry } from '../rbac/resolvers/index.js';
+import type { DashboardAclService } from './dashboard-acl-service.js';
 
 export interface AccessControlDeps {
   permissions: IPermissionRepository;
@@ -44,6 +46,14 @@ export interface AccessControlDeps {
   /** Optional resolver registry — when set, evaluator scopes are expanded
    * through it before checking coverage. */
   resolvers?: (orgId: string) => ResolverRegistry;
+  /**
+   * Legacy dashboard_acl fallback. When the primary RBAC evaluator returns
+   * false AND the evaluator targets a single `dashboards:uid:<uid>` scope, we
+   * consult the legacy ACL table. If any ACL row (direct or inherited from an
+   * ancestor folder) grants `permission >= required_level` to the caller, we
+   * allow. Disable by setting `LEGACY_ACL_ENABLED=false` in the environment.
+   */
+  legacyAcl?: DashboardAclService;
 }
 
 export class AccessControlService {
@@ -128,7 +138,30 @@ export class AccessControlService {
       effective = evaluator.mutate((s) => cache.get(s) ?? [s]);
     }
 
-    return effective.evaluate(permissions);
+    if (effective.evaluate(permissions)) return true;
+
+    // Legacy dashboard_acl fallback — only triggered when the primary RBAC
+    // check fails. See docs/auth-perm-design/07-resource-permissions.md
+    // §legacy-dashboard_acl.
+    const enabled =
+      process.env['LEGACY_ACL_ENABLED'] !== 'false' && !!this.deps.legacyAcl;
+    if (enabled && this.deps.legacyAcl) {
+      const target = extractDashboardAclTarget(evaluator);
+      if (target) {
+        try {
+          return await this.deps.legacyAcl.grantsAtLeast(
+            identity.orgId,
+            target.uid,
+            identity,
+            target.level,
+          );
+        } catch {
+          // Fallback failure is a miss, not an allow.
+          return false;
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -145,6 +178,33 @@ export class AccessControlService {
     (identity as { permissions?: ResolvedPermission[] }).permissions = p;
     return p;
   }
+}
+
+/**
+ * Extract the target for a legacy ACL fallback: we only consult the ACL when
+ * the evaluator checks `dashboards:read|write|delete` on a concrete dashboard
+ * UID. Composite evaluators (ac.all / ac.any) are flattened — if ANY of the
+ * atoms matches the pattern we use it.
+ */
+function extractDashboardAclTarget(
+  evaluator: Evaluator,
+): { uid: string; level: 1 | 2 | 4 } | null {
+  const s = evaluator.string();
+  // Regex for `dashboards:<verb> on dashboards:uid:<uid>`. Accept either a
+  // bare atom or one inside all(...)/any(...).
+  const m = /dashboards:(read|write|delete|create)\s+on\s+dashboards:uid:([^\s,)|]+)/.exec(
+    s,
+  );
+  if (!m) return null;
+  const verb = m[1]!;
+  const uid = m[2]!;
+  const level: 1 | 2 | 4 =
+    verb === 'read'
+      ? PermissionLevel.View
+      : verb === 'write' || verb === 'delete' || verb === 'create'
+        ? PermissionLevel.Edit
+        : PermissionLevel.View;
+  return { uid, level };
 }
 
 /**

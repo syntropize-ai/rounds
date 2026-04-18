@@ -177,6 +177,23 @@ describe('POST /api/login (integration)', () => {
     });
     expect(total).toBeGreaterThanOrEqual(1);
   });
+
+  // T6 acceptance — SA login must be rejected at the login endpoint.
+  it('403 when login targets a service account', async () => {
+    await ctx.users.create({
+      email: 'bot@t.local',
+      name: 'Bot',
+      login: 'sa-bot',
+      password: null,
+      orgId: 'org_main',
+      isServiceAccount: true,
+    });
+    const res = await request(ctx.app)
+      .post('/api/login')
+      .send({ user: 'sa-bot', password: 'irrelevant' });
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/service account/i);
+  });
 });
 
 describe('GET /api/user (integration)', () => {

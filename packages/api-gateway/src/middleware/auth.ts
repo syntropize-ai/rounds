@@ -25,6 +25,7 @@ import type { SessionService } from '../auth/session-service.js';
 import {
   SESSION_COOKIE_NAME,
 } from '../auth/session-service.js';
+import type { ApiKeyService } from '../services/apikey-service.js';
 
 const log = createLogger('auth-mw');
 
@@ -53,6 +54,14 @@ export interface AuthMiddlewareDeps {
   users: IUserRepository;
   orgUsers: IOrgUserRepository;
   apiKeys: IApiKeyRepository;
+  /**
+   * ApiKeyService path (T6.3). When provided, the bearer-token branch goes
+   * through `validateAndLookup` — which honours SA vs PAT, applies
+   * rate-limited `apikey.used` audit, and enforces `is_disabled` on the
+   * principal. When absent, the middleware falls back to the raw-repo path
+   * used by pre-T6 test harnesses.
+   */
+  apiKeyService?: ApiKeyService;
 }
 
 /** Read a cookie value by name from the raw Cookie header. */
@@ -191,6 +200,33 @@ export function createAuthMiddleware(deps: AuthMiddlewareDeps) {
     const token = bearerToken(req);
     if (token) {
       try {
+        // Preferred path: T6.3 ApiKeyService — runs SA / PAT validation,
+        // checks principal.is_disabled, and emits rate-limited `apikey.used`.
+        if (deps.apiKeyService) {
+          const lookup = await deps.apiKeyService.validateAndLookup(token);
+          if (!lookup) {
+            res.status(401).json({ message: 'invalid api key' });
+            return;
+          }
+          req.auth = {
+            userId: lookup.user.id,
+            orgId: lookup.orgId,
+            orgRole: lookup.role,
+            isServerAdmin: lookup.isServerAdmin,
+            authenticatedBy: 'api_key',
+            serviceAccountId: lookup.serviceAccountId ?? undefined,
+            sessionId: undefined,
+            sub: lookup.user.id,
+            roles: lookup.isServerAdmin
+              ? ['admin']
+              : [roleToLegacy(lookup.role)],
+            stringPermissions: [],
+          };
+          next();
+          return;
+        }
+
+        // Fallback: direct-repo lookup for pre-T6 test harnesses.
         const hashed = hashApiKey(token);
         const row = await deps.apiKeys.findByHashedKey(hashed);
         if (!row) {
@@ -201,7 +237,6 @@ export function createAuthMiddleware(deps: AuthMiddlewareDeps) {
           res.status(401).json({ message: 'api key expired' });
           return;
         }
-        // Touch last-used; fire-and-forget.
         deps.apiKeys
           .touchLastUsed(row.id, new Date().toISOString())
           .catch((err) => {
@@ -215,7 +250,11 @@ export function createAuthMiddleware(deps: AuthMiddlewareDeps) {
         let isServerAdmin = false;
         if (principalId) {
           const principal = await deps.users.findById(principalId);
-          if (principal) isServerAdmin = principal.isAdmin;
+          if (!principal || principal.isDisabled) {
+            res.status(401).json({ message: 'principal disabled' });
+            return;
+          }
+          isServerAdmin = principal.isAdmin;
         }
         if (principalId) {
           const membership = await deps.orgUsers.findMembership(

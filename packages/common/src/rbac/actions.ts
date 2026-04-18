@@ -50,6 +50,8 @@ export const ACTIONS = {
   AlertRulesWrite: 'alert.rules:write',
   AlertRulesCreate: 'alert.rules:create',
   AlertRulesDelete: 'alert.rules:delete',
+  AlertRulesPermissionsRead: 'alert.rules.permissions:read',
+  AlertRulesPermissionsWrite: 'alert.rules.permissions:write',
   AlertNotificationsRead: 'alert.notifications:read',
   AlertNotificationsWrite: 'alert.notifications:write',
   AlertInstancesRead: 'alert.instances:read',

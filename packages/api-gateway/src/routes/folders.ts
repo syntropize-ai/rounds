@@ -1,54 +1,275 @@
-import { Router } from 'express'
-import type { Request, Response } from 'express'
-import { authMiddleware } from '../middleware/auth.js'
-import { requirePermission } from '../middleware/rbac.js'
-import type { IFolderRepository } from '@agentic-obs/data-layer'
-import { defaultFolderStore } from '@agentic-obs/data-layer'
+/**
+ * /api/folders/* — folder CRUD + permissions.
+ *
+ * Implements docs/auth-perm-design/08-api-surface.md §/api/folders. The routes
+ * are gated via `requirePermission(...)` against the RBAC evaluator; folder
+ * CRUD uses `folders:*` actions, permissions endpoints use the
+ * `folders.permissions:*` pair.
+ *
+ * Grafana reference (read for semantics only, nothing copied):
+ *   pkg/api/folder.go
+ *   pkg/api/folder_permissions.go
+ */
 
-export function createFolderRouter(store: IFolderRepository = defaultFolderStore): Router {
-  const router = Router()
-  router.use(authMiddleware)
+import { Router } from 'express';
+import type { Response } from 'express';
+import { ac, ACTIONS } from '@agentic-obs/common';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
+import type { AccessControlService } from '../services/accesscontrol-service.js';
+import { createRequirePermission } from '../middleware/require-permission.js';
+import { FolderService, FolderServiceError } from '../services/folder-service.js';
+import {
+  ResourcePermissionService,
+  ResourcePermissionServiceError,
+} from '../services/resource-permission-service.js';
+import type { ResourcePermissionSetItem } from '@agentic-obs/common';
 
-  // GET /api/folders — list all folders
-  router.get('/', requirePermission('dashboard:read'), async (_req: Request, res: Response) => {
-    res.json(await store.findAll())
-  })
+export interface FolderRouterDeps {
+  folderService: FolderService;
+  permissionService: ResourcePermissionService;
+  ac: AccessControlService;
+}
 
-  // POST /api/folders — create a folder
-  router.post('/', requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-    const { name, parentId } = req.body as { name?: string; parentId?: string }
-    if (!name || !name.trim()) {
-      res.status(400).json({ code: 'INVALID_INPUT', message: 'name is required' })
-      return
-    }
-    const folder = await store.create({ name: name.trim(), parentId })
-    res.status(201).json(folder)
-  })
+function handleServiceError(err: unknown, res: Response): void {
+  if (err instanceof FolderServiceError) {
+    res.status(err.statusCode).json({ message: err.message });
+    return;
+  }
+  if (err instanceof ResourcePermissionServiceError) {
+    res.status(err.statusCode).json({ message: err.message });
+    return;
+  }
+  res.status(500).json({
+    message: err instanceof Error ? err.message : 'internal error',
+  });
+}
 
-  // PUT /api/folders/:id — rename a folder
-  router.put('/:id', requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-    const { name } = req.body as { name?: string }
-    if (!name || !name.trim()) {
-      res.status(400).json({ code: 'INVALID_INPUT', message: 'name is required' })
-      return
-    }
-    const folder = await store.rename(req.params['id'] ?? '', name.trim())
-    if (!folder) {
-      res.status(404).json({ code: 'NOT_FOUND', message: 'Folder not found' })
-      return
-    }
-    res.json(folder)
-  })
+export function createFolderRouter(deps: FolderRouterDeps): Router {
+  const router = Router();
+  const requirePermission = createRequirePermission(deps.ac);
 
-  // DELETE /api/folders/:id — delete a folder and all children
-  router.delete('/:id', requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-    const deleted = await store.delete(req.params['id'] ?? '')
-    if (!deleted) {
-      res.status(404).json({ code: 'NOT_FOUND', message: 'Folder not found' })
-      return
-    }
-    res.status(204).send()
-  })
+  // — GET /api/folders ------------------------------------------------------
+  router.get(
+    '/',
+    requirePermission(ac.eval(ACTIONS.FoldersRead, 'folders:*')),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const parentQuery = req.query['parentUid'];
+        const parentUid =
+          parentQuery === undefined
+            ? null // default: roots only (matches Grafana)
+            : parentQuery === ''
+              ? null
+              : String(parentQuery);
+        const limit = Number(req.query['limit'] ?? 200);
+        const page = Number(req.query['page'] ?? 1);
+        const offset = (Number.isFinite(page) && page > 0 ? page - 1 : 0) * limit;
+        const query =
+          typeof req.query['query'] === 'string'
+            ? (req.query['query'] as string)
+            : undefined;
+        const items = await deps.folderService.list(req.auth!.orgId, {
+          parentUid,
+          query,
+          limit,
+          offset,
+        });
+        res.json(items);
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
 
-  return router
+  // — POST /api/folders -----------------------------------------------------
+  router.post(
+    '/',
+    requirePermission((req) => {
+      const parentUid = (req.body as { parentUid?: string })?.parentUid;
+      return ac.eval(
+        ACTIONS.FoldersCreate,
+        parentUid ? `folders:uid:${parentUid}` : 'folders:*',
+      );
+    }),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const body = req.body as {
+          uid?: string;
+          title?: string;
+          description?: string;
+          parentUid?: string;
+        };
+        if (!body.title) {
+          res.status(400).json({ message: 'title is required' });
+          return;
+        }
+        const folder = await deps.folderService.create(
+          req.auth!.orgId,
+          {
+            uid: body.uid,
+            title: body.title,
+            description: body.description,
+            parentUid: body.parentUid,
+          },
+          req.auth!.userId,
+        );
+        res.status(200).json(folder);
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
+
+  // — GET /api/folders/:uid -------------------------------------------------
+  router.get(
+    '/:uid',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.FoldersRead, `folders:uid:${req.params['uid']}`),
+    ),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const folder = await deps.folderService.getByUid(
+          req.auth!.orgId,
+          req.params['uid']!,
+        );
+        if (!folder) {
+          res.status(404).json({ message: 'folder not found' });
+          return;
+        }
+        const parents = await deps.folderService.getParents(
+          req.auth!.orgId,
+          req.params['uid']!,
+        );
+        res.json({ ...folder, parents });
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
+
+  // — GET /api/folders/:uid/counts ------------------------------------------
+  router.get(
+    '/:uid/counts',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.FoldersRead, `folders:uid:${req.params['uid']}`),
+    ),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const counts = await deps.folderService.getCounts(
+          req.auth!.orgId,
+          req.params['uid']!,
+        );
+        res.json(counts);
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
+
+  // — PUT /api/folders/:uid -------------------------------------------------
+  router.put(
+    '/:uid',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.FoldersWrite, `folders:uid:${req.params['uid']}`),
+    ),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const body = req.body as {
+          title?: string;
+          description?: string | null;
+          parentUid?: string | null;
+        };
+        const updated = await deps.folderService.update(
+          req.auth!.orgId,
+          req.params['uid']!,
+          body,
+          req.auth!.userId,
+        );
+        res.json(updated);
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
+
+  // — DELETE /api/folders/:uid ----------------------------------------------
+  router.delete(
+    '/:uid',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.FoldersDelete, `folders:uid:${req.params['uid']}`),
+    ),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const force =
+          req.query['forceDeleteRules'] === 'true' ||
+          req.query['forceDeleteRules'] === '1';
+        await deps.folderService.delete(req.auth!.orgId, req.params['uid']!, {
+          forceDeleteRules: force,
+        });
+        res.status(200).json({ message: 'Folder deleted' });
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
+
+  // — GET /api/folders/:uid/permissions -------------------------------------
+  router.get(
+    '/:uid/permissions',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.FoldersPermissionsRead, `folders:uid:${req.params['uid']}`),
+    ),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const uid = req.params['uid']!;
+        const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
+        if (!existing) {
+          res.status(404).json({ message: 'folder not found' });
+          return;
+        }
+        const entries = await deps.permissionService.list(
+          req.auth!.orgId,
+          'folders',
+          uid,
+        );
+        res.json(entries);
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
+
+  // — POST /api/folders/:uid/permissions ------------------------------------
+  router.post(
+    '/:uid/permissions',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.FoldersPermissionsWrite, `folders:uid:${req.params['uid']}`),
+    ),
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const uid = req.params['uid']!;
+        const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
+        if (!existing) {
+          res.status(404).json({ message: 'folder not found' });
+          return;
+        }
+        const body = req.body as { items?: ResourcePermissionSetItem[] };
+        if (!Array.isArray(body.items)) {
+          res.status(400).json({ message: 'items must be an array' });
+          return;
+        }
+        await deps.permissionService.setBulk(
+          req.auth!.orgId,
+          'folders',
+          uid,
+          body.items,
+        );
+        res.status(200).json({ message: 'Permissions updated' });
+      } catch (err) {
+        handleServiceError(err, res);
+      }
+    },
+  );
+
+  return router;
 }

@@ -116,6 +116,38 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
       res.status(400).json({ message: 'user and password are required' });
       return;
     }
+    // Service-account login guard (T6). The local-provider already rejects
+    // SAs with a generic 401 for timing-safe uniformity; we front-run it
+    // here with an explicit 403 when the supplied login looks up to a
+    // service-account row. This satisfies the acceptance test in
+    // docs/auth-perm-design/06-service-accounts.md §10 while preserving the
+    // generic 401 for password-failure paths.
+    try {
+      const candidate =
+        (await deps.users.findByLogin(user)) ??
+        (await deps.users.findByEmail(user));
+      if (candidate?.isServiceAccount) {
+        void deps.audit.log({
+          action: AuditAction.UserLoginFailed,
+          actorType: 'user',
+          actorName: user,
+          outcome: 'failure',
+          ip: ip(req),
+          userAgent: ua(req),
+          metadata: { reason: 'service_account_login' },
+        });
+        res.status(403).json({
+          message: 'service accounts cannot log in interactively',
+        });
+        return;
+      }
+    } catch (err) {
+      log.debug(
+        { err: err instanceof Error ? err.message : err },
+        'pre-login SA check failed',
+      );
+      // Fall through — the local-provider's own guard will still reject.
+    }
     try {
       // Try LDAP first if configured; fall back to local on failure.
       let resolvedUser;

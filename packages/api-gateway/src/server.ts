@@ -3,6 +3,7 @@ import type { Application } from 'express';
 import { join, dirname } from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { sql } from 'drizzle-orm';
 import { cors } from './middleware/cors.js';
 import { defaultRateLimiter, createRateLimiter } from './middleware/rate-limiter.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
@@ -25,8 +26,21 @@ import { createNotificationsRouter } from './routes/notifications.js';
 import { createVersionRouter } from './routes/versions.js';
 import { createOrgsRouter } from './routes/orgs.js';
 import { createOrgRouter } from './routes/org.js';
+import { createTeamsRouter } from './routes/teams.js';
 import { OrgService } from './services/org-service.js';
+import { TeamService } from './services/team-service.js';
+import { ServiceAccountService } from './services/serviceaccount-service.js';
+import { ApiKeyService } from './services/apikey-service.js';
+import { createServiceAccountsRouter } from './routes/serviceaccounts.js';
+import { createUserTokensRouter } from './routes/user-tokens.js';
+import { createAuthKeysRouter } from './routes/auth-keys.js';
 import { createFolderRouter } from './routes/folders.js';
+import { createDashboardPermissionsRouter } from './routes/dashboard-permissions.js';
+import { createDatasourcePermissionsRouter } from './routes/datasource-permissions.js';
+import { createAlertRulePermissionsRouter } from './routes/alert-rule-permissions.js';
+import { FolderService } from './services/folder-service.js';
+import { ResourcePermissionService } from './services/resource-permission-service.js';
+import { DashboardAclService } from './services/dashboard-acl-service.js';
 import { createSearchRouter } from './routes/search.js';
 import { createChatRouter } from './routes/chat.js';
 import {
@@ -65,7 +79,9 @@ import {
   UserRoleRepository,
   TeamRoleRepository,
   TeamMemberRepository,
+  TeamRepository,
   FolderRepository,
+  DashboardAclRepository,
   seedRbacForOrg,
 } from '@agentic-obs/data-layer';
 import { createAuthSubsystem } from './auth/auth-manager.js';
@@ -183,11 +199,20 @@ export function createApp(): Application {
     })();
     void (async () => {
       const authSub = await createAuthSubsystem(authRepos);
+      // -- Wave 4 / T6.2 — ApiKeyService for SA tokens + PATs --------------
+      const apiKeyService = new ApiKeyService({
+        apiKeys: authRepos.apiKeys,
+        users: authRepos.users,
+        orgUsers: authRepos.orgUsers,
+        quotas: new QuotaRepository(sqliteDb),
+        audit: authSub.audit,
+      });
       const authMw = createAuthMiddleware({
         sessions: authSub.sessions,
         users: authRepos.users,
         orgUsers: authRepos.orgUsers,
         apiKeys: authRepos.apiKeys,
+        apiKeyService,
       });
       setAuthMiddleware(authMw);
       setBootstrapHasUsers(async () => {
@@ -261,6 +286,14 @@ export function createApp(): Application {
         );
       }
 
+      // T7.6 — legacy dashboard_acl read-only fallback for RBAC evaluation.
+      const dashboardAclRepo = new DashboardAclRepository(sqliteDb);
+      const legacyAclService = new DashboardAclService({
+        dashboardAcl: dashboardAclRepo,
+        folders: rbacFolders,
+        teamMembers: rbacTeamMembers,
+        db: sqliteDb,
+      });
       const accessControl = new AccessControlService({
         permissions: rbacPermissionRepo,
         roles: rbacRoleRepo,
@@ -268,8 +301,27 @@ export function createApp(): Application {
         teamRoles: rbacTeamRoles,
         teamMembers: rbacTeamMembers,
         orgUsers: authRepos.orgUsers,
+        legacyAcl: legacyAclService,
         resolvers: (orgId) =>
-          createResolverRegistry({ folders: rbacFolders, orgId }),
+          createResolverRegistry({
+            folders: rbacFolders,
+            orgId,
+            // Dashboard → folder_uid lookup so the dashboards resolver can
+            // cascade a grant on a folder's scope to any dashboard it
+            // contains. Raw SQL query keeps the dashboards repo out of scope.
+            dashboardFolderUid: async (oid, dashUid) => {
+              const rows = sqliteDb.all<{ folder_uid: string | null }>(
+                sql`SELECT folder_uid FROM dashboards WHERE org_id = ${oid} AND id = ${dashUid} LIMIT 1`,
+              );
+              return rows[0]?.folder_uid ?? null;
+            },
+            alertRuleFolderUid: async (oid, ruleUid) => {
+              const rows = sqliteDb.all<{ folder_uid: string | null }>(
+                sql`SELECT folder_uid FROM alert_rules WHERE org_id = ${oid} AND id = ${ruleUid} LIMIT 1`,
+              );
+              return rows[0]?.folder_uid ?? null;
+            },
+          }),
       });
 
       app.use(
@@ -322,6 +374,114 @@ export function createApp(): Application {
           orgs: orgService,
           ac: accessControl,
           preferences: authRepos.preferences,
+        }),
+      );
+
+      // -- Wave 4 / T5.1 — Teams --------------------------------------------
+      const teamService = new TeamService({
+        teams: new TeamRepository(sqliteDb),
+        teamMembers: rbacTeamMembers,
+        preferences: authRepos.preferences,
+        db: sqliteDb,
+        audit: authSub.audit,
+      });
+      app.use(
+        '/api/teams',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createTeamsRouter({ teams: teamService, ac: accessControl }),
+      );
+
+      // -- Wave 4 / T6 — Service accounts + tokens -------------------------
+      const saService = new ServiceAccountService({
+        users: authRepos.users,
+        orgUsers: authRepos.orgUsers,
+        apiKeys: authRepos.apiKeys,
+        userRoles: rbacUserRoles,
+        teamMembers: rbacTeamMembers,
+        quotas: quotasRepo,
+        audit: authSub.audit,
+      });
+      app.use(
+        '/api/serviceaccounts',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createServiceAccountsRouter({
+          serviceAccounts: saService,
+          apiKeys: apiKeyService,
+          ac: accessControl,
+        }),
+      );
+      app.use(
+        '/api/user',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createUserTokensRouter({ apiKeys: apiKeyService }),
+      );
+      app.use(
+        '/api/auth/keys',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createAuthKeysRouter({
+          serviceAccounts: saService,
+          apiKeys: apiKeyService,
+          ac: accessControl,
+        }),
+      );
+
+      // -- Wave 4 / T7 — Resource permissions (folders + cascade) ----------
+      const folderService = new FolderService({
+        folders: rbacFolders,
+        db: sqliteDb,
+      });
+      const resourcePermissionService = new ResourcePermissionService({
+        roles: rbacRoleRepo,
+        permissions: rbacPermissionRepo,
+        userRoles: rbacUserRoles,
+        teamRoles: rbacTeamRoles,
+        folders: rbacFolders,
+        users: authRepos.users,
+        teams: new TeamRepository(sqliteDb),
+      });
+      // Mount /api/folders T7.1 router BEFORE the legacy ones below so the
+      // Grafana-parity routes win. The legacy in-memory store router is still
+      // registered at the bottom for compat with in-memory mode.
+      app.use(
+        '/api/folders',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createFolderRouter({
+          folderService,
+          permissionService: resourcePermissionService,
+          ac: accessControl,
+        }),
+      );
+      app.use(
+        '/api/dashboards',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createDashboardPermissionsRouter({
+          permissionService: resourcePermissionService,
+          ac: accessControl,
+          db: sqliteDb,
+        }),
+      );
+      app.use(
+        '/api/datasources',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createDatasourcePermissionsRouter({
+          permissionService: resourcePermissionService,
+          ac: accessControl,
+        }),
+      );
+      app.use(
+        '/api/access-control/alert.rules',
+        authMw,
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        createAlertRulePermissionsRouter({
+          permissionService: resourcePermissionService,
+          ac: accessControl,
         }),
       );
     })().catch((err) => {
@@ -381,7 +541,7 @@ export function createApp(): Application {
       feedStore: eventFeedStore,
       reportStore: repos.investigationReports,
     }));
-    app.use('/api/folders', createFolderRouter(repos.folders));
+    // /api/folders is mounted above inside the async auth block — T7.1.
     app.use('/api/search', createSearchRouter({
       dashboardStore: repos.dashboards,
       alertRuleStore: eventAlertRuleStore,
@@ -432,7 +592,9 @@ export function createApp(): Application {
       feedStore,
       reportStore: defaultInvestigationReportStore,
     }));
-    app.use('/api/folders', createFolderRouter(defaultFolderStore));
+    // Legacy in-memory mode doesn't get the Grafana-parity /api/folders —
+    // that route only functions when SQLite is available (T7 migration 017
+    // adds folder_uid columns that the in-memory path doesn't model).
     app.use('/api/search', createSearchRouter({
       dashboardStore: defaultDashboardStore,
       alertRuleStore: defaultAlertRuleStore,

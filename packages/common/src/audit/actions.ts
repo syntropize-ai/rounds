@@ -60,6 +60,7 @@ export const AuditAction = {
 
   // Service accounts
   ServiceAccountCreated: 'serviceaccount.created',
+  ServiceAccountUpdated: 'serviceaccount.updated',
   ServiceAccountDeleted: 'serviceaccount.deleted',
   ServiceAccountTokenCreated: 'serviceaccount.token_created',
   ServiceAccountTokenRevoked: 'serviceaccount.token_revoked',

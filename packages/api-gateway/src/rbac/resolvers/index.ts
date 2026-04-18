@@ -38,6 +38,17 @@ export interface ResolverDeps {
   folders?: IFolderRepository;
   /** org context — resolvers that query by org_id use this. */
   orgId: string;
+  /**
+   * Lookup the folder UID of a given dashboard — used by the dashboards
+   * resolver to emit `folders:uid:<parent>` cascade scopes. Optional; when
+   * absent, the resolver emits only direct + wildcard scopes.
+   */
+  dashboardFolderUid?: (orgId: string, dashboardUid: string) => Promise<string | null>;
+  /**
+   * Lookup the folder UID of a given alert rule — analogous hook for the
+   * alert.rules resolver.
+   */
+  alertRuleFolderUid?: (orgId: string, ruleUid: string) => Promise<string | null>;
 }
 
 /**

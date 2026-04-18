@@ -1,102 +1,115 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * Login page — cookie-based auth with provider selector + local form.
+ *
+ * See docs/auth-perm-design/09-frontend.md §T8.1.
+ */
+
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.js';
-import { api, apiClient } from '../api/client.js';
+import { authApi, AuthApiError, type LoginProvider } from '../api/client.js';
 import { OpenObsLogo } from '../components/OpenObsLogo.js';
 
-interface Provider {
-  id: string;
-  name: string;
-  type: string;
+/**
+ * Map backend error status + message to the operator-facing copy specified
+ * in the design doc. Exported for unit tests.
+ */
+export function formatLoginError(err: unknown): string {
+  if (err instanceof AuthApiError) {
+    if (err.status === 401) return 'Invalid email/username or password';
+    if (err.status === 429) {
+      // Try to extract "X minutes" from the server message (best-effort).
+      const match = /(\d+)\s*minute/i.exec(err.message);
+      const minutes = match ? match[1] : null;
+      return minutes
+        ? `Too many attempts. Try again in ${minutes} minutes.`
+        : 'Too many attempts. Try again later.';
+    }
+    if (err.status >= 500) return 'Unable to log in right now. Please retry.';
+    return err.message || 'Unable to log in right now. Please retry.';
+  }
+  return 'Unable to log in right now. Please retry.';
 }
 
-interface LoginResult {
-  user: import('../contexts/AuthContext.js').AuthUser;
-  tokens: { accessToken: string; refreshToken: string; expiresIn: number };
-}
-
-const PROVIDER_ICONS: Record<string, string> = {
+const SSO_FALLBACK_ICON = '↗';
+const SSO_ICONS: Record<string, string> = {
   github: 'GH',
   google: 'G',
-  oidc: 'O',
+  generic: 'O',
   saml: 'S',
-  local: '@',
-};
-
-const PROVIDER_COLORS: Record<string, string> = {
-  github: 'bg-[var(--color-surface-high)] hover:bg-[var(--color-outline-variant)] text-[var(--color-on-surface)] border border-[var(--color-outline-variant)]',
-  google: 'bg-[var(--color-surface-high)] hover:bg-[var(--color-outline-variant)] text-[var(--color-on-surface)] border border-[var(--color-outline-variant)]',
-  oidc: 'bg-[var(--color-primary)] hover:opacity-90 text-[var(--color-on-primary-fixed)]',
-  saml: 'bg-[var(--color-primary)] hover:opacity-90 text-[var(--color-on-primary-fixed)]',
+  ldap: 'L',
 };
 
 export default function Login() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login, user } = useAuth();
+  const auth = useAuth();
 
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [email, setEmail] = useState('');
+  const [providers, setProviders] = useState<LoginProvider[]>([]);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const [userField, setUserField] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user) navigate('/', { replace: true });
-  }, [user, navigate]);
+  const redirectTarget = useMemo(() => {
+    const r = searchParams.get('redirect');
+    // Prevent open-redirect: only allow internal paths.
+    if (r && r.startsWith('/') && !r.startsWith('//')) return r;
+    return '/';
+  }, [searchParams]);
 
-  // Handle OAuth callback via one-time callback session exchange.
+  // If already logged in, skip the form.
   useEffect(() => {
-    const session = searchParams.get('session');
-    if (session) {
-      void (async () => {
-        try {
-          const { data, error } = await apiClient.get<LoginResult>(`/auth/callback-session/${encodeURIComponent(session)}`);
-          if (!error && data) {
-            login(data.tokens, data.user);
-            navigate('/', { replace: true });
-          } else {
-            setError('Authentication failed. Please try again.');
-          }
-        } catch {
-          setError('Authentication failed. Please try again.');
-        }
-      })();
-    }
-  }, [searchParams, login, navigate]);
+    if (auth.user) navigate(redirectTarget, { replace: true });
+  }, [auth.user, navigate, redirectTarget]);
 
-  // Fetch available auth providers
-  useEffect(() => {
-    void api.get<{ providers: Provider[] }>('/auth/providers')
-      .then((d) => setProviders(d.providers))
-      .catch(() => setProviders([{ id: 'local', name: 'Email & Password', type: 'local' }]));
-  }, []);
-
-  // Show error from redirect (e.g. ?error=access_denied)
+  // Surface an `?error=` redirect parameter (e.g. from failed OAuth callbacks).
   useEffect(() => {
     const err = searchParams.get('error');
     if (err) setError(decodeURIComponent(err.replace(/\+/g, ' ')));
   }, [searchParams]);
 
-  const handleLocalLogin = async (e: React.FormEvent) => {
+  useEffect(() => {
+    let cancelled = false;
+    void authApi
+      .getLoginProviders()
+      .then((list) => {
+        if (!cancelled) {
+          setProviders(list);
+          setProvidersLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          // Fall back to local-only if the providers endpoint is unreachable.
+          setProviders([{ id: 'local', name: 'Username / password', enabled: true }]);
+          setProvidersLoaded(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const localProvider = providers.find((p) => p.id === 'local');
+  const localEnabled = !providersLoaded || (localProvider?.enabled ?? true);
+  const ssoProviders = providers.filter((p) => p.id !== 'local' && p.enabled);
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    if (submitting) return;
     setError(null);
+    setSubmitting(true);
     try {
-      const data = await api.post<LoginResult>('/auth/login/local', { email, password });
-      login(data.tokens, data.user);
-      navigate('/', { replace: true });
+      await auth.login({ user: userField, password });
+      navigate(redirectTarget, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Network error. Please check your connection.');
+      setError(formatLoginError(err));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
-
-  const ssoProviders = providers.filter((p) => p.type !== 'local');
-  const hasLocal = providers.some((p) => p.type === 'local');
 
   return (
     <div className="min-h-screen bg-surface flex items-center justify-center px-4">
@@ -110,10 +123,15 @@ export default function Login() {
         </div>
 
         <div className="bg-surface-low border border-outline-variant rounded-2xl p-6">
-          <h2 className="text-xl font-semibold text-on-surface mb-4 text-center">Sign in to your account</h2>
+          <h2 className="text-xl font-semibold text-on-surface mb-4 text-center">
+            Sign in to your account
+          </h2>
 
           {error && (
-            <div className="mb-4 px-4 py-3 rounded-lg bg-error/10 border border-error/30 text-error text-sm">
+            <div
+              role="alert"
+              className="mb-4 px-4 py-3 rounded-lg bg-error/10 border border-error/30 text-error text-sm"
+            >
               {error}
             </div>
           )}
@@ -123,13 +141,11 @@ export default function Login() {
               {ssoProviders.map((p) => (
                 <a
                   key={p.id}
-                  href={`/api/auth/login/${p.id}`}
-                  className={`w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all shadow-sm ${
-                    PROVIDER_COLORS[p.type] ?? 'bg-surface-high text-on-surface hover:bg-outline-variant'
-                  }`}
+                  href={p.url ?? `/api/login/${p.id}`}
+                  className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all shadow-sm bg-surface-high hover:bg-outline-variant text-on-surface border border-outline-variant"
                 >
                   <span className="text-base">
-                    {PROVIDER_ICONS[p.id] ?? PROVIDER_ICONS[p.type] ?? '↗'}
+                    {SSO_ICONS[p.id] ?? SSO_FALLBACK_ICON}
                   </span>
                   Sign in with {p.name}
                 </a>
@@ -137,35 +153,45 @@ export default function Login() {
             </div>
           )}
 
-          {ssoProviders.length > 0 && hasLocal && (
+          {ssoProviders.length > 0 && localEnabled && (
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-outline-variant" />
               </div>
               <div className="relative flex justify-center text-xs">
-                <span className="bg-surface-low px-3 text-on-surface-variant font-medium">or continue with email</span>
+                <span className="bg-surface-low px-3 text-on-surface-variant font-medium">
+                  or continue with password
+                </span>
               </div>
             </div>
           )}
 
-          {hasLocal && (
-            <form onSubmit={(e) => void handleLocalLogin(e)} className="space-y-4">
+          {localEnabled && (
+            <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-on-surface mb-1.5">Email address</label>
+                <label htmlFor="login-user" className="block text-sm font-medium text-on-surface mb-1.5">
+                  Email or username
+                </label>
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="login-user"
+                  name="user"
+                  type="text"
+                  value={userField}
+                  onChange={(e) => setUserField(e.target.value)}
                   placeholder="you@company.com"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   className="w-full px-4 py-2.5 rounded-xl border border-outline-variant bg-surface-high text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-on-surface mb-1.5">Password</label>
+                <label htmlFor="login-password" className="block text-sm font-medium text-on-surface mb-1.5">
+                  Password
+                </label>
                 <input
+                  id="login-password"
+                  name="password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -176,28 +202,24 @@ export default function Login() {
                 />
               </div>
 
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 text-sm text-on-surface-variant cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="rounded border-outline-variant text-primary focus:ring-primary/30"
-                  />
-                  Remember me
-                </label>
-              </div>
-
               <button
                 type="submit"
-                disabled={loading || !email || !password}
+                disabled={submitting || !userField || !password}
                 className="w-full py-3 rounded-xl bg-primary text-on-primary-fixed font-semibold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-md"
               >
-                {loading ? 'Signing in...' : 'Sign in'}
+                {submitting ? 'Signing in...' : 'Log in'}
               </button>
+
+              <div className="text-center">
+                <a
+                  href="/forgot-password"
+                  className="text-sm text-primary hover:underline"
+                >
+                  Forgot password?
+                </a>
+              </div>
             </form>
           )}
-
         </div>
       </div>
     </div>

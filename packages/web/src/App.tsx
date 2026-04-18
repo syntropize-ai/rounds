@@ -93,7 +93,7 @@ export default function App() {
                   <Route path="/evidence/:id" element={<Evidence />} />
                   <Route path="/actions" element={<ActionCenter />} />
                   <Route path="/settings" element={<Settings />} />
-                  <Route path="/admin" element={<Admin />} />
+                  <Route path="/admin/*" element={<Admin />} />
                   <Route path="/incidents/:id/post-mortem" element={<PostMortem />} />
                   <Route path="/dashboards" element={<Dashboards />} />
                   <Route path="/dashboards/:id" element={<DashboardWorkspace />} />

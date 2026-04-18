@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.js';
 import { useTheme } from '../contexts/ThemeContext.js';
 import { OpenObsLogo } from './OpenObsLogo.js';
+import { OrgSwitcher } from './OrgSwitcher.js';
 
 /* ───── Icon components ───── */
 
@@ -191,6 +192,14 @@ export default function Navigation() {
           </button>
         )}
       </div>
+
+      {/* Org switcher — shown above nav items when sidebar is expanded.
+          Hidden automatically when the user has <= 1 org. */}
+      {expanded && (
+        <div className="mb-3">
+          <OrgSwitcher compact />
+        </div>
+      )}
 
       {/* Primary nav items */}
       <div className={`flex flex-col gap-1 flex-1 ${expanded ? '' : 'items-center'}`}>

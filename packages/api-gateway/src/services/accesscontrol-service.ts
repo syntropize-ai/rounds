@@ -178,6 +178,28 @@ export class AccessControlService {
     (identity as { permissions?: ResolvedPermission[] }).permissions = p;
     return p;
   }
+
+  /**
+   * Post-filter a list of items to those the identity has permission on.
+   * Used by agent list-handler tools (§D10). Resolves the permission set
+   * once up front so N rows cost O(N) in-memory checks, not O(N) DB hits.
+   */
+  async filterByPermission<T>(
+    identity: Identity,
+    items: readonly T[],
+    buildEvaluator: (item: T) => Evaluator,
+  ): Promise<T[]> {
+    if (items.length === 0) return [];
+    // Prime the cache — one DB round-trip at most.
+    await this.ensurePermissions(identity);
+    const kept: T[] = [];
+    for (const item of items) {
+      if (await this.evaluate(identity, buildEvaluator(item))) {
+        kept.push(item);
+      }
+    }
+    return kept;
+  }
 }
 
 /**

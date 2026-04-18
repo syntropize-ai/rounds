@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { createLogger, getErrorMessage } from '@agentic-obs/common'
+import { AuditAction, createLogger, getErrorMessage } from '@agentic-obs/common'
 import type {
   DashboardSseEvent,
   DashboardAction,
+  Identity,
 } from '@agentic-obs/common'
 import type {
   IDashboardAgentStore,
@@ -19,8 +20,15 @@ import { AlertRuleAgent } from './alert-rule-agent.js'
 import { ReActLoop } from './react-loop.js'
 import type { ReActStep } from './react-loop.js'
 import { agentRegistry } from './agent-registry.js'
-import type { AgentToolName, AgentPermissionMode } from './agent-types.js'
+import type { AgentDefinition } from './agent-definition.js'
+import type { AgentType } from './agent-types.js'
 import type { AgentEvent } from './agent-events.js'
+import { checkPermission, denialObservation } from './permission-gate.js'
+import type {
+  IAccessControlService,
+  IAuditWriter,
+  PermissionGateResult,
+} from './types-permissions.js'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import {
   getStructuredAlertRuleContext,
@@ -74,8 +82,37 @@ export interface OrchestratorDeps {
   maxTokenBudget?: number
   /** LLM-generated summary of earlier conversation turns (from context compaction) */
   conversationSummary?: string
+  /**
+   * Wave 7 — the caller's bound identity. Required. The agent is the user's
+   * hands; running without one is undefined by design (see §D1, §D4).
+   */
+  identity: Identity
+  /** Access-control surface for the per-call gate and list-filter. */
+  accessControl: IAccessControlService
+  /**
+   * Audit-log writer. Optional (tests can omit) but production callers MUST
+   * pass one — every gated dispatch writes `agent.tool_called` or
+   * `agent.tool_denied` per §D9.
+   */
+  auditWriter?: IAuditWriter
+  /**
+   * Which specialized agent this run uses. Defaults to `orchestrator`. Pick a
+   * narrower type to tighten the allowedTools ceiling (Layer 1).
+   */
+  agentType?: AgentType
+  /**
+   * Operator-configured escalation contact displayed to the LLM as a factual
+   * template variable. See §D8, §D13. Falls back to process.env when unset.
+   */
+  permissionEscalationContact?: string
 }
 
+/**
+ * Mutations that still trigger the legacy approval / propose-only output
+ * channel. The new three-layer gate handles read_only + propose_only as
+ * denials (Layer 2); `approval_required` is preserved here because it is a
+ * deferral (emit a proposal, don't execute) rather than a denial.
+ */
 const MUTATION_ACTIONS = [
   'dashboard.create', 'dashboard.add_panels', 'dashboard.remove_panels', 'dashboard.modify_panel',
   'dashboard.rearrange', 'dashboard.add_variable', 'dashboard.set_title',
@@ -83,16 +120,14 @@ const MUTATION_ACTIONS = [
   'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule',
 ] as const;
 
-function checkPermission(mode: AgentPermissionMode, action: string): 'allow' | 'block' | 'approval_required' | 'propose_only' {
-  const isMutation = (MUTATION_ACTIONS as readonly string[]).includes(action);
-  if (!isMutation) return 'allow';
-  if (mode === 'read_only') return 'block';
-  if (mode === 'approval_required') return 'approval_required';
-  if (mode === 'propose_only') return 'propose_only';
-  return 'allow';
+function isMutationAction(action: string): boolean {
+  return (MUTATION_ACTIONS as readonly string[]).includes(action);
 }
 
 const log = createLogger('orchestrator')
+
+/** Per-(userId, tool) rate-limit window for `agent.tool_called` audit rows. */
+const ALLOW_AUDIT_COOLDOWN_MS = 60_000
 
 export class OrchestratorAgent {
   static readonly definition = agentRegistry.get('orchestrator')!;
@@ -100,13 +135,22 @@ export class OrchestratorAgent {
   private readonly actionExecutor: ActionExecutor
   private readonly alertRuleAgent: AlertRuleAgent
   private readonly reactLoop: ReActLoop
+  private readonly agentDef: AgentDefinition
   private pendingConversationActions: DashboardAction[] = []
   private pendingNavigateTo?: string
+  private readonly allowAuditAt = new Map<string, number>()
   readonly sessionId: string
 
   constructor(private deps: OrchestratorDeps, sessionId?: string) {
     this.sessionId = sessionId ?? randomUUID()
     this.actionExecutor = new ActionExecutor(deps.store, deps.sendEvent)
+
+    const type = deps.agentType ?? 'orchestrator'
+    const def = agentRegistry.get(type)
+    if (!def) {
+      throw new Error(`OrchestratorAgent: unknown agent type "${type}"`)
+    }
+    this.agentDef = def
 
     this.alertRuleAgent = new AlertRuleAgent({
       gateway: deps.gateway,
@@ -118,11 +162,13 @@ export class OrchestratorAgent {
       gateway: deps.gateway,
       model: deps.model,
       sendEvent: deps.sendEvent,
+      identity: deps.identity,
+      accessControl: deps.accessControl,
       maxTokenBudget: deps.maxTokenBudget,
       conversationSummary: deps.conversationSummary,
     })
 
-    log.info(`[Orchestrator] init: metricsAdapter=${deps.metricsAdapter ? 'SET' : 'UNSET'}`)
+    log.info(`[Orchestrator] init: agentType=${type}, metricsAdapter=${deps.metricsAdapter ? 'SET' : 'UNSET'}`)
   }
 
   private emitAgentEvent(event: AgentEvent): void {
@@ -135,10 +181,69 @@ export class OrchestratorAgent {
   ): AgentEvent {
     return {
       type,
-      agentType: OrchestratorAgent.definition.type,
+      agentType: this.agentDef.type,
       timestamp: new Date().toISOString(),
       ...(metadata ? { metadata } : {}),
     };
+  }
+
+  /**
+   * Persist an audit row for a gated tool call. Allow-path is rate-limited to
+   * one row per (identity.userId, tool) per 60s (§D9). Deny-path always writes.
+   * Fire-and-forget; writer failures never block the loop.
+   */
+  private async writeToolAudit(
+    path: 'allow' | 'denied',
+    tool: string,
+    args: Record<string, unknown>,
+    gateResult: PermissionGateResult,
+  ): Promise<void> {
+    const writer = this.deps.auditWriter;
+    if (!writer) return;
+
+    // Allow-path rate limit — key by principal+tool.
+    if (path === 'allow') {
+      const key = `${this.deps.identity.userId}:${tool}`;
+      const last = this.allowAuditAt.get(key) ?? 0;
+      const now = Date.now();
+      if (now - last < ALLOW_AUDIT_COOLDOWN_MS) return;
+      this.allowAuditAt.set(key, now);
+    }
+
+    const targetType = inferTargetType(tool);
+    const targetId = inferTargetId(tool, args);
+    const action = path === 'allow'
+      ? AuditAction.AgentToolCalled
+      : AuditAction.AgentToolDenied;
+    const outcome: 'success' | 'failure' =
+      path === 'allow' ? 'success' : 'failure';
+
+    // Truncate args summary — chat payloads can be large and we never need
+    // them verbatim in the audit log.
+    const argsSummary = summarizeArgs(args);
+
+    await writer.log({
+      action,
+      actorType: this.deps.identity.serviceAccountId ? 'service_account' : 'user',
+      actorId: this.deps.identity.serviceAccountId ?? this.deps.identity.userId,
+      orgId: this.deps.identity.orgId,
+      targetType,
+      targetId: targetId ?? null,
+      outcome,
+      metadata: {
+        agent_type: this.agentDef.type,
+        tool,
+        required_action: gateResult.action ?? null,
+        required_scope: gateResult.scope ?? null,
+        denied_by: path === 'denied' ? gateResult.reason ?? null : null,
+        args_summary: argsSummary,
+      },
+    }).catch((err) => {
+      log.warn(
+        { err: err instanceof Error ? err.message : err, tool, path },
+        'agent audit write failed',
+      );
+    });
   }
 
   consumeConversationActions(): DashboardAction[] {
@@ -201,6 +306,8 @@ export class OrchestratorAgent {
     const systemPrompt = buildSystemPrompt(dashboard ?? null, history, alertRules, activeAlertRule, this.deps.allDatasources ?? [], {
       hasPrometheus: !!this.deps.metricsAdapter,
       timeRange: this.deps.timeRange ? { start: this.deps.timeRange.start, end: this.deps.timeRange.end } : undefined,
+      identity: this.deps.identity,
+      permissionEscalationContact: this.deps.permissionEscalationContact,
     })
 
     try {
@@ -234,6 +341,8 @@ export class OrchestratorAgent {
       allDatasources: this.deps.allDatasources,
       sendEvent: this.deps.sendEvent,
       sessionId: this.sessionId,
+      identity: this.deps.identity,
+      accessControl: this.deps.accessControl,
       actionExecutor: this.actionExecutor,
       alertRuleAgent: this.alertRuleAgent,
       emitAgentEvent: (event) => this.emitAgentEvent(event),
@@ -245,23 +354,36 @@ export class OrchestratorAgent {
 
   private async executeAction(step: ReActStep, _userMessage = ''): Promise<string | null> {
     const { action, args } = step
-    const agentDef = OrchestratorAgent.definition;
+    const agentDef = this.agentDef;
+    const ctx = this.buildActionContext()
 
-    // --- Tool boundary enforcement ---
-    if (!agentDef.allowedTools.includes(action as AgentToolName)) {
-      log.warn(`[Orchestrator] agent attempted undeclared tool "${action}" — blocked`);
-      this.emitAgentEvent(this.makeAgentEvent('agent.tool_blocked', { tool: action, reason: 'undeclared_tool' }));
-      return `Tool "${action}" is not permitted for this agent.`;
+    // --- Three-layer permission gate (Wave 7) ---
+    // Layer 1 (allowedTools) + Layer 2 (permissionMode read_only/propose_only)
+    // + Layer 3 (RBAC via TOOL_PERMS) are all handled inside checkPermission.
+    // On deny, emit audit + synthesize a `permission denied:` observation.
+    const gateResult = await checkPermission(agentDef, action, args, ctx);
+    if (!gateResult.ok) {
+      log.warn(`[Orchestrator] tool "${action}" denied by ${gateResult.reason}`);
+      this.emitAgentEvent(this.makeAgentEvent('agent.tool_blocked', {
+        tool: action,
+        reason: gateResult.reason,
+        deniedAction: gateResult.action,
+        deniedScope: gateResult.scope,
+      }));
+      await this.writeToolAudit('denied', action, args, gateResult);
+      const observation = denialObservation(gateResult);
+      this.deps.sendEvent({
+        type: 'tool_result',
+        tool: action,
+        summary: observation,
+        success: false,
+      });
+      return observation;
     }
 
-    // --- Permission mode enforcement ---
-    const permissionResult = checkPermission(agentDef.permissionMode, action);
-    if (permissionResult === 'block') {
-      log.warn(`[Orchestrator] mutation "${action}" blocked — agent is read_only`);
-      this.emitAgentEvent(this.makeAgentEvent('agent.tool_blocked', { tool: action, reason: 'read_only' }));
-      return `Action "${action}" is blocked: agent is in read-only mode.`;
-    }
-    if (permissionResult === 'approval_required') {
+    // approval_required mutations: propagate the legacy approval side-channel
+    // (the gate already passed — Layer 2 intentionally lets this mode through).
+    if (isMutationAction(action) && agentDef.permissionMode === 'approval_required') {
       log.info(`[Orchestrator] mutation "${action}" requires approval — emitting proposal`);
       this.emitAgentEvent(this.makeAgentEvent('agent.artifact_proposed', { tool: action, args }));
       this.deps.sendEvent({
@@ -272,22 +394,10 @@ export class OrchestratorAgent {
       });
       return `Action "${action}" requires approval. A proposal has been submitted.`;
     }
-    if (permissionResult === 'propose_only') {
-      log.info({ action }, 'mutation proposed but not applied — agent is propose_only');
-      this.emitAgentEvent(this.makeAgentEvent('agent.artifact_proposed', { tool: action, args }));
-      this.deps.sendEvent({
-        type: 'tool_result',
-        tool: action,
-        summary: `Proposed "${action}" (not applied — propose-only mode)`,
-        success: true,
-      });
-      return `Proposed "${action}" with args ${JSON.stringify(args).slice(0, 200)}. Not applied in propose-only mode.`;
-    }
 
-    // --- Emit tool_called event ---
+    // --- Emit tool_called event + audit allow path (rate-limited) ---
     this.emitAgentEvent(this.makeAgentEvent('agent.tool_called', { tool: action }));
-
-    const ctx = this.buildActionContext()
+    await this.writeToolAudit('allow', action, args, gateResult);
 
     try {
       switch (action) {
@@ -344,5 +454,44 @@ export class OrchestratorAgent {
       }));
       return observationText
     }
+  }
+}
+
+// --- audit metadata helpers ------------------------------------------------
+
+function inferTargetType(tool: string): string | null {
+  if (tool.startsWith('dashboard.')) return 'dashboard';
+  if (tool.startsWith('folder.')) return 'folder';
+  if (tool.startsWith('investigation.')) return 'investigation';
+  if (tool.startsWith('prometheus.')) return 'datasource';
+  if (tool.startsWith('alert_rule.') || tool === 'create_alert_rule' || tool === 'modify_alert_rule' || tool === 'delete_alert_rule') {
+    return 'alert_rule';
+  }
+  if (tool === 'web.search') return 'web_search';
+  return null;
+}
+
+function inferTargetId(tool: string, args: Record<string, unknown>): string | null {
+  if (tool.startsWith('dashboard.')) return pickString(args.dashboardId);
+  if (tool.startsWith('investigation.')) return pickString(args.investigationId);
+  if (tool.startsWith('folder.')) return pickString(args.folderUid ?? args.parentUid);
+  if (tool.startsWith('prometheus.')) return pickString(args.datasourceId ?? args.datasourceUid);
+  if (tool === 'create_alert_rule') return pickString(args.folderUid);
+  if (tool === 'modify_alert_rule' || tool === 'delete_alert_rule' || tool === 'alert_rule.history') {
+    return pickString(args.ruleId);
+  }
+  return null;
+}
+
+function pickString(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function summarizeArgs(args: Record<string, unknown>): string {
+  try {
+    const s = JSON.stringify(args);
+    return s.length <= 200 ? s : `${s.slice(0, 200)}...`;
+  } catch {
+    return '[unserializable args]';
   }
 }

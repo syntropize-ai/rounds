@@ -73,6 +73,10 @@ export const AuditAction = {
   // Resource permissions
   PermissionGranted: 'permission.granted',
   PermissionRevoked: 'permission.revoked',
+
+  // Agent tool invocations (Wave 7)
+  AgentToolCalled: 'agent.tool_called',
+  AgentToolDenied: 'agent.tool_denied',
 } as const;
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];

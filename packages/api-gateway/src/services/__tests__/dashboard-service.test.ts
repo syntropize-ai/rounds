@@ -65,6 +65,18 @@ describe('DashboardService', () => {
   let dashboardStore: IGatewayDashboardStore;
   let conversationStore: IConversationStore;
   const mockSendEvent = vi.fn();
+  // Wave 7 — stub access control that always allows; the unit tests predate
+  // the permission gate and we don't want them to regress on that axis.
+  const stubAccessControl = {
+    getUserPermissions: vi.fn().mockResolvedValue([]),
+    evaluate: vi.fn().mockResolvedValue(true),
+    ensurePermissions: vi.fn().mockResolvedValue([]),
+    filterByPermission: vi.fn(async (_id: unknown, items: readonly unknown[]) => [...items]),
+  };
+  const testIdentity = {
+    userId: 'u-test', orgId: 'o-test', orgRole: 'Admin' as const,
+    isServerAdmin: false, authenticatedBy: 'session' as const,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -75,6 +87,7 @@ describe('DashboardService', () => {
       conversationStore,
       investigationReportStore: {} as any,
       alertRuleStore: {} as any,
+      accessControl: stubAccessControl as any,
     });
   });
 
@@ -86,7 +99,7 @@ describe('DashboardService', () => {
     });
 
     await expect(
-      service.handleChatMessage('dash-1', 'hello', undefined, mockSendEvent),
+      service.handleChatMessage('dash-1', 'hello', undefined, mockSendEvent, testIdentity),
     ).rejects.toThrow('LLM not configured');
   });
 
@@ -97,7 +110,7 @@ describe('DashboardService', () => {
       llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
     });
 
-    const result = await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent);
+    const result = await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent, testIdentity);
 
     expect(result.replyContent).toBe('Here is your dashboard analysis.');
     expect(result.assistantMessageId).toBeDefined();
@@ -110,7 +123,7 @@ describe('DashboardService', () => {
       llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
     });
 
-    await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent);
+    await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent, testIdentity);
 
     // Should have called addMessage twice: once for user, once for assistant
     expect(conversationStore.addMessage).toHaveBeenCalledTimes(2);
@@ -143,6 +156,7 @@ describe('DashboardService', () => {
         timezone: 'America/Toronto',
       },
       mockSendEvent,
+      testIdentity,
     );
 
     expect(vi.mocked(DashboardOrchestratorAgent)).toHaveBeenCalledWith(
@@ -190,9 +204,10 @@ describe('DashboardService', () => {
       investigationReportStore: {} as any,
       alertRuleStore: {} as any,
       investigationStore: investigationStore as any,
+      accessControl: stubAccessControl as any,
     });
 
-    await service.handleChatMessage('dash-1', 'Why is p95 high?', undefined, mockSendEvent);
+    await service.handleChatMessage('dash-1', 'Why is p95 high?', undefined, mockSendEvent, testIdentity);
 
     expect(investigationStore.create).not.toHaveBeenCalled();
     expect(investigationStore.updateStatus).not.toHaveBeenCalled();

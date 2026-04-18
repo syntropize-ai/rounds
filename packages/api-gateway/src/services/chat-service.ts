@@ -1,12 +1,14 @@
 import { randomUUID } from 'crypto';
 import { createLogger } from '@agentic-obs/common';
-import type { DashboardSseEvent } from '@agentic-obs/common';
+import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
 import { getSetupConfig } from '../routes/setup.js';
 import { createLlmGateway } from '../routes/llm-factory.js';
 import { DashboardOrchestratorAgent as OrchestratorAgent, shouldCompact, compactMessages, estimateTokens } from '@agentic-obs/agent-core';
 import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
 import { resolvePrometheusDatasource } from './dashboard-service.js';
+import type { AccessControlSurface } from './accesscontrol-holder.js';
+import type { AuditWriter } from '../auth/audit-writer.js';
 import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
 import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IChatSessionRepository, IChatMessageRepository, IChatSessionEventRepository } from '@agentic-obs/data-layer';
 
@@ -37,6 +39,10 @@ export interface ChatServiceDeps {
   chatSessionStore?: IChatSessionRepository;
   chatMessageStore?: IChatMessageRepository;
   chatEventStore?: IChatSessionEventRepository;
+  /** Wave 7 — RBAC surface for the agent permission gate. Required. */
+  accessControl: AccessControlSurface;
+  /** Audit-log writer. Optional but strongly recommended in production. */
+  auditWriter?: AuditWriter;
 }
 
 // Event kinds that represent transient signalling (terminator, navigation
@@ -59,6 +65,7 @@ export class ChatService {
     message: string,
     sessionId: string | undefined,
     sendEvent: (event: DashboardSseEvent) => void,
+    identity: Identity,
     pageContext?: { kind: string; id?: string; timeRange?: string },
   ): Promise<ChatSessionResult> {
     const config = getSetupConfig();
@@ -203,6 +210,9 @@ export class ChatService {
       sendEvent: wrappedSendEvent,
       timeRange,
       conversationSummary,
+      identity,
+      accessControl: this.deps.accessControl,
+      ...(this.deps.auditWriter ? { auditWriter: this.deps.auditWriter } : {}),
     }, resolvedSessionId);
 
     // If the user is viewing a specific dashboard, scope the agent to it

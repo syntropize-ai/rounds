@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ReActLoop } from './react-loop.js'
+import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
 
 describe('ReActLoop', () => {
   it('emits a reply event when the model returns a final reply message', async () => {
@@ -19,6 +20,8 @@ describe('ReActLoop', () => {
       gateway,
       model: 'test-model',
       sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
     })
 
     const result = await loop.runLoop(
@@ -57,6 +60,8 @@ describe('ReActLoop', () => {
       gateway,
       model: 'test-model',
       sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
     })
 
     const result = await loop.runLoop(

@@ -98,6 +98,8 @@ import { createOrgContextMiddleware } from './middleware/org-context.js';
 import { setBootstrapHasUsers, setSetupAdminDeps } from './routes/setup.js';
 // Wave 2 / T3 — RBAC service, routes, resolvers.
 import { AccessControlService } from './services/accesscontrol-service.js';
+import { AccessControlHolder } from './services/accesscontrol-holder.js';
+import { AuditWriter } from './auth/audit-writer.js';
 import { createAccessControlRouter } from './routes/access-control.js';
 import { createUserPermissionsRouter } from './routes/user-permissions.js';
 import { createResolverRegistry } from './rbac/resolvers/index.js';
@@ -161,6 +163,19 @@ export function createApp(): Application {
 
   // Rate limiting on all routes
   app.use(defaultRateLimiter);
+
+  // Wave 7 — permission gate dependencies. These are late-bound inside the
+  // async auth-subsystem IIFE below; routers that need them receive the
+  // holders now and the holders start forwarding once `.set()` is called.
+  const accessControlHolder = new AccessControlHolder();
+  // Audit writer is wrapped in a tiny forwarder so we can bind it late too.
+  let resolvedAuditWriter: AuditWriter | null = null;
+  const auditWriterHolder: AuditWriter = {
+    log: async (entry) => {
+      if (!resolvedAuditWriter) return;
+      return resolvedAuditWriter.log(entry);
+    },
+  } as AuditWriter;
 
   // Relaxed rate limiter for dashboard query routes
   const queryRateLimiter = createRateLimiter({ windowMs: 60_000, max: 600 });
@@ -323,6 +338,9 @@ export function createApp(): Application {
         teamMembers: rbacTeamMembers,
         db: sqliteDb,
       });
+      // Bind the audit-writer forwarder so the dashboard/chat routers can
+      // emit `agent.tool_called` / `agent.tool_denied` rows.
+      resolvedAuditWriter = authSub.audit;
       const accessControl = new AccessControlService({
         permissions: rbacPermissionRepo,
         roles: rbacRoleRepo,
@@ -352,6 +370,9 @@ export function createApp(): Application {
             },
           }),
       });
+      // Bind the holder so the chat / dashboard agent permission gate starts
+      // consulting the real RBAC service.
+      accessControlHolder.set(accessControl);
 
       app.use(
         '/api/user',
@@ -553,6 +574,8 @@ export function createApp(): Application {
       alertRuleStore: eventAlertRuleStore,
       investigationStore: repos.investigations,
       feedStore: eventFeedStore,
+      accessControl: accessControlHolder,
+      auditWriter: auditWriterHolder,
     }));
     app.use('/api/chat', createChatRouter({
       dashboardStore: repos.dashboards,
@@ -563,6 +586,8 @@ export function createApp(): Application {
       chatSessionStore: repos.chatSessions,
       chatMessageStore: repos.chatMessages,
       chatEventStore: repos.chatSessionEvents,
+      accessControl: accessControlHolder,
+      auditWriter: auditWriterHolder,
     }));
     app.use('/api/alert-rules', createAlertRulesRouter({
       alertRuleStore: eventAlertRuleStore,
@@ -607,6 +632,8 @@ export function createApp(): Application {
       alertRuleStore: defaultAlertRuleStore,
       investigationStore: defaultInvestigationStore,
       feedStore,
+      accessControl: accessControlHolder,
+      auditWriter: auditWriterHolder,
     }));
     app.use('/api/chat', createChatRouter({
       dashboardStore: defaultDashboardStore,
@@ -614,6 +641,8 @@ export function createApp(): Application {
       investigationReportStore: defaultInvestigationReportStore,
       alertRuleStore: defaultAlertRuleStore,
       investigationStore: defaultInvestigationStore,
+      accessControl: accessControlHolder,
+      auditWriter: auditWriterHolder,
     }));
     app.use('/api/alert-rules', createAlertRulesRouter({
       alertRuleStore: defaultAlertRuleStore,

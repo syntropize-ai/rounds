@@ -1,4 +1,4 @@
-import type { Dashboard, DashboardMessage } from '@agentic-obs/common'
+import type { Dashboard, DashboardMessage, Identity } from '@agentic-obs/common'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import type { DatasourceConfig } from './types.js'
 import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
@@ -514,6 +514,55 @@ Not scoped to a dashboard. Use dashboard.create to create one, then use the retu
 export interface SystemPromptOptions {
   hasPrometheus: boolean
   timeRange?: { start: string; end: string }
+  /**
+   * Wave 7 — the caller's identity + an optional display name + org name for
+   * factual prompt substitution (§D8). When omitted the identity section is
+   * suppressed entirely (keeps existing tests compiling).
+   */
+  identity?: Identity
+  userDisplay?: { name?: string; login?: string; orgName?: string }
+  /**
+   * Operator-configured escalation contact. When set, surfaced as a factual
+   * line only — not wrapped in an instruction (§D13).
+   */
+  permissionEscalationContact?: string
+  /** Override for deterministic tests. Defaults to `new Date().toISOString()`. */
+  now?: string
+}
+
+/**
+ * Build the identity + denial-principle block. Intentionally one short
+ * paragraph: factual identity (§D8, §D15), one-sentence principle for
+ * permission denials. No case list, no behavioral priming, no examples.
+ */
+function getIdentitySection(
+  identity: Identity | undefined,
+  userDisplay: { name?: string; login?: string; orgName?: string } | undefined,
+  escalationContact: string | undefined,
+  now: string,
+): string {
+  if (!identity) return ''
+
+  const name = userDisplay?.name || userDisplay?.login || identity.userId
+  const login = userDisplay?.login || ''
+  const orgName = userDisplay?.orgName || identity.orgId
+  const orgRole = identity.orgRole
+
+  // Identity line — factual. Includes login only when distinct from display name.
+  const loginSuffix = login && login !== name ? ` (${login})` : ''
+  const identityLine =
+    `You are acting on behalf of ${name}${loginSuffix}, org role ${orgRole} in ${orgName}. ` +
+    `The current date is ${now}.`
+
+  const denialPrinciple =
+    `When a tool observation starts with "permission denied:", surface what you have already learned, ` +
+    `state the denial plainly, and propose a next step. Do not retry denied calls. Do not fabricate results.`
+
+  const parts = [`# Identity`, identityLine, denialPrinciple]
+  if (escalationContact && escalationContact.trim()) {
+    parts.push(`Permission escalation contact: ${escalationContact.trim()}.`)
+  }
+  return parts.join('\n\n')
 }
 
 export function buildSystemPrompt(
@@ -525,9 +574,20 @@ export function buildSystemPrompt(
   options?: SystemPromptOptions,
 ): string {
   const hasMetrics = options?.hasPrometheus ?? allDatasources.length > 0
+  const now = options?.now ?? new Date().toISOString()
+  const escalationContact =
+    options?.permissionEscalationContact ?? process.env['PERMISSION_ESCALATION_CONTACT']
+
+  const identitySection = getIdentitySection(
+    options?.identity,
+    options?.userDisplay,
+    escalationContact,
+    now,
+  )
 
   const staticSections = [
     getIntroSection(),
+    identitySection,
     getSystemSection(),
     getDoingTasksSection(),
     getExamplesSection(),

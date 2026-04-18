@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto'
 import type {
   DashboardAction,
   DashboardSseEvent,
+  Identity,
   InvestigationReportSection,
   PanelConfig,
   PanelVisualization,
 } from '@agentic-obs/common'
+import { ac } from '@agentic-obs/common'
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import type { IMetricsAdapter, IWebSearchAdapter } from '../adapters/index.js'
 import type { AgentEvent } from './agent-events.js'
@@ -18,6 +20,7 @@ import type {
 } from './types.js'
 import type { ActionExecutor } from './action-executor.js'
 import type { AlertRuleAgent } from './alert-rule-agent.js'
+import type { IAccessControlService } from './types-permissions.js'
 import { applyLayout, panelSize } from './layout-engine.js'
 
 /** Shared context passed to every action handler. */
@@ -33,6 +36,14 @@ export interface ActionContext {
   allDatasources?: DatasourceConfig[]
   sendEvent: (event: DashboardSseEvent) => void
   sessionId: string
+
+  /**
+   * The authenticated principal on whose behalf this handler runs (see §D1).
+   * Handlers that list rows post-filter with `accessControl.filterByPermission`;
+   * handlers that act on a specific UID rely on the pre-dispatch gate.
+   */
+  identity: Identity
+  accessControl: IAccessControlService
 
   actionExecutor: ActionExecutor
   alertRuleAgent: AlertRuleAgent
@@ -854,7 +865,18 @@ export async function handleDashboardList(
   })
 
   try {
-    const all = await ctx.store.findAll()
+    const allRaw = await ctx.store.findAll()
+    // D10 — post-filter to the rows the caller can see. The pre-dispatch gate
+    // confirmed they can list SOMETHING; filterByPermission then narrows the
+    // set per-row against `dashboards:read` on that UID.
+    const all = await ctx.accessControl.filterByPermission(
+      ctx.identity,
+      allRaw,
+      (d) => ac.eval(
+        'dashboards:read',
+        `dashboards:uid:${(d as unknown as { id?: string }).id ?? ''}`,
+      ),
+    )
     const filtered = all.filter((d) => matchesFilter(d.title, filter) || matchesFilter(d.description, filter))
     if (filtered.length === 0) {
       const msg = filter
@@ -900,7 +922,15 @@ export async function handleInvestigationList(
   })
 
   try {
-    const all = await ctx.investigationStore.findAll()
+    const allRaw = await ctx.investigationStore.findAll()
+    const all = await ctx.accessControl.filterByPermission(
+      ctx.identity,
+      allRaw,
+      (inv) => ac.eval(
+        'investigations:read',
+        `investigations:uid:${inv.id ?? ''}`,
+      ),
+    )
     const filtered = all.filter((inv) => matchesFilter(inv.intent, filter))
     if (filtered.length === 0) {
       const msg = filter
@@ -947,12 +977,20 @@ export async function handleAlertRuleList(
 
   try {
     const result = await ctx.alertRuleStore.findAll()
-    const list = (Array.isArray(result) ? result : (result as { list?: unknown[] }).list ?? []) as Array<{
+    const rawList = (Array.isArray(result) ? result : (result as { list?: unknown[] }).list ?? []) as Array<{
       id: string
       name: string
       severity: string
       condition: { query: string; operator: string; threshold: number }
     }>
+    const list = await ctx.accessControl.filterByPermission(
+      ctx.identity,
+      rawList,
+      (r) => ac.eval(
+        'alert.rules:read',
+        `alert.rules:uid:${r.id ?? ''}`,
+      ),
+    )
     const filtered = list.filter((r) => matchesFilter(r.name, filter))
     if (filtered.length === 0) {
       const msg = filter

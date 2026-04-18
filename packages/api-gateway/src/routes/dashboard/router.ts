@@ -23,6 +23,8 @@ function resolveOrgId(req: Request): string {
   return getOrgId(req);
 }
 import { DashboardService, withDashboardLock } from '../../services/dashboard-service.js'
+import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
+import type { AuditWriter } from '../../auth/audit-writer.js'
 import { createLogger } from '@agentic-obs/common'
 
 const log = createLogger('dashboard-router')
@@ -34,6 +36,10 @@ export interface DashboardRouterDeps {
   alertRuleStore: IAlertRuleRepository
   investigationStore?: IGatewayInvestigationStore
   feedStore?: IGatewayFeedStore
+  /** Wave 7 — for the agent permission gate. Required. */
+  accessControl: AccessControlSurface
+  /** Audit writer for agent tool calls. */
+  auditWriter?: AuditWriter
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
@@ -43,6 +49,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   const alertRuleStore = deps.alertRuleStore
   const investigationStore = deps.investigationStore
   const feedStore = deps.feedStore
+  const accessControl = deps.accessControl
+  const auditWriter = deps.auditWriter
 
   const router = Router()
 
@@ -75,20 +83,32 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
 
       // Trigger generation in background via the orchestrator agent (same path as chat)
       if (!body.stream) {
-        const service = new DashboardService({ store, conversationStore, investigationReportStore, alertRuleStore, investigationStore, feedStore })
-        void withDashboardLock(dashboard.id, async () => {
-          try {
-            await service.handleChatMessage(
-              dashboard.id,
-              dashboard.prompt,
-              undefined,
-              () => {},  // no SSE sink for background generation
-            )
-          } catch (err) {
-            log.error({ err, dashboardId: dashboard.id }, 'background generation failed')
-            await store.updateStatus(dashboard.id, 'failed')
-          }
-        })
+        const callerAuth = (req as AuthenticatedRequest).auth
+        if (!callerAuth) {
+          // Should never happen — authMiddleware is registered above. Bail
+          // rather than starting the agent with an ambient identity.
+          log.warn({ dashboardId: dashboard.id }, 'background generation skipped — no req.auth')
+        } else {
+          const service = new DashboardService({
+            store, conversationStore, investigationReportStore, alertRuleStore,
+            investigationStore, feedStore, accessControl,
+            ...(auditWriter ? { auditWriter } : {}),
+          })
+          void withDashboardLock(dashboard.id, async () => {
+            try {
+              await service.handleChatMessage(
+                dashboard.id,
+                dashboard.prompt,
+                undefined,
+                () => {},  // no SSE sink for background generation
+                callerAuth,
+              )
+            } catch (err) {
+              log.error({ err, dashboardId: dashboard.id }, 'background generation failed')
+              await store.updateStatus(dashboard.id, 'failed')
+            }
+          })
+        }
       }
     }
     catch (err) {
@@ -280,7 +300,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
-      await handleChatMessage(req, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, investigationStore, feedStore)
+      await handleChatMessage(req as AuthenticatedRequest, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, accessControl, investigationStore, feedStore, auditWriter)
     }
     catch (err) {
       next(err)

@@ -11,6 +11,30 @@ export { ActionExecutor } from './action-executor.js'
 export { ReActLoop } from './react-loop.js'
 export type { ReActStep, ReActObservation, ReActDeps } from './react-loop.js'
 
+// Wave 7 — permission gate + specialized agent plumbing.
+export {
+  TOOL_PERMS,
+  UNGATED_TOOLS,
+  buildToolEvaluator,
+} from './tool-permissions.js'
+export {
+  checkPermission,
+  denialObservation,
+} from './permission-gate.js'
+export type {
+  ToolPermissionBuilder,
+  IAccessControlService,
+  IAuditWriter,
+  PermissionDenyReason,
+  PermissionGateResult,
+} from './types-permissions.js'
+export {
+  runBackgroundAgent,
+  type BackgroundAgentRunInput,
+  type BackgroundRunnerDeps,
+  type ISaTokenResolver,
+} from './background-runner.js'
+
 // Agent runtime types
 export * from './agent-types.js'
 export * from './agent-definition.js'

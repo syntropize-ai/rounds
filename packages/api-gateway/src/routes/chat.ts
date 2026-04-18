@@ -3,6 +3,7 @@ import type { Router as ExpressRouter, Request, Response, NextFunction } from 'e
 import { createLogger } from '@agentic-obs/common';
 import type { DashboardSseEvent } from '@agentic-obs/common';
 import { authMiddleware } from '../middleware/auth.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { ChatService } from '../services/chat-service.js';
 import type { ChatServiceDeps } from '../services/chat-service.js';
@@ -18,13 +19,20 @@ function sendSseEvent(res: Response, event: DashboardSseEvent): void {
  * (same pattern as dashboard chat-handler.ts which works correctly).
  */
 async function handleChatStream(
-  req: Request,
+  req: AuthenticatedRequest,
   res: Response,
   message: string,
   sessionId: string | undefined,
   pageContext: { kind: string; id?: string } | undefined,
   deps: ChatServiceDeps,
 ): Promise<void> {
+  // req.auth is guaranteed by authMiddleware above — if it's missing, the
+  // middleware already short-circuited with 401 and we would not be here.
+  if (!req.auth) {
+    res.status(401).json({ message: 'authentication required' });
+    return;
+  }
+
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -45,6 +53,7 @@ async function handleChatStream(
       message,
       sessionId,
       (event) => { if (!closed) sendSseEvent(res, event); },
+      req.auth,
       pageContext,
     );
 
@@ -74,7 +83,7 @@ export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
   router.use(authMiddleware);
 
   // POST /chat — unified session-based chat endpoint (SSE streaming)
-  router.post('/', requirePermission('dashboard:write'), async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/', requirePermission('dashboard:write'), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const body = req.body as { message?: string; sessionId?: string; pageContext?: { kind: string; id?: string } };
       if (typeof body.message !== 'string' || body.message.trim() === '') {

@@ -4,7 +4,8 @@ import type {
   CompletionMessage,
 } from '@agentic-obs/llm-gateway'
 import { createLogger } from '@agentic-obs/common'
-import type { DashboardSseEvent } from '@agentic-obs/common'
+import type { DashboardSseEvent, Identity } from '@agentic-obs/common'
+import type { IAccessControlService } from './types-permissions.js'
 
 const log = createLogger('react-loop')
 
@@ -110,6 +111,14 @@ export interface ReActDeps {
   gateway: LLMGateway
   model: string
   sendEvent: (event: DashboardSseEvent) => void
+  /**
+   * The authenticated principal on whose behalf the agent runs. Required —
+   * loop refuses to start without one. There is no ambient "system" identity.
+   * See docs/auth-perm-design/11-agent-permissions.md §D1, §D4.
+   */
+  identity: Identity
+  /** Access control surface the permission gate calls from the loop. */
+  accessControl: IAccessControlService
   /** Maximum total tokens per chat message. Default: 50000 */
   maxTokenBudget?: number
   /** LLM-generated summary of earlier conversation turns (from context compaction) */
@@ -156,6 +165,16 @@ export class ReActLoop {
     userMessage: string,
     executeAction: (step: ReActStep) => Promise<string | null>,
   ): Promise<string> {
+    // D4 — no ambient identity. If the caller didn't bind one, refuse to run.
+    // Undefined / null / empty userId all fail the same way: the agent is the
+    // user's hands, and without a user there are no hands.
+    if (!this.deps.identity || !this.deps.identity.userId) {
+      throw new Error(
+        'ReActLoop.runLoop: identity is required. ' +
+          'Background callers must resolve a service account token before starting the loop.',
+      )
+    }
+
     const observations: ReActObservation[] = []
     let lastAction: string | null = null
     let lastDraftReply: string | undefined

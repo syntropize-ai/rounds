@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Dashboard, DashboardMessage, DashboardSseEvent } from '@agentic-obs/common'
 import { OrchestratorAgent } from './orchestrator-agent.js'
+import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
 
 function createDashboard(): Dashboard {
   const now = new Date().toISOString()
@@ -107,6 +108,8 @@ describe('OrchestratorAgent structured alert follow-up', () => {
       investigationReportStore: { save: vi.fn() },
       alertRuleStore: alertRuleStore as any,
       sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
     })
 
     const reply = await agent.handleMessage('just change it to 150ms and notify me', 'dash-1')
@@ -187,6 +190,8 @@ describe('OrchestratorAgent structured alert follow-up', () => {
         delete: deleteFn,
       } as any,
       sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
     })
 
     const reply = await agent.handleMessage('delete it', 'dash-1')
@@ -284,6 +289,8 @@ describe('OrchestratorAgent panel explanation', () => {
         end: '2026-04-08T01:00:00.000Z',
       },
       sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
     })
 
     const reply = await agent.handleMessage('explain the Average Latency data trend', 'dash-1')

@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { createLogger } from '@agentic-obs/common';
-import type { DashboardSseEvent } from '@agentic-obs/common';
+import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
 
 const log = createLogger('dashboard-service');
 import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
@@ -10,6 +10,8 @@ import { createLlmGateway } from '../routes/llm-factory.js';
 import { DashboardOrchestratorAgent as OrchestratorAgent } from '@agentic-obs/agent-core';
 import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
+import type { AccessControlSurface } from './accesscontrol-holder.js';
+import type { AuditWriter } from '../auth/audit-writer.js';
 
 /** Adapts data-layer IAlertRuleRepository to agent-core IAlertRuleStore. */
 function toAlertRuleStore(repo: IAlertRuleRepository): IAlertRuleStore {
@@ -90,6 +92,10 @@ export interface DashboardServiceDeps {
   alertRuleStore: IAlertRuleRepository;
   investigationStore?: IGatewayInvestigationStore;
   feedStore?: IGatewayFeedStore;
+  /** Wave 7 — RBAC surface for the agent permission gate. Required. */
+  accessControl: AccessControlSurface;
+  /** Audit-log writer. */
+  auditWriter?: AuditWriter;
 }
 
 export class DashboardService {
@@ -99,6 +105,8 @@ export class DashboardService {
   private alertRuleStore: IAlertRuleRepository;
   private investigationStore?: IGatewayInvestigationStore;
   private feedStore?: IGatewayFeedStore;
+  private accessControl: AccessControlSurface;
+  private auditWriter?: AuditWriter;
 
   constructor(deps: DashboardServiceDeps) {
     this.store = deps.store;
@@ -107,6 +115,8 @@ export class DashboardService {
     this.investigationStore = deps.investigationStore;
     this.feedStore = deps.feedStore;
     this.alertRuleStore = deps.alertRuleStore;
+    this.accessControl = deps.accessControl;
+    this.auditWriter = deps.auditWriter;
   }
 
   /**
@@ -118,6 +128,7 @@ export class DashboardService {
     message: string,
     timeRange: ChatTimeRange | undefined,
     sendEvent: (event: DashboardSseEvent) => void,
+    identity: Identity,
   ): Promise<ChatResult> {
     const config = getSetupConfig();
     if (!config.llm) {
@@ -155,6 +166,9 @@ export class DashboardService {
       timeRange: timeRange?.start && timeRange?.end
         ? { start: timeRange.start, end: timeRange.end, timezone: timeRange.timezone }
         : undefined,
+      identity,
+      accessControl: this.accessControl,
+      ...(this.auditWriter ? { auditWriter: this.auditWriter } : {}),
     });
 
     log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');

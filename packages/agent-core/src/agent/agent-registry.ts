@@ -43,12 +43,98 @@ agentRegistry.register({
     // Knowledge
     'web.search',
     // Alert rules
-    'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule', 'alert_rule.list',
+    'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule',
+    'alert_rule.list', 'alert_rule.history',
     // Navigation
     'navigate',
   ],
   inputKinds: ['dashboard'],
   outputKinds: ['dashboard', 'panel', 'dashboard_variable', 'investigation_report', 'alert_rule'],
+  permissionMode: 'artifact_mutation',
+  maxIterations: 30,
+});
+
+// -- Wave 7 specialized agents ---------------------------------------------
+// Each has a narrower allowedTools ceiling (Layer 1 of the permission gate).
+// The chat entry point picks one based on page context; the orchestrator
+// remains the superset agent for the full session-mode chat.
+
+agentRegistry.register({
+  type: 'readonly-analyst',
+  description: 'Read-only analyst — lists, reads, and Prometheus queries. No mutations of any kind.',
+  allowedTools: [
+    // All list/read tools
+    'dashboard.list',
+    'folder.list',
+    'investigation.list',
+    'alert_rule.list', 'alert_rule.history',
+    // Prometheus primitives — read-only by nature
+    'prometheus.query', 'prometheus.range_query', 'prometheus.labels', 'prometheus.label_values',
+    'prometheus.series', 'prometheus.metadata', 'prometheus.metric_names', 'prometheus.validate',
+    // Knowledge
+    'web.search',
+    // Navigation (UI-only)
+    'navigate',
+  ],
+  inputKinds: ['dashboard'],
+  outputKinds: [],
+  permissionMode: 'read_only',
+  maxIterations: 30,
+});
+
+agentRegistry.register({
+  type: 'dashboard-assistant',
+  description: 'Dashboard + folder assistant — full dashboard/folder CRUD + Prometheus + web. No alert or user management.',
+  allowedTools: [
+    'dashboard.create', 'dashboard.list',
+    'dashboard.add_panels', 'dashboard.remove_panels', 'dashboard.modify_panel',
+    'dashboard.rearrange', 'dashboard.add_variable', 'dashboard.set_title',
+    'folder.create', 'folder.list',
+    'prometheus.query', 'prometheus.range_query', 'prometheus.labels', 'prometheus.label_values',
+    'prometheus.series', 'prometheus.metadata', 'prometheus.metric_names', 'prometheus.validate',
+    'web.search',
+    'navigate',
+  ],
+  inputKinds: ['dashboard'],
+  outputKinds: ['dashboard', 'panel', 'dashboard_variable'],
+  permissionMode: 'artifact_mutation',
+  maxIterations: 30,
+});
+
+agentRegistry.register({
+  type: 'alert-advisor',
+  description: 'Alert-rule advisor — full alert.* + Prometheus + folder + dashboard read. No dashboard mutation.',
+  allowedTools: [
+    'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule',
+    'alert_rule.list', 'alert_rule.history',
+    'prometheus.query', 'prometheus.range_query', 'prometheus.labels', 'prometheus.label_values',
+    'prometheus.series', 'prometheus.metadata', 'prometheus.metric_names', 'prometheus.validate',
+    'folder.list',
+    'dashboard.list',
+    'web.search',
+    'navigate',
+  ],
+  inputKinds: ['dashboard'],
+  outputKinds: ['alert_rule'],
+  permissionMode: 'artifact_mutation',
+  maxIterations: 30,
+});
+
+agentRegistry.register({
+  type: 'incident-responder',
+  description: 'Investigation + incident response — investigation.* + alert read + Prometheus + dashboard/folder read.',
+  allowedTools: [
+    'investigation.create', 'investigation.list', 'investigation.add_section', 'investigation.complete',
+    'alert_rule.list', 'alert_rule.history',
+    'prometheus.query', 'prometheus.range_query', 'prometheus.labels', 'prometheus.label_values',
+    'prometheus.series', 'prometheus.metadata', 'prometheus.metric_names', 'prometheus.validate',
+    'dashboard.list',
+    'folder.list',
+    'web.search',
+    'navigate',
+  ],
+  inputKinds: ['dashboard'],
+  outputKinds: ['investigation_report'],
   permissionMode: 'artifact_mutation',
   maxIterations: 30,
 });

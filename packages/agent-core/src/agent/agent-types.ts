@@ -1,7 +1,12 @@
 export type AgentType =
   | 'orchestrator'
   | 'alert-rule-builder'
-  | 'verification';
+  | 'verification'
+  // Wave 7 specialized agents — tighter allowedTools ceilings.
+  | 'readonly-analyst'
+  | 'dashboard-assistant'
+  | 'alert-advisor'
+  | 'incident-responder';
 
 export type AgentToolName =
   // Dashboard lifecycle
@@ -9,13 +14,15 @@ export type AgentToolName =
   // Dashboard mutation primitives — model constructs panel configs directly
   | 'dashboard.add_panels' | 'dashboard.remove_panels' | 'dashboard.modify_panel'
   | 'dashboard.rearrange' | 'dashboard.add_variable' | 'dashboard.set_title'
+  // Folder tools (Wave 7)
+  | 'folder.create' | 'folder.list'
   // Investigation lifecycle
   | 'investigation.create' | 'investigation.list'
   | 'investigation.add_section'
   | 'investigation.complete'
   // Alert rule management
   | 'create_alert_rule' | 'modify_alert_rule' | 'delete_alert_rule'
-  | 'alert_rule.list'
+  | 'alert_rule.list' | 'alert_rule.history'
   // Navigation
   | 'navigate'
   // Prometheus primitives

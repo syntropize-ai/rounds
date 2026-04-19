@@ -60,3 +60,18 @@ export const defaultRateLimiter = createRateLimiter({
   windowMs: 60_000, // 1 minute
   max: 100,
 })
+
+/**
+ * Strict limiter for unauthenticated credential-handling endpoints
+ * (`POST /api/login`, `POST /api/setup/admin`). Per-IP because pre-auth we
+ * have no user identity; the internal LocalProvider also enforces a
+ * per-(ip, login) lockout downstream.
+ *
+ * 10 req/min per IP — generous enough for a human fat-fingering the password
+ * a few times, tight enough to slow online-guessing traffic before the 5/5min
+ * per-(ip, login) lockout even engages.
+ */
+export const loginRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 10,
+})

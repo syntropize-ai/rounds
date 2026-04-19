@@ -138,6 +138,27 @@ export class LoginRateLimiter {
     return w.attempts.length >= this.max;
   }
 
+  /**
+   * Milliseconds remaining until the (ip, userLogin) lockout window slides
+   * off its oldest attempt. Returns 0 when not currently blocked.
+   *
+   * The unlock moment is `oldest + windowMs`. Once that passes, the oldest
+   * attempt leaves the window and `isBlocked` flips false.
+   */
+  retryAfterMs(ip: string, userLogin: string): number {
+    const k = this.key(ip, userLogin);
+    const w = this.windows.get(k);
+    if (!w) return 0;
+    const now = this.now();
+    const cutoff = now - this.windowMs;
+    const active = w.attempts.filter((t) => t > cutoff);
+    if (active.length < this.max) return 0;
+    const oldest = active[0];
+    if (oldest === undefined) return 0;
+    const unlockAt = oldest + this.windowMs;
+    return Math.max(0, unlockAt - now);
+  }
+
   /** Record a failed attempt — slides the window. */
   recordFailure(ip: string, userLogin: string): void {
     const k = this.key(ip, userLogin);
@@ -187,7 +208,8 @@ export class LocalProvider {
       throw AuthError.invalidCredentials();
     }
     if (this.rateLimiter.isBlocked(ip, login)) {
-      throw AuthError.rateLimited();
+      const retryAfterMs = this.rateLimiter.retryAfterMs(ip, login);
+      throw AuthError.rateLimited(Math.ceil(retryAfterMs / 1000));
     }
 
     // Look up by login OR email. Both are unique-indexed so both are cheap.

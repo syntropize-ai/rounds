@@ -45,8 +45,20 @@ export class AuthError extends Error {
     );
   }
 
-  static rateLimited(): AuthError {
-    return new AuthError('rate_limited', 'too many login attempts', 429);
+  /**
+   * Rate-limited / account lockout. When `retryAfterSeconds` is provided the
+   * caller can render a `Retry-After` header; HTTP handlers reach it via
+   * `err.details.retryAfterSeconds`.
+   */
+  static rateLimited(retryAfterSeconds?: number): AuthError {
+    return new AuthError(
+      'rate_limited',
+      'too many login attempts',
+      429,
+      typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds)
+        ? { retryAfterSeconds: Math.max(1, Math.ceil(retryAfterSeconds)) }
+        : undefined,
+    );
   }
 
   static userDisabled(): AuthError {

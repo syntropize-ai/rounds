@@ -38,6 +38,7 @@ import {
 import type { LdapProvider } from '../auth/ldap/provider.js';
 import type { SamlProvider } from '../auth/saml/provider.js';
 import { createAuthMiddleware, readCookie, type AuthenticatedRequest } from '../middleware/auth.js';
+import { loginRateLimiter } from '../middleware/rate-limiter.js';
 
 const log = createLogger('auth-routes');
 
@@ -108,7 +109,12 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   });
 
   // POST /api/login — local password, or LDAP when only LDAP is available.
-  router.post('/login', async (req: Request, res: Response) => {
+  //
+  // Two-layer rate limiting:
+  //   1. `loginRateLimiter` — 10 req/min per IP, HTTP-level.
+  //   2. LocalProvider's per-(ip, login) 5/5min lockout, surfaced here as
+  //      429 ACCOUNT_LOCKED + Retry-After when tripped.
+  router.post('/login', loginRateLimiter, async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { user?: string; password?: string };
     const user = body.user;
     const password = body.password;
@@ -196,6 +202,25 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
           userAgent: ua(req),
           metadata: { kind: err.kind },
         });
+        // Surface the internal per-(ip, login) lockout as a proper HTTP 429
+        // with Retry-After so the client can distinguish "wrong password"
+        // from "temporarily locked out" and stop guessing.
+        if (err.kind === 'rate_limited') {
+          const retryAfterSeconds =
+            typeof err.details?.['retryAfterSeconds'] === 'number'
+              ? (err.details['retryAfterSeconds'] as number)
+              : 60;
+          res.setHeader('Retry-After', String(retryAfterSeconds));
+          res.status(429).json({
+            error: {
+              code: 'ACCOUNT_LOCKED',
+              message:
+                'too many failed login attempts; try again later',
+              retryAfterSeconds,
+            },
+          });
+          return;
+        }
         res.status(err.statusCode).json({ message: err.message });
         return;
       }

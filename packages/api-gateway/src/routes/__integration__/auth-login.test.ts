@@ -143,17 +143,36 @@ describe('POST /api/login (integration)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('429 after 5 failures', async () => {
+  // T1.3 — HTTP lockout semantics. After N failed attempts on (ip, login),
+  // the internal LocalProvider lockout fires and /api/login must respond with
+  // 429 + Retry-After + { error: { code: 'ACCOUNT_LOCKED', ... } } so clients
+  // can distinguish "wrong password" from "temporarily locked".
+  it('429 ACCOUNT_LOCKED after 5 failures, with Retry-After header', async () => {
     await seed(ctx.users, ctx.orgUsers);
     for (let i = 0; i < 5; i++) {
-      await request(ctx.app)
+      const r = await request(ctx.app)
         .post('/api/login')
         .send({ user: 'alice', password: 'bad' });
+      // First 5 attempts must still look like plain bad-credentials so we
+      // know the HTTP-level limiter (10/min) isn't tripping first.
+      expect(r.status).toBe(401);
     }
     const res = await request(ctx.app)
       .post('/api/login')
       .send({ user: 'alice', password: 'bad' });
     expect(res.status).toBe(429);
+    // Retry-After is mandatory in RFC 7231 §7.1.3; must be a positive integer
+    // (seconds).
+    const retryAfterHeader = res.headers['retry-after'];
+    expect(retryAfterHeader).toBeTruthy();
+    const retryAfter = Number(retryAfterHeader);
+    expect(Number.isFinite(retryAfter)).toBe(true);
+    expect(retryAfter).toBeGreaterThan(0);
+    // Body uses the { error: { code, message, retryAfterSeconds } } envelope
+    // so the frontend can render a meaningful "locked until" message.
+    expect(res.body?.error?.code).toBe('ACCOUNT_LOCKED');
+    expect(typeof res.body?.error?.message).toBe('string');
+    expect(res.body?.error?.retryAfterSeconds).toBeGreaterThan(0);
   });
 
   it('audit log records success', async () => {

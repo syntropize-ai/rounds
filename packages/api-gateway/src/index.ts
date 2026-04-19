@@ -3,7 +3,11 @@
 export { createApp, startServer } from './server.js';
 export { authMiddleware } from './middleware/auth.js';
 export type { AuthenticatedRequest } from './middleware/auth.js';
-export { createRateLimiter, defaultRateLimiter } from './middleware/rate-limiter.js';
+export {
+  createRateLimiter,
+  defaultRateLimiter,
+  loginRateLimiter,
+} from './middleware/rate-limiter.js';
 export { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 export type { LegacyAppError } from './middleware/error-handler.js';
 export { cors } from './middleware/cors.js';

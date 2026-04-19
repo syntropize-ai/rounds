@@ -5,24 +5,24 @@ OpenObs publishes three distribution channels on every version tag:
 | Channel | Registry | Target command |
 |---|---|---|
 | Docker image | `ghcr.io/openobs/openobs:<tag>` | `docker pull …` |
-| Helm chart (OCI) | `oci://ghcr.io/openobs/charts/openobs` | `helm install … oci://…` |
-| Helm chart (repo) | `https://openobs.github.io/openobs` | `helm repo add openobs …` |
+| Helm chart | `oci://ghcr.io/openobs/charts/openobs` (OCI) | `helm install … oci://…` |
 | npm package | `openobs` on npmjs.org | `npm install -g openobs` |
 
-All four are driven by one tag and one workflow file
+All three are driven by one tag and one workflow file
 (`.github/workflows/release.yml`).
+
+> **Note — no `helm repo add` URL.** GitHub Pages on this repo is reserved
+> for the VitePress documentation site (`docs.openobs.com`), so the chart
+> is distributed via OCI only. The OCI one-liner replaces `helm repo add`
+> cleanly; if a `grafana/helm-charts`-style repo is ever needed, the
+> recommended path is a separate `openobs/helm-charts` repo rather than
+> co-hosting with the docs site.
 
 ## One-time setup
 
 Before the first release, do these once per repo:
 
-1. **Enable GitHub Pages.**
-   Settings → Pages → Build and deployment → Source = `Deploy from a branch`,
-   Branch = `gh-pages`, folder = `/ (root)`. Save. (Branch is created
-   automatically by the first release; the Pages setting can be configured
-   before that branch exists.)
-
-2. **Add `NPM_TOKEN` repo secret.**
+1. **Add `NPM_TOKEN` repo secret.**
    - Create a token at <https://www.npmjs.com/settings/~/tokens> with
      scope **Automation** (or **Publish** for granular control).
    - In GitHub: Settings → Secrets and variables → Actions → New repository
@@ -31,7 +31,7 @@ Before the first release, do these once per repo:
      this secret is missing, so you can do this later if you only want
      Docker + Helm for now.
 
-3. **Verify `GITHUB_TOKEN` has package write permission.**
+2. **Verify `GITHUB_TOKEN` has package write permission.**
    Default enough for ghcr.io pushes in public repos. For org-owned repos,
    check Settings → Actions → General → Workflow permissions = `Read and
    write permissions`.
@@ -47,16 +47,14 @@ git tag "v$VERSION"
 git push origin "v$VERSION"
 ```
 
-That's it. GitHub Actions runs the five-job release pipeline:
+That's it. GitHub Actions runs the release pipeline:
 
 1. **release** — creates the GH Release object with install instructions.
 2. **package** — builds the helm chart + the npm bundle once, uploads as
    an artifact so later jobs share the same bits.
 3. **helm-oci** — pushes the chart to `ghcr.io/<owner>/charts`.
-4. **helm-pages** — rebuilds `gh-pages/index.yaml` merging the new chart
-   tarball so `helm repo add` users see the new version.
-5. **npm-publish** — `npm publish openobs-<version>.tgz` (if NPM_TOKEN set).
-6. **attach-assets** — uploads both `.tgz` files to the GH Release so
+4. **npm-publish** — `npm publish openobs-<version>.tgz` (if NPM_TOKEN set).
+5. **attach-assets** — uploads both `.tgz` files to the GH Release so
    users can grab them without depending on any registry.
 
 Expected duration: ~3–5 min total (jobs run in parallel once `package` finishes).
@@ -72,12 +70,7 @@ npx openobs            # or: npm install -g openobs && openobs
 # Docker — minimal container
 docker run --rm -p 3000:3000 ghcr.io/openobs/openobs:v0.1.0
 
-# Helm — traditional repo-add flow
-helm repo add openobs https://openobs.github.io/openobs
-helm repo update
-helm install my-openobs openobs/openobs
-
-# Helm — OCI direct (no repo add)
+# Helm (Kubernetes) — via OCI, no repo add
 helm install my-openobs \
   oci://ghcr.io/openobs/charts/openobs \
   --version 0.1.0

@@ -77,6 +77,17 @@ export const AuditAction = {
   // Agent tool invocations (Wave 7)
   AgentToolCalled: 'agent.tool_called',
   AgentToolDenied: 'agent.tool_denied',
+
+  // Instance config (W2 / T2.4 — setup wizard + system settings)
+  InstanceLlmUpdated: 'instance.llm_updated',
+  InstanceLlmCleared: 'instance.llm_cleared',
+  DatasourceCreated: 'datasource.created',
+  DatasourceUpdated: 'datasource.updated',
+  DatasourceDeleted: 'datasource.deleted',
+  NotificationChannelCreated: 'notification_channel.created',
+  NotificationChannelUpdated: 'notification_channel.updated',
+  NotificationChannelDeleted: 'notification_channel.deleted',
+  InstanceBootstrapped: 'instance.bootstrapped',
 } as const;
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];

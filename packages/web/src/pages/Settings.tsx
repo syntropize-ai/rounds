@@ -409,7 +409,14 @@ function LlmTab() {
 
   const handleSave = async () => {
     setSaving(true); setSaved(false);
-    await apiClient.post('/setup/llm', { config: { provider: config.provider, apiKey: config.apiKey || undefined, model: config.model, baseUrl: config.baseUrl || undefined, region: config.region || undefined } });
+    // PUT /api/system/llm replaces the legacy POST /setup/llm save path.
+    await apiClient.put('/system/llm', {
+      provider: config.provider,
+      apiKey: config.apiKey || undefined,
+      model: config.model,
+      baseUrl: config.baseUrl || undefined,
+      region: config.region || undefined,
+    });
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
@@ -494,7 +501,8 @@ function NotificationsTab() {
     const notifications: Record<string, unknown> = {};
     if (slackWebhook) notifications['slack'] = { webhookUrl: slackWebhook };
     if (pagerDutyKey) notifications['pagerduty'] = { integrationKey: pagerDutyKey };
-    await apiClient.post('/setup/notifications', { notifications });
+    // PUT /api/system/notifications replaces legacy POST /setup/notifications.
+    await apiClient.put('/system/notifications', notifications);
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 

@@ -8,6 +8,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { AlertRuleService } from '../services/alert-rule-service.js';
+import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 
 /**
@@ -28,6 +29,8 @@ export interface AlertRulesRouterDeps {
   investigationStore?: IGatewayInvestigationStore;
   feedStore?: IGatewayFeedStore;
   reportStore?: IInvestigationReportRepository;
+  /** W2 / T2.4 — required for the `/generate` endpoint to reach the LLM config. */
+  setupConfig: SetupConfigService;
 }
 
 function withPermission(permission: string) {
@@ -36,10 +39,10 @@ function withPermission(permission: string) {
   };
 }
 
-export function createAlertRulesRouter(deps: AlertRulesRouterDeps = {}): Router {
+export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   const store = deps.alertRuleStore ?? defaultAlertRuleStore;
   const router = Router();
-  const alertRuleService = new AlertRuleService(store);
+  const alertRuleService = new AlertRuleService(store, deps.setupConfig);
   const requireDashboardRead = withPermission('dashboard:read');
   const requireDashboardWrite = withPermission('dashboard:write');
 
@@ -314,5 +317,8 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps = {}): Router 
   return router;
 }
 
-// Backward-compatible export for existing code
-export const alertRulesRouter = createAlertRulesRouter();
+// NOTE: `alertRulesRouter` used to be a module-scoped instance built without
+// any deps. W2 / T2.4 made `setupConfig` required for the `/generate` endpoint
+// (it needs the LLM config), so callers must construct via
+// `createAlertRulesRouter(deps)` now. No default export.
+

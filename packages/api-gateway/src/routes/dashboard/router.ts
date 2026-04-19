@@ -9,7 +9,7 @@ import type { IGatewayDashboardStore, IConversationStore, IInvestigationReportRe
 import { handleChatMessage } from './chat-handler.js'
 import { VariableResolver } from './variable-resolver.js'
 import type { PanelConfig } from '@agentic-obs/common'
-import { getSetupConfig } from '../setup.js'
+import type { SetupConfigService } from '../../services/setup-config-service.js'
 import { getOrgId } from '../../middleware/workspace-context.js'
 
 /**
@@ -42,6 +42,8 @@ export interface DashboardRouterDeps {
   auditWriter?: AuditWriter
   /** Folder backend — enables agent folder.* tools. Optional. */
   folderRepository?: import('@agentic-obs/common').IFolderRepository
+  /** W2 / T2.4 — LLM + datasource config source. */
+  setupConfig: SetupConfigService
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
@@ -54,6 +56,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   const accessControl = deps.accessControl
   const auditWriter = deps.auditWriter
   const folderRepository = deps.folderRepository
+  const setupConfig = deps.setupConfig
 
   const router = Router()
 
@@ -94,7 +97,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         } else {
           const service = new DashboardService({
             store, conversationStore, investigationReportStore, alertRuleStore,
-            investigationStore, feedStore, accessControl,
+            investigationStore, feedStore, accessControl, setupConfig,
             ...(auditWriter ? { auditWriter } : {}),
             ...(folderRepository ? { folderRepository } : {}),
           })
@@ -304,7 +307,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
-      await handleChatMessage(req as AuthenticatedRequest, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, accessControl, investigationStore, feedStore, auditWriter, folderRepository)
+      await handleChatMessage(req as AuthenticatedRequest, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, accessControl, setupConfig, investigationStore, feedStore, auditWriter, folderRepository)
     }
     catch (err) {
       next(err)
@@ -322,10 +325,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       }
 
       const body = req.body as { datasourceId?: string } | undefined
-      const config = getSetupConfig()
+      const allDs = await setupConfig.listDatasources()
       const datasourceId = body?.datasourceId
 
-      const promDs = config.datasources.find((d) =>
+      const promDs = allDs.find((d) =>
         (d.type === 'prometheus' || d.type === 'victoria-metrics')
         && (!datasourceId || d.id === datasourceId),
       )
@@ -342,7 +345,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         }
       }
 
-      const resolver = new VariableResolver(prometheusUrl, headers)
+      const resolver = new VariableResolver(prometheusUrl, headers, setupConfig)
       const resolved: Record<string, string[]> = {}
       await Promise.all(
         dashboard.variables.map(async (v) => {

@@ -27,3 +27,6 @@ export * from './permission.js';
 export * from './preferences.js';
 export * from './quota.js';
 export * from './audit-log.js';
+
+// — Instance-scoped config (W2 / T2.1 — replaces setup-config.json) —
+export * from './instance-config.js';

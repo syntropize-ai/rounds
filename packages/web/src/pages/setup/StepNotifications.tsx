@@ -31,7 +31,9 @@ export function StepNotifications({
     }
 
     if (Object.keys(notifications).length > 0) {
-      await apiClient.post('/setup/notifications', { notifications });
+      // PUT /api/system/notifications replaces the legacy POST /setup/notifications.
+      // Bootstrap-aware middleware lets the wizard reach it pre-admin.
+      await apiClient.put('/system/notifications', notifications);
     }
     setSaving(false);
     onNext();

@@ -1,12 +1,14 @@
-// Resolves DashboardVariable options from Prometheus or setup config
+// Resolves DashboardVariable options from Prometheus or setup config.
+// Datasource variables are populated from SetupConfigService (W2 / T2.4).
 
 import type { DashboardVariable } from '@agentic-obs/common'
-import { getSetupConfig } from '../setup.js'
+import type { SetupConfigService } from '../../services/setup-config-service.js'
 
 export class VariableResolver {
   constructor(
     private readonly prometheusUrl: string,
     private readonly headers: Record<string, string> = {},
+    private readonly setupConfig?: SetupConfigService,
   ) {}
 
   async resolve(variable: DashboardVariable): Promise<string[]> {
@@ -41,13 +43,11 @@ export class VariableResolver {
           headers: this.headers,
           signal: AbortSignal.timeout(10_000),
         })
-        if (!res.ok)
-          return []
+        if (!res.ok) return []
         const body = await res.json() as { status?: string, data?: string[] }
         if (body.status === 'success' && Array.isArray(body.data))
           return [...new Set(body.data)].sort()
-      }
-      catch {
+      } catch {
         return []
       }
     }
@@ -63,13 +63,11 @@ export class VariableResolver {
           headers: this.headers,
           signal: AbortSignal.timeout(10_000),
         })
-        if (!res.ok)
-          return []
+        if (!res.ok) return []
         const body = await res.json() as { status?: string, data?: string[] }
         if (body.status === 'success' && Array.isArray(body.data))
           return [...new Set(body.data)].sort()
-      }
-      catch {
+      } catch {
         return []
       }
     }
@@ -77,8 +75,9 @@ export class VariableResolver {
     return []
   }
 
-  private resolveDatasources(): string[] {
-    const config = getSetupConfig()
-    return config.datasources.map((d) => d.label ?? d.name ?? d.id).filter(Boolean)
+  private async resolveDatasources(): Promise<string[]> {
+    if (!this.setupConfig) return []
+    const datasources = await this.setupConfig.listDatasources()
+    return datasources.map((d) => d.label ?? d.name ?? d.id).filter(Boolean)
   }
 }

@@ -91,15 +91,16 @@ export function StepLlm({
   };
 
   const handleNext = async () => {
-    await apiClient.post('/setup/llm', {
-      config: {
-        provider: config.provider,
-        apiKey: config.apiKey || undefined,
-        model: config.model,
-        baseUrl: config.baseUrl || undefined,
-        region: config.region || undefined,
-        authType: config.authType || undefined,
-      },
+    // PUT /api/system/llm is the authed save endpoint. The bootstrap-aware
+    // middleware on the server lets the wizard reach it without auth until
+    // the first admin is created.
+    await apiClient.put('/system/llm', {
+      provider: config.provider,
+      apiKey: config.apiKey || undefined,
+      model: config.model,
+      baseUrl: config.baseUrl || undefined,
+      region: config.region || undefined,
+      authType: config.authType || undefined,
     });
     onNext();
   };

@@ -42,23 +42,22 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
   const handleAdd = async () => {
     if (!form.url || saving) return;
     setSaving(true);
-    // Reuse the id that was minted when the form opened. Edits preserve the
-    // existing entry's id, so POST /setup/datasource upserts in place instead
-    // of appending a new row for every submit / retry.
+    // Reuse the id minted when the form opened. Edits preserve the
+    // existing entry's id; in edit mode we PUT, in create mode we POST.
     const payload: DatasourceEntry = {
       ...form,
       name: form.name || form.type,
     };
-    await apiClient.post('/setup/datasource', { datasource: payload });
-    if (editingIdx !== null) {
+    if (editingIdx !== null && form.id) {
+      await apiClient.put(`/datasources/${form.id}`, payload);
       setEntries((prev) => prev.map((d, i) => (i === editingIdx ? payload : d)));
-      // Invalidate stale test result for this row — URL or creds may have changed.
       setTestResults((prev) => {
         const next = { ...prev };
         delete next[editingIdx];
         return next;
       });
     } else {
+      await apiClient.post('/datasources', payload);
       setEntries((prev) => [...prev, payload]);
     }
     resetForm();
@@ -81,10 +80,11 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
 
   const handleTest = async (idx: number) => {
     const ds = entries[idx];
-    const res = await apiClient.post<{ ok: boolean; message: string }>('/setup/datasource', {
-      datasource: ds,
-      test: true,
-    });
+    // /api/datasources/test is the test-only endpoint — no persistence.
+    const res = await apiClient.post<{ ok: boolean; message: string }>(
+      '/datasources/test',
+      ds,
+    );
     setTestResults((prev) => ({
       ...prev,
       [idx]: res.error ? { ok: false, message: res.error.message } : res.data,

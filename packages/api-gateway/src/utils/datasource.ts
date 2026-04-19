@@ -1,8 +1,22 @@
-import type { DatasourceConfig } from '../routes/setup.js';
 import { ensureSafeUrl } from './url-validator.js';
 
+/**
+ * Shape required for a connectivity probe. Intentionally narrower than
+ * `InstanceDatasource` so UI callers can test before a record is
+ * persisted.
+ */
+export interface DatasourceProbe {
+  type: string;
+  url: string;
+  apiKey?: string | null;
+  username?: string | null;
+  password?: string | null;
+}
+
 /** Test connectivity to a datasource by hitting its health / readiness endpoint. */
-export async function testDatasourceConnection(ds: DatasourceConfig): Promise<{ ok: boolean; message: string }> {
+export async function testDatasourceConnection(
+  ds: DatasourceProbe,
+): Promise<{ ok: boolean; message: string }> {
   try {
     // SSRF protection: validate the base URL before making any request
     await ensureSafeUrl(ds.url);

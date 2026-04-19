@@ -18,8 +18,11 @@ import { metricsRouter } from './routes/metrics.js';
 import { createWebhookRouter } from './routes/webhooks.js';
 import { createInvestigationReportRouter } from './routes/investigation-reports.js';
 import { createSetupRouter } from './routes/setup.js';
-import { datasourcesRouter } from './routes/datasources.js';
+import { createDatasourcesRouter } from './routes/datasources.js';
 import { createQueryRouter } from './routes/dashboard/query.js';
+import { createSystemRouter } from './routes/system.js';
+import { bootstrapAware } from './middleware/bootstrap-aware.js';
+import { requirePermission } from './middleware/rbac.js';
 import { createDashboardRouter } from './routes/dashboard/router.js';
 import { createAlertRulesRouter } from './routes/alert-rules.js';
 import { createNotificationsRouter } from './routes/notifications.js';
@@ -91,11 +94,12 @@ import { createAuthRouter } from './routes/auth.js';
 import { createUserRouter } from './routes/user.js';
 import { createAdminRouter } from './routes/admin.js';
 import {
+  authMiddleware,
   createAuthMiddleware,
   setAuthMiddleware,
 } from './middleware/auth.js';
 import { createOrgContextMiddleware } from './middleware/org-context.js';
-import { setBootstrapHasUsers, setSetupAdminDeps } from './routes/setup.js';
+import { SetupConfigService } from './services/setup-config-service.js';
 // Wave 2 / T3 — RBAC service, routes, resolvers.
 import { AccessControlService } from './services/accesscontrol-service.js';
 import { AccessControlHolder } from './services/accesscontrol-holder.js';
@@ -149,9 +153,9 @@ function mountCommonRoutes(app: Application): void {
   app.use('/api/openapi.json', openApiRouter);
   app.use('/api/webhooks', createWebhookRouter());
   app.use('/api/metrics', metricsRouter);
-  app.use('/api/setup', createSetupRouter());
-  app.use('/api/datasources', datasourcesRouter);
-  app.use('/api/query', createQueryRouter());
+  // /api/setup, /api/datasources, and /api/query are mounted inside the
+  // async auth IIFE below — they depend on SetupConfigService which needs
+  // the sqlite repositories + audit writer, both built there.
 }
 
 export function createApp(): Application {
@@ -212,6 +216,62 @@ export function createApp(): Application {
       apiKeys: new ApiKeyRepository(sqliteDb),
       preferences: new PreferencesRepository(sqliteDb),
     };
+
+    // W2 / T2.4 — instance-config service built synchronously. It uses
+    // the `auditWriterHolder` forwarder for audit writes because the real
+    // AuditWriter resolves inside the async auth IIFE below. The three
+    // repositories don't depend on auth.
+    const setupConfigService = new SetupConfigService({
+      instanceConfig: repos.instanceConfig,
+      datasources: repos.datasources,
+      notificationChannels: repos.notificationChannels,
+      audit: auditWriterHolder,
+    });
+
+    // Bootstrap-aware mounts (W2 / T2.5).
+    //
+    // `/api/datasources` + `/api/system/llm` + `/api/system/notifications`
+    // are the post-W2 home for save operations the setup wizard used to
+    // perform against `/api/setup/datasource` etc. The `bootstrapAware()`
+    // middleware lets the wizard hit these unauthenticated while the
+    // instance is still pre-bootstrap (no admin yet); once the first
+    // admin is created the bootstrap marker locks the gate and auth +
+    // permission become mandatory.
+    //
+    // `/api/query` is the live Prometheus proxy — no wizard use, always
+    // authenticated.
+    const bootstrapAwareDashboardWrite = bootstrapAware({
+      setupConfig: setupConfigService,
+      authMiddleware,
+      postAuthChain: [
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        requirePermission('dashboard:write'),
+      ],
+    });
+    const bootstrapAwareAdminWrite = bootstrapAware({
+      setupConfig: setupConfigService,
+      authMiddleware,
+      postAuthChain: [
+        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+        requirePermission('admin:write'),
+      ],
+    });
+    app.use(
+      '/api/datasources',
+      bootstrapAwareDashboardWrite,
+      createDatasourcesRouter({ setupConfig: setupConfigService }),
+    );
+    app.use(
+      '/api/system',
+      bootstrapAwareAdminWrite,
+      createSystemRouter({ setupConfig: setupConfigService }),
+    );
+    app.use(
+      '/api/query',
+      authMiddleware,
+      createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+      createQueryRouter({ setupConfig: setupConfigService }),
+    );
     void (async () => {
       // T9.1 — idempotent auth-to-db migration on startup. Wraps the seed
       // admin step and records a marker so subsequent boots are no-ops.
@@ -255,20 +315,24 @@ export function createApp(): Application {
         apiKeyService,
       });
       setAuthMiddleware(authMw);
-      setBootstrapHasUsers(async () => {
-        const { total } = await authRepos.users.list({ limit: 1 });
-        return total > 0;
-      });
-      // T9.4 — wire the setup-admin endpoint so /api/setup/admin can bootstrap
-      // the first user while the wizard is open.
-      setSetupAdminDeps({
-        users: authRepos.users,
-        orgs: authRepos.orgs,
-        orgUsers: authRepos.orgUsers,
-        sessions: authSub.sessions,
-        audit: authSub.audit,
-        defaultOrgId: 'org_main',
-      });
+
+      // Mount the setup wizard router now that the auth subsystem has
+      // resolved — it needs the real SessionService + AuditWriter for
+      // the `POST /api/setup/admin` bootstrap flow. The service itself
+      // was built earlier (synchronously) with the auditWriterHolder.
+      app.use(
+        '/api/setup',
+        createSetupRouter({
+          setupConfig: setupConfigService,
+          users: authRepos.users,
+          orgs: authRepos.orgs,
+          orgUsers: authRepos.orgUsers,
+          sessions: authSub.sessions,
+          audit: authSub.audit,
+          defaultOrgId: 'org_main',
+        }),
+      );
+
       // Mount the auth / user / admin routers after the subsystem is built.
       // These endpoints are public or self-authenticating so mounting them
       // lazily is safe — requests that arrive before this resolves see a 503
@@ -594,6 +658,7 @@ export function createApp(): Application {
       accessControl: accessControlHolder,
       auditWriter: auditWriterHolder,
       folderRepository: sharedFolderRepo,
+      setupConfig: setupConfigService,
     }));
     app.use('/api/chat', createChatRouter({
       dashboardStore: repos.dashboards,
@@ -607,12 +672,14 @@ export function createApp(): Application {
       accessControl: accessControlHolder,
       auditWriter: auditWriterHolder,
       folderRepository: sharedFolderRepo,
+      setupConfig: setupConfigService,
     }));
     app.use('/api/alert-rules', createAlertRulesRouter({
       alertRuleStore: eventAlertRuleStore,
       investigationStore: repos.investigations,
       feedStore: eventFeedStore,
       reportStore: repos.investigationReports,
+      setupConfig: setupConfigService,
     }));
     // /api/folders is mounted above inside the async auth block — T7.1.
     app.use('/api/search', createSearchRouter({
@@ -622,62 +689,25 @@ export function createApp(): Application {
     }));
     app.use('/api/versions', createVersionRouter(repos.versions));
   } else {
-    // -- Legacy in-memory mode with JSON persistence
-    app.use('/api/investigations', createInvestigationRouter({
-      store: defaultInvestigationStore,
-      feed: feedStore,
-      shareRepo: defaultShareStore,
-      reportStore: defaultInvestigationReportStore,
-    }));
-    app.use('/api/feed', createFeedRouter(feedStore));
-    app.use('/api/shared', createSharedRouter({
-      shareRepo: defaultShareStore,
-      investigationStore: defaultInvestigationStore,
-    }));
-    app.use('/api/meta', createMetaRouter({
-      investigationStore: defaultInvestigationStore,
-      feedStore,
-    }));
-    app.use('/api/approvals', createApprovalRouter(approvalStore));
-    app.use('/api/notifications', createNotificationsRouter({
-      notificationStore: defaultNotificationStore,
-      alertRuleStore: defaultAlertRuleStore,
-    }));
-    app.use('/api/investigation-reports', createInvestigationReportRouter(defaultInvestigationReportStore));
-    app.use('/api/dashboards', createDashboardRouter({
-      store: defaultDashboardStore,
-      conversationStore: defaultConversationStore,
-      investigationReportStore: defaultInvestigationReportStore,
-      alertRuleStore: defaultAlertRuleStore,
-      investigationStore: defaultInvestigationStore,
-      feedStore,
-      accessControl: accessControlHolder,
-      auditWriter: auditWriterHolder,
-    }));
-    app.use('/api/chat', createChatRouter({
-      dashboardStore: defaultDashboardStore,
-      conversationStore: defaultConversationStore,
-      investigationReportStore: defaultInvestigationReportStore,
-      alertRuleStore: defaultAlertRuleStore,
-      investigationStore: defaultInvestigationStore,
-      accessControl: accessControlHolder,
-      auditWriter: auditWriterHolder,
-    }));
-    app.use('/api/alert-rules', createAlertRulesRouter({
-      alertRuleStore: defaultAlertRuleStore,
-      investigationStore: defaultInvestigationStore,
-      feedStore,
-      reportStore: defaultInvestigationReportStore,
-    }));
-    // Legacy in-memory mode doesn't get the Grafana-parity /api/folders —
-    // that route only functions when SQLite is available (T7 migration 017
-    // adds folder_uid columns that the in-memory path doesn't model).
-    app.use('/api/search', createSearchRouter({
-      dashboardStore: defaultDashboardStore,
-      alertRuleStore: defaultAlertRuleStore,
-      folderStore: defaultFolderStore,
-    }));
-    app.use('/api/versions', createVersionRouter(defaultVersionStore));
+    // -- Legacy in-memory mode removed in W2.
+    //
+    // Before W2 this branch ran whenever `DATABASE_URL` was set (the
+    // Postgres experiment) or whenever SQLite was disabled. It never wired
+    // LLM / datasource / notification persistence — those lived in the
+    // flat-file `setup-config.json`. With W2 moving all instance config
+    // into SQLite (migration 019 + `SetupConfigService`), the in-memory
+    // branch can no longer serve dashboards, chat, or queries; there is
+    // no store for the datasource list it needs to consult.
+    //
+    // Fail loudly rather than silently serve a broken app. Operators who
+    // want Postgres should wire the equivalent repositories + a Postgres
+    // adapter for `IInstanceConfigRepository` / `IDatasourceRepository` /
+    // `INotificationChannelRepository` — out of scope for W2.
+    throw new Error(
+      'openobs no longer supports DATABASE_URL (in-memory/Postgres) mode. ' +
+        'Set DATA_DIR (or SQLITE_PATH) instead — the SQLite path is the only ' +
+        'supported runtime as of the W2 config consolidation.',
+    );
   }
 
   mountStaticAssets(app);

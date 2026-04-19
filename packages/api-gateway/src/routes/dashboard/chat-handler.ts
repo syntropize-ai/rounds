@@ -9,6 +9,7 @@ import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInve
 import { DashboardService, withDashboardLock } from '../../services/dashboard-service.js'
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
 import type { AuditWriter } from '../../auth/audit-writer.js'
+import type { SetupConfigService } from '../../services/setup-config-service.js'
 
 function sendEvent(res: Response, event: DashboardSseEvent): void {
   res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
@@ -28,6 +29,7 @@ export async function handleChatMessage(
   investigationReportStore: IInvestigationReportRepository,
   alertRuleStore: IAlertRuleRepository,
   accessControl: AccessControlSurface,
+  setupConfig: SetupConfigService,
   investigationStore?: IGatewayInvestigationStore,
   feedStore?: IGatewayFeedStore,
   auditWriter?: AuditWriter,
@@ -61,7 +63,7 @@ export async function handleChatMessage(
     await withDashboardLock(dashboardId, async () => {
       const service = new DashboardService({
         store, conversationStore, investigationReportStore, alertRuleStore,
-        investigationStore, feedStore, accessControl,
+        investigationStore, feedStore, accessControl, setupConfig,
         ...(auditWriter ? { auditWriter } : {}),
         ...(folderRepository ? { folderRepository } : {}),
       })

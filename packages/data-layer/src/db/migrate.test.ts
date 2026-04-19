@@ -13,6 +13,8 @@ describe('migrate()', () => {
       'org_user', 'team', 'team_member', 'api_key',
       'role', 'permission', 'builtin_role', 'user_role', 'team_role',
       'folder', 'dashboard_acl', 'preferences', 'quota', 'audit_log',
+      'instance_llm_config', 'instance_datasources',
+      'notification_channels', 'instance_settings',
     ];
 
     const rows = db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type='table'`);
@@ -76,6 +78,7 @@ describe('migrate()', () => {
       '016_drop_workspaces.sql',
       '017_dashboard_folder_uid.sql',
       '018_runtime_settings.sql',
+      '019_instance_settings.sql',
     ]);
   });
 

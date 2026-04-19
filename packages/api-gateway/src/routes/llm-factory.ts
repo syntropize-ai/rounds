@@ -6,12 +6,24 @@ import {
   LLMGateway,
   type LLMProvider,
 } from '@agentic-obs/llm-gateway';
-import type { LlmConfig } from './setup.js';
+import type { InstanceLlmConfig } from '@agentic-obs/common';
+
+/**
+ * Minimal shape accepted by the factory. The repository-shaped
+ * `InstanceLlmConfig` carries extra bookkeeping (updatedAt, updatedBy)
+ * the factory doesn't need, but it's the canonical shape now that we've
+ * deleted the old flat-file `LlmConfig`. Accepting the wider type here
+ * means callers can pass the repository object straight through.
+ */
+export type LlmFactoryConfig = Pick<
+  InstanceLlmConfig,
+  'provider' | 'apiKey' | 'model' | 'baseUrl' | 'authType' | 'region'
+>;
 
 /**
  * Create the correct LLMProvider based on the user's setup config.
  */
-export function createLlmProvider(cfg: LlmConfig): LLMProvider {
+export function createLlmProvider(cfg: LlmFactoryConfig): LLMProvider {
   const isCorporateGateway = cfg.provider === 'corporate-gateway';
 
   switch (cfg.provider) {
@@ -55,6 +67,6 @@ export function createLlmProvider(cfg: LlmConfig): LLMProvider {
 /**
  * Create an LLMGateway from the user's setup config.
  */
-export function createLlmGateway(cfg: LlmConfig, maxRetries = 2): LLMGateway {
+export function createLlmGateway(cfg: LlmFactoryConfig, maxRetries = 2): LLMGateway {
   return new LLMGateway({ primary: createLlmProvider(cfg), maxRetries });
 }

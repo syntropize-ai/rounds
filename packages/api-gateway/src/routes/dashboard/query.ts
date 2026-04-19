@@ -1,37 +1,42 @@
-// Prometheus query proxy - lets frontend panels fetch live data
-// Resolves datasource from setup config, proxies PromQL to Prometheus
+// Prometheus query proxy - lets frontend panels fetch live data.
+// Resolves datasource via SetupConfigService (W2 / T2.4), proxies PromQL to
+// Prometheus, and handles basic label/metadata endpoints.
 
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { getErrorMessage } from '@agentic-obs/common'
+import type { InstanceDatasource } from '@agentic-obs/common'
 import { authMiddleware } from '../../middleware/auth.js'
 import { PrometheusHttpClient } from '@agentic-obs/adapters'
-import { getSetupConfig } from '../setup.js'
-import type { DatasourceConfig } from '../setup.js'
+import type { SetupConfigService } from '../../services/setup-config-service.js'
+
+export interface QueryRouterDeps {
+  setupConfig: SetupConfigService
+}
 
 // -- Helpers
 
-function resolvePrometheusDatasource(
+async function resolvePrometheusDatasource(
+  setupConfig: SetupConfigService,
   datasourceId?: string,
   environment?: string,
   cluster?: string,
-): DatasourceConfig | null {
-  const config = getSetupConfig()
-  const isPrometheus = (d: DatasourceConfig) =>
+): Promise<InstanceDatasource | null> {
+  const isPrometheus = (d: InstanceDatasource) =>
     d.type === 'prometheus' || d.type === 'victoria-metrics'
 
   if (datasourceId) {
-    return config.datasources.find((d) => d.id === datasourceId && isPrometheus(d)) ?? null
+    const ds = await setupConfig.getDatasource(datasourceId)
+    return ds && isPrometheus(ds) ? ds : null
   }
 
-  const candidates = config.datasources.filter(isPrometheus)
+  const all = await setupConfig.listDatasources()
+  const candidates = all.filter(isPrometheus)
 
   if (environment || cluster) {
     const match = candidates.find((d) => {
-      if (environment && d.environment !== environment)
-        return false
-      if (cluster && d.cluster !== cluster)
-        return false
+      if (environment && d.environment !== environment) return false
+      if (cluster && d.cluster !== cluster) return false
       return true
     })
     return match ?? null
@@ -40,18 +45,17 @@ function resolvePrometheusDatasource(
   return candidates[0] ?? null
 }
 
-function buildClientConfig(ds: DatasourceConfig): ConstructorParameters<typeof PrometheusHttpClient>[0] {
+function buildClientConfig(ds: InstanceDatasource): ConstructorParameters<typeof PrometheusHttpClient>[0] {
   const cfg: ConstructorParameters<typeof PrometheusHttpClient>[0] = { baseUrl: ds.url }
   if (ds.username && ds.password) {
     cfg.auth = { username: ds.username, password: ds.password }
-  }
-  else if (ds.apiKey) {
+  } else if (ds.apiKey) {
     cfg.headers = { Authorization: `Bearer ${ds.apiKey}` }
   }
   return cfg
 }
 
-function buildFetchHeaders(ds: DatasourceConfig): Record<string, string> {
+function buildFetchHeaders(ds: InstanceDatasource): Record<string, string> {
   if (ds.username && ds.password) {
     const token = Buffer.from(`${ds.username}:${ds.password}`).toString('base64')
     return { Authorization: `Basic ${token}` }
@@ -64,8 +68,9 @@ function buildFetchHeaders(ds: DatasourceConfig): Record<string, string> {
 
 // -- Router
 
-export function createQueryRouter(): Router {
+export function createQueryRouter(deps: QueryRouterDeps): Router {
   const router = Router()
+  const { setupConfig } = deps
 
   // POST /api/query/range
   router.post('/range', authMiddleware, async (req: Request, res: Response) => {
@@ -84,7 +89,7 @@ export function createQueryRouter(): Router {
       return
     }
 
-    const ds = resolvePrometheusDatasource(datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
@@ -97,11 +102,8 @@ export function createQueryRouter(): Router {
       const client = new PrometheusHttpClient(buildClientConfig(ds))
       const result = await client.rangeQuery(query, startDate, endDate, step)
       res.json(result)
-    }
-    catch (err) {
-      res.status(502).json({
-        error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) },
-      })
+    } catch (err) {
+      res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
   })
 
@@ -120,7 +122,7 @@ export function createQueryRouter(): Router {
       return
     }
 
-    const ds = resolvePrometheusDatasource(datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
@@ -130,16 +132,12 @@ export function createQueryRouter(): Router {
       const client = new PrometheusHttpClient(buildClientConfig(ds))
       const result = await client.instantQuery(query, time ? new Date(time) : undefined)
       res.json(result)
-    }
-    catch (err) {
-      res.status(502).json({
-        error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) },
-      })
+    } catch (err) {
+      res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
   })
 
   // GET /api/query/metadata?match={pattern}&datasourceId=xxx&environment=prod&cluster=my-cluster-a
-  // Returns metric names matching the pattern - used by LLM generator to reduce noise
   router.get('/metadata', authMiddleware, async (req: Request, res: Response) => {
     const { match, datasourceId, environment, cluster } = req.query as {
       match?: string
@@ -148,7 +146,7 @@ export function createQueryRouter(): Router {
       cluster?: string
     }
 
-    const ds = resolvePrometheusDatasource(datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
@@ -163,15 +161,11 @@ export function createQueryRouter(): Router {
         const params = new URLSearchParams()
         params.set('match[]', match)
         url = `${baseUrl}/api/v1/series?${params}`
-      }
-      else {
+      } else {
         url = `${baseUrl}/api/v1/label/__name__/values`
       }
 
-      const fetchRes = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      })
+      const fetchRes = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) })
 
       if (!fetchRes.ok) {
         res.status(502).json({
@@ -183,24 +177,18 @@ export function createQueryRouter(): Router {
       const body = await fetchRes.json() as { status?: string, data?: unknown[] }
 
       if (match) {
-        // For series endpoint, extract unique metric names from the __name__ label
         const series = body.data as Array<Record<string, string>>
         const names = [...new Set(series.map((s) => s['__name__']).filter(Boolean))].sort()
         res.json({ status: 'success', data: names })
-      }
-      else {
+      } else {
         res.json(body)
       }
-    }
-    catch (err) {
-      res.status(502).json({
-        error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) },
-      })
+    } catch (err) {
+      res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
   })
 
   // GET /api/query/labels?metric={name}&datasourceId=xxx&environment=prod&cluster=my-cluster-a
-  // Returns available label names for a metric
   router.get('/labels', authMiddleware, async (req: Request, res: Response) => {
     const { metric, datasourceId, environment, cluster } = req.query as {
       metric?: string
@@ -209,7 +197,7 @@ export function createQueryRouter(): Router {
       cluster?: string
     }
 
-    const ds = resolvePrometheusDatasource(datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
@@ -219,14 +207,10 @@ export function createQueryRouter(): Router {
       const baseUrl = ds.url.replace(/\/$/, '')
       const headers = buildFetchHeaders(ds)
       const params = new URLSearchParams()
-      if (metric)
-        params.set('match[]', metric)
+      if (metric) params.set('match[]', metric)
       const url = `${baseUrl}/api/v1/labels?${params}`
 
-      const fetchRes = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      })
+      const fetchRes = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) })
 
       if (!fetchRes.ok) {
         res.status(502).json({
@@ -237,16 +221,12 @@ export function createQueryRouter(): Router {
 
       const body = await fetchRes.json()
       res.json(body)
-    }
-    catch (err) {
-      res.status(502).json({
-        error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) },
-      })
+    } catch (err) {
+      res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
   })
 
   // POST /api/query/batch
-  // Executes multiple PromQL queries in parallel and returns per-refId results
   router.post('/batch', authMiddleware, async (req: Request, res: Response) => {
     const { queries, start, end, step = '30s', datasourceId, environment, cluster } = req.body as {
       queries?: Array<{ refId: string, expr: string, instant?: boolean }>
@@ -275,7 +255,7 @@ export function createQueryRouter(): Router {
       }
     }
 
-    const ds = resolvePrometheusDatasource(datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
@@ -298,8 +278,7 @@ export function createQueryRouter(): Router {
       const outcome = settled[i]!
       if (outcome.status === 'fulfilled') {
         results[q.refId] = { status: 'success', data: outcome.value }
-      }
-      else {
+      } else {
         const msg = getErrorMessage(outcome.reason)
         results[q.refId] = { status: 'error', data: { resultType: 'matrix', result: [] }, error: msg }
       }

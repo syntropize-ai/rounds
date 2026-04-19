@@ -1,17 +1,44 @@
 import { randomUUID } from 'crypto';
 import { createLogger } from '@agentic-obs/common/logging';
-import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
+import type { DashboardSseEvent, Identity, InstanceDatasource } from '@agentic-obs/common';
 
 const log = createLogger('dashboard-service');
 import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
 import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore } from '@agentic-obs/data-layer';
-import { getSetupConfig, type DatasourceConfig } from '../routes/setup.js';
 import { createLlmGateway } from '../routes/llm-factory.js';
 import { DashboardOrchestratorAgent as OrchestratorAgent } from '@agentic-obs/agent-core';
 import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
 import type { AccessControlSurface } from './accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
+import type { SetupConfigService } from './setup-config-service.js';
+
+/**
+ * Convert InstanceDatasource[] to the narrower `DatasourceConfig[]`
+ * shape the orchestrator's system-prompt helpers expect. Drops credential
+ * fields (they don't belong in a prompt) and converts `null` → undefined.
+ */
+export function toAgentDatasources(datasources: InstanceDatasource[]): Array<{
+  id: string;
+  type: string;
+  name: string;
+  url: string;
+  environment?: string;
+  cluster?: string;
+  label?: string;
+  isDefault?: boolean;
+}> {
+  return datasources.map((d) => ({
+    id: d.id,
+    type: d.type,
+    name: d.name,
+    url: d.url,
+    ...(d.environment ? { environment: d.environment } : {}),
+    ...(d.cluster ? { cluster: d.cluster } : {}),
+    ...(d.label ? { label: d.label } : {}),
+    isDefault: d.isDefault,
+  }));
+}
 
 /** Adapts data-layer IAlertRuleRepository to agent-core IAlertRuleStore. */
 function toAlertRuleStore(repo: IAlertRuleRepository): IAlertRuleStore {
@@ -36,7 +63,7 @@ export interface PrometheusDatasource {
   headers: Record<string, string>;
 }
 
-export function resolvePrometheusDatasource(datasources: DatasourceConfig[]): PrometheusDatasource | undefined {
+export function resolvePrometheusDatasource(datasources: InstanceDatasource[]): PrometheusDatasource | undefined {
   const promDatasources = datasources.filter((d) => d.type === 'prometheus' || d.type === 'victoria-metrics');
   const prom = promDatasources.find((d) => d.isDefault) ?? promDatasources[0];
   if (!prom) return undefined;
@@ -98,6 +125,8 @@ export interface DashboardServiceDeps {
   auditWriter?: AuditWriter;
   /** Folder backend for agent folder.* tools; optional. */
   folderRepository?: import('@agentic-obs/common').IFolderRepository;
+  /** W2 / T2.4 — LLM + datasource reads go through here, not the old flat-file config. */
+  setupConfig: SetupConfigService;
 }
 
 export class DashboardService {
@@ -110,6 +139,7 @@ export class DashboardService {
   private accessControl: AccessControlSurface;
   private auditWriter?: AuditWriter;
   private folderRepository?: import('@agentic-obs/common').IFolderRepository;
+  private setupConfig: SetupConfigService;
 
   constructor(deps: DashboardServiceDeps) {
     this.store = deps.store;
@@ -121,6 +151,7 @@ export class DashboardService {
     this.accessControl = deps.accessControl;
     this.auditWriter = deps.auditWriter;
     this.folderRepository = deps.folderRepository;
+    this.setupConfig = deps.setupConfig;
   }
 
   /**
@@ -134,10 +165,11 @@ export class DashboardService {
     sendEvent: (event: DashboardSseEvent) => void,
     identity: Identity,
   ): Promise<ChatResult> {
-    const config = getSetupConfig();
-    if (!config.llm) {
+    const llm = await this.setupConfig.getLlm();
+    if (!llm) {
       throw new Error('LLM not configured - please complete the Setup Wizard first.');
     }
+    const datasources = await this.setupConfig.listDatasources();
 
     // Save user message
     const userMessageId = randomUUID();
@@ -148,9 +180,9 @@ export class DashboardService {
       timestamp: new Date().toISOString(),
     });
 
-    const gateway = createLlmGateway(config.llm);
-    const model = config.llm.model;
-    const prom = resolvePrometheusDatasource(config.datasources);
+    const gateway = createLlmGateway(llm);
+    const model = llm.model;
+    const prom = resolvePrometheusDatasource(datasources);
 
     const metricsAdapter = prom
       ? new PrometheusMetricsAdapter(prom.url, prom.headers)
@@ -166,7 +198,7 @@ export class DashboardService {
       alertRuleStore: toAlertRuleStore(this.alertRuleStore),
       ...(this.folderRepository ? { folderRepository: this.folderRepository } : {}),
       metricsAdapter,
-      allDatasources: config.datasources,
+      allDatasources: toAgentDatasources(datasources),
       sendEvent,
       timeRange: timeRange?.start && timeRange?.end
         ? { start: timeRange.start, end: timeRange.end, timezone: timeRange.timezone }

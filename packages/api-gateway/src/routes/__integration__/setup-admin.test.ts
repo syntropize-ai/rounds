@@ -1,18 +1,23 @@
 /**
- * POST /api/setup/admin integration tests (T9.4 — first-admin bootstrap).
+ * POST /api/setup/admin integration tests (T9.4 / W2 — first-admin bootstrap).
  *
  * Shape:
  *   - empty DB: creates user with is_admin=1, seeds org_user Admin, returns
  *     { userId, orgId } and issues a session cookie.
- *   - once a user exists: 409.
+ *   - bootstrap marker is written on success, locking further bootstrap calls
+ *     even if the users table is cleared (W2 / T2.7).
+ *   - once bootstrapped: 409.
  *   - validation: 400 on bad email / missing name / short password.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express, { type Application } from 'express';
 import request from 'supertest';
 import {
   AuditLogRepository,
+  InstanceConfigRepository,
+  DatasourceRepository,
+  NotificationChannelRepository,
   OrgRepository,
   OrgUserRepository,
   UserAuthTokenRepository,
@@ -21,19 +26,17 @@ import {
   seedDefaultOrg,
 } from '@agentic-obs/data-layer';
 import type { SqliteClient } from '@agentic-obs/data-layer';
-import {
-  createSetupRouter,
-  setBootstrapHasUsers,
-  setSetupAdminDeps,
-} from '../setup.js';
+import { createSetupRouter } from '../setup.js';
 import { AuditWriter } from '../../auth/audit-writer.js';
 import { SessionService } from '../../auth/session-service.js';
+import { SetupConfigService } from '../../services/setup-config-service.js';
 
 interface Ctx {
   app: Application;
   db: SqliteClient;
   users: UserRepository;
   orgUsers: OrgUserRepository;
+  setupConfig: SetupConfigService;
 }
 
 async function buildApp(): Promise<Ctx> {
@@ -47,27 +50,41 @@ async function buildApp(): Promise<Ctx> {
   const auditLog = new AuditLogRepository(db);
   const audit = new AuditWriter(auditLog);
   const sessions = new SessionService(userAuthTokens);
-
-  setBootstrapHasUsers(async () => {
-    const { total } = await users.list({ limit: 1 });
-    return total > 0;
-  });
-  setSetupAdminDeps({
-    users,
-    orgs,
-    orgUsers,
-    sessions,
+  const setupConfig = new SetupConfigService({
+    instanceConfig: new InstanceConfigRepository(db),
+    datasources: new DatasourceRepository(db),
+    notificationChannels: new NotificationChannelRepository(db),
     audit,
-    defaultOrgId: 'org_main',
   });
 
   const app = express();
   app.use(express.json());
-  app.use('/api/setup', createSetupRouter());
-  return { app, db, users, orgUsers };
+  app.use(
+    '/api/setup',
+    createSetupRouter({
+      setupConfig,
+      users,
+      orgs,
+      orgUsers,
+      sessions,
+      audit,
+      defaultOrgId: 'org_main',
+    }),
+  );
+  return { app, db, users, orgUsers, setupConfig };
 }
 
 describe('POST /api/setup/admin', () => {
+  const prevSecret = process.env['SECRET_KEY'];
+  beforeAll(() => {
+    process.env['SECRET_KEY'] =
+      prevSecret ?? 'test-secret-key-for-setup-admin-integration-xxxxxxxxxxxxxxxxxxx';
+  });
+  afterAll(() => {
+    if (prevSecret === undefined) delete process.env['SECRET_KEY'];
+    else process.env['SECRET_KEY'] = prevSecret;
+  });
+
   let ctx: Ctx;
   beforeEach(async () => {
     ctx = await buildApp();
@@ -85,19 +102,19 @@ describe('POST /api/setup/admin', () => {
     expect(res.status).toBe(201);
     expect(res.body.userId).toBeTruthy();
     expect(res.body.orgId).toBe('org_main');
-    // Session cookie should be set.
     const cookies = res.headers['set-cookie'];
     const cookieHeaders = Array.isArray(cookies) ? cookies : [cookies];
     expect(cookieHeaders.some((c) => c?.startsWith('openobs_session='))).toBe(true);
 
-    // User row has is_admin=1 and org_user Admin role.
     const user = await ctx.users.findByEmail('owner@example.com');
     expect(user?.isAdmin).toBe(true);
     const membership = await ctx.orgUsers.findMembership('org_main', user!.id);
     expect(membership?.role).toBe('Admin');
+    // Bootstrap marker now set.
+    expect(await ctx.setupConfig.isBootstrapped()).toBe(true);
   });
 
-  it('409 once any user already exists', async () => {
+  it('409 once the bootstrap marker is set', async () => {
     await request(ctx.app)
       .post('/api/setup/admin')
       .send({
@@ -105,6 +122,27 @@ describe('POST /api/setup/admin', () => {
         name: 'First',
         password: 'longenoughpassword',
       });
+    const res = await request(ctx.app)
+      .post('/api/setup/admin')
+      .send({
+        email: 'second@example.com',
+        name: 'Second',
+        password: 'longenoughpassword',
+      });
+    expect(res.status).toBe(409);
+  });
+
+  it('bootstrap marker blocks even when the users table has been cleared (T2.7)', async () => {
+    await request(ctx.app)
+      .post('/api/setup/admin')
+      .send({
+        email: 'first@example.com',
+        name: 'First',
+        password: 'longenoughpassword',
+      });
+    // Simulate an accidental DELETE / bad restore.
+    const u = await ctx.users.findByEmail('first@example.com');
+    if (u) await ctx.users.delete(u.id);
     const res = await request(ctx.app)
       .post('/api/setup/admin')
       .send({
@@ -162,11 +200,23 @@ describe('POST /api/setup/admin', () => {
 });
 
 describe('GET /api/setup/status', () => {
+  const prevSecret = process.env['SECRET_KEY'];
+  beforeAll(() => {
+    process.env['SECRET_KEY'] =
+      prevSecret ?? 'test-secret-key-for-setup-status-integration-xxxxxxxxxxxxxxxxxxx';
+  });
+  afterAll(() => {
+    if (prevSecret === undefined) delete process.env['SECRET_KEY'];
+    else process.env['SECRET_KEY'] = prevSecret;
+  });
+
   it('returns hasAdmin=false on a fresh DB', async () => {
     const { app } = await buildApp();
     const res = await request(app).get('/api/setup/status');
     expect(res.status).toBe(200);
     expect(res.body.hasAdmin).toBe(false);
+    expect(res.body.hasLLM).toBe(false);
+    expect(res.body.datasourceCount).toBe(0);
   });
 
   it('returns hasAdmin=true once an admin is created', async () => {
@@ -180,5 +230,6 @@ describe('GET /api/setup/status', () => {
       });
     const res = await request(app).get('/api/setup/status');
     expect(res.body.hasAdmin).toBe(true);
+    expect(res.body.bootstrappedAt).toBeTruthy();
   });
 });

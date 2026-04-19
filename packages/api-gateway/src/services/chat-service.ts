@@ -1,14 +1,14 @@
 import { randomUUID } from 'crypto';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
-import { getSetupConfig } from '../routes/setup.js';
 import { createLlmGateway } from '../routes/llm-factory.js';
 import { DashboardOrchestratorAgent as OrchestratorAgent, shouldCompact, compactMessages, estimateTokens } from '@agentic-obs/agent-core';
 import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
-import { resolvePrometheusDatasource } from './dashboard-service.js';
+import { resolvePrometheusDatasource, toAgentDatasources } from './dashboard-service.js';
 import type { AccessControlSurface } from './accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
+import type { SetupConfigService } from './setup-config-service.js';
 import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
 import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IChatSessionRepository, IChatMessageRepository, IChatSessionEventRepository } from '@agentic-obs/data-layer';
 
@@ -47,6 +47,8 @@ export interface ChatServiceDeps {
    *  (in-memory deployments can omit; those tools return a clear
    *  "not configured" observation). */
   folderRepository?: import('@agentic-obs/common').IFolderRepository;
+  /** W2 / T2.4 — LLM + datasource config source. */
+  setupConfig: SetupConfigService;
 }
 
 /**
@@ -93,10 +95,11 @@ export class ChatService {
     identity: Identity,
     pageContext?: { kind: string; id?: string; timeRange?: string },
   ): Promise<ChatSessionResult> {
-    const config = getSetupConfig();
-    if (!config.llm) {
+    const llm = await this.deps.setupConfig.getLlm();
+    if (!llm) {
       throw new Error('LLM not configured - please complete the Setup Wizard first.');
     }
+    const datasources = await this.deps.setupConfig.listDatasources();
 
     const resolvedSessionId = sessionId ?? randomUUID();
 
@@ -145,9 +148,9 @@ export class ChatService {
       );
     };
 
-    const gateway = createLlmGateway(config.llm);
-    const model = config.llm.model;
-    const prom = resolvePrometheusDatasource(config.datasources);
+    const gateway = createLlmGateway(llm);
+    const model = llm.model;
+    const prom = resolvePrometheusDatasource(datasources);
 
     const metricsAdapter = prom
       ? new PrometheusMetricsAdapter(prom.url, prom.headers)
@@ -232,7 +235,7 @@ export class ChatService {
       alertRuleStore: toAlertRuleStore(this.deps.alertRuleStore),
       ...(this.deps.folderRepository ? { folderRepository: this.deps.folderRepository } : {}),
       metricsAdapter,
-      allDatasources: config.datasources,
+      allDatasources: toAgentDatasources(datasources),
       sendEvent: wrappedSendEvent,
       timeRange,
       conversationSummary,

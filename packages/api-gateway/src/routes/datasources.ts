@@ -1,129 +1,197 @@
-// Dedicated CRUD + connection-test API for datasource management.
-// Reads/writes to the same inMemoryConfig used by setup.ts.
+/**
+ * Datasource CRUD router (W2 / T2.4).
+ *
+ * Backed by `SetupConfigService` (SQLite `instance_datasources`). Replaces
+ * the old flat-file path in routes/setup.ts. Auth is handled by the
+ * caller — see server.ts for the bootstrap-aware mount added in T2.5.
+ */
 
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { authMiddleware } from '../middleware/auth.js';
-import { requirePermission } from '../middleware/rbac.js';
-import { getSetupConfig, updateDatasources } from './setup.js';
-import type { DatasourceConfig } from './setup.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
+import type { SetupConfigService } from '../services/setup-config-service.js';
+import type {
+  DatasourceType,
+  InstanceDatasource,
+  NewInstanceDatasource,
+  InstanceDatasourcePatch,
+} from '@agentic-obs/common';
 import { testDatasourceConnection } from '../utils/datasource.js';
 
-// -- Credential masking helper
-
-/** Replace credential values with '••••••' + last 4 chars (or just '••••••' if too short). */
-function maskValue(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  if (value.length <= 4) return '••••••';
-  return '••••••' + value.slice(-4);
+export interface DatasourcesRouterDeps {
+  setupConfig: SetupConfigService;
 }
 
-function maskDatasource(ds: DatasourceConfig): DatasourceConfig {
+interface DatasourceBody {
+  id?: string;
+  type?: DatasourceType;
+  name?: string;
+  url?: string;
+  environment?: string | null;
+  cluster?: string | null;
+  label?: string | null;
+  apiKey?: string | null;
+  username?: string | null;
+  password?: string | null;
+  isDefault?: boolean;
+  orgId?: string | null;
+}
+
+function actorFromReq(req: Request): { userId: string | null } {
+  const ar = req as AuthenticatedRequest;
+  return { userId: ar.auth?.userId ?? null };
+}
+
+export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
+  const router = Router();
+  const { setupConfig } = deps;
+
+  // GET /api/datasources — list (masked)
+  router.get('/', async (_req: Request, res: Response) => {
+    const datasources = await setupConfig.listDatasources({ masked: true });
+    res.json({ datasources });
+  });
+
+  // POST /api/datasources/test — test connection without saving
+  router.post('/test', async (req: Request, res: Response) => {
+    const body = req.body as DatasourceBody;
+    if (!body?.type || !body.url) {
+      res.status(400).json({
+        error: { code: 'VALIDATION', message: 'type and url are required' },
+      });
+      return;
+    }
+    const probe = {
+      type: body.type,
+      url: body.url,
+      apiKey: body.apiKey ?? undefined,
+      username: body.username ?? undefined,
+      password: body.password ?? undefined,
+    } as Parameters<typeof testDatasourceConnection>[0];
+    const result = await testDatasourceConnection(probe);
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  // POST /api/datasources — create
+  router.post('/', async (req: Request, res: Response) => {
+    const body = req.body as DatasourceBody;
+    if (!body?.type || !body.url || !body.name) {
+      res.status(400).json({
+        error: { code: 'VALIDATION', message: 'type, name, and url are required' },
+      });
+      return;
+    }
+    const actor = actorFromReq(req);
+    // If caller supplies an id that already exists, surface 409.
+    if (body.id && (await setupConfig.getDatasource(body.id))) {
+      res.status(409).json({
+        error: { code: 'CONFLICT', message: `Datasource "${body.id}" already exists` },
+      });
+      return;
+    }
+    const input: NewInstanceDatasource = {
+      id: body.id,
+      type: body.type,
+      name: body.name,
+      url: body.url,
+      environment: body.environment ?? null,
+      cluster: body.cluster ?? null,
+      label: body.label ?? null,
+      apiKey: body.apiKey ?? null,
+      username: body.username ?? null,
+      password: body.password ?? null,
+      isDefault: body.isDefault ?? false,
+      orgId: body.orgId ?? null,
+    };
+    const created = await setupConfig.createDatasource(input, actor);
+    res.status(201).json({ datasource: maskForWire(created) });
+  });
+
+  // GET /api/datasources/:id — get one
+  router.get('/:id', async (req: Request, res: Response) => {
+    const id = req.params['id'] ?? '';
+    const ds = await setupConfig.getDatasource(id, { masked: true });
+    if (!ds) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` },
+      });
+      return;
+    }
+    res.json({ datasource: ds });
+  });
+
+  // PUT /api/datasources/:id — update
+  router.put('/:id', async (req: Request, res: Response) => {
+    const id = req.params['id'] ?? '';
+    const existing = await setupConfig.getDatasource(id);
+    if (!existing) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` },
+      });
+      return;
+    }
+    const body = req.body as DatasourceBody;
+    const patch: InstanceDatasourcePatch = {};
+    if (body.type !== undefined) patch.type = body.type;
+    if (body.name !== undefined) patch.name = body.name;
+    if (body.url !== undefined) patch.url = body.url;
+    if (body.environment !== undefined) patch.environment = body.environment;
+    if (body.cluster !== undefined) patch.cluster = body.cluster;
+    if (body.label !== undefined) patch.label = body.label;
+    if (body.isDefault !== undefined) patch.isDefault = body.isDefault;
+    if (body.apiKey !== undefined) patch.apiKey = body.apiKey;
+    if (body.username !== undefined) patch.username = body.username;
+    if (body.password !== undefined) patch.password = body.password;
+    const updated = await setupConfig.updateDatasource(id, patch, actorFromReq(req));
+    res.json({ datasource: updated ? maskForWire(updated) : null });
+  });
+
+  // DELETE /api/datasources/:id — delete
+  router.delete('/:id', async (req: Request, res: Response) => {
+    const id = req.params['id'] ?? '';
+    const existed = await setupConfig.deleteDatasource(id, actorFromReq(req));
+    if (!existed) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` },
+      });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  // POST /api/datasources/:id/test — test a saved datasource
+  router.post('/:id/test', async (req: Request, res: Response) => {
+    const id = req.params['id'] ?? '';
+    const ds = await setupConfig.getDatasource(id);
+    if (!ds) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` },
+      });
+      return;
+    }
+    const probe = {
+      type: ds.type,
+      url: ds.url,
+      apiKey: ds.apiKey ?? undefined,
+      username: ds.username ?? undefined,
+      password: ds.password ?? undefined,
+    } as Parameters<typeof testDatasourceConnection>[0];
+    const result = await testDatasourceConnection(probe);
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  return router;
+}
+
+/**
+ * Redact secret values for JSON responses. Matches the mask string the
+ * repository layer uses for `{ masked: true }` reads so frontend code
+ * sees one shape either way.
+ */
+function maskForWire(ds: InstanceDatasource): InstanceDatasource {
   return {
     ...ds,
-    ...(ds.apiKey !== undefined && { apiKey: maskValue(ds.apiKey) }),
-    ...(ds.password !== undefined && { password: maskValue(ds.password) }),
-    ...(ds.username !== undefined && { username: maskValue(ds.username) }),
+    apiKey: ds.apiKey ? '••••••' + ds.apiKey.slice(-4) : ds.apiKey,
+    password: ds.password ? (ds.password.length > 4 ? '••••••' + ds.password.slice(-4) : '••••••') : ds.password,
   };
 }
-
-// -- Router
-
-export const datasourcesRouter = Router();
-
-// GET /api/datasources - list all
-datasourcesRouter.get('/', authMiddleware, requirePermission('dashboard:read'), (_req: Request, res: Response) => {
-  const config = getSetupConfig();
-  res.json({ datasources: config.datasources.map(maskDatasource) });
-});
-
-// POST /api/datasources/test - test connection without saving
-// Registered BEFORE /:id route so the literal path "test" is not consumed by /:id.
-datasourcesRouter.post('/test', authMiddleware, requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-  const body = req.body as Partial<DatasourceConfig>;
-  if (!body?.type || !body.url) {
-    res.status(400).json({ error: { code: 'VALIDATION', message: 'type and url are required' } });
-    return;
-  }
-
-  const ds = body as DatasourceConfig;
-  const result = await testDatasourceConnection(ds);
-  res.status(result.ok ? 200 : 400).json(result);
-});
-
-// POST /api/datasources - create
-datasourcesRouter.post('/', authMiddleware, requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-  const body = req.body as Partial<DatasourceConfig>;
-  if (!body?.type || !body.url || !body.name) {
-    res.status(400).json({ error: { code: 'VALIDATION', message: 'type, name, and url are required' } });
-    return;
-  }
-
-  const config = getSetupConfig();
-  const ds = { ...body, id: `${body.type}-${Date.now()}` } as DatasourceConfig;
-  if (config.datasources.find((d) => d.id === ds.id)) {
-    res.status(409).json({ error: { code: 'CONFLICT', message: `Datasource with id "${ds.id}" already exists` } });
-    return;
-  }
-
-  const datasources = [...config.datasources, ds];
-  await updateDatasources(datasources);
-  res.status(201).json({ datasource: maskDatasource(ds) });
-});
-
-// GET /api/datasources/:id - get one
-datasourcesRouter.get('/:id', authMiddleware, requirePermission('dashboard:read'), (req: Request, res: Response) => {
-  const id = req.params['id'] ?? '';
-  const config = getSetupConfig();
-  const ds = config.datasources.find((d) => d.id === id);
-  if (!ds) {
-    res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` } });
-    return;
-  }
-  res.json({ datasource: maskDatasource(ds) });
-});
-
-// PUT /api/datasources/:id - update
-datasourcesRouter.put('/:id', authMiddleware, requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-  const id = req.params['id'] ?? '';
-  const config = getSetupConfig();
-  const idx = config.datasources.findIndex((d) => d.id === id);
-  if (idx < 0) {
-    res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` } });
-    return;
-  }
-
-  const updated: DatasourceConfig = { ...(config.datasources[idx] as DatasourceConfig), ...(req.body as Partial<DatasourceConfig>), id };
-  const datasources = [...config.datasources];
-  datasources[idx] = updated;
-  await updateDatasources(datasources);
-  res.json({ datasource: maskDatasource(updated) });
-});
-
-// DELETE /api/datasources/:id - delete
-datasourcesRouter.delete('/:id', authMiddleware, requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-  const id = req.params['id'] ?? '';
-  const config = getSetupConfig();
-  const exists = config.datasources.find((d) => d.id === id);
-  if (!exists) {
-    res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` } });
-    return;
-  }
-
-  await updateDatasources(config.datasources.filter((d) => d.id !== id));
-  res.json({ ok: true });
-});
-
-// POST /api/datasources/:id/test - test a saved datasource by id
-datasourcesRouter.post('/:id/test', authMiddleware, requirePermission('dashboard:write'), async (req: Request, res: Response) => {
-  const id = req.params['id'] ?? '';
-  const config = getSetupConfig();
-  const ds = config.datasources.find((d) => d.id === id);
-  if (!ds) {
-    res.status(404).json({ error: { code: 'NOT_FOUND', message: `Datasource "${id}" not found` } });
-    return;
-  }
-
-  const result = await testDatasourceConnection(ds);
-  res.status(result.ok ? 200 : 400).json(result);
-});

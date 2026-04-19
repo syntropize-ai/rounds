@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Dashboard, DashboardMessage } from '@agentic-obs/common';
-
-// Mock the setup module before importing DashboardService
-vi.mock('../../routes/setup.js', () => ({
-  getSetupConfig: vi.fn(),
-}));
+import type { Dashboard, DashboardMessage, InstanceLlmConfig, InstanceDatasource } from '@agentic-obs/common';
 
 vi.mock('../../routes/llm-factory.js', () => ({
   createLlmGateway: vi.fn(),
@@ -21,11 +16,11 @@ vi.mock('@agentic-obs/agent-core', () => ({
 }));
 
 import { DashboardService } from '../dashboard-service.js';
-import { getSetupConfig } from '../../routes/setup.js';
+import type { SetupConfigService } from '../setup-config-service.js';
 import type { IGatewayDashboardStore, IConversationStore } from '../../repositories/types.js';
 import { DashboardOrchestratorAgent } from '@agentic-obs/agent-core';
 
-// -- Minimal mock stores
+// -- Minimal stubs ----------------------------------------------------
 
 function createMockDashboardStore(): IGatewayDashboardStore {
   const dashboards = new Map<string, Dashboard>();
@@ -60,13 +55,56 @@ function createMockConversationStore(): IConversationStore {
   };
 }
 
+function createStubSetupConfig(
+  llm: InstanceLlmConfig | null,
+  datasources: InstanceDatasource[] = [],
+): SetupConfigService {
+  return {
+    getLlm: vi.fn().mockResolvedValue(llm),
+    listDatasources: vi.fn().mockResolvedValue(datasources),
+  } as unknown as SetupConfigService;
+}
+
+function buildLlm(partial: Partial<InstanceLlmConfig> = {}): InstanceLlmConfig {
+  return {
+    provider: 'anthropic',
+    apiKey: 'sk-test',
+    model: 'claude-sonnet-4-6',
+    baseUrl: null,
+    authType: null,
+    region: null,
+    updatedAt: '2026-04-18T00:00:00.000Z',
+    updatedBy: null,
+    ...partial,
+  };
+}
+
+function buildDatasource(partial: Partial<InstanceDatasource> = {}): InstanceDatasource {
+  return {
+    id: 'ds-1',
+    orgId: null,
+    type: 'prometheus',
+    name: 'Prom',
+    url: 'http://prom:9090',
+    environment: null,
+    cluster: null,
+    label: null,
+    isDefault: false,
+    apiKey: null,
+    username: null,
+    password: null,
+    createdAt: '2026-04-18T00:00:00.000Z',
+    updatedAt: '2026-04-18T00:00:00.000Z',
+    updatedBy: null,
+    ...partial,
+  };
+}
+
 describe('DashboardService', () => {
   let service: DashboardService;
   let dashboardStore: IGatewayDashboardStore;
   let conversationStore: IConversationStore;
   const mockSendEvent = vi.fn();
-  // Wave 7 — stub access control that always allows; the unit tests predate
-  // the permission gate and we don't want them to regress on that axis.
   const stubAccessControl = {
     getUserPermissions: vi.fn().mockResolvedValue([]),
     evaluate: vi.fn().mockResolvedValue(true),
@@ -82,20 +120,16 @@ describe('DashboardService', () => {
     vi.clearAllMocks();
     dashboardStore = createMockDashboardStore();
     conversationStore = createMockConversationStore();
-    service = new DashboardService({
-      store: dashboardStore,
-      conversationStore,
-      investigationReportStore: {} as any,
-      alertRuleStore: {} as any,
-      accessControl: stubAccessControl as any,
-    });
   });
 
   it('handleChatMessage() throws if LLM not configured', async () => {
-    vi.mocked(getSetupConfig).mockReturnValue({
-      configured: false,
-      datasources: [],
-      llm: undefined,
+    service = new DashboardService({
+      store: dashboardStore,
+      conversationStore,
+      investigationReportStore: {} as never,
+      alertRuleStore: {} as never,
+      accessControl: stubAccessControl as never,
+      setupConfig: createStubSetupConfig(null),
     });
 
     await expect(
@@ -104,10 +138,13 @@ describe('DashboardService', () => {
   });
 
   it('handleChatMessage() calls orchestrator and returns reply', async () => {
-    vi.mocked(getSetupConfig).mockReturnValue({
-      configured: true,
-      datasources: [{ id: 'ds-1', type: 'prometheus', name: 'Prom', url: 'http://prom:9090' }],
-      llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
+    service = new DashboardService({
+      store: dashboardStore,
+      conversationStore,
+      investigationReportStore: {} as never,
+      alertRuleStore: {} as never,
+      accessControl: stubAccessControl as never,
+      setupConfig: createStubSetupConfig(buildLlm(), [buildDatasource()]),
     });
 
     const result = await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent, testIdentity);
@@ -117,34 +154,35 @@ describe('DashboardService', () => {
   });
 
   it('handleChatMessage() saves user and assistant messages', async () => {
-    vi.mocked(getSetupConfig).mockReturnValue({
-      configured: true,
-      datasources: [],
-      llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
+    service = new DashboardService({
+      store: dashboardStore,
+      conversationStore,
+      investigationReportStore: {} as never,
+      alertRuleStore: {} as never,
+      accessControl: stubAccessControl as never,
+      setupConfig: createStubSetupConfig(buildLlm()),
     });
 
     await service.handleChatMessage('dash-1', 'Show CPU', undefined, mockSendEvent, testIdentity);
 
-    // Should have called addMessage twice: once for user, once for assistant
     expect(conversationStore.addMessage).toHaveBeenCalledTimes(2);
-
     const calls = vi.mocked(conversationStore.addMessage).mock.calls;
-    // First call: user message
     expect(calls[0]![0]).toBe('dash-1');
     expect(calls[0]![1]!.role).toBe('user');
     expect(calls[0]![1]!.content).toBe('Show CPU');
-
-    // Second call: assistant message
     expect(calls[1]![0]).toBe('dash-1');
     expect(calls[1]![1]!.role).toBe('assistant');
     expect(calls[1]![1]!.content).toBe('Here is your dashboard analysis.');
   });
 
   it('handleChatMessage() forwards absolute time range and timezone to the orchestrator', async () => {
-    vi.mocked(getSetupConfig).mockReturnValue({
-      configured: true,
-      datasources: [],
-      llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
+    service = new DashboardService({
+      store: dashboardStore,
+      conversationStore,
+      investigationReportStore: {} as never,
+      alertRuleStore: {} as never,
+      accessControl: stubAccessControl as never,
+      setupConfig: createStubSetupConfig(buildLlm()),
     });
 
     await service.handleChatMessage(
@@ -176,12 +214,6 @@ describe('DashboardService', () => {
       updateStatus: vi.fn(),
     };
 
-    vi.mocked(getSetupConfig).mockReturnValue({
-      configured: true,
-      datasources: [{ id: 'ds-1', type: 'prometheus', name: 'Prom', url: 'http://prom:9090' }],
-      llm: { provider: 'anthropic', apiKey: 'sk-test', model: 'claude-sonnet-4-6' },
-    });
-
     vi.mocked(DashboardOrchestratorAgent).mockImplementationOnce(function MockDashboardOrchestratorAgent(args: any) {
       return {
         handleMessage: vi.fn().mockImplementation(async () => {
@@ -201,10 +233,11 @@ describe('DashboardService', () => {
     service = new DashboardService({
       store: dashboardStore,
       conversationStore,
-      investigationReportStore: {} as any,
-      alertRuleStore: {} as any,
-      investigationStore: investigationStore as any,
-      accessControl: stubAccessControl as any,
+      investigationReportStore: {} as never,
+      alertRuleStore: {} as never,
+      investigationStore: investigationStore as never,
+      accessControl: stubAccessControl as never,
+      setupConfig: createStubSetupConfig(buildLlm(), [buildDatasource()]),
     });
 
     await service.handleChatMessage('dash-1', 'Why is p95 high?', undefined, mockSendEvent, testIdentity);

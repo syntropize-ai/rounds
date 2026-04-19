@@ -23,6 +23,11 @@ import type {
   IChatSessionEventRepository,
 } from './interfaces.js';
 import type {
+  IInstanceConfigRepository,
+  IDatasourceRepository,
+  INotificationChannelRepository,
+} from '@agentic-obs/common';
+import type {
   IGatewayInvestigationStore,
   IGatewayIncidentStore,
   IGatewayApprovalStore,
@@ -54,6 +59,9 @@ import { SqlitePostMortemRepository } from './sqlite/post-mortem.js';
 import { SqliteChatSessionRepository } from './sqlite/chat-session.js';
 import { SqliteChatMessageRepository } from './sqlite/chat-message.js';
 import { SqliteChatSessionEventRepository } from './sqlite/chat-session-event.js';
+import { InstanceConfigRepository } from './sqlite/instance-config.js';
+import { DatasourceRepository } from './sqlite/datasource.js';
+import { NotificationChannelRepository } from './sqlite/notification-channel.js';
 
 /**
  * Core repositories (shared across all backends that support them).
@@ -93,6 +101,10 @@ export interface SqliteRepositories {
   chatSessions: IChatSessionRepository;
   chatMessages: IChatMessageRepository;
   chatSessionEvents: IChatSessionEventRepository;
+  // W2 / T2.2 — instance-scoped config (replaces setup-config.json).
+  instanceConfig: IInstanceConfigRepository;
+  datasources: IDatasourceRepository;
+  notificationChannels: INotificationChannelRepository;
 }
 
 export function createPostgresRepositories(db: DbClient): Repositories {
@@ -124,6 +136,9 @@ export function createSqliteRepositories(db: SqliteClient): SqliteRepositories {
     chatSessions: new SqliteChatSessionRepository(db),
     chatMessages: new SqliteChatMessageRepository(db),
     chatSessionEvents: new SqliteChatSessionEventRepository(db),
+    instanceConfig: new InstanceConfigRepository(db),
+    datasources: new DatasourceRepository(db),
+    notificationChannels: new NotificationChannelRepository(db),
   };
 }
 

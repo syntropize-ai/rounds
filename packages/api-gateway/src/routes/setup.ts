@@ -1,27 +1,52 @@
+/**
+ * Setup wizard routes (W2 / T2.5).
+ *
+ * Pre-W2 this router owned `inMemoryConfig` + read/write of
+ * `<DATA_DIR>/setup-config.json`. That whole layer is deleted — LLM /
+ * datasources / notifications now live in SQLite (see migration 019)
+ * and go through `SetupConfigService`.
+ *
+ * After T2.5 the save endpoints moved out of `/api/setup/*`:
+ *   - `POST /api/setup/datasource` (save)             → POST /api/datasources
+ *   - `DELETE /api/setup/datasource/:id`              → DELETE /api/datasources/:id
+ *   - `POST /api/setup/llm` (save)                    → PUT /api/system/llm
+ *   - `POST /api/setup/notifications` (save)          → PUT /api/system/notifications
+ *
+ * All three new endpoints are wrapped in `bootstrapAware()` middleware so
+ * the wizard (pre-first-admin) can still hit them unauthenticated; once
+ * the bootstrap marker is set, auth + permission become mandatory.
+ *
+ * What's left here:
+ *   - `GET  /status`            readiness view derived from DB (T2.6)
+ *   - `GET  /config`            current config with secrets masked
+ *   - `POST /admin`             first-admin bootstrap (writes the marker)
+ *   - `POST /llm/test`          test-connection probe
+ *   - `POST /llm/models`        provider model-list probe
+ *   - `POST /reset`             dev utility (clears all instance config)
+ *
+ * `POST /api/setup/complete` is gone (T2.6): readiness is derived from
+ * `hasAdmin && hasLLM`, not a stored flag. Clients should read
+ * `GET /api/setup/status` instead of posting a no-op.
+ */
+
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { promises as fs } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
 import { DEFAULT_LLM_MODEL } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type {
   IOrgRepository,
   IOrgUserRepository,
   IUserRepository,
+  InstanceLlmConfig,
 } from '@agentic-obs/common';
-// Auth for /api/setup is bootstrap-style: unauthenticated when no users yet.
-// T4+ will re-introduce the full auth middleware here.
+import { AuditAction } from '@agentic-obs/common';
 import { ensureSafeUrl } from '../utils/url-validator.js';
 import { createRateLimiter, loginRateLimiter } from '../middleware/rate-limiter.js';
-import { dataDir } from '../paths.js';
 import { hashPassword, passwordMinLength } from '../auth/local-provider.js';
 import type { SessionService } from '../auth/session-service.js';
 import { SESSION_COOKIE_NAME } from '../auth/session-service.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
-import { AuditAction } from '@agentic-obs/common';
-
-const log = createLogger('setup');
+import type { SetupConfigService } from '../services/setup-config-service.js';
 import {
   AnthropicProvider,
   OpenAIProvider,
@@ -30,139 +55,41 @@ import {
   type ModelInfo,
 } from '@agentic-obs/llm-gateway';
 
-// -- Types
+const log = createLogger('setup');
 
-export interface LlmConfig {
-  provider: 'anthropic' | 'openai' | 'deepseek' | 'azure-openai' | 'aws-bedrock' | 'ollama' | 'gemini' | 'corporate-gateway';
+// -- Wire-shape DTOs --------------------------------------------------
+//
+// Keeps route handlers stable while we refactor the persistence layer.
+
+export interface LlmConfigDto {
+  provider: InstanceLlmConfig['provider'];
   apiKey?: string;
   model: string;
   baseUrl?: string;
-  region?: string; // For AWS Bedrock
-  /** Auth type: "api-key" (default) or "bearer" (for corporate gateways with Okta/SSO) */
+  region?: string;
   authType?: 'api-key' | 'bearer';
 }
 
-export interface DatasourceConfig {
-  id: string;
-  type: 'loki' | 'elasticsearch' | 'clickhouse' | 'tempo' | 'jaeger' | 'otel' | 'prometheus' | 'victoria-metrics';
-  name: string;
-  url: string;
-  environment?: string; // e.g. "prod" "staging" "dev" "test" "build"
-  cluster?: string; // e.g. "eu-cluster", "us-east"
-  label?: string; // Display name e.g. "Prod - Cluster A"
-  apiKey?: string;
-  username?: string;
-  password?: string;
-  isDefault?: boolean; // true - preferred datasource when none specified
-}
-
-export interface NotificationConfig {
+export interface NotificationsDto {
   slack?: { webhookUrl: string };
   pagerduty?: { integrationKey: string };
-  email?: { host: string; port: number; username: string; password: string; from: string };
-}
-
-export interface SetupConfig {
-  configured: boolean;
-  llm?: LlmConfig;
-  datasources: DatasourceConfig[];
-  notifications?: NotificationConfig;
-  completedAt?: string;
-}
-
-// -- Persistence
-//
-// Setup config (LLM / datasources / notifications) lives at
-// `<DATA_DIR>/setup-config.json`. Historically it was written to
-// `~/.agentic-obs/config.json`, which split state between HOME and
-// the working-dir data directory. On first read we still check the
-// legacy path and migrate it forward, so upgrades don't lose config.
-
-const CONFIG_FILENAME = 'setup-config.json';
-
-function currentConfigPath(): string {
-  return join(dataDir(), CONFIG_FILENAME);
-}
-
-function legacyHomeConfigPath(): string {
-  return join(homedir(), '.agentic-obs', 'config.json');
-}
-
-let inMemoryConfig: SetupConfig = {
-  configured: false,
-  datasources: [],
-};
-
-function normalizeLlmConfig(config?: LlmConfig | null): LlmConfig | undefined {
-  if (!config) return undefined;
-  return {
-    provider: config.provider,
-    apiKey: config.apiKey,
-    model: config.model,
-    baseUrl: config.baseUrl,
-    region: config.region,
-    authType: config.authType,
+  email?: {
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    from: string;
   };
 }
 
-function normalizeSetupConfig(config: SetupConfig): SetupConfig {
-  return {
-    ...config,
-    llm: normalizeLlmConfig(config.llm),
-  };
-}
+// -- LLM Connectivity Test --------------------------------------------
 
-async function loadConfig(): Promise<SetupConfig> {
-  // Preferred location: DATA_DIR/setup-config.json.
-  try {
-    const raw = await fs.readFile(currentConfigPath(), 'utf-8');
-    return normalizeSetupConfig(JSON.parse(raw) as SetupConfig);
-  } catch { /* fall through to legacy import */ }
-
-  // Legacy fallback: ~/.agentic-obs/config.json (pre-consolidation).
-  // If present, import it and migrate so subsequent reads stay local.
-  try {
-    const raw = await fs.readFile(legacyHomeConfigPath(), 'utf-8');
-    const imported = normalizeSetupConfig(JSON.parse(raw) as SetupConfig);
-    log.info(
-      { from: legacyHomeConfigPath(), to: currentConfigPath() },
-      'migrated legacy setup config into DATA_DIR',
-    );
-    await saveConfig(imported);
-    return imported;
-  } catch { /* no legacy file either — first-run */ }
-
-  return inMemoryConfig;
-}
-
-async function saveConfig(config: SetupConfig): Promise<void> {
-  inMemoryConfig = normalizeSetupConfig(config);
-  try {
-    await fs.mkdir(dataDir(), { recursive: true });
-    await fs.writeFile(currentConfigPath(), JSON.stringify(inMemoryConfig, null, 2), 'utf-8');
-  } catch (err) {
-    log.debug({ err }, 'failed to persist config file (best-effort)');
-  }
-}
-
-// -- LLM Connectivity Test
-
-function resolveToken(cfg: LlmConfig): string | null {
+function resolveToken(cfg: LlmConfigDto): string | null {
   return cfg.apiKey ?? null;
 }
 
-/**
- * Max time we'll wait for any upstream provider probe (test-connection or
- * model-list). Kept tight so the wizard surfaces a concrete failure instead of
- * hanging at "Testing…" / "Loading…". If a provider legitimately needs more
- * than 15s to answer a trivial GET, the UX is broken anyway.
- */
 const PROVIDER_PROBE_TIMEOUT_MS = 15_000;
 
-/**
- * Normalize an AbortError / timeout into a user-facing message so callers can
- * show "provider did not respond" instead of a cryptic DOMException.
- */
 function describeFetchError(err: unknown): string {
   if (err instanceof Error) {
     if (err.name === 'AbortError' || err.name === 'TimeoutError') {
@@ -173,13 +100,6 @@ function describeFetchError(err: unknown): string {
   return 'Connection failed';
 }
 
-/**
- * SSRF guard: only validate when the URL came from user input. Built-in
- * literals (https://api.anthropic.com, https://api.openai.com, etc.) are
- * trusted and skip validation. If the user overrode `baseUrl`, we validate
- * the *final* URL (base + path) so both the base host and any path-smuggling
- * tricks are covered.
- */
 async function guardProviderUrl(
   finalUrl: string,
   userSuppliedBase: string | undefined,
@@ -188,20 +108,17 @@ async function guardProviderUrl(
   await ensureSafeUrl(finalUrl);
 }
 
-async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message: string }> {
+async function testLlmConnection(cfg: LlmConfigDto): Promise<{ ok: boolean; message: string }> {
   try {
     if (cfg.provider === 'corporate-gateway') {
       const token = resolveToken(cfg);
-      if (!token)
-        return { ok: false, message: 'Bearer token or API key is required' };
+      if (!token) return { ok: false, message: 'Bearer token or API key is required' };
       const baseUrl = cfg.baseUrl;
-      if (!baseUrl)
-        return { ok: false, message: 'Gateway base URL is required' };
+      if (!baseUrl) return { ok: false, message: 'Gateway base URL is required' };
 
       const target = `${baseUrl}/v1/messages`;
       await guardProviderUrl(target, baseUrl);
 
-      // Test with a minimal API call
       const res = await fetch(target, {
         method: 'POST',
         headers: {
@@ -219,16 +136,14 @@ async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message
         signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS),
       });
 
-      if (res.ok)
-        return { ok: true, message: 'Connected via corporate gateway' };
-      const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      if (res.ok) return { ok: true, message: 'Connected via corporate gateway' };
+      const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
       return { ok: false, message: body.error?.message ?? `HTTP ${res.status}` };
     }
 
     if (cfg.provider === 'anthropic') {
       const key = cfg.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? '';
-      if (!key)
-        return { ok: false, message: 'API key is required' };
+      if (!key) return { ok: false, message: 'API key is required' };
       const baseUrl = cfg.baseUrl || 'https://api.anthropic.com';
       const target = `${baseUrl}/v1/models`;
       await guardProviderUrl(target, cfg.baseUrl);
@@ -236,31 +151,26 @@ async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message
         headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
         signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS),
       });
-      if (res.ok)
-        return { ok: true, message: 'Connected successfully' };
-      const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      if (res.ok) return { ok: true, message: 'Connected successfully' };
+      const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
       return { ok: false, message: body.error?.message ?? `HTTP ${res.status}` };
     }
 
     if (cfg.provider === 'openai' || cfg.provider === 'deepseek') {
       const key = cfg.apiKey ?? '';
-      if (!key)
-        return { ok: false, message: 'API key is required' };
-      // DeepSeek's OpenAI-compatible models endpoint is /v1/models (the /v1
-      // prefix is part of their public API path, same as OpenAI). Keep the
-      // default baseUrl aligned so users can paste just "https://api.deepseek.com".
-      const base = cfg.provider === 'deepseek'
-        ? (cfg.baseUrl || 'https://api.deepseek.com/v1')
-        : (cfg.baseUrl || 'https://api.openai.com/v1');
+      if (!key) return { ok: false, message: 'API key is required' };
+      const base =
+        cfg.provider === 'deepseek'
+          ? cfg.baseUrl || 'https://api.deepseek.com/v1'
+          : cfg.baseUrl || 'https://api.openai.com/v1';
       const target = `${base}/models`;
       await guardProviderUrl(target, cfg.baseUrl);
       const res = await fetch(target, {
         headers: { Authorization: `Bearer ${key}` },
         signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS),
       });
-      if (res.ok)
-        return { ok: true, message: 'Connected successfully' };
-      const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      if (res.ok) return { ok: true, message: 'Connected successfully' };
+      const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
       return { ok: false, message: body.error?.message ?? `HTTP ${res.status}` };
     }
 
@@ -271,24 +181,21 @@ async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message
       const res = await fetch(target, {
         signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS),
       });
-      if (res.ok)
-        return { ok: true, message: 'Connected successfully' };
+      if (res.ok) return { ok: true, message: 'Connected successfully' };
       return { ok: false, message: `HTTP ${res.status}` };
     }
 
     if (cfg.provider === 'gemini') {
       const key = cfg.apiKey ?? process.env['GEMINI_API_KEY'] ?? '';
-      if (!key)
-        return { ok: false, message: 'API key is required' };
+      if (!key) return { ok: false, message: 'API key is required' };
       const base = cfg.baseUrl || 'https://generativelanguage.googleapis.com';
       const target = `${base}/v1beta/models?key=${key}`;
       await guardProviderUrl(target, cfg.baseUrl);
       const res = await fetch(target, {
         signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS),
       });
-      if (res.ok)
-        return { ok: true, message: 'Connected successfully' };
-      const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+      if (res.ok) return { ok: true, message: 'Connected successfully' };
+      const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
       return { ok: false, message: body.error?.message ?? `HTTP ${res.status}` };
     }
 
@@ -299,8 +206,7 @@ async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message
     }
 
     if (cfg.provider === 'aws-bedrock') {
-      if (!cfg.region)
-        return { ok: false, message: 'AWS region is required' };
+      if (!cfg.region) return { ok: false, message: 'AWS region is required' };
       return { ok: true, message: 'Configuration looks valid (live test not performed)' };
     }
 
@@ -314,41 +220,37 @@ async function testLlmConnection(cfg: LlmConfig): Promise<{ ok: boolean; message
   }
 }
 
-// -- Datasource Connectivity Test
+// -- Model Listing ----------------------------------------------------
 
-import { testDatasourceConnection } from '../utils/datasource.js';
-
-// -- Model Listing
-
-/**
- * List models the user can pick from in the wizard. Each branch is wrapped
- * with an AbortSignal timeout so an unreachable provider fails fast (the
- * wizard's "Fetch Models" button otherwise hangs at "Loading…").
- *
- * Never throws — returns `[]` on any failure so the route handler can always
- * respond. Callers of the HTTP endpoint get `{ models: [], warning }` so the
- * frontend can render a concrete hint instead of being stuck.
- */
-async function fetchModels(cfg: { provider: string; apiKey?: string; baseUrl?: string }): Promise<ModelInfo[]> {
+async function fetchModels(cfg: {
+  provider: string;
+  apiKey?: string;
+  baseUrl?: string;
+}): Promise<ModelInfo[]> {
   try {
     switch (cfg.provider) {
       case 'anthropic': {
-        const provider = new AnthropicProvider({ apiKey: cfg.apiKey ?? '' , baseUrl: cfg.baseUrl });
+        const provider = new AnthropicProvider({
+          apiKey: cfg.apiKey ?? '',
+          baseUrl: cfg.baseUrl,
+        });
         return await provider.listModels();
       }
       case 'openai': {
-        const provider = new OpenAIProvider({ apiKey: cfg.apiKey ?? '', baseUrl: cfg.baseUrl });
+        const provider = new OpenAIProvider({
+          apiKey: cfg.apiKey ?? '',
+          baseUrl: cfg.baseUrl,
+        });
         return await provider.listModels();
       }
       case 'deepseek': {
-        // DeepSeek exposes an OpenAI-compatible /v1/models but returns ids
-        // like "deepseek-chat" / "deepseek-reasoner", which OpenAIProvider
-        // filters out via `startsWith('gpt')`. Do a direct fetch instead so
-        // the user actually sees the real model list.
         return await fetchDeepseekModels(cfg.apiKey ?? '', cfg.baseUrl);
       }
       case 'gemini': {
-        const provider = new GeminiProvider({ apiKey: cfg.apiKey ?? '', baseUrl: cfg.baseUrl });
+        const provider = new GeminiProvider({
+          apiKey: cfg.apiKey ?? '',
+          baseUrl: cfg.baseUrl,
+        });
         return await provider.listModels();
       }
       case 'ollama': {
@@ -359,15 +261,11 @@ async function fetchModels(cfg: { provider: string; apiKey?: string; baseUrl?: s
         return [];
     }
   } catch (err) {
-    log.warn(
-      { err, provider: cfg.provider, baseUrl: cfg.baseUrl },
-      'fetchModels failed',
-    );
+    log.warn({ err, provider: cfg.provider, baseUrl: cfg.baseUrl }, 'fetchModels failed');
     return [];
   }
 }
 
-/** Return the URL `listModels()` will hit for a given provider + baseUrl. */
 function buildModelsProbeUrl(provider: string, baseUrl: string): string | null {
   switch (provider) {
     case 'anthropic':
@@ -409,45 +307,30 @@ async function fetchDeepseekModels(apiKey: string, baseUrl?: string): Promise<Mo
   }
 }
 
-// -- Public access
-
-/** Returns the current in-memory setup config (LLM, datasources, etc.). */
-export function getSetupConfig(): SetupConfig {
-  return inMemoryConfig;
-}
-
-/** Updates only the datasources array in the current config and persists. */
-export async function updateDatasources(datasources: DatasourceConfig[]): Promise<void> {
-  inMemoryConfig = { ...inMemoryConfig, datasources };
-  await saveConfig(inMemoryConfig);
-}
-
-/** Ensures persisted config is loaded into memory. Safe to call multiple times. */
-let configLoadPromise: Promise<void> | undefined;
-export function ensureConfigLoaded(): Promise<void> {
-  if (!configLoadPromise) {
-    configLoadPromise = loadConfig().then((cfg) => {
-      inMemoryConfig = cfg;
-    });
+async function readNotificationsAsDto(service: SetupConfigService): Promise<NotificationsDto | undefined> {
+  const channels = await service.listNotificationChannels({ masked: true });
+  if (channels.length === 0) return undefined;
+  const dto: NotificationsDto = {};
+  for (const c of channels) {
+    if (c.config.kind === 'slack') dto.slack = { webhookUrl: c.config.webhookUrl };
+    else if (c.config.kind === 'pagerduty')
+      dto.pagerduty = { integrationKey: c.config.integrationKey };
+    else if (c.config.kind === 'email')
+      dto.email = {
+        host: c.config.host,
+        port: c.config.port,
+        username: c.config.username,
+        password: c.config.password,
+        from: c.config.from,
+      };
   }
-  return configLoadPromise;
+  return dto;
 }
 
-// Setter wired at boot by server.ts so the setup route can reach the real
-// UserRepository without pulling a circular import. When unset (tests), we
-// fall back to "always allow" which is safe because test DBs don't persist.
-let hasAnyUser: () => Promise<boolean> = async () => false;
+// -- Bootstrap access -----------------------------------------------
 
-export function setBootstrapHasUsers(fn: () => Promise<boolean>): void {
-  hasAnyUser = fn;
-}
-
-/**
- * Wave 6 / T9.4 — first-admin bootstrap endpoint dependencies. Wired at boot
- * by `server.ts`. When unset, `POST /api/setup/admin` returns 503 so we never
- * accidentally accept an admin creation request without a backing DB.
- */
-export interface SetupAdminDeps {
+export interface SetupRouterDeps {
+  setupConfig: SetupConfigService;
   users: IUserRepository;
   orgs: IOrgRepository;
   orgUsers: IOrgUserRepository;
@@ -455,89 +338,93 @@ export interface SetupAdminDeps {
   audit: AuditWriter;
   defaultOrgId?: string;
 }
-let setupAdminDeps: SetupAdminDeps | null = null;
-
-export function setSetupAdminDeps(deps: SetupAdminDeps): void {
-  setupAdminDeps = deps;
-}
-
-async function allowBootstrapSetup(): Promise<boolean> {
-  // Allow unauthenticated setup access when there is no way to authenticate:
-  // either the system was never configured, or no users exist yet.
-  if (!inMemoryConfig.configured) return true;
-  return !(await hasAnyUser());
-}
-
-function requireSetupAccess(req: Request, res: Response, next: NextFunction): void {
-  void allowBootstrapSetup().then((bootstrap) => {
-    if (bootstrap) {
-      next();
-      return;
-    }
-    res.status(401).json({ message: 'authentication required' });
-  });
-}
-
-// -- Rate limiter for setup endpoints (strict: 5 req/min per IP)
 
 const setupRateLimiter = createRateLimiter({
-  windowMs: 60_000, // 1 minute
+  windowMs: 60_000,
   max: 20,
 });
 
-// -- Router
+/**
+ * Allow setup endpoints unauthenticated iff the instance has never been
+ * bootstrapped. Once `instance_settings.bootstrapped_at` is set (written
+ * on first-admin creation) the gate closes permanently, independent of
+ * whether the users table still has rows — the marker survives accidental
+ * DELETEs and restores from clean backups.
+ */
+function createRequireSetupAccess(deps: SetupRouterDeps) {
+  return function requireSetupAccess(req: Request, res: Response, next: NextFunction): void {
+    void deps.setupConfig
+      .isBootstrapped()
+      .then((bootstrapped) => {
+        if (!bootstrapped) {
+          next();
+          return;
+        }
+        res.status(401).json({ message: 'authentication required' });
+      })
+      .catch((err) => {
+        log.error({ err }, 'requireSetupAccess: bootstrap check failed');
+        res.status(500).json({ message: 'setup gate unavailable' });
+      });
+  };
+}
 
-export function createSetupRouter(): Router {
+// -- Router ---------------------------------------------------------
+
+export function createSetupRouter(deps: SetupRouterDeps): Router {
   const router = Router();
+  const { setupConfig } = deps;
+  const requireSetupAccess = createRequireSetupAccess(deps);
 
-  // Apply strict rate limiting before any setup route (including bootstrap)
   router.use(setupRateLimiter);
 
-  // Load persisted config on startup
-  void ensureConfigLoaded().catch((err) => {
-    log.error({ err }, 'failed to load config');
-  });
-
-  // GET /api/setup/status — reports wizard-completion flags. `hasAdmin` drives
-  // the T9.4 wizard's skip logic for upgraded installs.
+  // GET /api/setup/status — DB-derived readiness view (T2.6).
+  //
+  // `configured` used to be a persisted boolean flipped by `POST /complete`.
+  // That endpoint is gone; readiness is now derived from actual state:
+  //   `configured = hasAdmin && hasLLM`.
+  // `configuredAt` is a best-effort breadcrumb stamped when all three
+  // pieces first align — purely informational, not a gate.
   router.get('/status', async (_req: Request, res: Response) => {
     let hasAdmin = false;
     try {
-      hasAdmin = await hasAnyUser();
-    } catch {
-      hasAdmin = false;
+      const { total } = await deps.users.list({ limit: 1 });
+      hasAdmin = total > 0;
+    } catch (err) {
+      log.warn({ err }, 'hasAdmin probe failed');
     }
-    res.json({
-      configured: inMemoryConfig.configured,
-      hasAdmin,
-      hasLLM: !!inMemoryConfig.llm,
-      datasourceCount: inMemoryConfig.datasources.length,
-      hasNotifications: !!(
-        inMemoryConfig.notifications?.slack
-        || inMemoryConfig.notifications?.pagerduty
-        || inMemoryConfig.notifications?.email
-      ),
-    });
+    try {
+      const status = await setupConfig.getStatus(hasAdmin);
+      const configured = status.hasAdmin && status.hasLLM;
+      // Stamp `configured_at` the first time we become ready, so clients
+      // that want to know "when did this instance finish setup" have an
+      // answer without having to correlate multiple timestamps. Stamped
+      // on read so there's no new write endpoint required from the wizard.
+      let configuredAt = status.configuredAt;
+      if (configured && !configuredAt) {
+        const now = new Date().toISOString();
+        await setupConfig.setConfiguredAt(now);
+        configuredAt = now;
+      }
+      res.json({
+        configured,
+        hasAdmin: status.hasAdmin,
+        hasLLM: status.hasLLM,
+        datasourceCount: status.datasourceCount,
+        hasNotifications: status.hasNotifications,
+        bootstrappedAt: status.bootstrappedAt,
+        configuredAt,
+      });
+    } catch (err) {
+      log.error({ err }, 'setup status failed');
+      res.status(500).json({ message: 'setup status unavailable' });
+    }
   });
 
-  // POST /api/setup/admin — first-admin bootstrap. Public but one-shot:
-  // returns 409 once any user exists. On success creates the user, seeds
-  // org_user(role=Admin), issues a session cookie, and returns the new ids.
-  //
-  // Same strict `loginRateLimiter` as `/api/login` — this endpoint accepts
-  // an unauth password field and is a natural target for credential-stuffing
-  // probes while the wizard is open.
+  // POST /api/setup/admin — first-admin bootstrap. Writes the `bootstrapped_at`
+  // marker on success (T2.7), which permanently closes the setup gate.
   router.post('/admin', loginRateLimiter, async (req: Request, res: Response) => {
-    if (!setupAdminDeps) {
-      res.status(503).json({ message: 'auth subsystem not ready' });
-      return;
-    }
-    const deps = setupAdminDeps;
-    const env = process.env;
-    // One-shot: if any user already exists, this endpoint locks down. The
-    // setup flow then expects the caller to switch to the login page.
-    const already = await hasAnyUser().catch(() => false);
-    if (already) {
+    if (await setupConfig.isBootstrapped()) {
       res.status(409).json({ message: 'admin already exists' });
       return;
     }
@@ -549,9 +436,10 @@ export function createSetupRouter(): Router {
     };
     const email = typeof body.email === 'string' ? body.email.trim() : '';
     const name = typeof body.name === 'string' ? body.name.trim() : '';
-    const login = typeof body.login === 'string' && body.login.trim() !== ''
-      ? body.login.trim()
-      : email.split('@')[0] ?? '';
+    const login =
+      typeof body.login === 'string' && body.login.trim() !== ''
+        ? body.login.trim()
+        : email.split('@')[0] ?? '';
     const password = typeof body.password === 'string' ? body.password : '';
     const atIdx = email.indexOf('@');
     if (atIdx < 1 || atIdx === email.length - 1 || !email.slice(atIdx + 1).includes('.')) {
@@ -566,16 +454,13 @@ export function createSetupRouter(): Router {
       res.status(400).json({ message: 'login required' });
       return;
     }
+    const env = process.env;
     const minLen = passwordMinLength(env);
     if (password.length < minLen) {
-      res.status(400).json({
-        message: `password must be at least ${minLen} characters`,
-      });
+      res.status(400).json({ message: `password must be at least ${minLen} characters` });
       return;
     }
     const orgId = deps.defaultOrgId ?? 'org_main';
-    // Ensure the default org exists (migration 001 usually inserts it; be
-    // resilient in case tests bypass migrations).
     const existingOrg = await deps.orgs.findById(orgId);
     if (!existingOrg) {
       await deps.orgs.create({ id: orgId, name: 'Main Org' });
@@ -592,8 +477,11 @@ export function createSetupRouter(): Router {
     });
     await deps.orgUsers.create({ orgId, userId: user.id, role: 'Admin' });
 
-    // Issue session cookie so the browser is logged in for the rest of the
-    // wizard without a separate /login round-trip.
+    // Close the bootstrap gate BEFORE issuing the session. If any step after
+    // this point fails we'd rather re-run with the admin present than
+    // accidentally leave the gate open.
+    await setupConfig.markBootstrapped();
+
     const ua = typeof req.headers['user-agent'] === 'string'
       ? (req.headers['user-agent'] as string)
       : '';
@@ -625,78 +513,47 @@ export function createSetupRouter(): Router {
 
   router.use(requireSetupAccess);
 
-  // GET /api/setup/config — returns current config (API keys masked)
-  router.get('/config', (_req: Request, res: Response) => {
-    const cfg = { ...inMemoryConfig };
-    // Mask sensitive fields
-    if (cfg.llm) {
-      cfg.llm = {
-        ...cfg.llm,
-        apiKey: cfg.llm.apiKey ? '••••••' + cfg.llm.apiKey.slice(-4) : undefined,
-      };
+  // GET /api/setup/config — returns current config (secrets masked).
+  router.get('/config', async (_req: Request, res: Response) => {
+    try {
+      const [llm, datasources, notifications] = await Promise.all([
+        setupConfig.getLlm({ masked: true }),
+        setupConfig.listDatasources({ masked: true }),
+        readNotificationsAsDto(setupConfig),
+      ]);
+      res.json({
+        llm: llm ?? undefined,
+        datasources,
+        notifications,
+      });
+    } catch (err) {
+      log.error({ err }, 'GET /api/setup/config failed');
+      res.status(500).json({ message: 'config read failed' });
     }
-    cfg.datasources = cfg.datasources.map((ds) => ({
-      ...ds,
-      apiKey: ds.apiKey ? '••••••' + ds.apiKey.slice(-4) : undefined,
-      password: ds.password ? '••••••' : undefined,
-    }));
-    res.json(cfg);
   });
 
-  // POST /api/setup/llm
-  router.post('/llm', async (req: Request, res: Response) => {
-    const body = req.body as { config: LlmConfig; test?: boolean };
-    const cfg = body.config;
-
-    if (!cfg?.provider || !cfg?.model) {
-      res.status(400).json({ error: { code: 'VALIDATION', message: 'provider and model are required' } });
-      return;
-    }
-
-    if (!cfg.apiKey && cfg.provider !== 'ollama' && cfg.provider !== 'aws-bedrock') {
-      res.status(400).json({ error: { code: 'VALIDATION', message: 'apiKey is required for this provider' } });
-      return;
-    }
-
-    if (body.test) {
-      const result = await testLlmConnection(cfg);
-      if (!result.ok) {
-        res.status(400).json({ error: { code: 'CONNECTION_FAILED', message: result.message } });
-        return;
-      }
-      res.json({ ok: true, message: result.message });
-      return;
-    }
-
-    inMemoryConfig = { ...inMemoryConfig, llm: normalizeLlmConfig(cfg) };
-    await saveConfig(inMemoryConfig);
-    res.json({ ok: true });
-  });
-
-  // POST /api/setup/llm/test
+  // POST /api/setup/llm/test — test-only, no persistence.
   router.post('/llm/test', async (req: Request, res: Response) => {
-    const cfg = req.body as LlmConfig;
+    const cfg = req.body as LlmConfigDto;
     if (!cfg?.provider || !cfg?.model) {
-      res.status(400).json({ error: { code: 'VALIDATION', message: 'provider and model are required' } });
+      res.status(400).json({
+        error: { code: 'VALIDATION', message: 'provider and model are required' },
+      });
       return;
     }
     const result = await testLlmConnection(cfg);
     res.status(result.ok ? 200 : 400).json(result);
   });
 
-  // POST /api/setup/llm/models — fetch available models from provider.
-  // Contract: always responds 200 with `{ models }` (possibly empty). If the
-  // upstream probe failed/timed out, include a `warning` so the UI can show a
-  // concrete hint instead of silently falling back to the hardcoded list.
+  // POST /api/setup/llm/models — list available models.
   router.post('/llm/models', async (req: Request, res: Response) => {
     const cfg = req.body as { provider: string; apiKey?: string; baseUrl?: string };
     if (!cfg?.provider) {
-      res.status(400).json({ error: { code: 'VALIDATION', message: 'provider is required' } });
+      res.status(400).json({
+        error: { code: 'VALIDATION', message: 'provider is required' },
+      });
       return;
     }
-    // SSRF guard: when the user overrode `baseUrl`, validate the final URL
-    // we'll probe before handing off to llm-gateway providers (their fetch
-    // happens deeper in the stack and would otherwise bypass validation).
     if (cfg.baseUrl) {
       const probeUrl = buildModelsProbeUrl(cfg.provider, cfg.baseUrl);
       if (probeUrl) {
@@ -704,7 +561,10 @@ export function createSetupRouter(): Router {
           await ensureSafeUrl(probeUrl);
         } catch (err) {
           res.status(400).json({
-            error: { code: 'INVALID_URL', message: err instanceof Error ? err.message : 'Invalid URL' },
+            error: {
+              code: 'INVALID_URL',
+              message: err instanceof Error ? err.message : 'Invalid URL',
+            },
           });
           return;
         }
@@ -721,72 +581,24 @@ export function createSetupRouter(): Router {
     res.json({ models });
   });
 
-  // POST /api/setup/datasource
-  router.post('/datasource', async (req: Request, res: Response) => {
-    const body = req.body as { datasource: DatasourceConfig; test?: boolean };
-    const ds = body.datasource;
+  // Save endpoints for datasources / notifications / llm moved to
+  // `/api/datasources`, `/api/system/notifications`, and `/api/system/llm`
+  // respectively in T2.5. All three are bootstrap-aware so the wizard
+  // can still hit them pre-first-admin.
 
-    if (!ds?.type || !ds?.url) {
-      res.status(400).json({ error: { code: 'VALIDATION', message: 'type and url are required' } });
-      return;
-    }
-
-    if (body.test) {
-      const result = await testDatasourceConnection(ds);
-      if (!result.ok) {
-        res.status(400).json({ error: { code: 'CONNECTION_FAILED', message: result.message } });
-        return;
-      }
-      res.json({ ok: true, message: result.message });
-      return;
-    }
-
-    const existing = inMemoryConfig.datasources.findIndex((d) => d.id === ds.id);
-    const datasources = [...inMemoryConfig.datasources];
-    if (existing >= 0)
-      datasources[existing] = ds;
-    else
-      datasources.push(ds);
-
-    inMemoryConfig = { ...inMemoryConfig, datasources };
-    await saveConfig(inMemoryConfig);
-    res.json({ ok: true, datasource: ds });
-  });
-
-  // DELETE /api/setup/datasource/:id
-  router.delete('/datasource/:id', async (req: Request, res: Response) => {
-    const id = req.params['id'] ?? '';
-    inMemoryConfig = {
-      ...inMemoryConfig,
-      datasources: inMemoryConfig.datasources.filter((d) => d.id !== id),
-    };
-    await saveConfig(inMemoryConfig);
-    res.json({ ok: true });
-  });
-
-  // POST /api/setup/notifications
-  router.post('/notifications', async (req: Request, res: Response) => {
-    const notifications = req.body as NotificationConfig;
-    inMemoryConfig = { ...inMemoryConfig, notifications };
-    await saveConfig(inMemoryConfig);
-    res.json({ ok: true });
-  });
-
-  // POST /api/setup/complete
-  router.post('/complete', async (_req: Request, res: Response) => {
-    inMemoryConfig = {
-      ...inMemoryConfig,
-      configured: true,
-      completedAt: new Date().toISOString(),
-    };
-    await saveConfig(inMemoryConfig);
-    res.json({ ok: true, completedAt: inMemoryConfig.completedAt });
-  });
-
-  // POST /api/setup/reset (dev utility)
+  // POST /api/setup/reset — dev utility. Clears LLM + all datasources +
+  // notifications. Leaves `bootstrapped_at` in place so the gate doesn't
+  // reopen.
   router.post('/reset', async (_req: Request, res: Response) => {
-    inMemoryConfig = { configured: false, datasources: [] };
-    await saveConfig(inMemoryConfig);
+    await setupConfig.clearLlm({ userId: null });
+    const datasources = await setupConfig.listDatasources();
+    for (const ds of datasources) {
+      await setupConfig.deleteDatasource(ds.id, { userId: null });
+    }
+    const channels = await setupConfig.listNotificationChannels();
+    for (const c of channels) {
+      await setupConfig.deleteNotificationChannel(c.id, { userId: null });
+    }
     res.json({ ok: true });
   });
 

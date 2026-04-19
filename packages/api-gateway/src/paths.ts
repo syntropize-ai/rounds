@@ -68,13 +68,7 @@ export function legacyStoresPath(): string {
   return join(dataDir(), 'stores.json');
 }
 
-/**
- * Legacy path of the pre-refactor `config.json` stored under HOME/.agentic-obs.
- * Used once at startup by the instance-settings migration to import old LLM /
- * datasource / notifications config into the database. Do not read from this
- * location in new code — write via the settings service.
- */
-export function legacyHomeConfigPath(): string {
-  const { homedir } = require('node:os') as typeof import('node:os');
-  return join(homedir(), '.agentic-obs', 'config.json');
-}
+// Note: `legacyHomeConfigPath()` (~/.agentic-obs/config.json) was removed in
+// W2 / T2.4. No instance of openobs that this codebase shipped was using it,
+// so there's nothing to migrate — the repositories in
+// packages/data-layer/src/repository/sqlite are the only source of truth now.

@@ -86,8 +86,10 @@ function StepReady({
   const [completing, setCompleting] = useState(false);
 
   const handleFinish = async () => {
+    // `/api/setup/complete` was deleted in W2 / T2.6 — readiness is now
+    // derived from DB state (hasAdmin && hasLLM) via GET /api/setup/status.
+    // No server call needed; just exit the wizard.
     setCompleting(true);
-    await apiClient.post('/setup/complete', {});
     setCompleting(false);
     onFinish();
   };

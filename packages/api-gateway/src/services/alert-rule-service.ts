@@ -2,35 +2,35 @@ import { DEFAULT_LLM_MODEL, type AlertRule } from '@agentic-obs/common';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
 import { AlertRuleAgent } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
-import { getSetupConfig } from '../routes/setup.js';
 import { createLlmGateway } from '../routes/llm-factory.js';
 import { resolvePrometheusDatasource } from './dashboard-service.js';
+import type { SetupConfigService } from './setup-config-service.js';
 
 export interface GenerateAlertRuleResult {
   rule: AlertRule;
 }
 
 export class AlertRuleService {
-  private readonly store: IAlertRuleRepository;
-
-  constructor(store: IAlertRuleRepository) {
-    this.store = store;
-  }
+  constructor(
+    private readonly store: IAlertRuleRepository,
+    private readonly setupConfig: SetupConfigService,
+  ) {}
 
   /**
    * Generate an alert rule from a natural-language prompt using the LLM.
    * Pure business logic — no HTTP concepts.
    */
   async generateFromPrompt(prompt: string): Promise<GenerateAlertRuleResult> {
-    const config = getSetupConfig();
-    if (!config.llm) {
+    const llm = await this.setupConfig.getLlm();
+    if (!llm) {
       throw new Error('LLM not configured - complete Setup Wizard first');
     }
+    const datasources = await this.setupConfig.listDatasources();
 
-    const gateway = createLlmGateway(config.llm);
-    const model = config.llm.model || DEFAULT_LLM_MODEL;
+    const gateway = createLlmGateway(llm);
+    const model = llm.model || DEFAULT_LLM_MODEL;
 
-    const prom = resolvePrometheusDatasource(config.datasources);
+    const prom = resolvePrometheusDatasource(datasources);
     const metrics = prom ? new PrometheusMetricsAdapter(prom.url, prom.headers) : undefined;
 
     const agent = new AlertRuleAgent({ gateway, model, metrics });

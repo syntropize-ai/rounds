@@ -17,3 +17,8 @@ export { SqliteCaseRepository } from './case.js';
 export { SqliteChatSessionRepository } from './chat-session.js';
 export { SqliteChatMessageRepository } from './chat-message.js';
 export { SqliteChatSessionEventRepository } from './chat-session-event.js';
+
+// — Instance-scoped config (W2 / T2.2) —
+export { InstanceConfigRepository } from './instance-config.js';
+export { DatasourceRepository } from './datasource.js';
+export { NotificationChannelRepository } from './notification-channel.js';

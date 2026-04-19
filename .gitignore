@@ -18,6 +18,8 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 pictures/
 .uname-data/
+.agentic-obs/
+.openobs/
 .claude/
 .vscode/
 .idea/

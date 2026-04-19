@@ -130,6 +130,87 @@ function SidebarItem({ to, label, icon, end, expanded }: SidebarItemProps) {
   );
 }
 
+/* ───── User avatar menu ───── */
+
+interface UserMenuProps {
+  user: { name: string; email?: string; avatarUrl?: string };
+  expanded: boolean;
+  onLogout: () => void;
+}
+
+function UserMenu({ user, expanded, onLogout }: UserMenuProps) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click / Escape — standard popover semantics.
+  useEffect(() => {
+    if (!open) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative mt-2" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={user.name}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex items-center gap-2 rounded-full transition-colors hover:bg-primary/30 overflow-hidden ${
+          expanded ? 'px-2 py-1.5 rounded-lg w-full' : 'justify-center w-8 h-8'
+        } bg-primary/20 text-primary`}
+      >
+        <div className="flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold shrink-0">
+          {user.avatarUrl ? (
+            <img src={user.avatarUrl} alt="" className="w-full h-full object-cover rounded-full" />
+          ) : (
+            user.name.charAt(0).toUpperCase()
+          )}
+        </div>
+        {expanded && <span className="text-xs font-medium truncate">{user.name}</span>}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className={`absolute z-50 ${expanded ? 'left-0 right-0' : 'left-full ml-2'} bottom-full mb-2 min-w-[12rem] rounded-lg border border-outline bg-surface-lowest shadow-lg py-1`}
+        >
+          <div className="px-3 py-2 border-b border-outline/40">
+            <div className="text-sm font-medium text-on-surface truncate">{user.name}</div>
+            {user.email && (
+              <div className="text-xs text-on-surface-variant truncate">{user.email}</div>
+            )}
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onLogout();
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-on-surface hover:bg-surface-high/70 transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ───── Main navigation sidebar ───── */
 
 export default function Navigation() {
@@ -254,25 +335,12 @@ export default function Navigation() {
 
         <SidebarItem to="/settings" label="Settings" icon={<SettingsIcon />} expanded={expanded} />
 
-        {/* User avatar */}
+        {/* User avatar — opens a small menu. Clicking the avatar itself used
+            to sign the user out directly, which surprised everyone who
+            expected a profile menu. Now it toggles a popover that contains
+            the explicit Sign-out action. */}
         {user && (
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            title={`${user.name} — Sign out`}
-            className={`mt-2 flex items-center gap-2 rounded-full transition-colors hover:bg-primary/30 overflow-hidden ${
-              expanded ? 'px-2 py-1.5 rounded-lg w-full' : 'justify-center w-8 h-8'
-            } bg-primary/20 text-primary`}
-          >
-            <div className="flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold shrink-0">
-              {user.avatarUrl ? (
-                <img src={user.avatarUrl} alt="" className="w-full h-full object-cover rounded-full" />
-              ) : (
-                user.name.charAt(0).toUpperCase()
-              )}
-            </div>
-            {expanded && <span className="text-xs font-medium truncate">{user.name}</span>}
-          </button>
+          <UserMenu user={user} expanded={expanded} onLogout={() => void handleLogout()} />
         )}
       </div>
     </nav>

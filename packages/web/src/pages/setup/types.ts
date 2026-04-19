@@ -27,6 +27,9 @@ export interface LlmConfig {
 }
 
 export interface DatasourceEntry {
+  // Stable id generated once per entry (on form open) and preserved across
+  // edits, so POST /setup/datasource upserts instead of appending duplicates.
+  id: string;
   type: string;
   name: string;
   url: string;

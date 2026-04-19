@@ -39,7 +39,8 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    if (location.pathname === '/setup' || location.pathname === '/login') {
+    // /login stays open unconditionally — users sign in from there.
+    if (location.pathname === '/login') {
       setChecked(true);
       return;
     }
@@ -47,15 +48,25 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
     void apiClient
       .get<{ configured: boolean; hasAdmin: boolean }>('/setup/status')
       .then((res) => {
-        if (!res.error && (!res.data.configured || !res.data.hasAdmin)) {
+        if (res.error) {
+          setChecked(true);
+          return;
+        }
+        const ready = res.data.configured && res.data.hasAdmin;
+        if (!ready && location.pathname !== '/setup') {
+          // First-run: funnel every other page into the wizard.
           navigate('/setup', { replace: true });
+        } else if (ready && location.pathname === '/setup') {
+          // Already set up: don't let the wizard be reached by browser Back
+          // (or a bookmarked /setup link) — push the user back into the app.
+          navigate('/', { replace: true });
         } else {
           setChecked(true);
         }
       });
   }, [navigate, location.pathname]);
 
-  if (!checked && location.pathname !== '/setup' && location.pathname !== '/login') {
+  if (!checked && location.pathname !== '/login') {
     return null;
   }
   return <>{children}</>;

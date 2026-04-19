@@ -4,28 +4,49 @@ import { datasourceUrlPlaceholder } from '../../constants/placeholders.js';
 import { DATASOURCE_TYPES } from './types.js';
 import type { DatasourceEntry } from './types.js';
 
+function newEntryId(): string {
+  // Stable id per entry. crypto.randomUUID is available in all modern
+  // browsers served by vite; fall back to a random-enough string otherwise.
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `ds-${crypto.randomUUID()}`;
+  }
+  return `ds-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function blankForm(): DatasourceEntry {
+  // Default to prometheus — it's currently the only type with a backend
+  // adapter wired. Other types are still selectable but disabled in the UI.
+  return { id: newEntryId(), type: 'prometheus', name: '', url: '', apiKey: '' };
+}
+
 export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const [entries, setEntries] = useState<DatasourceEntry[]>([]);
   const [adding, setAdding] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
-  // Default to prometheus — it's currently the only type with a backend
-  // adapter wired. Other types are still selectable but disabled in the UI.
-  const [form, setForm] = useState<DatasourceEntry>({ type: 'prometheus', name: '', url: '', apiKey: '' });
+  const [form, setForm] = useState<DatasourceEntry>(blankForm);
   const [testResults, setTestResults] = useState<Record<number, { ok: boolean; message: string }>>({});
   const [saving, setSaving] = useState(false);
 
+  const openNewForm = () => {
+    setForm(blankForm());
+    setEditingIdx(null);
+    setAdding(true);
+  };
+
   const resetForm = () => {
-    setForm({ type: 'prometheus', name: '', url: '', apiKey: '' });
+    setForm(blankForm());
     setAdding(false);
     setEditingIdx(null);
   };
 
   const handleAdd = async () => {
-    if (!form.url) return;
+    if (!form.url || saving) return;
     setSaving(true);
-    const payload = {
+    // Reuse the id that was minted when the form opened. Edits preserve the
+    // existing entry's id, so POST /setup/datasource upserts in place instead
+    // of appending a new row for every submit / retry.
+    const payload: DatasourceEntry = {
       ...form,
-      id: `${Date.now()}`,
       name: form.name || form.type,
     };
     await apiClient.post('/setup/datasource', { datasource: payload });
@@ -48,6 +69,7 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
     const ds = entries[idx];
     if (!ds) return;
     setForm({
+      id: ds.id,
       type: ds.type,
       name: ds.name,
       url: ds.url,
@@ -217,7 +239,7 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
 
       <button
         type="button"
-        onClick={() => setAdding(true)}
+        onClick={openNewForm}
         className="w-full py-3 rounded-xl border-2 border-dashed border-[var(--color-outline-variant)] text-sm text-[var(--color-on-surface-variant)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors mb-4"
       >
         + Add data source

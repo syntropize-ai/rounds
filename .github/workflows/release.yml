@@ -5,17 +5,23 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
-  packages: write
+  contents: write       # create GH Release, write to gh-pages
+  packages: write       # push Docker + Helm OCI to ghcr.io
+  id-token: write       # npm trusted publishing (future)
 
 jobs:
+  # ── 1. GitHub Release object + changelog ───────────────────────────────
   release:
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Generate changelog from commits
         id: changelog
@@ -33,67 +39,205 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
-        id: gh_release
         with:
+          generate_release_notes: true
           body: |
             ## What's Changed
 
             ${{ steps.changelog.outputs.notes }}
 
             ---
-            **Docker image:** `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`
 
-            **Helm chart (OCI):**
+            ### Install
+
+            **npm (laptop / single-host)**
             ```bash
-            helm upgrade --install openobs \
-              oci://ghcr.io/${{ github.repository }}/charts/openobs \
-              --version ${{ github.ref_name }} \
-              --set image.tag=${{ github.ref_name }}
+            npm install -g openobs
+            openobs
             ```
 
-            **Helm chart (tarball):** attached as `openobs-${{ github.ref_name }}.tgz` below.
-          generate_release_notes: true
+            **Helm (Kubernetes)**
+            ```bash
+            helm repo add openobs https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+            helm repo update
+            helm install my-openobs openobs/openobs
+            ```
 
-  helm-publish:
+            Or pull directly from the OCI registry (no `repo add`):
+            ```bash
+            helm install my-openobs \
+              oci://ghcr.io/${{ github.repository }}/charts/openobs \
+              --version ${{ steps.ver.outputs.version }}
+            ```
+
+            **Docker**: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`
+
+  # ── 2. Build chart + npm tarball once, share via artifact ──────────────
+  package:
     needs: release
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ needs.release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: azure/setup-helm@v4
 
-      - name: Compute chart version from tag
-        id: ver
-        run: |
-          # Strip leading 'v' from tag — Helm chart versions are semver
-          # without the prefix (`1.2.3`, not `v1.2.3`).
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Install deps
+        run: npm ci
 
-      - name: Stamp chart version + appVersion
+      - name: Stamp versions from tag
         run: |
-          sed -i "s/^version: .*/version: ${{ steps.ver.outputs.version }}/" helm/openobs/Chart.yaml
-          sed -i "s/^appVersion: .*/appVersion: \"${{ steps.ver.outputs.version }}\"/" helm/openobs/Chart.yaml
-          cat helm/openobs/Chart.yaml
+          V="${{ needs.release.outputs.version }}"
+          # Helm
+          sed -i "s/^version: .*/version: $V/" helm/openobs/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: \"$V\"/" helm/openobs/Chart.yaml
+          # npm (the published `openobs` package, packages/cli)
+          node -e "
+            const fs = require('fs');
+            const p = 'packages/cli/package.json';
+            const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+            j.version = process.env.V;
+            fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+          "
+        env:
+          V: ${{ needs.release.outputs.version }}
 
-      - name: Package chart
+      - name: Build npm bundle + helm chart
         run: |
-          helm package helm/openobs -d dist/
+          mkdir -p out/helm out/npm
+          # Helm
+          helm package helm/openobs -d out/helm
+          # npm — produces packages/cli/dist + web-dist via scripts/build-cli.mjs
+          npm run dist
+          (cd packages/cli && npm pack --pack-destination ../../out/npm)
 
-      - name: Log in to GHCR for OCI push
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: out/
+          retention-days: 7
+
+  # ── 3a. Helm OCI push to ghcr.io ───────────────────────────────────────
+  helm-oci:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: out/
+      - uses: azure/setup-helm@v4
+
+      - name: Login to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | \
             helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Push to OCI registry (ghcr.io)
+      - name: Push chart to OCI
         run: |
-          # Owner path is lowercased for ghcr OCI.
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          helm push dist/openobs-${{ steps.ver.outputs.version }}.tgz \
-            oci://ghcr.io/$OWNER/charts
+          helm push out/helm/openobs-*.tgz oci://ghcr.io/$OWNER/charts
 
-      - name: Attach chart tarball to GitHub Release
-        uses: softprops/action-gh-release@v2
+  # ── 3b. Helm repo on GitHub Pages ──────────────────────────────────────
+  helm-pages:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
-          files: dist/openobs-${{ steps.ver.outputs.version }}.tgz
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: out/
+
+      - uses: azure/setup-helm@v4
+
+      - name: Publish chart to gh-pages
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -e
+          # Prepare a worktree on gh-pages. Create the branch on first run.
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages
+            git worktree add pages origin/gh-pages
+            cd pages
+            git checkout -B gh-pages
+          else
+            git worktree add --orphan -b gh-pages pages
+            cd pages
+            git rm -rf . 2>/dev/null || true
+            echo "# OpenObs Helm charts" > README.md
+          fi
+
+          mkdir -p charts
+          cp ../out/helm/openobs-*.tgz charts/
+
+          # Rebuild index.yaml merging in the new chart; URL is the repo root
+          # so users run `helm repo add openobs https://<owner>.github.io/<repo>`.
+          helm repo index . \
+            --url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" \
+            $([ -f index.yaml ] && echo "--merge index.yaml")
+
+          git add .
+          if git diff --cached --quiet; then
+            echo "Chart already present on gh-pages — nothing to push."
+          else
+            git commit -m "publish openobs-${{ needs.package.outputs.version }}"
+            git push origin gh-pages
+          fi
+
+  # ── 4. npm publish ─────────────────────────────────────────────────────
+  npm-publish:
+    needs: package
+    runs-on: ubuntu-latest
+    env:
+      # Bring the secret to the job env so subsequent `if:` expressions can
+      # safely reference it. GHA no longer permits `secrets.*` inside if.
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' && 'yes' || 'no' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: out/
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish `openobs` to npm
+        if: env.HAS_NPM_TOKEN == 'yes'
+        run: npm publish out/npm/openobs-*.tgz --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Note — NPM_TOKEN not configured
+        if: env.HAS_NPM_TOKEN == 'no'
+        run: |
+          echo "::warning title=npm publish skipped::NPM_TOKEN repo secret is missing."
+          echo "Add it at Settings → Secrets and variables → Actions → New repository secret."
+          echo "Use a token with 'Automation' or 'Publish' scope: https://www.npmjs.com/settings/<user>/tokens"
+
+  # ── 5. Attach chart + npm tarballs to the GitHub Release ───────────────
+  attach-assets:
+    needs: [package, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: out/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/helm/*.tgz
+            out/npm/*.tgz

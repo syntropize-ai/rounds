@@ -3,7 +3,6 @@ import {
   encrypt,
   decrypt,
   resolveSecretKey,
-  DEV_INSECURE_SECRET,
   AES_IV_LEN,
   AES_TAG_LEN,
 } from './secret-box.js';
@@ -76,22 +75,40 @@ describe('secret-box.encrypt/decrypt', () => {
 });
 
 describe('resolveSecretKey', () => {
-  it('returns SECRET_KEY from env when set', () => {
+  const VALID_SECRET = 'a'.repeat(48);
+
+  it('returns SECRET_KEY from env when set and long enough', () => {
     const key = resolveSecretKey({
-      SECRET_KEY: 'prod-like-secret',
+      SECRET_KEY: VALID_SECRET,
       NODE_ENV: 'production',
     } as NodeJS.ProcessEnv);
-    expect(key).toBe('prod-like-secret');
+    expect(key).toBe(VALID_SECRET);
   });
 
-  it('throws in production when SECRET_KEY missing', () => {
+  it('throws in production when SECRET_KEY is missing', () => {
     expect(() =>
       resolveSecretKey({ NODE_ENV: 'production' } as NodeJS.ProcessEnv),
     ).toThrow(/SECRET_KEY/);
   });
 
-  it('falls back to a dev placeholder outside production', () => {
-    const key = resolveSecretKey({ NODE_ENV: 'development' } as NodeJS.ProcessEnv);
-    expect(key).toBe(DEV_INSECURE_SECRET);
+  it('throws in development when SECRET_KEY is missing (no dev fallback)', () => {
+    expect(() =>
+      resolveSecretKey({ NODE_ENV: 'development' } as NodeJS.ProcessEnv),
+    ).toThrow(/SECRET_KEY/);
+  });
+
+  it('throws when SECRET_KEY is present but too short', () => {
+    expect(() =>
+      resolveSecretKey({
+        SECRET_KEY: 'short',
+        NODE_ENV: 'production',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/too short/);
+  });
+
+  it('points operators at bootstrap-secrets when missing', () => {
+    expect(() =>
+      resolveSecretKey({} as NodeJS.ProcessEnv),
+    ).toThrow(/bootstrap-secrets/);
   });
 });

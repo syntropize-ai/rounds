@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import express, { type Application } from 'express';
 import request from 'supertest';
 import {
@@ -74,6 +74,13 @@ function buildApp(): Application {
 
 describe('OAuth callback (integration)', () => {
   let app: Application;
+  beforeAll(() => {
+    // The callback route calls `resolveSecretKey()` before provider state
+    // validation, so SECRET_KEY must be present for the handler to even run.
+    // Production sets this via `bootstrap-secrets.ts`; tests must set it
+    // explicitly since no global test setup exists.
+    process.env['SECRET_KEY'] = 'a'.repeat(48);
+  });
   beforeEach(() => {
     app = buildApp();
   });

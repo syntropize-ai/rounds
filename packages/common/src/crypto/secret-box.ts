@@ -19,8 +19,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const KEY_BYTES = 32;
-
-export const DEV_INSECURE_SECRET = 'dev-insecure-key-do-not-use';
+const MIN_SECRET_LEN = 32;
 
 function deriveKey(secret: string): Buffer {
   return createHash('sha256').update(secret, 'utf8').digest();
@@ -66,30 +65,37 @@ export function decrypt(encoded: string, secret: string): string {
   );
 }
 
-let devSecretWarned = false;
-
 /**
- * Returns SECRET_KEY from env, or a dev-only placeholder (with a console.warn
- * printed once per process) if running outside production. In production, an
- * absent SECRET_KEY is a fatal config error — callers must throw.
+ * Returns SECRET_KEY from env. Throws loudly (in every environment) if the
+ * value is missing or shorter than 32 chars.
+ *
+ * The api-gateway's `auth/bootstrap-secrets.ts` runs on first boot and
+ * auto-generates SECRET_KEY + JWT_SECRET, persisting them to
+ * `<DATA_DIR>/secrets.json` (0600) and hydrating `process.env`. Operators
+ * should never need to touch that file — it's automatic. If you're seeing
+ * this error, bootstrap was skipped (custom entry point, test harness
+ * without setup, misconfigured container) or `SECRET_KEY` was set to
+ * an empty / too-short value. Fix: set `SECRET_KEY` to a ≥32-char random
+ * string, or let bootstrap-secrets run by using the standard gateway entry
+ * (`packages/api-gateway/src/main.ts`).
  */
 export function resolveSecretKey(env: NodeJS.ProcessEnv = process.env): string {
   const fromEnv = env['SECRET_KEY'];
-  if (fromEnv && fromEnv.length > 0) return fromEnv;
-  const isProd = env['NODE_ENV'] === 'production';
-  if (isProd) {
+  if (!fromEnv || fromEnv.length === 0) {
     throw new Error(
-      'SECRET_KEY env var is required in production (used for encrypting OAuth tokens at rest)',
+      'SECRET_KEY env var is required (used for AES-256-GCM encryption of OAuth tokens and other at-rest secrets). ' +
+        'The api-gateway bootstraps this automatically via packages/api-gateway/src/auth/bootstrap-secrets.ts on first boot; ' +
+        'if you see this error, bootstrap did not run (custom entry point or test harness) — set SECRET_KEY to a ≥32-char random string.',
     );
   }
-  if (!devSecretWarned) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[secret-box] SECRET_KEY not set; using insecure dev fallback. DO NOT run in production without SECRET_KEY.',
+  if (fromEnv.length < MIN_SECRET_LEN) {
+    throw new Error(
+      `SECRET_KEY is too short (${fromEnv.length} chars; minimum ${MIN_SECRET_LEN}). ` +
+        'Use a ≥32-char random string (e.g. `openssl rand -hex 32`), or delete the value and let ' +
+        'packages/api-gateway/src/auth/bootstrap-secrets.ts regenerate it on next boot.',
     );
-    devSecretWarned = true;
   }
-  return DEV_INSECURE_SECRET;
+  return fromEnv;
 }
 
 /** Key length the AES-256-GCM primitive requires. Exposed for tests. */

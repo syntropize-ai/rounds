@@ -81,7 +81,12 @@ env:
   extra: {}
 
 secretEnv:
+  # Empty strings trigger the chart to auto-generate on first install
+  # and preserve on upgrade (see templates/secret.yaml lookup logic).
+  # Operators who want to pin explicit values can set them here or
+  # point to an existing Kubernetes Secret via `existingSecret`.
   JWT_SECRET: ""
+  SECRET_KEY: ""
   LLM_API_KEY: ""
   API_KEYS: ""
   DATABASE_URL: ""

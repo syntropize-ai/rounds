@@ -17,7 +17,8 @@ import type {
   IUserRepository,
   User,
 } from '@agentic-obs/common';
-import { AuthError, encrypt } from '@agentic-obs/common';
+import { AuthError } from '@agentic-obs/common';
+import { encrypt } from '@agentic-obs/common/crypto';
 
 export type OAuthModule = 'oauth_github' | 'oauth_google' | 'oauth_generic';
 

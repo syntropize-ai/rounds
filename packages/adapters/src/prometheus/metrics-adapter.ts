@@ -1,7 +1,8 @@
 // Types are structurally compatible with IMetricsAdapter from @agentic-obs/agent-core.
 // We avoid importing from agent-core directly to prevent a circular package dependency.
 
-import { createLogger, getErrorMessage } from '@agentic-obs/common';
+import { getErrorMessage } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import { checkEndpointHealth } from '../shared/health-check.js';
 
 const log = createLogger('metrics-adapter');

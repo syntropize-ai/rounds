@@ -11,7 +11,7 @@ import type {
   IAuditLogRepository,
   NewAuditLogEntry,
 } from '@agentic-obs/common';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 
 const log = createLogger('audit-writer');
 

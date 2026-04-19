@@ -104,7 +104,8 @@ import { createAccessControlRouter } from './routes/access-control.js';
 import { createUserPermissionsRouter } from './routes/user-permissions.js';
 import { createResolverRegistry } from './rbac/resolvers/index.js';
 import type { SqliteRepositories } from '@agentic-obs/data-layer';
-import { createLogger, requestLogger, GracefulShutdown, ShutdownPriority } from '@agentic-obs/common';
+import { createLogger, requestLogger } from '@agentic-obs/common/logging';
+import { GracefulShutdown, ShutdownPriority } from '@agentic-obs/common/lifecycle';
 import { registerStore, loadAll, flushStores, markDirty } from './persistence.js';
 
 const log = createLogger('api-gateway');

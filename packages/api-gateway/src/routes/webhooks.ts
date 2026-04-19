@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual, randomUUID } from 'crypto';
 import { Router, raw as expressRaw } from 'express';
 import type { IEventBus } from '@agentic-obs/common';
-import { createLogger, getErrorMessage } from '@agentic-obs/common';
+import { getErrorMessage } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';

@@ -1,5 +1,5 @@
 import type { Response } from 'express'
-import { createLogger } from '@agentic-obs/common'
+import { createLogger } from '@agentic-obs/common/logging'
 import type { DashboardSseEvent } from '@agentic-obs/common'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 

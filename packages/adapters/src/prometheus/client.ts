@@ -1,6 +1,6 @@
 // Prometheus HTTP API client (real + mock)
 
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import { checkEndpointHealth } from '../shared/health-check.js';
 
 const log = createLogger('prometheus-client');

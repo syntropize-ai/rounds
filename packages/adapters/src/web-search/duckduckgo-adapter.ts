@@ -6,7 +6,7 @@
  * (agent-core depends on adapters).
  */
 
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 
 const log = createLogger('duckduckgo-adapter');
 

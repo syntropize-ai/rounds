@@ -1,4 +1,4 @@
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 
 const defaultLog = createLogger('health-check');
 

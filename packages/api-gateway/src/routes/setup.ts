@@ -3,7 +3,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { createLogger, DEFAULT_LLM_MODEL } from '@agentic-obs/common';
+import { DEFAULT_LLM_MODEL } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import type {
   IOrgRepository,
   IOrgUserRepository,

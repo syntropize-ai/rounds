@@ -20,7 +20,7 @@ import type {
   IOrgUserRepository,
   IUserRepository,
 } from '@agentic-obs/common';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import type { SessionService } from '../auth/session-service.js';
 import {
   SESSION_COOKIE_NAME,

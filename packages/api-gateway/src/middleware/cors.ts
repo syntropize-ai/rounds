@@ -1,6 +1,6 @@
 import corsLib from 'cors'
 import type { CorsOptions } from 'cors'
-import { createLogger } from '@agentic-obs/common'
+import { createLogger } from '@agentic-obs/common/logging'
 
 const log = createLogger('cors')
 

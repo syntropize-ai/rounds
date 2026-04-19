@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { AuditAction, createLogger, getErrorMessage } from '@agentic-obs/common'
+import { AuditAction, getErrorMessage } from '@agentic-obs/common'
+import { createLogger } from '@agentic-obs/common/logging'
 import type {
   DashboardSseEvent,
   DashboardAction,

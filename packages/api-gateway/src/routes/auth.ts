@@ -13,9 +13,9 @@ import type {
   IUserRepository,
 } from '@agentic-obs/common';
 import { AuthError } from '@agentic-obs/common';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import { AuditAction } from '@agentic-obs/common';
-import { resolveSecretKey } from '@agentic-obs/common';
+import { resolveSecretKey } from '@agentic-obs/common/crypto';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import type { LocalProvider } from '../auth/local-provider.js';
 import type { SessionService } from '../auth/session-service.js';

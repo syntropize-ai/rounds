@@ -29,7 +29,7 @@ import type {
   IOrgUserRepository,
   IUserRepository,
 } from '@agentic-obs/common';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import { seedAdminIfNeeded } from '../auth/seed-admin.js';
 
 const log = createLogger('auth-migrate');

@@ -25,7 +25,7 @@ function resolveOrgId(req: Request): string {
 import { DashboardService, withDashboardLock } from '../../services/dashboard-service.js'
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
 import type { AuditWriter } from '../../auth/audit-writer.js'
-import { createLogger } from '@agentic-obs/common'
+import { createLogger } from '@agentic-obs/common/logging'
 
 const log = createLogger('dashboard-router')
 

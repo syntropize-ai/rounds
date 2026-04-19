@@ -1,6 +1,8 @@
 // Event envelope and standard event type definitions
-
-import { randomUUID } from 'crypto';
+//
+// NOTE: no Node imports here. The helper `createEvent` (which wraps
+// `randomUUID`) lives in ./create-event.ts so this file stays
+// browser-safe and can be re-exported from the frontend-facing barrel.
 
 // Event envelope
 
@@ -10,16 +12,6 @@ export interface EventEnvelope<T = unknown> {
   timestamp: string;
   tenantId?: string;
   payload: T;
-}
-
-export function createEvent<T>(type: string, payload: T, tenantId?: string): EventEnvelope<T> {
-  return {
-    id: randomUUID(),
-    type,
-    timestamp: new Date().toISOString(),
-    tenantId,
-    payload,
-  };
 }
 
 // Standard event type constants

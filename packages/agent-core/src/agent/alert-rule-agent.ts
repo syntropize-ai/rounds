@@ -1,5 +1,5 @@
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
-import { createLogger } from '@agentic-obs/common'
+import { createLogger } from '@agentic-obs/common/logging'
 import { agentRegistry } from './agent-registry.js'
 import { GENERATION_PRINCIPLES, buildGroundingContext } from './system-context.js'
 import type { IMetricsAdapter } from '../adapters/index.js'

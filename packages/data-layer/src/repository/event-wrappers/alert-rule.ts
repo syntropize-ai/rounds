@@ -1,4 +1,4 @@
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import type { MaybeAsync, IAlertRuleRepository, AlertRuleFindAllOptions } from '../interfaces.js';
 
 const log = createLogger('alert-rule-events');

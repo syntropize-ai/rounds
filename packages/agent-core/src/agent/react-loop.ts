@@ -3,7 +3,7 @@ import type {
   LLMGateway,
   CompletionMessage,
 } from '@agentic-obs/llm-gateway'
-import { createLogger } from '@agentic-obs/common'
+import { createLogger } from '@agentic-obs/common/logging'
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common'
 import type { IAccessControlService } from './types-permissions.js'
 

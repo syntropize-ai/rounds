@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { ApiError } from '@agentic-obs/common'
-import { AppError, createLogger } from '@agentic-obs/common'
+import { AppError } from '@agentic-obs/common'
+import { createLogger } from '@agentic-obs/common/logging'
 
 const log = createLogger('error-handler')
 

@@ -6,7 +6,7 @@
 // startServer, so the env is ready by the time they resolve.
 
 import { join } from 'node:path';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import { bootstrapSecretsIfNeeded } from './auth/bootstrap-secrets.js';
 
 const log = createLogger('main');

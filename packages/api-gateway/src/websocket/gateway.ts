@@ -3,9 +3,10 @@ import type { Application } from 'express';
 import { Server as SocketServer } from 'socket.io';
 import type { Namespace, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { createEventBusFromEnv, EventTypes } from '@agentic-obs/common';
+import { EventTypes } from '@agentic-obs/common';
+import { createEventBusFromEnv } from '@agentic-obs/common/events';
 import type { IEventBus, EventEnvelope } from '@agentic-obs/common';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import { getJwtSecret } from '../auth/jwt-secret.js';
 import { roleStore } from '../middleware/rbac.js';
 

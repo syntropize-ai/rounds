@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Router as ExpressRouter, Request, Response, NextFunction } from 'express';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import type { DashboardSseEvent } from '@agentic-obs/common';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';

@@ -8,7 +8,7 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 // `@iarna/toml` is now a regular dependency (T9 / Wave 6 cutover). Prior to the
 // cutover we dynamic-imported it so operators without LDAP didn't need the
 // module; now that the dep is pinned we can static-import safely.

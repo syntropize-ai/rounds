@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { createLogger } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
 
 const log = createLogger('dashboard-service');

@@ -1,14 +1,17 @@
 // Types
+//
+// These are form-state shapes — all-strings, always-defined, friendly to
+// controlled `<input>` React components. The **wire shapes** crossing the
+// HTTP boundary (what routes like PUT /api/system/llm accept) live in
+// `@agentic-obs/common/models/wire-config` so the frontend and backend
+// share one definition of each request body. See T3.3 for the split.
 
-export type LlmProvider =
-  | 'anthropic'
-  | 'openai'
-  | 'gemini'
-  | 'deepseek'
-  | 'azure-openai'
-  | 'aws-bedrock'
-  | 'ollama'
-  | 'corporate-gateway';
+// `LlmProvider` / `LlmAuthType` are imported from common so adding a new
+// provider (e.g. `corporate-gateway`) is a one-edit change instead of a
+// four-file change. Re-exported so existing consumers that import from
+// this module keep working.
+import type { LlmProvider, LlmAuthType } from '@agentic-obs/common';
+export type { LlmProvider, LlmAuthType };
 
 export interface ModelInfo {
   id: string;
@@ -17,13 +20,19 @@ export interface ModelInfo {
   description?: string;
 }
 
+/**
+ * Form-state for the LLM wizard step. All fields are required strings
+ * because controlled inputs dislike `undefined`. Converted to the optional
+ * wire shape (`LlmConfigWire`) at submit time — empty strings become
+ * `undefined` in the JSON request body.
+ */
 export interface LlmConfig {
   provider: LlmProvider;
   apiKey: string;
   model: string;
   baseUrl: string;
   region: string;
-  authType: string;
+  authType: LlmAuthType;
 }
 
 export interface DatasourceEntry {
@@ -36,6 +45,11 @@ export interface DatasourceEntry {
   apiKey: string;
 }
 
+/**
+ * Form-state for the notifications wizard step. Flattened per-channel so
+ * each input has a dedicated state slot; converted to the nested
+ * `NotificationsWire` shape at submit time.
+ */
 export interface NotificationConfig {
   slackWebhook: string;
   pagerDutyKey: string;
@@ -116,23 +130,8 @@ export const LLM_PROVIDERS: Array<{
   },
 ];
 
-// `supported: false` = backend has no adapter wired yet. The entry still
-// appears in the picker but disabled, so the UI is honest about what the
-// running product can do. Flip to true as adapters land.
-export const DATASOURCE_TYPES: Array<{
-  value: string;
-  label: string;
-  category: 'Logs' | 'Traces' | 'Metrics';
-  supported: boolean;
-}> = [
-  { value: 'prometheus',       label: 'Prometheus',       category: 'Metrics', supported: true  },
-  { value: 'victoria-metrics', label: 'VictoriaMetrics',  category: 'Metrics', supported: true  },
-  { value: 'loki',             label: 'Loki',             category: 'Logs',    supported: false },
-  { value: 'elasticsearch',    label: 'Elasticsearch',    category: 'Logs',    supported: false },
-  { value: 'clickhouse',       label: 'ClickHouse',       category: 'Logs',    supported: false },
-  { value: 'tempo',            label: 'Tempo',            category: 'Traces',  supported: false },
-  { value: 'jaeger',           label: 'Jaeger',           category: 'Traces',  supported: false },
-  { value: 'otel',             label: 'OTel Collector',   category: 'Traces',  supported: false },
-];
+// DATASOURCE_TYPES lives in `../../constants/datasource-types.ts` — shared
+// with the Settings page so the setup wizard and post-setup editor render
+// the same picker.
 
 export const STEPS = ['Welcome', 'Administrator', 'LLM Provider', 'Data Sources', 'Notifications', 'Ready'];

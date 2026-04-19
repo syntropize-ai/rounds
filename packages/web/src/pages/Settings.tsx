@@ -2,54 +2,48 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiClient } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { datasourceUrlPlaceholder, llmBaseUrlPlaceholder } from '../constants/placeholders.js';
+import { DATASOURCE_TYPES, datasourceInfo } from '../constants/datasource-types.js';
+import { LLM_PROVIDERS } from './setup/types.js';
+import type { LlmProvider, LlmConfig } from './setup/types.js';
+import type { DatasourceType, InstanceDatasource } from '@agentic-obs/common';
 
 // ─── Shared types ───
-
-type LlmProvider = 'anthropic' | 'openai' | 'deepseek' | 'gemini' | 'azure-openai' | 'aws-bedrock' | 'ollama';
+//
+// `LlmProvider` / `LlmConfig` (form state) come from `./setup/types.ts`.
+// `DatasourceType` / `InstanceDatasource` (wire shape for /api/datasources)
+// come from `@agentic-obs/common`. The setup wizard and this page now
+// share one definition for each — see T3.1–T3.3.
 
 interface ModelInfo { id: string; name: string; provider: string; description?: string; }
-interface LlmConfig { provider: LlmProvider; apiKey: string; model: string; baseUrl: string; region: string; }
 
-type DatasourceType = 'prometheus' | 'victoria-metrics' | 'loki' | 'elasticsearch' | 'tempo' | 'jaeger' | 'clickhouse' | 'otel';
 type AuthType = 'none' | 'basic' | 'bearer';
 type EnvType = 'prod' | 'staging' | 'dev' | 'test' | 'custom';
 
-interface DatasourceConfig {
-  id: string; type: DatasourceType; name: string; url: string;
-  environment?: string; cluster?: string; label?: string; isDefault?: boolean;
-  apiKey?: string; username?: string; password?: string;
+/**
+ * Form-state for the datasource edit panel. Drops `id` (set by the
+ * server) and the audit fields (`createdAt`, `updatedAt`, `updatedBy`)
+ * that are read-only from the client's perspective. Adds a synthetic
+ * `authType` that drives which credential fields the form renders.
+ */
+interface DsFormState {
+  type: DatasourceType;
+  name: string;
+  url: string;
+  environment?: string;
+  cluster?: string;
+  label?: string;
+  isDefault?: boolean;
+  apiKey?: string;
+  username?: string;
+  password?: string;
+  authType: AuthType;
 }
 
-interface DsFormState extends Omit<DatasourceConfig, 'id'> { authType: AuthType; }
 interface TestResult { ok: boolean; message: string; version?: string; }
 
 type SettingsTab = 'datasources' | 'llm' | 'notifications' | 'danger';
 
 // ─── Constants ───
-
-const LLM_PROVIDERS: Array<{
-  value: LlmProvider; label: string; fallbackModels: string[];
-  needsKey: boolean; needsUrl?: boolean; needsRegion?: boolean; supportsModelFetch?: boolean;
-}> = [
-  { value: 'anthropic', label: 'Anthropic (Claude)', fallbackModels: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'], needsKey: true, supportsModelFetch: true },
-  { value: 'openai', label: 'OpenAI', fallbackModels: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'], needsKey: true, needsUrl: true, supportsModelFetch: true },
-  { value: 'deepseek', label: 'DeepSeek', fallbackModels: ['deepseek-chat', 'deepseek-reasoner'], needsKey: true, supportsModelFetch: true },
-  { value: 'gemini', label: 'Google Gemini', fallbackModels: ['gemini-2.5-flash', 'gemini-2.5-pro'], needsKey: true, supportsModelFetch: true },
-  { value: 'azure-openai', label: 'Azure OpenAI', fallbackModels: ['gpt-4o', 'gpt-4-turbo'], needsKey: true, needsUrl: true },
-  { value: 'aws-bedrock', label: 'AWS Bedrock', fallbackModels: ['anthropic.claude-3-sonnet', 'mistral'], needsKey: false, needsRegion: true },
-  { value: 'ollama', label: 'Local (Ollama / Llama)', fallbackModels: ['llama3.2', 'mistral', 'qwen2.5'], needsKey: false, needsUrl: true, supportsModelFetch: true },
-];
-
-const DS_TYPES: Array<{ value: DatasourceType; label: string; icon: string; color: string }> = [
-  { value: 'prometheus', label: 'Prometheus', icon: 'P', color: '#06E5F2' },
-  { value: 'victoria-metrics', label: 'Victoria Metrics', icon: 'VM', color: '#D2619CA' },
-  { value: 'loki', label: 'Loki', icon: 'L', color: '#7FA835' },
-  { value: 'elasticsearch', label: 'Elasticsearch', icon: 'ES', color: '#00B0F3' },
-  { value: 'tempo', label: 'Tempo', icon: 'T', color: '#FF701F' },
-  { value: 'jaeger', label: 'Jaeger', icon: 'J', color: '#400963' },
-  { value: 'clickhouse', label: 'ClickHouse', icon: 'CH', color: '#FFCC00' },
-  { value: 'otel', label: 'OpenTelemetry', icon: 'OT', color: '#4FCFD7' },
-];
 
 const ENV_OPTIONS: EnvType[] = ['prod', 'staging', 'dev', 'test', 'custom'];
 
@@ -97,16 +91,12 @@ function Field({ label, children, hint }: { label: string; children: React.React
   );
 }
 
-function dsInfo(type: DatasourceType) {
-  return DS_TYPES.find((d) => d.value === type) ?? DS_TYPES[0];
-}
-
 function TypeIcon({ type, size = 'sm' }: { type: DatasourceType; size?: 'sm' | 'md' }) {
-  const info = dsInfo(type);
+  const info = datasourceInfo(type);
   const cls = size === 'md'
     ? 'w-8 h-8 rounded-lg text-[11px] font-bold flex items-center justify-center shrink-0'
     : 'w-6 h-6 rounded text-[9px] font-bold flex items-center justify-center shrink-0';
-  return <span className={cls} style={{ backgroundColor: `${info!.color}20`, color: info!.color }}>{info!.icon}</span>;
+  return <span className={cls} style={{ backgroundColor: `${info.color}20`, color: info.color }}>{info.icon}</span>;
 }
 
 function emptyForm(): DsFormState {
@@ -138,7 +128,7 @@ function DatasourceForm({ value, onChange, onSave, onCancel, onDelete, saving, i
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Type">
           <select value={value.type} onChange={(e) => set({ type: e.target.value as DatasourceType })} className={selectCls}>
-            {DS_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            {DATASOURCE_TYPES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
           </select>
         </Field>
         <Field label="Name">
@@ -207,7 +197,7 @@ function DatasourceForm({ value, onChange, onSave, onCancel, onDelete, saving, i
 }
 
 function DataSourcesTab() {
-  const [datasources, setDatasources] = useState<DatasourceConfig[]>([]);
+  const [datasources, setDatasources] = useState<InstanceDatasource[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showAddForm, setShowAddForm] = useState(false);
@@ -215,14 +205,14 @@ function DataSourcesTab() {
   const [editForms, setEditForms] = useState<Map<string, DsFormState>>(new Map());
 
   const loadDatasources = useCallback(async () => {
-    const res = await apiClient.get<{ datasources: DatasourceConfig[] }>('/datasources');
+    const res = await apiClient.get<{ datasources: InstanceDatasource[] }>('/datasources');
     if (!res.error) setDatasources(res.data.datasources ?? []);
     setLoading(false);
   }, []);
 
   useEffect(() => { void loadDatasources(); }, [loadDatasources]);
 
-  const toggleExpand = useCallback((id: string, ds: DatasourceConfig) => {
+  const toggleExpand = useCallback((id: string, ds: InstanceDatasource) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) { next.delete(id); } else {
@@ -243,24 +233,24 @@ function DataSourcesTab() {
   }, []);
 
   const handleAdd = useCallback(async (form: DsFormState) => {
-    const body: Partial<DatasourceConfig> = {
+    const body: Partial<InstanceDatasource> = {
       type: form.type, name: form.name, url: form.url, environment: form.environment,
       cluster: form.cluster || undefined, label: form.label || undefined, isDefault: form.isDefault,
     };
     if (form.authType === 'bearer' && form.apiKey) body.apiKey = form.apiKey;
     if (form.authType === 'basic') { body.username = form.username; body.password = form.password; }
-    const res = await apiClient.post<{ datasource: DatasourceConfig }>('/datasources', body);
+    const res = await apiClient.post<{ datasource: InstanceDatasource }>('/datasources', body);
     if (!res.error) { setDatasources((prev) => [...prev, res.data.datasource]); setShowAddForm(false); }
   }, []);
 
   const handleUpdate = useCallback(async (id: string, form: DsFormState) => {
-    const body: Partial<DatasourceConfig> = {
+    const body: Partial<InstanceDatasource> = {
       type: form.type, name: form.name, url: form.url, environment: form.environment,
       cluster: form.cluster || undefined, label: form.label || undefined, isDefault: form.isDefault,
     };
     if (form.authType === 'bearer' && form.apiKey) body.apiKey = form.apiKey;
     if (form.authType === 'basic') { body.username = form.username; body.password = form.password; }
-    const res = await apiClient.put<{ datasource: DatasourceConfig }>(`/datasources/${id}`, body);
+    const res = await apiClient.put<{ datasource: InstanceDatasource }>(`/datasources/${id}`, body);
     if (!res.error) {
       setDatasources((prev) => prev.map((d) => (d.id === id ? res.data.datasource : d)));
       setExpandedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
@@ -309,7 +299,7 @@ function DataSourcesTab() {
       )}
 
       {datasources.map((ds) => {
-        const info = dsInfo(ds.type);
+        const info = datasourceInfo(ds.type);
         const isOpen = expandedIds.has(ds.id);
         return (
           <div key={ds.id} className={`rounded-xl border transition-colors ${isOpen ? 'border-[var(--color-primary)]/40 bg-[var(--color-surface-high)]/30' : 'border-[var(--color-outline-variant)] hover:border-[var(--color-outline)]'}`}>
@@ -320,7 +310,7 @@ function DataSourcesTab() {
               <TypeIcon type={ds.type} />
               <span className="text-sm font-medium text-[var(--color-on-surface)] truncate">{ds.name}</span>
               {ds.isDefault && <span className="px-1.5 py-0.5 rounded bg-[var(--color-primary)]/15 text-[var(--color-primary)] text-[10px] font-semibold shrink-0">Default</span>}
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0" style={{ backgroundColor: `${info!.color}15`, color: info!.color, borderColor: `${info!.color}30` }}>{info!.label}</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0" style={{ backgroundColor: `${info.color}15`, color: info.color, borderColor: `${info.color}30` }}>{info.label}</span>
               {ds.environment && <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 ${ENV_STYLES[ds.environment] ?? ENV_STYLES.custom}`}>{ds.environment}</span>}
               <span className="flex-1" />
               <span className="text-[11px] text-[var(--color-outline)] font-mono truncate max-w-[200px] hidden sm:inline">{ds.url}</span>
@@ -369,7 +359,7 @@ function EditFormWrapper({ initial, onSave, onCancel, onDelete }: {
 // ─── LLM Tab ───
 
 function LlmTab() {
-  const [config, setConfig] = useState<LlmConfig>({ provider: 'anthropic', apiKey: '', model: 'claude-sonnet-4-5', baseUrl: '', region: '' });
+  const [config, setConfig] = useState<LlmConfig>({ provider: 'anthropic', apiKey: '', model: 'claude-sonnet-4-5', baseUrl: '', region: '', authType: 'api-key' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -387,6 +377,7 @@ function LlmTab() {
           model: res.data.llm!.model ?? prev.model,
           baseUrl: res.data.llm!.baseUrl ?? '',
           region: res.data.llm!.region ?? '',
+          authType: res.data.llm!.authType ?? prev.authType,
         }));
       }
     });
@@ -416,13 +407,21 @@ function LlmTab() {
       model: config.model,
       baseUrl: config.baseUrl || undefined,
       region: config.region || undefined,
+      authType: config.authType || undefined,
     });
     setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
   const handleTest = async () => {
     setTesting(true); setTestResult(null);
-    const res = await apiClient.post<{ ok: boolean; message: string }>('/setup/llm/test', { provider: config.provider, apiKey: config.apiKey, model: config.model, baseUrl: config.baseUrl, region: config.region });
+    const res = await apiClient.post<{ ok: boolean; message: string }>('/setup/llm/test', {
+      provider: config.provider,
+      apiKey: config.apiKey,
+      model: config.model,
+      baseUrl: config.baseUrl,
+      region: config.region,
+      authType: config.authType,
+    });
     setTesting(false);
     setTestResult(res.error ? { ok: false, message: res.error.message } : res.data);
   };
@@ -434,7 +433,15 @@ function LlmTab() {
         <select value={config.provider} onChange={(e) => {
           const p = e.target.value as LlmProvider;
           const pm = LLM_PROVIDERS.find((x) => x.value === p);
-          setConfig((prev) => ({ ...prev, provider: p, model: pm?.fallbackModels[0] ?? '', apiKey: '', baseUrl: '', region: '' }));
+          setConfig((prev) => ({
+            ...prev,
+            provider: p,
+            model: pm?.fallbackModels[0] ?? '',
+            apiKey: '',
+            baseUrl: '',
+            region: '',
+            authType: p === 'corporate-gateway' ? 'bearer' : 'api-key',
+          }));
           setTestResult(null); setRemoteModels([]); setModelsFetched(false);
         }} className={selectCls}>{LLM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
       </div>

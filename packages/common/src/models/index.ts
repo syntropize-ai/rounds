@@ -30,3 +30,5 @@ export * from './audit-log.js';
 
 // — Instance-scoped config (W2 / T2.1 — replaces setup-config.json) —
 export * from './instance-config.js';
+// — HTTP wire-format types for instance config (W3 / T3.3) —
+export * from './wire-config.js';

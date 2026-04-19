@@ -37,7 +37,8 @@ import type {
   IOrgRepository,
   IOrgUserRepository,
   IUserRepository,
-  InstanceLlmConfig,
+  LlmConfigWire,
+  NotificationsWire,
 } from '@agentic-obs/common';
 import { AuditAction } from '@agentic-obs/common';
 import { ensureSafeUrl } from '../utils/url-validator.js';
@@ -57,34 +58,13 @@ import {
 
 const log = createLogger('setup');
 
-// -- Wire-shape DTOs --------------------------------------------------
-//
-// Keeps route handlers stable while we refactor the persistence layer.
-
-export interface LlmConfigDto {
-  provider: InstanceLlmConfig['provider'];
-  apiKey?: string;
-  model: string;
-  baseUrl?: string;
-  region?: string;
-  authType?: 'api-key' | 'bearer';
-}
-
-export interface NotificationsDto {
-  slack?: { webhookUrl: string };
-  pagerduty?: { integrationKey: string };
-  email?: {
-    host: string;
-    port: number;
-    username: string;
-    password: string;
-    from: string;
-  };
-}
+// Wire shapes `LlmConfigWire` and `NotificationsWire` are owned by
+// `@agentic-obs/common/models/wire-config` (T3.3) so the web frontend
+// and the api-gateway agree on the HTTP request/response format.
 
 // -- LLM Connectivity Test --------------------------------------------
 
-function resolveToken(cfg: LlmConfigDto): string | null {
+function resolveToken(cfg: LlmConfigWire): string | null {
   return cfg.apiKey ?? null;
 }
 
@@ -108,7 +88,7 @@ async function guardProviderUrl(
   await ensureSafeUrl(finalUrl);
 }
 
-async function testLlmConnection(cfg: LlmConfigDto): Promise<{ ok: boolean; message: string }> {
+async function testLlmConnection(cfg: LlmConfigWire): Promise<{ ok: boolean; message: string }> {
   try {
     if (cfg.provider === 'corporate-gateway') {
       const token = resolveToken(cfg);
@@ -307,10 +287,10 @@ async function fetchDeepseekModels(apiKey: string, baseUrl?: string): Promise<Mo
   }
 }
 
-async function readNotificationsAsDto(service: SetupConfigService): Promise<NotificationsDto | undefined> {
+async function readNotificationsAsDto(service: SetupConfigService): Promise<NotificationsWire | undefined> {
   const channels = await service.listNotificationChannels({ masked: true });
   if (channels.length === 0) return undefined;
-  const dto: NotificationsDto = {};
+  const dto: NotificationsWire = {};
   for (const c of channels) {
     if (c.config.kind === 'slack') dto.slack = { webhookUrl: c.config.webhookUrl };
     else if (c.config.kind === 'pagerduty')
@@ -534,7 +514,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
 
   // POST /api/setup/llm/test — test-only, no persistence.
   router.post('/llm/test', async (req: Request, res: Response) => {
-    const cfg = req.body as LlmConfigDto;
+    const cfg = req.body as LlmConfigWire;
     if (!cfg?.provider || !cfg?.model) {
       res.status(400).json({
         error: { code: 'VALIDATION', message: 'provider and model are required' },

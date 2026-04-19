@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { apiClient } from '../../api/client.js';
 import { datasourceUrlPlaceholder } from '../../constants/placeholders.js';
-import { DATASOURCE_TYPES } from './types.js';
+import { DATASOURCE_TYPES } from '../../constants/datasource-types.js';
 import type { DatasourceEntry } from './types.js';
 
 function newEntryId(): string {

@@ -19,32 +19,13 @@ import type {
   NewInstanceLlmConfig,
   NotificationChannelConfig,
   NewNotificationChannel,
+  LlmConfigWire,
+  NotificationsWire,
 } from '@agentic-obs/common';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 
 export interface SystemRouterDeps {
   setupConfig: SetupConfigService;
-}
-
-interface LlmBody {
-  provider: NewInstanceLlmConfig['provider'];
-  apiKey?: string;
-  model: string;
-  baseUrl?: string;
-  authType?: 'api-key' | 'bearer';
-  region?: string;
-}
-
-interface NotificationsBody {
-  slack?: { webhookUrl: string };
-  pagerduty?: { integrationKey: string };
-  email?: {
-    host: string;
-    port: number;
-    username: string;
-    password: string;
-    from: string;
-  };
 }
 
 function actorFromReq(req: Request): { userId: string | null } {
@@ -58,10 +39,10 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
 
   // PUT /api/system/llm — save LLM config.
   router.put('/llm', async (req: Request, res: Response) => {
-    const body = req.body as LlmBody | { config: LlmBody };
-    const cfg = 'config' in (body as { config?: LlmBody })
-      ? (body as { config: LlmBody }).config
-      : (body as LlmBody);
+    const body = req.body as LlmConfigWire | { config: LlmConfigWire };
+    const cfg = 'config' in (body as { config?: LlmConfigWire })
+      ? (body as { config: LlmConfigWire }).config
+      : (body as LlmConfigWire);
     if (!cfg?.provider || !cfg?.model) {
       res.status(400).json({
         error: { code: 'VALIDATION', message: 'provider and model are required' },
@@ -95,11 +76,11 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
   // PUT /api/system/notifications — replace the full set of notification
   // channels (slack/pagerduty/email). Mirrors the legacy wizard payload shape.
   router.put('/notifications', async (req: Request, res: Response) => {
-    const body = req.body as NotificationsBody | { notifications: NotificationsBody };
+    const body = req.body as NotificationsWire | { notifications: NotificationsWire };
     const dto =
-      'notifications' in (body as { notifications?: NotificationsBody })
-        ? (body as { notifications: NotificationsBody }).notifications
-        : (body as NotificationsBody);
+      'notifications' in (body as { notifications?: NotificationsWire })
+        ? (body as { notifications: NotificationsWire }).notifications
+        : (body as NotificationsWire);
     const actor = actorFromReq(req);
     const existing = await setupConfig.listNotificationChannels();
     const byType = new Map(existing.map((c) => [c.type, c]));

@@ -59,6 +59,13 @@ export default function DashboardWorkspace() {
     && (user.isServerAdmin
       || hasPermission('dashboards:delete', id ? `dashboards:uid:${id}` : undefined)
       || hasPermission('dashboards:delete'));
+  // Managing per-dashboard ACLs requires `dashboards.permissions:read` (to open
+  // the dialog) — Admin-only grant. Hide the button for everyone below.
+  const canManagePermissions =
+    !!user
+    && (user.isServerAdmin
+      || hasPermission('dashboards.permissions:read', id ? `dashboards:uid:${id}` : undefined)
+      || hasPermission('dashboards.permissions:read'));
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -377,7 +384,7 @@ export default function DashboardWorkspace() {
               onKeyDown={handleTitleKeyDown}
               className="text-sm font-semibold text-on-surface bg-transparent border-b border-primary focus:outline-none w-full"
             />
-          ) : (
+          ) : canEditDashboard ? (
             <button
               type="button"
               onClick={startEditTitle}
@@ -386,6 +393,11 @@ export default function DashboardWorkspace() {
             >
               {dashboard.title}
             </button>
+          ) : (
+            // Non-writers: render as plain text — no rename affordance.
+            <span className="text-sm font-semibold text-on-surface truncate max-w-xs">
+              {dashboard.title}
+            </span>
           )}
 
         {!showReport && !isGenerating && dashboard.folder && (
@@ -448,7 +460,7 @@ export default function DashboardWorkspace() {
             {/* Export */}
             <ExportMenu dashboard={dashboard} />
 
-            {id && (
+            {id && canEditDashboard && (
               <button
                 type="button"
                 onClick={() => setShowFolderDialog(true)}
@@ -461,7 +473,7 @@ export default function DashboardWorkspace() {
               </button>
             )}
 
-            {id && (
+            {id && canManagePermissions && (
               <button
                 type="button"
                 onClick={() => setShowPermissionsDialog(true)}
@@ -511,13 +523,21 @@ export default function DashboardWorkspace() {
                 editMode={editMode}
                 isGenerating={isGenerating}
                 timeRange={timeRange}
-                onEditPanel={(panelId) => {
-                  const p = panels.find((x) => x.id === panelId);
-                  if (p) setEditingPanel(p);
-                }}
-                onDeletePanel={(panelId) => {
-                  void handleDeletePanel(panelId);
-                }}
+                // When the user lacks write permission we pass `undefined`
+                // for the per-panel edit/delete callbacks. DashboardPanelCard
+                // conditionally renders the pencil/trash buttons on the
+                // truthiness of these callbacks (see DashboardPanelCard.tsx
+                // lines ~690 and ~715), so this removes them from the DOM
+                // entirely — not just hidden-until-hover — for Viewers.
+                onEditPanel={canEditDashboard
+                  ? (panelId) => {
+                      const p = panels.find((x) => x.id === panelId);
+                      if (p) setEditingPanel(p);
+                    }
+                  : undefined}
+                onDeletePanel={canEditDashboard
+                  ? (panelId) => { void handleDeletePanel(panelId); }
+                  : undefined}
                 onLayoutChange={handleLayoutChange}
                 onTimeRangeChange={setTimeRange}
               />

@@ -4,6 +4,7 @@ import { apiClient } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import type { PanelConfig } from '../components/DashboardPanelCard.js';
 import { relativeTime } from '../utils/time.js';
+import { useAuth } from '../contexts/AuthContext.js';
 
 // Types
 
@@ -66,7 +67,7 @@ const PAGE_CONFIG = {
 
 interface FolderNode { folder: Folder | null; id: string; dashboards: Dashboard[]; children: FolderNode[] }
 
-function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, itemLink, onDeleteDash, onMoveDash, folders, onCreateSubFolder, creatingInFolder, subFolderName, setSubFolderName, onSubmitSubFolder, onCancelSubFolder, onDeleteFolder }: {
+function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, itemLink, onDeleteDash, onMoveDash, folders, onCreateSubFolder, creatingInFolder, subFolderName, setSubFolderName, onSubmitSubFolder, onCancelSubFolder, onDeleteFolder, canCreateFolder, canDeleteFolder, canDeleteDashboard }: {
   node: FolderNode; depth: number;
   expandedFolders: Set<string>; toggleFolder: (id: string) => void;
   navigate: (path: string) => void; itemLink: (id: string) => string;
@@ -79,6 +80,9 @@ function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, 
   onSubmitSubFolder: (parentId: string, name: string) => void;
   onCancelSubFolder: () => void;
   onDeleteFolder: (id: string) => void;
+  canCreateFolder: boolean;
+  canDeleteFolder: boolean;
+  canDeleteDashboard: boolean;
 }) {
   const isExpanded = expandedFolders.has(node.id);
   const totalItems = node.dashboards.length + node.children.length;
@@ -109,23 +113,28 @@ function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, 
           )}
           <span className="text-[10px] text-on-surface-variant ml-1">{totalItems > 0 ? totalItems : ''}</span>
         </button>
-        {/* Folder actions (visible on hover) */}
-        <div className="flex items-center gap-0.5 pr-3 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button type="button" onClick={() => onCreateSubFolder(node.id)}
-            className="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors" title="New sub-folder">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-          </button>
-          {node.id !== '__none__' && (
-            <button type="button" onClick={() => onDeleteFolder(node.id)}
-              className="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors" title="Delete folder">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          )}
-        </div>
+        {/* Folder actions (visible on hover) — hidden entirely when the user
+            lacks the backing permission so Viewers never see mutating chrome. */}
+        {(canCreateFolder || (canDeleteFolder && node.id !== '__none__')) && (
+          <div className="flex items-center gap-0.5 pr-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            {canCreateFolder && (
+              <button type="button" onClick={() => onCreateSubFolder(node.id)}
+                className="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors" title="New sub-folder">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </button>
+            )}
+            {canDeleteFolder && node.id !== '__none__' && (
+              <button type="button" onClick={() => onDeleteFolder(node.id)}
+                className="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors" title="Delete folder">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Expanded content */}
@@ -160,7 +169,10 @@ function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, 
               onCreateSubFolder={onCreateSubFolder}
               creatingInFolder={creatingInFolder} subFolderName={subFolderName}
               setSubFolderName={setSubFolderName} onSubmitSubFolder={onSubmitSubFolder}
-              onCancelSubFolder={onCancelSubFolder} onDeleteFolder={onDeleteFolder}            />
+              onCancelSubFolder={onCancelSubFolder} onDeleteFolder={onDeleteFolder}
+              canCreateFolder={canCreateFolder}
+              canDeleteFolder={canDeleteFolder}
+              canDeleteDashboard={canDeleteDashboard}            />
           ))}
 
           {/* Dashboards in this folder */}
@@ -180,13 +192,15 @@ function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, 
                 </div>
                 <span className="text-xs text-on-surface-variant">{dash.panels.length} panels · {relativeTime(dash.updatedAt ?? dash.createdAt)}</span>
               </div>
-              <button type="button" onClick={(e) => { e.stopPropagation(); onDeleteDash(dash.id); }}
-                className="shrink-0 p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors opacity-0 group-hover:opacity-100"
-                title="Delete">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
+              {canDeleteDashboard && (
+                <button type="button" onClick={(e) => { e.stopPropagation(); onDeleteDash(dash.id); }}
+                  className="shrink-0 p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Delete">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              )}
             </div>
           ))}
 
@@ -206,6 +220,19 @@ function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, 
 
 export default function Dashboards() {
   const navigate = useNavigate();
+  const { user, hasPermission } = useAuth();
+  // Mutating affordances on this page: create dashboard (`dashboards:create`,
+  // Editor+), create folder (`folders:create`, Editor+), delete dashboard
+  // (`dashboards:delete`, Editor+), delete folder (`folders:delete`, Editor+).
+  // Viewer has none of these.
+  const canCreateDashboard = !!user
+    && (user.isServerAdmin || hasPermission('dashboards:create'));
+  const canCreateFolder = !!user
+    && (user.isServerAdmin || hasPermission('folders:create'));
+  const canDeleteDashboard = !!user
+    && (user.isServerAdmin || hasPermission('dashboards:delete'));
+  const canDeleteFolder = !!user
+    && (user.isServerAdmin || hasPermission('folders:delete'));
   const [searchParams, setSearchParams] = useSearchParams();
   const config = PAGE_CONFIG;
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
@@ -392,20 +419,24 @@ export default function Dashboards() {
             <p className="text-on-surface-variant mt-1 text-sm">{config.subtitle}</p>
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => { setShowNewFolder(true); setTimeout(() => newFolderRef.current?.focus(), 50); }}
-              className="bg-surface-high text-on-surface-variant hover:text-on-surface px-4 py-2 rounded-lg font-semibold text-sm transition-colors"
-            >
-              + Folder
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="bg-primary text-on-primary-fixed px-4 py-2 rounded-lg font-semibold text-sm transition-transform active:scale-95"
-            >
-              {config.newLabel}
-            </button>
+            {canCreateFolder && (
+              <button
+                type="button"
+                onClick={() => { setShowNewFolder(true); setTimeout(() => newFolderRef.current?.focus(), 50); }}
+                className="bg-surface-high text-on-surface-variant hover:text-on-surface px-4 py-2 rounded-lg font-semibold text-sm transition-colors"
+              >
+                + Folder
+              </button>
+            )}
+            {canCreateDashboard && (
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="bg-primary text-on-primary-fixed px-4 py-2 rounded-lg font-semibold text-sm transition-transform active:scale-95"
+              >
+                {config.newLabel}
+              </button>
+            )}
           </div>
         </div>
 
@@ -597,6 +628,9 @@ export default function Dashboards() {
                   await apiClient.delete(`/folders/${id}`);
                   setFolders((prev) => prev.filter((f) => f.id !== id));
                 }}
+                canCreateFolder={canCreateFolder}
+                canDeleteFolder={canDeleteFolder}
+                canDeleteDashboard={canDeleteDashboard}
                              />
             ))}
           </div>

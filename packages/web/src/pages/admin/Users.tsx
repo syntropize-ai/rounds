@@ -311,6 +311,7 @@ export default function Users(): React.ReactElement {
       {editTarget && (
         <EditUserModal
           user={editTarget}
+          canDelete={canDelete}
           onClose={() => setEditTarget(null)}
           onSaved={() => {
             setEditTarget(null);
@@ -389,10 +390,12 @@ function CreateUserModal({
 
 function EditUserModal({
   user,
+  canDelete,
   onClose,
   onSaved,
 }: {
   user: UserRow;
+  canDelete: boolean;
   onClose: () => void;
   onSaved: () => void;
 }): React.ReactElement {
@@ -424,19 +427,23 @@ function EditUserModal({
         <TextInput value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
       </div>
       <div className="flex justify-between gap-2 mt-5">
-        <DangerButton
-          onClick={async () => {
-            if (!window.confirm(`Delete user ${user.login}? This cannot be undone.`)) return;
-            try {
-              await api.delete(`/admin/users/${user.id}`);
-              onSaved();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : 'Failed to delete user');
-            }
-          }}
-        >
-          Delete
-        </DangerButton>
+        {canDelete ? (
+          <DangerButton
+            onClick={async () => {
+              if (!window.confirm(`Delete user ${user.login}? This cannot be undone.`)) return;
+              try {
+                await api.delete(`/admin/users/${user.id}`);
+                onSaved();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to delete user');
+              }
+            }}
+          >
+            Delete
+          </DangerButton>
+        ) : (
+          <span />
+        )}
         <div className="flex gap-2">
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <PrimaryButton disabled={saving} onClick={() => void handleSubmit()}>

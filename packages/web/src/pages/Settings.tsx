@@ -6,6 +6,7 @@ import { DATASOURCE_TYPES, datasourceInfo } from '../constants/datasource-types.
 import { LLM_PROVIDERS } from './setup/types.js';
 import type { LlmProvider, LlmConfig } from './setup/types.js';
 import type { DatasourceType, InstanceDatasource } from '@agentic-obs/common';
+import { useAuth } from '../contexts/AuthContext.js';
 
 // ─── Shared types ───
 //
@@ -105,9 +106,11 @@ function emptyForm(): DsFormState {
 
 // ─── Data Sources Tab ───
 
-function DatasourceForm({ value, onChange, onSave, onCancel, onDelete, saving, isNew }: {
+function DatasourceForm({ value, onChange, onSave, onCancel, onDelete, saving, isNew, readOnly = false }: {
   value: DsFormState; onChange: (v: DsFormState) => void;
   onSave: () => void; onCancel: () => void; onDelete?: () => void; saving: boolean; isNew: boolean;
+  /** When true the form is view-only: no Save, no Delete; Test Connection still works. */
+  readOnly?: boolean;
 }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
@@ -180,23 +183,27 @@ function DatasourceForm({ value, onChange, onSave, onCancel, onDelete, saving, i
 
       <div className="flex items-center gap-2 pt-2 border-t border-[var(--color-outline-variant)]/30">
         <label className="flex items-center gap-2 text-xs text-[var(--color-on-surface-variant)] cursor-pointer select-none">
-          <input type="checkbox" checked={value.isDefault ?? false} onChange={(e) => set({ isDefault: e.target.checked })} className="w-3.5 h-3.5 rounded accent-[var(--color-primary)]" />
+          <input type="checkbox" checked={value.isDefault ?? false} onChange={(e) => set({ isDefault: e.target.checked })} disabled={readOnly} className="w-3.5 h-3.5 rounded accent-[var(--color-primary)] disabled:opacity-50" />
           Set as default
         </label>
         <div className="flex-1" />
-        {onDelete && (
+        {!readOnly && onDelete && (
           <button type="button" onClick={onDelete} className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-outline)] hover:text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors">Delete</button>
         )}
-        <button type="button" onClick={onCancel} className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors">Cancel</button>
-        <button type="button" onClick={onSave} disabled={saving || !value.name || !value.url} className={btnPrimary + ' !py-1.5 !px-3 !text-xs'}>
-          {saving ? 'Saving...' : isNew ? 'Add' : 'Save'}
+        <button type="button" onClick={onCancel} className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors">
+          {readOnly ? 'Close' : 'Cancel'}
         </button>
+        {!readOnly && (
+          <button type="button" onClick={onSave} disabled={saving || !value.name || !value.url} className={btnPrimary + ' !py-1.5 !px-3 !text-xs'}>
+            {saving ? 'Saving...' : isNew ? 'Add' : 'Save'}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function DataSourcesTab() {
+function DataSourcesTab({ canCreate, canWrite, canDelete }: { canCreate: boolean; canWrite: boolean; canDelete: boolean }) {
   const [datasources, setDatasources] = useState<InstanceDatasource[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -276,14 +283,14 @@ function DataSourcesTab() {
         <p className="text-sm text-[var(--color-on-surface-variant)]">
           {datasources.length} data source{datasources.length === 1 ? '' : 's'} configured
         </p>
-        {!showAddForm && (
+        {!showAddForm && canCreate && (
           <button type="button" onClick={() => setShowAddForm(true)} className={btnPrimary}>
             + Add data source
           </button>
         )}
       </div>
 
-      {showAddForm && <AddFormWrapper onSave={handleAdd} onCancel={() => setShowAddForm(false)} />}
+      {showAddForm && canCreate && <AddFormWrapper onSave={handleAdd} onCancel={() => setShowAddForm(false)} />}
 
       {datasources.length === 0 && !showAddForm && (
         <div className="flex flex-col items-center py-16 text-center">
@@ -294,7 +301,9 @@ function DataSourcesTab() {
           </div>
           <p className="text-sm text-[var(--color-on-surface-variant)] mb-1">No data sources yet</p>
           <p className="text-xs text-[var(--color-outline)] mb-4">Add Prometheus, Loki, or another source to get started</p>
-          <button type="button" onClick={() => setShowAddForm(true)} className={btnPrimary}>Add data source</button>
+          {canCreate && (
+            <button type="button" onClick={() => setShowAddForm(true)} className={btnPrimary}>Add data source</button>
+          )}
         </div>
       )}
 
@@ -321,7 +330,8 @@ function DataSourcesTab() {
                   initial={editForms.get(ds.id)!}
                   onSave={(form) => handleUpdate(ds.id, form)}
                   onCancel={() => toggleExpand(ds.id, ds)}
-                  onDelete={() => setDeletingId(ds.id)}
+                  onDelete={canDelete ? () => setDeletingId(ds.id) : undefined}
+                  readOnly={!canWrite}
                 />
               </div>
             )}
@@ -347,18 +357,18 @@ function AddFormWrapper({ onSave, onCancel }: { onSave: (f: DsFormState) => Prom
   return <DatasourceForm value={form} onChange={setForm} onSave={() => void handleSave()} onCancel={onCancel} saving={saving} isNew />;
 }
 
-function EditFormWrapper({ initial, onSave, onCancel, onDelete }: {
-  initial: DsFormState; onSave: (f: DsFormState) => Promise<void>; onCancel: () => void; onDelete: () => void;
+function EditFormWrapper({ initial, onSave, onCancel, onDelete, readOnly = false }: {
+  initial: DsFormState; onSave: (f: DsFormState) => Promise<void>; onCancel: () => void; onDelete?: () => void; readOnly?: boolean;
 }) {
   const [form, setForm] = useState<DsFormState>(initial);
   const [saving, setSaving] = useState(false);
   const handleSave = async () => { setSaving(true); await onSave(form); setSaving(false); };
-  return <DatasourceForm value={form} onChange={setForm} onSave={() => void handleSave()} onCancel={onCancel} onDelete={onDelete} saving={saving} isNew={false} />;
+  return <DatasourceForm value={form} onChange={setForm} onSave={() => void handleSave()} onCancel={onCancel} onDelete={onDelete} saving={saving} isNew={false} readOnly={readOnly} />;
 }
 
 // ─── LLM Tab ───
 
-function LlmTab() {
+function LlmTab({ canWrite }: { canWrite: boolean }) {
   const [config, setConfig] = useState<LlmConfig>({ provider: 'anthropic', apiKey: '', model: 'claude-sonnet-4-5', baseUrl: '', region: '', authType: 'api-key' });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -487,9 +497,11 @@ function LlmTab() {
         <button type="button" onClick={() => void handleTest()} disabled={testing} className={btnSecondary}>{testing ? 'Testing...' : 'Test Connection'}</button>
         {testResult && <span className={`text-sm font-medium ${testResult.ok ? 'text-secondary' : 'text-error'}`}>{testResult.message}</span>}
         <div className="flex-1" />
-        <button type="button" onClick={() => void handleSave()} disabled={saving} className={btnPrimary}>
-          {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
-        </button>
+        {canWrite && (
+          <button type="button" onClick={() => void handleSave()} disabled={saving} className={btnPrimary}>
+            {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -497,7 +509,7 @@ function LlmTab() {
 
 // ─── Notifications Tab ───
 
-function NotificationsTab() {
+function NotificationsTab({ canWrite }: { canWrite: boolean }) {
   const [slackWebhook, setSlackWebhook] = useState('');
   const [pagerDutyKey, setPagerDutyKey] = useState('');
   const [saving, setSaving] = useState(false);
@@ -524,9 +536,11 @@ function NotificationsTab() {
         <input type="password" value={pagerDutyKey} onChange={(e) => setPagerDutyKey(e.target.value)} placeholder="your-integration-key" className={inputCls} />
       </div>
       <div className="flex justify-end pt-2 border-t border-[var(--color-outline-variant)]/30">
-        <button type="button" onClick={() => void handleSave()} disabled={saving} className={btnPrimary}>
-          {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
-        </button>
+        {canWrite && (
+          <button type="button" onClick={() => void handleSave()} disabled={saving} className={btnPrimary}>
+            {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -534,7 +548,7 @@ function NotificationsTab() {
 
 // ─── Danger Tab ───
 
-function DangerTab() {
+function DangerTab({ canReset }: { canReset: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -543,6 +557,14 @@ function DangerTab() {
     setDone(true); setConfirming(false);
     window.location.href = '/setup';
   };
+
+  if (!canReset) {
+    return (
+      <p className="text-sm text-[var(--color-on-surface-variant)]">
+        You don't have permission to reset this instance.
+      </p>
+    );
+  }
 
   return (
     <div>
@@ -568,6 +590,15 @@ function DangerTab() {
 
 export default function Settings() {
   const [tab, setTab] = useState<SettingsTab>('datasources');
+  const { user, hasPermission } = useAuth();
+  // Datasources tab: `datasources:create`/`:write`/`:delete` — Admin+ bundle.
+  const canCreateDs = !!user && (user.isServerAdmin || hasPermission('datasources:create'));
+  const canWriteDs = !!user && (user.isServerAdmin || hasPermission('datasources:write'));
+  const canDeleteDs = !!user && (user.isServerAdmin || hasPermission('datasources:delete'));
+  // LLM / Notifications / Danger reset: Admin+. There's no canonical `admin:write`
+  // action in the catalog yet, so gate by server-admin OR Admin-level bundle
+  // (proxied via `datasources:write` — Admin is the only role that has it).
+  const canAdminWrite = !!user && (user.isServerAdmin || hasPermission('datasources:write'));
 
   return (
     <div className="h-full flex">
@@ -606,10 +637,12 @@ export default function Settings() {
             {tab === 'danger' && 'Irreversible actions for your OpenObs instance.'}
           </p>
 
-          {tab === 'datasources' && <DataSourcesTab />}
-          {tab === 'llm' && <LlmTab />}
-          {tab === 'notifications' && <NotificationsTab />}
-          {tab === 'danger' && <DangerTab />}
+          {tab === 'datasources' && (
+            <DataSourcesTab canCreate={canCreateDs} canWrite={canWriteDs} canDelete={canDeleteDs} />
+          )}
+          {tab === 'llm' && <LlmTab canWrite={canAdminWrite} />}
+          {tab === 'notifications' && <NotificationsTab canWrite={canAdminWrite} />}
+          {tab === 'danger' && <DangerTab canReset={canAdminWrite} />}
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../api/client.js';
 import { relativeTime } from '../utils/time.js';
+import { useAuth } from '../contexts/AuthContext.js';
 
 // Types
 
@@ -70,9 +71,10 @@ interface ActionCardProps {
   processing: boolean;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  canApprove: boolean;
 }
 
-function ActionCard({ request, processing, onApprove, onReject }: ActionCardProps) {
+function ActionCard({ request, processing, onApprove, onReject, canApprove }: ActionCardProps) {
   const risk = actionRisk(request.action.type);
   const isPending = request.status === 'pending';
 
@@ -118,7 +120,7 @@ function ActionCard({ request, processing, onApprove, onReject }: ActionCardProp
           {request.resolvedBy && <span>resolved by {request.resolvedBy}</span>}
         </div>
 
-        {isPending && (
+        {isPending && canApprove && (
           <div className="flex gap-2">
             <button
               type="button"
@@ -146,6 +148,13 @@ function ActionCard({ request, processing, onApprove, onReject }: ActionCardProp
 // Main component
 
 export default function ActionCenter() {
+  const { user, hasPermission } = useAuth();
+  // Approve/Reject map to `approvals:approve` (Editor+). Backend still gates
+  // via legacy `execution:approve` — flagged for follow-up rename. Check both.
+  const canApprove = !!user
+    && (user.isServerAdmin
+      || hasPermission('approvals:approve')
+      || hasPermission('execution:approve'));
   const [pending, setPending] = useState<ApprovalRequest[]>([]);
   const [resolved, setResolved] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -296,6 +305,7 @@ export default function ActionCenter() {
               processing={processing.has(req.id)}
               onApprove={(id) => { void handleApprove(id); }}
               onReject={(id) => { void handleReject(id); }}
+              canApprove={canApprove}
             />
           ))}
         </div>

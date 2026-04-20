@@ -283,25 +283,20 @@ function AlertRuleRow({
 export default function Alerts() {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
-  // Backend currently gates alert-rule writes via the legacy `dashboard:write`
-  // string (see packages/api-gateway/src/routes/alert-rules.ts) — flagged in
-  // the audit for a follow-up rename. For UI consistency with the action
-  // catalog we check the canonical `alert.rules:write` / `alert.rules:delete`
-  // first, and fall back to `dashboard:write` so the same UI works both
-  // before and after the backend rename lands.
+  // Backend gates alert-rule CRUD with the canonical `alert.rules:*` actions
+  // (see packages/api-gateway/src/routes/alert-rules.ts). The legacy
+  // `dashboard:write` fallback was removed once the backend rename landed.
   const canCreateRule = !!user
     && (user.isServerAdmin
       || hasPermission('alert.rules:create')
-      || hasPermission('alert.rules:write')
-      || hasPermission('dashboard:write'));
+      || hasPermission('alert.rules:write'));
   const canWriteRule = !!user
     && (user.isServerAdmin
-      || hasPermission('alert.rules:write')
-      || hasPermission('dashboard:write'));
+      || hasPermission('alert.rules:write'));
   const canDeleteRule = !!user
     && (user.isServerAdmin
       || hasPermission('alert.rules:delete')
-      || hasPermission('dashboard:write'));
+      || hasPermission('alert.rules:write'));
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [stateFilter, setStateFilter] = useState<AlertRuleState | 'all'>('all');

@@ -595,10 +595,11 @@ export default function Settings() {
   const canCreateDs = !!user && (user.isServerAdmin || hasPermission('datasources:create'));
   const canWriteDs = !!user && (user.isServerAdmin || hasPermission('datasources:write'));
   const canDeleteDs = !!user && (user.isServerAdmin || hasPermission('datasources:delete'));
-  // LLM / Notifications / Danger reset: Admin+. There's no canonical `admin:write`
-  // action in the catalog yet, so gate by server-admin OR Admin-level bundle
-  // (proxied via `datasources:write` — Admin is the only role that has it).
-  const canAdminWrite = !!user && (user.isServerAdmin || hasPermission('datasources:write'));
+  // LLM / Notifications / Danger reset: gated by the canonical
+  // `instance.config:write` action (granted to Admin+ via
+  // ADMIN_ONLY_PERMISSIONS in roles-def.ts). Matches the backend enforcement
+  // in routes/system.ts + routes/setup.ts reset endpoint.
+  const canAdminWrite = !!user && (user.isServerAdmin || hasPermission('instance.config:write'));
 
   return (
     <div className="h-full flex">

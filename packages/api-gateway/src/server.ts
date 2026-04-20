@@ -22,7 +22,6 @@ import { createDatasourcesRouter } from './routes/datasources.js';
 import { createQueryRouter } from './routes/dashboard/query.js';
 import { createSystemRouter } from './routes/system.js';
 import { bootstrapAware } from './middleware/bootstrap-aware.js';
-import { requirePermission } from './middleware/rbac.js';
 import { createDashboardRouter } from './routes/dashboard/router.js';
 import { createAlertRulesRouter } from './routes/alert-rules.js';
 import { createNotificationsRouter } from './routes/notifications.js';
@@ -246,23 +245,22 @@ export function createApp(): Application {
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
       ],
     });
-    const bootstrapAwareAdminWrite = bootstrapAware({
-      setupConfig: setupConfigService,
-      authMiddleware,
-      postAuthChain: [
-        createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
-        requirePermission('admin:write'),
-      ],
-    });
     app.use(
       '/api/datasources',
       bootstrapAwareAuthOnly,
       createDatasourcesRouter({ setupConfig: setupConfigService, ac: accessControlHolder }),
     );
+    // `/api/system` is gated inside its router via `instance.config:write`
+    // (ADMIN_ONLY_PERMISSIONS in roles-def.ts). The legacy `admin:write`
+    // hack that piggybacked on `datasources:write` is gone — see the W4
+    // backend RBAC cleanup commit.
     app.use(
       '/api/system',
-      bootstrapAwareAdminWrite,
-      createSystemRouter({ setupConfig: setupConfigService }),
+      bootstrapAwareAuthOnly,
+      createSystemRouter({
+        setupConfig: setupConfigService,
+        ac: accessControlHolder,
+      }),
     );
     app.use(
       '/api/query',
@@ -329,6 +327,7 @@ export function createApp(): Application {
           audit: authSub.audit,
           defaultOrgId: 'org_main',
           authMiddleware,
+          ac: accessControlHolder,
         }),
       );
 
@@ -631,6 +630,7 @@ export function createApp(): Application {
       feed: eventFeedStore,
       shareRepo: repos.shares,
       reportStore: repos.investigationReports,
+      ac: accessControlHolder,
     }));
     app.use('/api/feed', createFeedRouter(eventFeedStore));
     app.use('/api/shared', createSharedRouter({
@@ -641,7 +641,10 @@ export function createApp(): Application {
       investigationStore: repos.investigations,
       feedStore: eventFeedStore,
     }));
-    app.use('/api/approvals', createApprovalRouter(eventApprovalStore));
+    app.use('/api/approvals', createApprovalRouter({
+      approvals: eventApprovalStore,
+      ac: accessControlHolder,
+    }));
     app.use('/api/notifications', createNotificationsRouter({
       notificationStore: repos.notifications,
       alertRuleStore: eventAlertRuleStore,
@@ -679,6 +682,7 @@ export function createApp(): Application {
       feedStore: eventFeedStore,
       reportStore: repos.investigationReports,
       setupConfig: setupConfigService,
+      ac: accessControlHolder,
     }));
     // /api/folders is mounted above inside the async auth block — T7.1.
     app.use('/api/search', createSearchRouter({

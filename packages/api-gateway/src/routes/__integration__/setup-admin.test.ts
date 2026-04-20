@@ -30,6 +30,17 @@ import { createSetupRouter } from '../setup.js';
 import { AuditWriter } from '../../auth/audit-writer.js';
 import { SessionService } from '../../auth/session-service.js';
 import { SetupConfigService } from '../../services/setup-config-service.js';
+import type { AccessControlSurface } from '../../services/accesscontrol-holder.js';
+
+// Stub RBAC surface — these tests only exercise pre-bootstrap admin-create and
+// GET /status, neither of which hits an ac-gated handler. If a test adds a
+// reset-endpoint case, provide a real AccessControlService instead.
+const stubAc: AccessControlSurface = {
+  getUserPermissions: async () => [],
+  evaluate: async () => false,
+  ensurePermissions: async () => [],
+  filterByPermission: async (_id, items) => [...items],
+};
 
 interface Ctx {
   app: Application;
@@ -75,6 +86,7 @@ async function buildApp(): Promise<Ctx> {
       authMiddleware: (_req, res) => res.status(401).json({
         error: { code: 'UNAUTHORIZED', message: 'auth required' },
       }),
+      ac: stubAc,
     }),
   );
   return { app, db, users, orgUsers, setupConfig };

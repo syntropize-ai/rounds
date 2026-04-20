@@ -177,6 +177,8 @@ const ADMIN_ONLY_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.ApprovalsOverride, scope: 'approvals:*' },
   { action: ACTIONS.AgentsConfigRead, scope: '' },
   { action: ACTIONS.AgentsConfigWrite, scope: '' },
+  { action: ACTIONS.InstanceConfigRead, scope: '' },
+  { action: ACTIONS.InstanceConfigWrite, scope: '' },
 ];
 
 // -- Server Admin (all actions unrestricted) -------------------------------

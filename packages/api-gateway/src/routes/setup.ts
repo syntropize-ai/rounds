@@ -31,7 +31,7 @@
 
 import { Router } from 'express';
 import type { Request, RequestHandler, Response } from 'express';
-import { DEFAULT_LLM_MODEL } from '@agentic-obs/common';
+import { DEFAULT_LLM_MODEL, ac, ACTIONS } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type {
   IOrgRepository,
@@ -41,6 +41,8 @@ import type {
   NotificationsWire,
 } from '@agentic-obs/common';
 import { AuditAction } from '@agentic-obs/common';
+import { createRequirePermission } from '../middleware/require-permission.js';
+import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { ensureSafeUrl } from '../utils/url-validator.js';
 import { createRateLimiter, loginRateLimiter } from '../middleware/rate-limiter.js';
 import { bootstrapAware } from '../middleware/bootstrap-aware.js';
@@ -327,6 +329,13 @@ export interface SetupRouterDeps {
    * separate /login round-trip.
    */
   authMiddleware: RequestHandler;
+  /**
+   * RBAC surface. Used to gate the destructive `POST /reset` endpoint
+   * behind `instance.config:write` once the instance is bootstrapped.
+   * Pre-bootstrap the bootstrap-aware middleware still lets the wizard
+   * through unauthenticated.
+   */
+  ac: AccessControlSurface;
 }
 
 const setupRateLimiter = createRateLimiter({
@@ -339,6 +348,7 @@ const setupRateLimiter = createRateLimiter({
 export function createSetupRouter(deps: SetupRouterDeps): Router {
   const router = Router();
   const { setupConfig } = deps;
+  const requirePermission = createRequirePermission(deps.ac);
   // Pre-bootstrap: probe endpoints run open so the wizard can test a
   // provider before the first admin exists. Post-bootstrap: the normal
   // auth middleware kicks in — the admin-creation response sets a
@@ -580,19 +590,25 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
 
   // POST /api/setup/reset — dev utility. Clears LLM + all datasources +
   // notifications. Leaves `bootstrapped_at` in place so the gate doesn't
-  // reopen.
-  router.post('/reset', async (_req: Request, res: Response) => {
-    await setupConfig.clearLlm({ userId: null });
-    const datasources = await setupConfig.listDatasources();
-    for (const ds of datasources) {
-      await setupConfig.deleteDatasource(ds.id, { userId: null });
-    }
-    const channels = await setupConfig.listNotificationChannels();
-    for (const c of channels) {
-      await setupConfig.deleteNotificationChannel(c.id, { userId: null });
-    }
-    res.json({ ok: true });
-  });
+  // reopen. Post-bootstrap this requires `instance.config:write` (Admin+);
+  // pre-bootstrap the outer `requireSetupAccess` middleware lets the wizard
+  // through unauthenticated.
+  router.post(
+    '/reset',
+    requirePermission(() => ac.eval(ACTIONS.InstanceConfigWrite)),
+    async (_req: Request, res: Response) => {
+      await setupConfig.clearLlm({ userId: null });
+      const datasources = await setupConfig.listDatasources();
+      for (const ds of datasources) {
+        await setupConfig.deleteDatasource(ds.id, { userId: null });
+      }
+      const channels = await setupConfig.listNotificationChannels();
+      for (const c of channels) {
+        await setupConfig.deleteNotificationChannel(c.id, { userId: null });
+      }
+      res.json({ ok: true });
+    },
+  );
 
   return router;
 }

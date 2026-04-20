@@ -1,16 +1,18 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { ApiError } from '@agentic-obs/common';
+import { ac, ACTIONS } from '@agentic-obs/common';
 import type { IGatewayApprovalStore } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
-import { requirePermission } from '../middleware/rbac.js';
+import { createRequirePermission } from '../middleware/require-permission.js';
+import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 
 /**
- * Map the new Identity's orgRole to the legacy role-name vocabulary
- * (operator / viewer / investigator). Used by the approval store to stamp
- * `resolvedByRoles` for audit — the underlying store still accepts the
- * legacy strings. See middleware/rbac.ts for the full mapping.
+ * Stamp the caller's org role onto the approval record for audit. We keep the
+ * legacy role-name vocabulary (`admin` / `operator` / `viewer`) on the stored
+ * `resolvedByRoles` field because historical audit rows use those values —
+ * changing the vocabulary would break the audit trail.
  */
 function legacyOrgRole(role: string | undefined): string {
   if (role === 'Admin') return 'admin';
@@ -18,15 +20,26 @@ function legacyOrgRole(role: string | undefined): string {
   return 'viewer';
 }
 
-export function createApprovalRouter(repo: IGatewayApprovalStore): Router {
+export interface ApprovalRouterDeps {
+  approvals: IGatewayApprovalStore;
+  /**
+   * RBAC surface. `AccessControlSurface` is used (not the concrete service)
+   * because this router is mounted outside the async auth IIFE in server.ts
+   * — the holder forwards to the real service once it's built.
+   */
+  ac: AccessControlSurface;
+}
+
+export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
   const router = Router();
+  const repo = deps.approvals;
+  const requirePermission = createRequirePermission(deps.ac);
 
   // GET /api/approvals - list pending approvals
-  // Requires execution:read (operator, investigator, admin)
   router.get(
     '/',
     authMiddleware,
-    requirePermission('execution:read'),
+    requirePermission(() => ac.eval(ACTIONS.ApprovalsRead, 'approvals:*')),
     async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         res.json(await repo.listPending());
@@ -37,11 +50,12 @@ export function createApprovalRouter(repo: IGatewayApprovalStore): Router {
   );
 
   // GET /api/approvals/:id - get single approval request
-  // Requires execution:read
   router.get(
     '/:id',
     authMiddleware,
-    requirePermission('execution:read'),
+    requirePermission((req) =>
+      ac.eval(ACTIONS.ApprovalsRead, `approvals:uid:${req.params['id'] ?? ''}`),
+    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const record = await repo.findById(req.params['id'] ?? '');
@@ -57,12 +71,14 @@ export function createApprovalRouter(repo: IGatewayApprovalStore): Router {
     },
   );
 
-  // POST /api/approvals/:id/approve - approve a pending request
-  // Requires execution:approve (operator and admin only)
+  // POST /api/approvals/:id/approve - approve a pending request (Editor+ via
+  // `approvals:approve`).
   router.post(
     '/:id/approve',
     authMiddleware,
-    requirePermission('execution:approve'),
+    requirePermission((req) =>
+      ac.eval(ACTIONS.ApprovalsApprove, `approvals:uid:${req.params['id'] ?? ''}`),
+    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
@@ -96,12 +112,14 @@ export function createApprovalRouter(repo: IGatewayApprovalStore): Router {
     },
   );
 
-  // POST /api/approvals/:id/reject - reject a pending request
-  // Requires execution:approve (operator and admin only)
+  // POST /api/approvals/:id/reject - reject a pending request (Editor+ via
+  // `approvals:approve`; rejection is the symmetric side of approve).
   router.post(
     '/:id/reject',
     authMiddleware,
-    requirePermission('execution:approve'),
+    requirePermission((req) =>
+      ac.eval(ACTIONS.ApprovalsApprove, `approvals:uid:${req.params['id'] ?? ''}`),
+    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
@@ -135,12 +153,14 @@ export function createApprovalRouter(repo: IGatewayApprovalStore): Router {
     },
   );
 
-  // POST /api/approvals/:id/override - admin override; force-approve regardless of status
-  // Requires execution:override (admin only via auth)
+  // POST /api/approvals/:id/override - admin override; force-approve regardless
+  // of status (Admin-only via `approvals:override`).
   router.post(
     '/:id/override',
     authMiddleware,
-    requirePermission('execution:override'),
+    requirePermission((req) =>
+      ac.eval(ACTIONS.ApprovalsOverride, `approvals:uid:${req.params['id'] ?? ''}`),
+    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
@@ -166,4 +186,3 @@ export function createApprovalRouter(repo: IGatewayApprovalStore): Router {
 
   return router;
 }
-

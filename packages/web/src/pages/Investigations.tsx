@@ -29,19 +29,17 @@ function isActive(status: string) {
 export default function Investigations() {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
-  // Backend gates via legacy `investigation:create` / `investigation:write`
-  // strings (packages/api-gateway/src/routes/investigation/router.ts) —
-  // flagged in audit for rename to the canonical `investigations:*`. Check
-  // both so the UI is correct before and after the rename.
+  // Backend gates via canonical `investigations:*` actions
+  // (packages/api-gateway/src/routes/investigation/router.ts). The legacy
+  // singular `investigation:*` fallback was removed once the backend rename
+  // landed.
   const canCreateInvestigation = !!user
     && (user.isServerAdmin
-      || hasPermission('investigations:create')
-      || hasPermission('investigation:create'));
+      || hasPermission('investigations:create'));
   const canDeleteInvestigation = !!user
     && (user.isServerAdmin
       || hasPermission('investigations:delete')
-      || hasPermission('investigations:write')
-      || hasPermission('investigation:write'));
+      || hasPermission('investigations:write'));
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);

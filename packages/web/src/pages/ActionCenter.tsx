@@ -149,12 +149,12 @@ function ActionCard({ request, processing, onApprove, onReject, canApprove }: Ac
 
 export default function ActionCenter() {
   const { user, hasPermission } = useAuth();
-  // Approve/Reject map to `approvals:approve` (Editor+). Backend still gates
-  // via legacy `execution:approve` — flagged for follow-up rename. Check both.
+  // Approve/Reject gated by `approvals:approve` (Editor+) — matches the
+  // backend's canonical action in routes/approval.ts. The legacy
+  // `execution:approve` fallback was removed once the backend rename landed.
   const canApprove = !!user
     && (user.isServerAdmin
-      || hasPermission('approvals:approve')
-      || hasPermission('execution:approve'));
+      || hasPermission('approvals:approve'));
   const [pending, setPending] = useState<ApprovalRequest[]>([]);
   const [resolved, setResolved] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);

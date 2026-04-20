@@ -15,17 +15,26 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
-import type {
-  NewInstanceLlmConfig,
-  NotificationChannelConfig,
-  NewNotificationChannel,
-  LlmConfigWire,
-  NotificationsWire,
+import {
+  ac,
+  ACTIONS,
+  type NewInstanceLlmConfig,
+  type NotificationChannelConfig,
+  type NewNotificationChannel,
+  type LlmConfigWire,
+  type NotificationsWire,
 } from '@agentic-obs/common';
 import type { SetupConfigService } from '../services/setup-config-service.js';
+import { createRequirePermission } from '../middleware/require-permission.js';
+import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 
 export interface SystemRouterDeps {
   setupConfig: SetupConfigService;
+  /**
+   * RBAC surface. Mounted outside the async auth IIFE via the holder so we
+   * accept the surface rather than the concrete service.
+   */
+  ac: AccessControlSurface;
 }
 
 function actorFromReq(req: Request): { userId: string | null } {
@@ -36,9 +45,15 @@ function actorFromReq(req: Request): { userId: string | null } {
 export function createSystemRouter(deps: SystemRouterDeps): Router {
   const router = Router();
   const { setupConfig } = deps;
+  const requirePermission = createRequirePermission(deps.ac);
+  // Instance-wide config writes (LLM, notifications). Granted to Admin+ via
+  // ADMIN_ONLY_PERMISSIONS in roles-def.ts.
+  const requireConfigWrite = requirePermission(() =>
+    ac.eval(ACTIONS.InstanceConfigWrite),
+  );
 
   // PUT /api/system/llm — save LLM config.
-  router.put('/llm', async (req: Request, res: Response) => {
+  router.put('/llm', requireConfigWrite, async (req: Request, res: Response) => {
     const body = req.body as LlmConfigWire | { config: LlmConfigWire };
     const cfg = 'config' in (body as { config?: LlmConfigWire })
       ? (body as { config: LlmConfigWire }).config
@@ -68,14 +83,14 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
   });
 
   // DELETE /api/system/llm — clear the LLM config (dev / reset).
-  router.delete('/llm', async (req: Request, res: Response) => {
+  router.delete('/llm', requireConfigWrite, async (req: Request, res: Response) => {
     const removed = await setupConfig.clearLlm(actorFromReq(req));
     res.json({ ok: true, cleared: removed });
   });
 
   // PUT /api/system/notifications — replace the full set of notification
   // channels (slack/pagerduty/email). Mirrors the legacy wizard payload shape.
-  router.put('/notifications', async (req: Request, res: Response) => {
+  router.put('/notifications', requireConfigWrite, async (req: Request, res: Response) => {
     const body = req.body as NotificationsWire | { notifications: NotificationsWire };
     const dto =
       'notifications' in (body as { notifications?: NotificationsWire })

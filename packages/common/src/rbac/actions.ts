@@ -147,6 +147,14 @@ export const ACTIONS = {
   ChatUse: 'chat:use',
   AgentsConfigRead: 'agents.config:read',
   AgentsConfigWrite: 'agents.config:write',
+  // [openobs-extension] — instance-wide config: LLM provider, notification
+  // channels, and dev reset. Granted to Admin+ via ADMIN_ONLY_PERMISSIONS.
+  // Lives in the `instance_config` SQLite table (see migration 019). No
+  // Grafana counterpart — Grafana scatters these across `settings:*` +
+  // provisioning. We pick a single canonical action because they all share
+  // the same audience (an Admin configuring the instance).
+  InstanceConfigRead: 'instance.config:read',
+  InstanceConfigWrite: 'instance.config:write',
 } as const;
 
 /**

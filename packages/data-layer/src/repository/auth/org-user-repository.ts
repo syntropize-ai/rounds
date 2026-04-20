@@ -3,6 +3,7 @@ import type { SqliteClient } from '../../db/sqlite-client.js';
 import type {
   IOrgUserRepository,
   ListOrgUsersOptions,
+  OrgUserWithOrgName,
   OrgUserWithProfile,
   Page,
 } from '@agentic-obs/common';
@@ -115,6 +116,18 @@ export class OrgUserRepository implements IOrgUserRepository {
       sql`SELECT * FROM org_user WHERE user_id = ${userId}`,
     );
     return rows.map(rowTo);
+  }
+
+  async listOrgsByUserWithName(userId: string): Promise<OrgUserWithOrgName[]> {
+    const rows = this.db.all<OrgUserRow & { org_name: string }>(sql`
+      SELECT ou.id, ou.org_id, ou.user_id, ou.role, ou.created, ou.updated,
+             o.name AS org_name
+      FROM org_user ou
+      INNER JOIN org o ON o.id = ou.org_id
+      WHERE ou.user_id = ${userId}
+      ORDER BY o.name
+    `);
+    return rows.map((r) => ({ ...rowTo(r), orgName: r.org_name }));
   }
 
   async updateRole(orgId: string, userId: string, role: OrgRole): Promise<OrgUser | null> {

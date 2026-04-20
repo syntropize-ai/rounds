@@ -57,12 +57,14 @@ export function createUserRouter(deps: UserRouterDeps): Router {
       });
       return;
     }
-    const memberships = await deps.orgUsers.listOrgsByUser(user.id);
+    const memberships = await deps.orgUsers.listOrgsByUserWithName(user.id);
     const auths = await deps.userAuth.listByUser(user.id);
+    // `name` is required by the OrgSwitcher dropdown. The JOIN adds one
+    // bounded lookup per session (users rarely belong to many orgs) and
+    // saves N per-org round-trips on the frontend.
     const orgs = memberships.map((m) => ({
       orgId: m.orgId,
-      // name is fetched by the frontend via /api/orgs/:id if needed; keep
-      // payload shape minimal so we don't pull Org rows in a hot path.
+      name: m.orgName,
       role: m.role,
     }));
     res.json({

@@ -138,12 +138,22 @@ export interface OrgUserWithProfile extends OrgUser {
   isServiceAccount: boolean;
 }
 
+/**
+ * Membership row enriched with the org's display name. The `/api/user`
+ * hot path uses this so the OrgSwitcher can render without a second
+ * per-org lookup.
+ */
+export interface OrgUserWithOrgName extends OrgUser {
+  orgName: string;
+}
+
 export interface IOrgUserRepository {
   create(input: NewOrgUser): Promise<OrgUser>;
   findById(id: string): Promise<OrgUser | null>;
   findMembership(orgId: string, userId: string): Promise<OrgUser | null>;
   listUsersByOrg(orgId: string, opts?: ListOrgUsersOptions): Promise<Page<OrgUserWithProfile>>;
   listOrgsByUser(userId: string): Promise<OrgUser[]>;
+  listOrgsByUserWithName(userId: string): Promise<OrgUserWithOrgName[]>;
   updateRole(orgId: string, userId: string, role: OrgRole): Promise<OrgUser | null>;
   remove(orgId: string, userId: string): Promise<boolean>;
 }

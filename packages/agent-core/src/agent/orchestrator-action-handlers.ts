@@ -564,6 +564,10 @@ export async function handleCreateAlertRule(
       severity: generated.severity,
       labels: { ...generated.labels, ...(dashboardId ? { dashboardId } : {}) },
       createdBy: 'llm',
+      // Same reason as dashboard.create / investigation.create: the
+      // list route filters by workspaceId, so an un-scoped row is
+      // invisible even though it's in the store.
+      workspaceId: ctx.identity.orgId,
     }) as Record<string, unknown>
   }
 

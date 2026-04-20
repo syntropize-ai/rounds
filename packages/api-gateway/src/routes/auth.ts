@@ -38,7 +38,10 @@ import {
 import type { LdapProvider } from '../auth/ldap/provider.js';
 import type { SamlProvider } from '../auth/saml/provider.js';
 import { createAuthMiddleware, readCookie, type AuthenticatedRequest } from '../middleware/auth.js';
-import { loginRateLimiter } from '../middleware/rate-limiter.js';
+import {
+  loginRateLimiter as defaultLoginRateLimiter,
+  type RateLimiterMiddleware,
+} from '../middleware/rate-limiter.js';
 
 const log = createLogger('auth-routes');
 
@@ -55,6 +58,13 @@ export interface AuthRouterDeps {
   saml?: SamlProvider | null;
   audit: AuditWriter;
   defaultOrgId: string;
+  /**
+   * Optional override for the HTTP-level login rate limiter (10/min per IP
+   * in prod). Tests inject a fresh limiter per harness so module-level state
+   * doesn't leak across tests; production passes nothing and gets the
+   * singleton from `middleware/rate-limiter.ts`.
+   */
+  loginRateLimiter?: RateLimiterMiddleware;
 }
 
 function secureCookie(): boolean {
@@ -89,6 +99,7 @@ function ua(req: Request): string {
 
 export function createAuthRouter(deps: AuthRouterDeps): Router {
   const router = Router();
+  const loginRateLimiter = deps.loginRateLimiter ?? defaultLoginRateLimiter;
 
   // GET /api/login/providers — list enabled providers (public).
   router.get('/login/providers', (_req: Request, res: Response) => {

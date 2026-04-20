@@ -7,6 +7,12 @@ interface RateLimiterOptions {
   keyFn?: (req: Request) => string
 }
 
+export type RateLimiterMiddleware = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => void
+
 interface WindowEntry {
   timestamps: number[]
 }

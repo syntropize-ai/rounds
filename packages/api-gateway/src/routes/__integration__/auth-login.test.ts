@@ -12,13 +12,18 @@ import {
   createTestDb,
 } from '@agentic-obs/data-layer';
 import { AuditWriter } from '../../auth/audit-writer.js';
-import { hashPassword, LocalProvider } from '../../auth/local-provider.js';
+import {
+  hashPassword,
+  LocalProvider,
+  LoginRateLimiter,
+} from '../../auth/local-provider.js';
 import {
   SESSION_COOKIE_NAME,
   SessionService,
 } from '../../auth/session-service.js';
 import { createAuthRouter } from '../auth.js';
 import { createAuthMiddleware } from '../../middleware/auth.js';
+import { createRateLimiter } from '../../middleware/rate-limiter.js';
 import { createUserRouter } from '../user.js';
 
 /**
@@ -42,8 +47,15 @@ async function buildTestApp(): Promise<{
   const auditLog = new AuditLogRepository(db);
   const _orgs = new OrgRepository(db);
   const sessions = new SessionService(userAuthTokens);
-  const local = new LocalProvider(users);
+  // Fresh per-test lockout state so the 5/5min sliding window starts empty.
+  const localLockout = new LoginRateLimiter();
+  const local = new LocalProvider(users, localLockout);
   const audit = new AuditWriter(auditLog);
+  // Fresh per-test HTTP limiter so module-level state from `routes/auth.ts`
+  // can't leak across tests. Budget is high enough to not interfere with
+  // the local-provider's 5/5min lockout (which is what these tests actually
+  // exercise); production still runs the default 10/min singleton.
+  const httpLoginLimiter = createRateLimiter({ windowMs: 60_000, max: 1000 });
 
   const app = express();
   app.use(express.json());
@@ -69,6 +81,7 @@ async function buildTestApp(): Promise<{
       local,
       audit,
       defaultOrgId: 'org_main',
+      loginRateLimiter: httpLoginLimiter,
     }),
   );
   return { app, users, orgUsers, sessions, auditLog };

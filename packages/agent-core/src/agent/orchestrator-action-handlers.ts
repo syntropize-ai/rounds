@@ -122,6 +122,10 @@ export async function handleInvestigationCreate(
     question,
     sessionId: ctx.sessionId,
     userId: 'agent',
+    // Same reason as dashboard.create: the GET route filters by
+    // workspaceId; missing this field makes the investigation
+    // unreachable even though the row is in the store.
+    workspaceId: ctx.identity.orgId,
   })
 
   const observationText = `Created investigation "${question.slice(0, 60)}" (id: ${investigation.id}).`

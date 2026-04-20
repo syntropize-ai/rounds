@@ -3,6 +3,7 @@ import type { SqliteClient } from '../../db/sqlite-client.js';
 import type {
   IOrgRepository,
   ListOptions,
+  OrgWithUserCount,
   Page,
 } from '@agentic-obs/common';
 import type { Org, NewOrg, OrgPatch } from '@agentic-obs/common';
@@ -82,6 +83,29 @@ export class OrgRepository implements IOrgRepository {
     );
     const totalRow = this.db.all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM org`);
     return { items: rows.map(rowToOrg), total: totalRow[0]?.n ?? 0 };
+  }
+
+  async listWithUserCounts(
+    opts: ListOptions = {},
+  ): Promise<Page<OrgWithUserCount>> {
+    const limit = opts.limit ?? 100;
+    const offset = opts.offset ?? 0;
+    // LEFT JOIN so orgs with zero members still appear (count = 0). We alias
+    // the aggregate to `user_count` to avoid colliding with any reserved
+    // word across sqlite quoting styles; the mapper then reads `user_count`.
+    const rows = this.db.all<OrgRow & { user_count: number }>(sql`
+      SELECT o.*, COUNT(ou.user_id) AS user_count
+      FROM org o
+      LEFT JOIN org_user ou ON ou.org_id = o.id
+      GROUP BY o.id
+      ORDER BY o.name
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+    const totalRow = this.db.all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM org`);
+    return {
+      items: rows.map((r) => ({ ...rowToOrg(r), userCount: r.user_count ?? 0 })),
+      total: totalRow[0]?.n ?? 0,
+    };
   }
 
   async update(id: string, patch: OrgPatch): Promise<Org | null> {

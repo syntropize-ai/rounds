@@ -7,6 +7,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client.js';
 import {
   DangerButton,
@@ -21,12 +22,19 @@ import {
   TextInput,
 } from './_ui.js';
 import { useIsServerAdmin } from './_gate.js';
-import { type OrgDTO, type PagedResponse, orgsListUrl } from './_shared.js';
+import { RenameOrgModal } from './RenameOrgModal.js';
+import {
+  type OrgDTO,
+  type OrgListRowDTO,
+  type PagedResponse,
+  orgsListUrl,
+} from './_shared.js';
 
 export default function Orgs(): React.ReactElement {
   const isServerAdmin = useIsServerAdmin();
+  const navigate = useNavigate();
 
-  const [items, setItems] = useState<OrgDTO[]>([]);
+  const [items, setItems] = useState<OrgListRowDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState('');
@@ -34,8 +42,8 @@ export default function Orgs(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<OrgDTO | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<OrgDTO | null>(null);
+  const [renameTarget, setRenameTarget] = useState<OrgListRowDTO | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<OrgListRowDTO | null>(null);
   const perpage = 20;
 
   const load = useCallback(async () => {
@@ -43,7 +51,7 @@ export default function Orgs(): React.ReactElement {
     setError(null);
     try {
       const url = orgsListUrl({ query, page, perpage });
-      const data = await api.get<PagedResponse<OrgDTO> & { orgs?: OrgDTO[] }>(url);
+      const data = await api.get<PagedResponse<OrgListRowDTO> & { orgs?: OrgListRowDTO[] }>(url);
       const list = data.items ?? data.orgs ?? [];
       setItems(list);
       setTotal(data.totalCount ?? data.total ?? list.length);
@@ -102,14 +110,25 @@ export default function Orgs(): React.ReactElement {
             <tbody className="divide-y divide-outline">
               {items.map((org) => (
                 <tr key={org.id}>
-                  <td className="px-4 py-2.5 text-on-surface font-medium">{org.name}</td>
+                  <td className="px-4 py-2.5 text-on-surface font-medium">
+                    <Link
+                      to={`/admin/orgs/${org.id}`}
+                      className="text-primary hover:underline"
+                    >
+                      {org.name}
+                    </Link>
+                  </td>
                   <td className="px-4 py-2.5 text-on-surface-variant text-xs">
                     {org.created ? new Date(org.created).toLocaleDateString() : '—'}
                   </td>
-                  <td className="px-4 py-2.5 text-on-surface-variant">{org.userCount ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-on-surface-variant">{org.userCount}</td>
                   <td className="px-4 py-2.5 text-right">
                     <RowActions
                       actions={[
+                        {
+                          label: 'Manage members',
+                          onSelect: () => navigate(`/admin/orgs/${org.id}`),
+                        },
                         { label: 'Rename', onSelect: () => setRenameTarget(org) },
                         {
                           label: 'Delete',
@@ -198,46 +217,6 @@ function CreateOrgModal({
           }}
         >
           {saving ? 'Creating…' : 'Create'}
-        </PrimaryButton>
-      </div>
-    </Modal>
-  );
-}
-
-function RenameOrgModal({
-  org,
-  onClose,
-  onSaved,
-}: {
-  org: OrgDTO;
-  onClose: () => void;
-  onSaved: () => void;
-}): React.ReactElement {
-  const [name, setName] = useState(org.name);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <Modal open onClose={onClose} title={`Rename — ${org.name}`}>
-      <ErrorBanner message={error} />
-      <TextInput value={name} onChange={(e) => setName(e.target.value)} />
-      <div className="flex justify-end gap-2 mt-5">
-        <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
-        <PrimaryButton
-          disabled={!name.trim() || saving}
-          onClick={async () => {
-            setSaving(true);
-            setError(null);
-            try {
-              await api.put(`/orgs/${org.id}`, { name });
-              onSaved();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : 'Failed to rename organization');
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          {saving ? 'Saving…' : 'Save'}
         </PrimaryButton>
       </div>
     </Modal>

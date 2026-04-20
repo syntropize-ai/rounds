@@ -33,6 +33,7 @@ import type {
   IUserRepository,
   ListOptions,
   OrgUserWithProfile,
+  OrgWithUserCount,
   Page,
   Org,
   OrgPatch,
@@ -202,8 +203,10 @@ export class OrgService {
     return this.deps.orgs.findByName(name);
   }
 
-  async list(opts: ListOptions & { query?: string } = {}): Promise<Page<Org>> {
-    const page = await this.deps.orgs.list({
+  async list(
+    opts: ListOptions & { query?: string } = {},
+  ): Promise<Page<OrgWithUserCount>> {
+    const page = await this.deps.orgs.listWithUserCounts({
       limit: opts.limit,
       offset: opts.offset,
     });

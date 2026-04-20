@@ -109,11 +109,26 @@ export interface IUserAuthTokenRepository {
 
 // — Org —————————————————————————————————————————————————————————
 
+/**
+ * An `Org` row enriched with the count of `org_user` rows that reference it.
+ * Used by `GET /api/orgs` (Server Admin → Organizations tab) so the list can
+ * show a per-org member count without an N+1 round-trip.
+ */
+export interface OrgWithUserCount extends Org {
+  userCount: number;
+}
+
 export interface IOrgRepository {
   create(input: NewOrg): Promise<Org>;
   findById(id: string): Promise<Org | null>;
   findByName(name: string): Promise<Org | null>;
   list(opts?: ListOptions): Promise<Page<Org>>;
+  /**
+   * Same as `list()` but each row carries the count of its `org_user` members.
+   * Single query (`LEFT JOIN org_user GROUP BY o.id`) — cheaper than calling
+   * `list()` then fanning out N `listUsersByOrg()` calls just for the total.
+   */
+  listWithUserCounts(opts?: ListOptions): Promise<Page<OrgWithUserCount>>;
   update(id: string, patch: OrgPatch): Promise<Org | null>;
   delete(id: string): Promise<boolean>;
 }

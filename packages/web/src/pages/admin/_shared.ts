@@ -107,7 +107,15 @@ export interface OrgDTO {
   name: string;
   created?: string;
   updated?: string;
-  userCount?: number;
+}
+
+/**
+ * List-endpoint variant of `OrgDTO`. `GET /api/orgs` always populates
+ * `userCount` via a `LEFT JOIN org_user GROUP BY`; the single-org
+ * `GET /api/orgs/:id` returns the plain `OrgDTO` without this field.
+ */
+export interface OrgListRowDTO extends OrgDTO {
+  userCount: number;
 }
 
 export interface AuditLogEntryDTO {

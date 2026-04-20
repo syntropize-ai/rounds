@@ -184,6 +184,37 @@ describe('/api/orgs — server admin CRUD', () => {
     expect(res.body.items.some((o: { id: string }) => o.id === 'org_main')).toBe(true);
   });
 
+  it('GET /api/orgs includes per-org userCount from the LEFT JOIN', async () => {
+    // Harness seeds admin + viewer in `org_main` — so userCount should be 2.
+    const res = await request(ctx.app)
+      .get('/api/orgs')
+      .set('x-test-user', 'admin');
+    expect(res.status).toBe(200);
+    const row = (res.body.items as Array<{ id: string; userCount: number }>).find(
+      (o) => o.id === 'org_main',
+    );
+    expect(row).toBeTruthy();
+    expect(row!.userCount).toBe(2);
+  });
+
+  it('GET /api/orgs userCount is 0 for a freshly-created org (no creator row in this flow)', async () => {
+    // `org_user` rows are inserted by OrgService.create(), so a new org here
+    // has exactly the creator as member — assert the count reflects it.
+    const created = await request(ctx.app)
+      .post('/api/orgs')
+      .set('x-test-user', 'admin')
+      .send({ name: 'CountCheckOrg' });
+    const id = created.body.orgId as string;
+    const res = await request(ctx.app)
+      .get('/api/orgs')
+      .set('x-test-user', 'admin');
+    const row = (res.body.items as Array<{ id: string; userCount: number }>).find(
+      (o) => o.id === id,
+    );
+    expect(row).toBeTruthy();
+    expect(row!.userCount).toBe(1);
+  });
+
   it('GET /api/orgs is allowed for viewer in current role catalog', async () => {
     // The built-in Viewer in roles-def.ts (mirroring Grafana's stock viewer)
     // carries `orgs:read` with global scope to support the UI bootstrap's

@@ -15,6 +15,7 @@ const ServiceAccounts = React.lazy(() => import('./admin/ServiceAccounts.js'));
 const Teams = React.lazy(() => import('./admin/Teams.js'));
 const Roles = React.lazy(() => import('./admin/Roles.js'));
 const Orgs = React.lazy(() => import('./admin/Orgs.js'));
+const OrgUsers = React.lazy(() => import('./admin/OrgUsers.js'));
 const AuditLog = React.lazy(() => import('./admin/AuditLog.js'));
 
 interface TabDef {
@@ -95,6 +96,7 @@ export default function Admin(): React.ReactElement {
           {canTeams && <Route path="teams" element={<Teams />} />}
           {canRoles && <Route path="roles" element={<Roles />} />}
           {isServerAdmin && <Route path="orgs" element={<Orgs />} />}
+          {isServerAdmin && <Route path="orgs/:id" element={<OrgUsers />} />}
           {canAudit && <Route path="audit-log" element={<AuditLog />} />}
           <Route path="*" element={<Navigate to={firstVisible.to} replace />} />
         </Routes>

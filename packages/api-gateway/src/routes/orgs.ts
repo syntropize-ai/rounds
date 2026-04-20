@@ -81,6 +81,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
             version: o.version,
             created: o.created,
             updated: o.updated,
+            userCount: o.userCount,
           })),
           page: Math.floor(opts.offset / opts.limit) + 1,
           perPage: opts.limit,

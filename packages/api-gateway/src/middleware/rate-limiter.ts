@@ -64,9 +64,25 @@ export function createRateLimiter(options: RateLimiterOptions) {
   }
 }
 
+/**
+ * Global per-IP limiter. Sized for an active session (an authed user
+ * opening a dashboard page triggers a dozen initial fetches, and the
+ * orchestrator agent burns through more as it runs tool calls), not
+ * for "one request per typed action". 600/min ≈ 10 req/s steady-state
+ * with room for bursts, same ceiling as /api/query. Operators running
+ * multi-tenant SaaS should tighten via OPENOBS_RATE_LIMIT_MAX; behind
+ * a shared NAT this stays per-IP, so per-user rate limits are a
+ * layered follow-up.
+ */
+const DEFAULT_RATE_LIMIT_MAX = Number.parseInt(
+  process.env['OPENOBS_RATE_LIMIT_MAX'] ?? '600',
+  10,
+);
 export const defaultRateLimiter = createRateLimiter({
-  windowMs: 60_000, // 1 minute
-  max: 100,
+  windowMs: 60_000,
+  max: Number.isFinite(DEFAULT_RATE_LIMIT_MAX) && DEFAULT_RATE_LIMIT_MAX > 0
+    ? DEFAULT_RATE_LIMIT_MAX
+    : 600,
 })
 
 /**

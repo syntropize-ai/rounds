@@ -70,15 +70,21 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       try {
         const opts = parseListOpts(req);
         const page = await deps.orgs.list(opts);
-        res.json(
-          page.items.map((o) => ({
+        // Shape matches /api/teams and /api/serviceaccounts (items +
+        // pagination envelope). The admin Orgs page reads
+        // `items`/`totalCount`; a bare array renders empty.
+        res.json({
+          totalCount: page.total,
+          items: page.items.map((o) => ({
             id: o.id,
             name: o.name,
             version: o.version,
             created: o.created,
             updated: o.updated,
           })),
-        );
+          page: Math.floor(opts.offset / opts.limit) + 1,
+          perPage: opts.limit,
+        });
       } catch (err) {
         handleServiceError(err, res);
       }
@@ -207,8 +213,9 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       try {
         const opts = parseListOpts(req);
         const page = await deps.orgs.listUsers(req.params['id']!, opts);
-        res.json(
-          page.items.map((u) => ({
+        res.json({
+          totalCount: page.total,
+          items: page.items.map((u) => ({
             orgId: u.orgId,
             userId: u.userId,
             email: u.email,
@@ -217,7 +224,9 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
             role: u.role,
             isDisabled: false,
           })),
-        );
+          page: Math.floor(opts.offset / opts.limit) + 1,
+          perPage: opts.limit,
+        });
       } catch (err) {
         handleServiceError(err, res);
       }

@@ -180,8 +180,8 @@ describe('/api/orgs — server admin CRUD', () => {
       .get('/api/orgs')
       .set('x-test-user', 'admin');
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.some((o: { id: string }) => o.id === 'org_main')).toBe(true);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.items.some((o: { id: string }) => o.id === 'org_main')).toBe(true);
   });
 
   it('GET /api/orgs is allowed for viewer in current role catalog', async () => {
@@ -365,8 +365,8 @@ describe('/api/orgs/:id/users — cross-org membership management', () => {
       .get(`/api/orgs/${newOrgId}/users`)
       .set('x-test-user', 'admin');
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.some((m: { login: string }) => m.login === 'member')).toBe(true);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.items.some((m: { login: string }) => m.login === 'member')).toBe(true);
   });
 
   it('PATCH /api/orgs/:id/users/:userId updates role', async () => {
@@ -448,7 +448,7 @@ describe('/api/org — current-org endpoints', () => {
       .get('/api/org/users')
       .set('x-test-user', 'admin');
     expect(res.status).toBe(200);
-    expect(res.body.some((m: { login: string }) => m.login === 'admin')).toBe(true);
+    expect(res.body.items.some((m: { login: string }) => m.login === 'admin')).toBe(true);
   });
 
   it('GET /api/org/users 403 for viewer', async () => {

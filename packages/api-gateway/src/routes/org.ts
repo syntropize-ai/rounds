@@ -124,8 +124,12 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
           limit,
           offset: (pageNum - 1) * limit,
         });
-        res.json(
-          result.items.map((u) => ({
+        // Shape matches Grafana's /api/org/users (items + pagination). The
+        // admin Users page reads `items` + `totalCount`; returning a bare
+        // array makes it render empty even when rows exist.
+        res.json({
+          totalCount: result.total,
+          items: result.items.map((u) => ({
             orgId: u.orgId,
             userId: u.userId,
             email: u.email,
@@ -134,7 +138,9 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
             role: u.role,
             isDisabled: false,
           })),
-        );
+          page: pageNum,
+          perPage: limit,
+        });
       } catch (err) {
         handleServiceError(err, res);
       }

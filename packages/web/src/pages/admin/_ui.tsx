@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -231,23 +232,51 @@ export interface RowAction {
 
 export function RowActions({ actions }: { actions: RowAction[] }): React.ReactElement {
   const [open, setOpen] = React.useState(false);
-  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = React.useState<{ top: number; right: number } | null>(null);
+  const buttonRef = React.useRef<HTMLButtonElement | null>(null);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
 
+  // The dropdown is rendered through a portal (see below) so it can escape
+  // the table's `overflow-x-auto` container. That means we can't rely on
+  // `rootRef.contains(event.target)` for outside-click — split the check
+  // between the anchor button and the portaled menu.
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent): void => {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    const onMouseDown = (e: MouseEvent): void => {
+      const t = e.target as Node;
+      if (buttonRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
-    window.addEventListener('mousedown', handler);
-    return () => window.removeEventListener('mousedown', handler);
+    const onScrollOrResize = (): void => setOpen(false);
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('resize', onScrollOrResize);
+    // `true` so we catch scrolls on ancestors (e.g. the table's overflow
+    // container). Otherwise the menu would detach from its button.
+    window.addEventListener('scroll', onScrollOrResize, true);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('resize', onScrollOrResize);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+    };
   }, [open]);
 
+  const toggle = (): void => {
+    if (!open && buttonRef.current) {
+      const r = buttonRef.current.getBoundingClientRect();
+      // Align the menu's right edge with the button's right edge, 4px gap
+      // below the button. `right` is distance from viewport right.
+      setPos({ top: r.bottom + 4, right: Math.max(4, window.innerWidth - r.right) });
+    }
+    setOpen((v) => !v);
+  };
+
   return (
-    <div className="relative inline-block" ref={rootRef}>
+    <>
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-label="Row actions"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -255,10 +284,12 @@ export function RowActions({ actions }: { actions: RowAction[] }): React.ReactEl
       >
         •••
       </button>
-      {open && (
+      {open && pos && createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className="absolute right-0 top-full mt-1 min-w-[180px] rounded-lg border border-outline bg-surface-highest shadow-lg z-10 py-1"
+          style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 50 }}
+          className="min-w-[180px] rounded-lg border border-outline bg-surface-highest shadow-lg py-1"
         >
           {actions.map((a) => (
             <button
@@ -277,9 +308,10 @@ export function RowActions({ actions }: { actions: RowAction[] }): React.ReactEl
               {a.label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
 

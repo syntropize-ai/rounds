@@ -354,12 +354,19 @@ export class OrgService {
 
   async listUsers(
     orgId: string,
-    opts: { query?: string; limit?: number; offset?: number } = {},
+    opts: {
+      query?: string;
+      limit?: number;
+      offset?: number;
+      /** Defaults to `false` so the Admin → Users tab hides service accounts. */
+      isServiceAccount?: boolean;
+    } = {},
   ): Promise<Page<OrgUserWithProfile>> {
     return this.deps.orgUsers.listUsersByOrg(orgId, {
       search: opts.query,
       limit: opts.limit,
       offset: opts.offset,
+      isServiceAccount: opts.isServiceAccount ?? false,
     });
   }
 

@@ -122,6 +122,13 @@ export interface IOrgRepository {
 
 export interface ListOrgUsersOptions extends ListOptions {
   search?: string;
+  /**
+   * If set, filters rows by the `user.is_service_account` flag.
+   * `false` (the common case for the Admin → Users tab) returns only
+   * real users; `true` returns only service accounts. Omit to include
+   * both (e.g. membership counts).
+   */
+  isServiceAccount?: boolean;
 }
 
 export interface OrgUserWithProfile extends OrgUser {

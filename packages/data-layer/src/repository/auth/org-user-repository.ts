@@ -84,6 +84,11 @@ export class OrgUserRepository implements IOrgUserRepository {
       const pat = `%${opts.search}%`;
       wheres.push(sql`(u.login LIKE ${pat} OR u.email LIKE ${pat} OR u.name LIKE ${pat})`);
     }
+    if (opts.isServiceAccount === false) {
+      wheres.push(sql`u.is_service_account = 0`);
+    } else if (opts.isServiceAccount === true) {
+      wheres.push(sql`u.is_service_account = 1`);
+    }
     const whereClause = sql.join([sql`WHERE`, sql.join(wheres, sql` AND `)], sql` `);
 
     const rows = this.db.all<OrgUserWithProfileRow>(sql`

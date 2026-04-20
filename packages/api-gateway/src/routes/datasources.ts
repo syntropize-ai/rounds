@@ -16,10 +16,22 @@ import type {
   NewInstanceDatasource,
   InstanceDatasourcePatch,
 } from '@agentic-obs/common';
+import { ACTIONS, ac } from '@agentic-obs/common';
 import { testDatasourceConnection } from '../utils/datasource.js';
+import { createRequirePermission } from '../middleware/require-permission.js';
+import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 
 export interface DatasourcesRouterDeps {
   setupConfig: SetupConfigService;
+  /**
+   * Pre-bootstrap the wizard hits `POST /api/datasources` unauthenticated
+   * (see `bootstrapAware` in server.ts). Once the bootstrap marker is set
+   * the permission middleware kicks in: `datasources:read` for GETs,
+   * `datasources:create` for POST, `datasources:write` for PUT,
+   * `datasources:delete` for DELETE — matching Grafana's stock role grants
+   * (Viewer: read only; Editor: read + explore/query; Admin: full CRUD).
+   */
+  ac: AccessControlSurface;
 }
 
 interface DatasourceBody {
@@ -45,15 +57,25 @@ function actorFromReq(req: Request): { userId: string | null } {
 export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
   const router = Router();
   const { setupConfig } = deps;
+  const requirePermission = createRequirePermission(deps.ac);
 
   // GET /api/datasources — list (masked)
-  router.get('/', async (_req: Request, res: Response) => {
-    const datasources = await setupConfig.listDatasources({ masked: true });
-    res.json({ datasources });
-  });
+  router.get(
+    '/',
+    requirePermission(() => ac.eval(ACTIONS.DatasourcesRead, 'datasources:*')),
+    async (_req: Request, res: Response) => {
+      const datasources = await setupConfig.listDatasources({ masked: true });
+      res.json({ datasources });
+    },
+  );
 
-  // POST /api/datasources/test — test connection without saving
-  router.post('/test', async (req: Request, res: Response) => {
+  // POST /api/datasources/test — test connection without saving (a "dry run"
+  // write probe; gated as `datasources:create` because the UX is "I'm about
+  // to add one and want to check it").
+  router.post(
+    '/test',
+    requirePermission(() => ac.eval(ACTIONS.DatasourcesCreate)),
+    async (req: Request, res: Response) => {
     const body = req.body as DatasourceBody;
     if (!body?.type || !body.url) {
       res.status(400).json({
@@ -70,10 +92,14 @@ export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
     } as Parameters<typeof testDatasourceConnection>[0];
     const result = await testDatasourceConnection(probe);
     res.status(result.ok ? 200 : 400).json(result);
-  });
+  },
+  );
 
   // POST /api/datasources — create
-  router.post('/', async (req: Request, res: Response) => {
+  router.post(
+    '/',
+    requirePermission(() => ac.eval(ACTIONS.DatasourcesCreate)),
+    async (req: Request, res: Response) => {
     const body = req.body as DatasourceBody;
     if (!body?.type || !body.url || !body.name) {
       res.status(400).json({
@@ -105,10 +131,16 @@ export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
     };
     const created = await setupConfig.createDatasource(input, actor);
     res.status(201).json({ datasource: maskForWire(created) });
-  });
+  },
+  );
 
   // GET /api/datasources/:id — get one
-  router.get('/:id', async (req: Request, res: Response) => {
+  router.get(
+    '/:id',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.DatasourcesRead, `datasources:uid:${req.params['id']}`),
+    ),
+    async (req: Request, res: Response) => {
     const id = req.params['id'] ?? '';
     const ds = await setupConfig.getDatasource(id, { masked: true });
     if (!ds) {
@@ -118,10 +150,16 @@ export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
       return;
     }
     res.json({ datasource: ds });
-  });
+  },
+  );
 
   // PUT /api/datasources/:id — update
-  router.put('/:id', async (req: Request, res: Response) => {
+  router.put(
+    '/:id',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.DatasourcesWrite, `datasources:uid:${req.params['id']}`),
+    ),
+    async (req: Request, res: Response) => {
     const id = req.params['id'] ?? '';
     const existing = await setupConfig.getDatasource(id);
     if (!existing) {
@@ -144,10 +182,16 @@ export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
     if (body.password !== undefined) patch.password = body.password;
     const updated = await setupConfig.updateDatasource(id, patch, actorFromReq(req));
     res.json({ datasource: updated ? maskForWire(updated) : null });
-  });
+  },
+  );
 
   // DELETE /api/datasources/:id — delete
-  router.delete('/:id', async (req: Request, res: Response) => {
+  router.delete(
+    '/:id',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.DatasourcesDelete, `datasources:uid:${req.params['id']}`),
+    ),
+    async (req: Request, res: Response) => {
     const id = req.params['id'] ?? '';
     const existed = await setupConfig.deleteDatasource(id, actorFromReq(req));
     if (!existed) {
@@ -157,10 +201,16 @@ export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
       return;
     }
     res.json({ ok: true });
-  });
+  },
+  );
 
   // POST /api/datasources/:id/test — test a saved datasource
-  router.post('/:id/test', async (req: Request, res: Response) => {
+  router.post(
+    '/:id/test',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.DatasourcesRead, `datasources:uid:${req.params['id']}`),
+    ),
+    async (req: Request, res: Response) => {
     const id = req.params['id'] ?? '';
     const ds = await setupConfig.getDatasource(id);
     if (!ds) {
@@ -178,7 +228,8 @@ export function createDatasourcesRouter(deps: DatasourcesRouterDeps): Router {
     } as Parameters<typeof testDatasourceConnection>[0];
     const result = await testDatasourceConnection(probe);
     res.status(result.ok ? 200 : 400).json(result);
-  });
+  },
+  );
 
   return router;
 }

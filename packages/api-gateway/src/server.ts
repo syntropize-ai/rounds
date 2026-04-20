@@ -230,12 +230,20 @@ export function createApp(): Application {
     //
     // `/api/query` is the live Prometheus proxy — no wizard use, always
     // authenticated.
-    const bootstrapAwareDashboardWrite = bootstrapAware({
+    // The old blanket `requirePermission('dashboard:write')` on the
+    // datasources mount was a mis-named legacy gate: datasource management
+    // gets `dashboard:*` by mistake via Editor's wildcard, so a Viewer
+    // promoted to Editor could silently add/edit/delete datasources. The
+    // router now carries per-action `datasources:read / create / write /
+    // delete` checks via `createRequirePermission(ac)`; here we only run
+    // the pre-permission chain (authMiddleware + orgContext) inside
+    // bootstrapAware so the wizard can still hit the routes unauthenticated
+    // while the bootstrap marker is unset.
+    const bootstrapAwareAuthOnly = bootstrapAware({
       setupConfig: setupConfigService,
       authMiddleware,
       postAuthChain: [
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
-        requirePermission('dashboard:write'),
       ],
     });
     const bootstrapAwareAdminWrite = bootstrapAware({
@@ -248,8 +256,8 @@ export function createApp(): Application {
     });
     app.use(
       '/api/datasources',
-      bootstrapAwareDashboardWrite,
-      createDatasourcesRouter({ setupConfig: setupConfigService }),
+      bootstrapAwareAuthOnly,
+      createDatasourcesRouter({ setupConfig: setupConfigService, ac: accessControlHolder }),
     );
     app.use(
       '/api/system',

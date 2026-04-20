@@ -27,11 +27,18 @@
 import type { NextFunction, Response } from 'express';
 import type { Evaluator } from '@agentic-obs/common';
 import type { AuthenticatedRequest } from './auth.js';
-import type { AccessControlService } from '../services/accesscontrol-service.js';
+import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 
 export type EvaluatorFactory = (req: AuthenticatedRequest) => Evaluator;
 
-export function createRequirePermission(ac: AccessControlService) {
+/**
+ * Accepts either the real `AccessControlService` or the late-binding
+ * `AccessControlHolder` — both implement `AccessControlSurface` (they only
+ * need `evaluate()` here). Late binding is required for routes mounted
+ * outside the auth-subsystem IIFE (e.g. `/api/datasources` — it runs
+ * pre-bootstrap before `accessControl` is constructed).
+ */
+export function createRequirePermission(ac: AccessControlSurface) {
   return function requirePermission(
     evaluatorOrFactory: Evaluator | EvaluatorFactory,
   ) {

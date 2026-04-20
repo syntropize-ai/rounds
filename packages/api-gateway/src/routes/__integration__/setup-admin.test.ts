@@ -69,6 +69,12 @@ async function buildApp(): Promise<Ctx> {
       sessions,
       audit,
       defaultOrgId: 'org_main',
+      // Tests that only exercise the pre-bootstrap branch never hit the
+      // auth chain, so a 401-returning stub is sufficient — if a test
+      // crosses into post-bootstrap, it must provide a real auth mw.
+      authMiddleware: (_req, res) => res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: 'auth required' },
+      }),
     }),
   );
   return { app, db, users, orgUsers, setupConfig };

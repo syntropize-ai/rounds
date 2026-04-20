@@ -30,7 +30,7 @@
  */
 
 import { Router } from 'express';
-import type { NextFunction, Request, Response } from 'express';
+import type { Request, RequestHandler, Response } from 'express';
 import { DEFAULT_LLM_MODEL } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type {
@@ -43,6 +43,7 @@ import type {
 import { AuditAction } from '@agentic-obs/common';
 import { ensureSafeUrl } from '../utils/url-validator.js';
 import { createRateLimiter, loginRateLimiter } from '../middleware/rate-limiter.js';
+import { bootstrapAware } from '../middleware/bootstrap-aware.js';
 import { hashPassword, passwordMinLength } from '../auth/local-provider.js';
 import type { SessionService } from '../auth/session-service.js';
 import { SESSION_COOKIE_NAME } from '../auth/session-service.js';
@@ -317,6 +318,15 @@ export interface SetupRouterDeps {
   sessions: SessionService;
   audit: AuditWriter;
   defaultOrgId?: string;
+  /**
+   * Required for the post-bootstrap half of `/api/setup/*`: once the
+   * instance has an admin, probe endpoints (`/llm/test`, `/llm/models`,
+   * `/config`, `/reset`) still need to work — but only for authed
+   * callers. The wizard's own admin-creation response sets a session
+   * cookie, so the same browser can continue the wizard without a
+   * separate /login round-trip.
+   */
+  authMiddleware: RequestHandler;
 }
 
 const setupRateLimiter = createRateLimiter({
@@ -324,44 +334,22 @@ const setupRateLimiter = createRateLimiter({
   max: 20,
 });
 
-/**
- * Allow setup endpoints unauthenticated iff the instance has never been
- * bootstrapped. Once `instance_settings.bootstrapped_at` is set (written
- * on first-admin creation) the gate closes permanently, independent of
- * whether the users table still has rows — the marker survives accidental
- * DELETEs and restores from clean backups.
- */
-function createRequireSetupAccess(deps: SetupRouterDeps) {
-  return function requireSetupAccess(req: Request, res: Response, next: NextFunction): void {
-    void deps.setupConfig
-      .isBootstrapped()
-      .then((bootstrapped) => {
-        if (!bootstrapped) {
-          next();
-          return;
-        }
-        res.status(401).json({
-          error: { code: 'UNAUTHORIZED', message: 'authentication required' },
-        });
-      })
-      .catch((err) => {
-        log.error({ err }, 'requireSetupAccess: bootstrap check failed');
-        res.status(500).json({
-          error: {
-            code: 'INTERNAL_ERROR',
-            message: 'setup gate unavailable',
-          },
-        });
-      });
-  };
-}
-
 // -- Router ---------------------------------------------------------
 
 export function createSetupRouter(deps: SetupRouterDeps): Router {
   const router = Router();
   const { setupConfig } = deps;
-  const requireSetupAccess = createRequireSetupAccess(deps);
+  // Pre-bootstrap: probe endpoints run open so the wizard can test a
+  // provider before the first admin exists. Post-bootstrap: the normal
+  // auth middleware kicks in — the admin-creation response sets a
+  // session cookie so the same browser continues the wizard authed.
+  // Hard-closing after bootstrap (the earlier pattern) broke the
+  // wizard's LLM step because the in-browser session cookie never
+  // reached the handler.
+  const requireSetupAccess = bootstrapAware({
+    setupConfig,
+    authMiddleware: deps.authMiddleware,
+  });
 
   router.use(setupRateLimiter);
 

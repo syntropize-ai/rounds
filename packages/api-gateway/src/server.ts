@@ -320,6 +320,7 @@ export function createApp(): Application {
           sessions: authSub.sessions,
           audit: authSub.audit,
           defaultOrgId: 'org_main',
+          authMiddleware,
         }),
       );
 

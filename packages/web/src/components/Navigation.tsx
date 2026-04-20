@@ -228,6 +228,15 @@ export default function Navigation() {
       || hasPermission('orgs:read')
       || hasPermission('teams:read')
       || hasPermission('serviceaccounts:read'));
+  // Settings page hosts write-only surfaces (datasources / LLM / notifications).
+  // Viewers have no grant there, so hiding the entry matches Grafana's
+  // behaviour and avoids a "Add source" button that 403s on click.
+  const canSeeSettings =
+    !!user
+    && (user.isServerAdmin
+      || hasPermission('datasources:write')
+      || hasPermission('datasources:create')
+      || hasPermission('admin:write'));
   // Default expanded on Home page, collapsed on others
   const [expanded, setExpanded] = useState(location.pathname === '/');
 
@@ -333,7 +342,9 @@ export default function Navigation() {
           <SidebarItem to="/admin" label="Admin" icon={<AdminIcon />} expanded={expanded} />
         )}
 
-        <SidebarItem to="/settings" label="Settings" icon={<SettingsIcon />} expanded={expanded} />
+        {canSeeSettings && (
+          <SidebarItem to="/settings" label="Settings" icon={<SettingsIcon />} expanded={expanded} />
+        )}
 
         {/* User avatar — opens a small menu. Clicking the avatar itself used
             to sign the user out directly, which surprised everyone who

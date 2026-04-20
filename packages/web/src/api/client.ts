@@ -177,6 +177,20 @@ class ApiClient {
         // a cryptic "Network error".
         throw new Error('Authentication required — add DEV_AUTH_BYPASS=true to .env and restart the server, or log in first.');
       }
+      if (res.status === 403) {
+        // Permission gate (HTTP layer or agent Layer 3 RBAC). Try to read
+        // the canonical `{ error: { message } }` envelope and surface the
+        // specific action the caller was denied; fall back to a generic
+        // explanation when the body isn't structured.
+        let detail = '';
+        try {
+          const body = await res.json() as { error?: { message?: string } };
+          if (body?.error?.message) detail = `: ${body.error.message}`;
+        } catch { /* non-JSON body */ }
+        throw new Error(
+          `Your role doesn't permit this action${detail}. Ask an administrator, or try a read-only question.`,
+        );
+      }
       throw new Error(`Stream request failed: ${res.status} ${res.statusText}`);
     }
 

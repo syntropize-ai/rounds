@@ -84,6 +84,43 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Gate a subtree on a permission predicate. Used for pages whose entire
+ * surface is write-only — hiding the nav entry alone is not enough since
+ * a URL-typer or a bookmarked link would still render the page shell. We
+ * redirect to Home rather than showing an empty page so the user isn't
+ * stuck on a broken chrome they can't use.
+ */
+function PermissionGate({
+  children,
+  allow,
+}: {
+  children: React.ReactNode;
+  allow: () => boolean;
+}) {
+  const { loading } = useAuth();
+  if (loading) return null;
+  if (!allow()) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+function SettingsGate({ children }: { children: React.ReactNode }) {
+  const { user, hasPermission } = useAuth();
+  return (
+    <PermissionGate
+      allow={() =>
+        !!user
+        && (user.isServerAdmin
+          || hasPermission('datasources:write')
+          || hasPermission('datasources:create')
+          || hasPermission('admin:write'))
+      }
+    >
+      {children}
+    </PermissionGate>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -111,7 +148,14 @@ export default function App() {
                   <Route path="/investigate/:id" element={<Navigate to="/investigations" replace />} />
                   <Route path="/evidence/:id" element={<Evidence />} />
                   <Route path="/actions" element={<ActionCenter />} />
-                  <Route path="/settings" element={<Settings />} />
+                  <Route
+                    path="/settings"
+                    element={
+                      <SettingsGate>
+                        <Settings />
+                      </SettingsGate>
+                    }
+                  />
                   <Route path="/admin/*" element={<Admin />} />
                   <Route path="/incidents/:id/post-mortem" element={<PostMortem />} />
                   <Route path="/dashboards" element={<Dashboards />} />

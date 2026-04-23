@@ -1,5 +1,37 @@
-import { eq, and, like, sql } from 'drizzle-orm';
-import { randomUUID } from 'crypto';
+/**
+ * AlertRuleRepository — SQLite-backed replacement for the in-memory
+ * AlertRuleStore (W6 / T6.A3).
+ *
+ * Backs four related tables from sqlite-schema.ts:
+ *   - alert_rules              primary rule entities + lifecycle state
+ *   - alert_history            append-only log of state transitions
+ *   - alert_silences           active and expired silence windows
+ *   - notification_policies    flat notification routing policies
+ *
+ * Written in the Drizzle-orm `sql` template style used by the W2
+ * instance-config repositories: we hand-roll parameterised SQL via
+ * `db.all()` / `db.run()` rather than using the query builder. JSON
+ * columns (condition, labels, matchers, channels, groupBy) are stored
+ * as TEXT and stringified/parsed at this layer with a safe fallback so
+ * a corrupt row can never wedge the whole repo.
+ *
+ * STATE MACHINE — preserved byte-for-byte from AlertRuleStore.transition().
+ * For any newState N where N !== oldState:
+ *   - one row is appended to alert_history with from/to/value/threshold
+ *     and the rule's labels snapshot at transition time
+ *   - the rule row is updated with state, stateChangedAt=now, lastEvaluatedAt=now
+ *   - N === 'pending'              → pendingSince = now
+ *   - N === 'firing'               → lastFiredAt = now, fireCount += 1, pendingSince = NULL
+ *   - N === 'normal' || 'resolved' → pendingSince = NULL
+ * When newState === oldState, transition() returns the existing rule
+ * untouched — NO history row, NO side-effect. This matches the in-memory
+ * behavior where the `this.update()` call was skipped for no-op
+ * transitions, which means stateChangedAt and lastEvaluatedAt were NOT
+ * refreshed for idempotent polls.
+ */
+
+import { sql, type SQL } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import type {
   AlertRule,
   AlertRuleState,
@@ -8,156 +40,261 @@ import type {
   NotificationPolicy,
   SilenceStatus,
 } from '@agentic-obs/common';
+import type {
+  IAlertRuleRepository,
+  AlertRuleFindAllOptions,
+} from '../interfaces.js';
 import type { SqliteClient } from '../../db/sqlite-client.js';
-import { toJsonColumn } from '../json-column.js';
-import {
-  alertRules,
-  alertHistory,
-  alertSilences,
-  notificationPolicies,
-} from '../../db/sqlite-schema.js';
-import type { IAlertRuleRepository, AlertRuleFindAllOptions } from '../interfaces.js';
+import { nowIso } from './instance-shared.js';
 
-type RuleRow = typeof alertRules.$inferSelect;
-type HistoryRow = typeof alertHistory.$inferSelect;
-type SilenceRow = typeof alertSilences.$inferSelect;
-type PolicyRow = typeof notificationPolicies.$inferSelect;
+// -- Row shapes (snake_case, matches `SELECT *` output) ----------------
 
-function rowToRule(row: RuleRow): AlertRule {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    originalPrompt: row.originalPrompt ?? undefined,
-    condition: row.condition as AlertRule['condition'],
-    evaluationIntervalSec: row.evaluationIntervalSec,
-    severity: row.severity as AlertRule['severity'],
-    labels: (row.labels as Record<string, string>) ?? undefined,
-    state: row.state as AlertRuleState,
-    stateChangedAt: row.stateChangedAt,
-    pendingSince: row.pendingSince ?? undefined,
-    notificationPolicyId: row.notificationPolicyId ?? undefined,
-    investigationId: row.investigationId ?? undefined,
-    workspaceId: row.workspaceId ?? undefined,
-    createdBy: row.createdBy,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    lastEvaluatedAt: row.lastEvaluatedAt ?? undefined,
-    lastFiredAt: row.lastFiredAt ?? undefined,
-    fireCount: row.fireCount,
-  };
+interface RuleRow {
+  id: string;
+  name: string;
+  description: string;
+  original_prompt: string | null;
+  condition: string;
+  evaluation_interval_sec: number;
+  severity: string;
+  labels: string | null;
+  state: string;
+  state_changed_at: string;
+  pending_since: string | null;
+  notification_policy_id: string | null;
+  investigation_id: string | null;
+  workspace_id: string | null;
+  org_id: string;
+  created_by: string;
+  last_evaluated_at: string | null;
+  last_fired_at: string | null;
+  fire_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
-function rowToHistoryEntry(row: HistoryRow): AlertHistoryEntry {
+interface HistoryRow {
+  id: string;
+  rule_id: string;
+  rule_name: string;
+  from_state: string;
+  to_state: string;
+  value: number;
+  threshold: number;
+  timestamp: string;
+  labels: string;
+}
+
+interface SilenceRow {
+  id: string;
+  matchers: string;
+  starts_at: string;
+  ends_at: string;
+  comment: string;
+  created_by: string;
+  created_at: string;
+}
+
+interface PolicyRow {
+  id: string;
+  name: string;
+  matchers: string;
+  channels: string;
+  group_by: string | null;
+  group_wait_sec: number | null;
+  group_interval_sec: number | null;
+  repeat_interval_sec: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// -- JSON helpers -----------------------------------------------------
+
+/**
+ * Parse a JSON column with a fallback. A corrupt row must not wedge the
+ * repo — we log nothing here (route layer will surface the problem) and
+ * return the default shape so callers get a well-formed object.
+ */
+function parseJsonOr<T>(raw: string | null | undefined, dflt: T): T {
+  if (raw === null || raw === undefined || raw === '') return dflt;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return dflt;
+  }
+}
+
+function stringifyJson(value: unknown): string {
+  return JSON.stringify(value ?? null);
+}
+
+function stringifyJsonOrNull(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return JSON.stringify(value);
+}
+
+// -- Row → domain mappers ---------------------------------------------
+
+function rowToRule(r: RuleRow): AlertRule {
+  const labels = parseJsonOr<Record<string, string> | null>(r.labels, null);
+  const rule: AlertRule = {
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    condition: parseJsonOr<AlertRule['condition']>(r.condition, {
+      query: '',
+      operator: '>',
+      threshold: 0,
+      forDurationSec: 0,
+    }),
+    evaluationIntervalSec: r.evaluation_interval_sec,
+    severity: r.severity as AlertRule['severity'],
+    state: r.state as AlertRuleState,
+    stateChangedAt: r.state_changed_at,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    fireCount: r.fire_count,
+  };
+  if (r.original_prompt !== null) rule.originalPrompt = r.original_prompt;
+  if (labels !== null) rule.labels = labels;
+  if (r.pending_since !== null) rule.pendingSince = r.pending_since;
+  if (r.notification_policy_id !== null) rule.notificationPolicyId = r.notification_policy_id;
+  if (r.investigation_id !== null) rule.investigationId = r.investigation_id;
+  if (r.workspace_id !== null) rule.workspaceId = r.workspace_id;
+  if (r.last_evaluated_at !== null) rule.lastEvaluatedAt = r.last_evaluated_at;
+  if (r.last_fired_at !== null) rule.lastFiredAt = r.last_fired_at;
+  return rule;
+}
+
+function rowToHistoryEntry(r: HistoryRow): AlertHistoryEntry {
   return {
-    id: row.id,
-    ruleId: row.ruleId,
-    ruleName: row.ruleName,
-    fromState: row.fromState as AlertRuleState,
-    toState: row.toState as AlertRuleState,
-    value: row.value,
-    threshold: row.threshold,
-    timestamp: row.timestamp,
-    labels: (row.labels as Record<string, string>) ?? {},
+    id: r.id,
+    ruleId: r.rule_id,
+    ruleName: r.rule_name,
+    fromState: r.from_state as AlertRuleState,
+    toState: r.to_state as AlertRuleState,
+    value: r.value,
+    threshold: r.threshold,
+    timestamp: r.timestamp,
+    labels: parseJsonOr<Record<string, string>>(r.labels, {}),
   };
 }
 
 function computeSilenceStatus(silence: { startsAt: string; endsAt: string }): SilenceStatus {
-  const now = new Date().toISOString();
+  const now = nowIso();
   if (silence.endsAt < now) return 'expired';
   if (silence.startsAt > now) return 'pending';
   return 'active';
 }
 
-function rowToSilence(row: SilenceRow): AlertSilence {
-  return {
-    id: row.id,
-    matchers: row.matchers as AlertSilence['matchers'],
-    startsAt: row.startsAt,
-    endsAt: row.endsAt,
-    comment: row.comment,
-    createdBy: row.createdBy,
-    createdAt: row.createdAt,
-    status: computeSilenceStatus(row),
+function rowToSilence(r: SilenceRow): AlertSilence {
+  const base = {
+    id: r.id,
+    matchers: parseJsonOr<AlertSilence['matchers']>(r.matchers, []),
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    comment: r.comment,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
   };
+  return { ...base, status: computeSilenceStatus(base) };
 }
 
-function rowToPolicy(row: PolicyRow): NotificationPolicy {
-  return {
-    id: row.id,
-    name: row.name,
-    matchers: row.matchers as NotificationPolicy['matchers'],
-    channels: row.channels as NotificationPolicy['channels'],
-    groupBy: (row.groupBy as string[]) ?? undefined,
-    groupWaitSec: row.groupWaitSec ?? undefined,
-    groupIntervalSec: row.groupIntervalSec ?? undefined,
-    repeatIntervalSec: row.repeatIntervalSec ?? undefined,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+function rowToPolicy(r: PolicyRow): NotificationPolicy {
+  const p: NotificationPolicy = {
+    id: r.id,
+    name: r.name,
+    matchers: parseJsonOr<NotificationPolicy['matchers']>(r.matchers, []),
+    channels: parseJsonOr<NotificationPolicy['channels']>(r.channels, []),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   };
+  if (r.group_by !== null) p.groupBy = parseJsonOr<string[]>(r.group_by, []);
+  if (r.group_wait_sec !== null) p.groupWaitSec = r.group_wait_sec;
+  if (r.group_interval_sec !== null) p.groupIntervalSec = r.group_interval_sec;
+  if (r.repeat_interval_sec !== null) p.repeatIntervalSec = r.repeat_interval_sec;
+  return p;
 }
 
-export class SqliteAlertRuleRepository implements IAlertRuleRepository {
+// -- Repository -------------------------------------------------------
+
+export class AlertRuleRepository implements IAlertRuleRepository {
   constructor(private readonly db: SqliteClient) {}
 
-  // — Rules
+  // -- Rules ----------------------------------------------------------
 
   async create(
     data: Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>,
   ): Promise<AlertRule> {
-    const now = new Date().toISOString();
     const id = `alert_${randomUUID().slice(0, 12)}`;
-    const [row] = await this.db
-      .insert(alertRules)
-      .values({
-        id,
-        name: data.name,
-        description: data.description,
-        originalPrompt: data.originalPrompt,
-        condition: toJsonColumn(data.condition),
-        evaluationIntervalSec: data.evaluationIntervalSec,
-        severity: data.severity,
-        labels: toJsonColumn(data.labels),
-        state: 'normal',
-        stateChangedAt: now,
-        notificationPolicyId: data.notificationPolicyId,
-        investigationId: data.investigationId,
-        workspaceId: data.workspaceId,
-        createdBy: data.createdBy,
-        fireCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    return rowToRule(row!);
+    const now = nowIso();
+    this.db.run(sql`
+      INSERT INTO alert_rules (
+        id, name, description, original_prompt, condition,
+        evaluation_interval_sec, severity, labels, state,
+        state_changed_at, pending_since, notification_policy_id,
+        investigation_id, workspace_id, org_id, created_by,
+        last_evaluated_at, last_fired_at, fire_count,
+        created_at, updated_at
+      ) VALUES (
+        ${id},
+        ${data.name},
+        ${data.description},
+        ${data.originalPrompt ?? null},
+        ${stringifyJson(data.condition)},
+        ${data.evaluationIntervalSec},
+        ${data.severity},
+        ${stringifyJsonOrNull(data.labels)},
+        ${'normal'},
+        ${now},
+        ${null},
+        ${data.notificationPolicyId ?? null},
+        ${data.investigationId ?? null},
+        ${data.workspaceId ?? null},
+        ${'org_main'},
+        ${data.createdBy},
+        ${data.lastEvaluatedAt ?? null},
+        ${data.lastFiredAt ?? null},
+        ${0},
+        ${now},
+        ${now}
+      )
+    `);
+    const saved = await this.findById(id);
+    if (!saved) throw new Error(`[AlertRuleRepository] create: row ${id} not found after insert`);
+    return saved;
   }
 
   async findById(id: string): Promise<AlertRule | undefined> {
-    const [row] = await this.db.select().from(alertRules).where(eq(alertRules.id, id));
-    return row ? rowToRule(row) : undefined;
+    const rows = this.db.all<RuleRow>(sql`SELECT * FROM alert_rules WHERE id = ${id}`);
+    return rows[0] ? rowToRule(rows[0]) : undefined;
   }
 
   async findAll(filter: AlertRuleFindAllOptions = {}): Promise<{ list: AlertRule[]; total: number }> {
-    const conditions: ReturnType<typeof eq>[] = [];
-    if (filter.state) conditions.push(eq(alertRules.state, filter.state));
-    if (filter.severity) conditions.push(eq(alertRules.severity, filter.severity));
+    const wheres: SQL[] = [];
+    if (filter.state) wheres.push(sql`state = ${filter.state}`);
+    if (filter.severity) wheres.push(sql`severity = ${filter.severity}`);
+    const whereClause = wheres.length
+      ? sql.join([sql`WHERE`, sql.join(wheres, sql` AND `)], sql` `)
+      : sql``;
 
-    const where = conditions.length ? and(...conditions) : undefined;
+    let rows = this.db.all<RuleRow>(sql`
+      SELECT * FROM alert_rules ${whereClause}
+      ORDER BY updated_at DESC
+    `);
 
-    // Fetch all matching rows for search + total count
-    let rows = await this.db
-      .select()
-      .from(alertRules)
-      .where(where)
-      .orderBy(sql`${alertRules.updatedAt} desc`);
-
+    // In-memory search mirrors the old store (name / description / label values).
     if (filter.search) {
       const q = filter.search.toLowerCase();
-      rows = rows.filter((r) =>
-        r.name.toLowerCase().includes(q)
-        || r.description.toLowerCase().includes(q)
-        || Object.values((r.labels as Record<string, string>) ?? {}).some((v) => v.toLowerCase().includes(q)),
-      );
+      rows = rows.filter((r) => {
+        const labels = parseJsonOr<Record<string, string>>(r.labels, {});
+        return (
+          r.name.toLowerCase().includes(q)
+          || r.description.toLowerCase().includes(q)
+          || Object.values(labels).some((v) => v.toLowerCase().includes(q))
+        );
+      });
     }
 
     const total = rows.length;
@@ -168,10 +305,9 @@ export class SqliteAlertRuleRepository implements IAlertRuleRepository {
   }
 
   async findByWorkspace(workspaceId: string): Promise<AlertRule[]> {
-    const rows = await this.db
-      .select()
-      .from(alertRules)
-      .where(eq(alertRules.workspaceId, workspaceId));
+    const rows = this.db.all<RuleRow>(
+      sql`SELECT * FROM alert_rules WHERE workspace_id = ${workspaceId}`,
+    );
     return rows.map(rowToRule);
   }
 
@@ -179,58 +315,105 @@ export class SqliteAlertRuleRepository implements IAlertRuleRepository {
     id: string,
     patch: Partial<Omit<AlertRule, 'id' | 'createdAt'>>,
   ): Promise<AlertRule | undefined> {
-    const sets: Record<string, unknown> = { updatedAt: new Date().toISOString() };
-    if (patch.name !== undefined) sets.name = patch.name;
-    if (patch.description !== undefined) sets.description = patch.description;
-    if (patch.originalPrompt !== undefined) sets.originalPrompt = patch.originalPrompt;
-    if (patch.condition !== undefined) sets.condition = patch.condition;
-    if (patch.evaluationIntervalSec !== undefined) sets.evaluationIntervalSec = patch.evaluationIntervalSec;
-    if (patch.severity !== undefined) sets.severity = patch.severity;
-    if (patch.labels !== undefined) sets.labels = patch.labels;
-    if (patch.state !== undefined) sets.state = patch.state;
-    if (patch.stateChangedAt !== undefined) sets.stateChangedAt = patch.stateChangedAt;
-    if (patch.pendingSince !== undefined) sets.pendingSince = patch.pendingSince;
-    if ('pendingSince' in patch && patch.pendingSince === undefined) sets.pendingSince = null;
-    if (patch.notificationPolicyId !== undefined) sets.notificationPolicyId = patch.notificationPolicyId;
-    if (patch.investigationId !== undefined) sets.investigationId = patch.investigationId;
-    if (patch.workspaceId !== undefined) sets.workspaceId = patch.workspaceId;
-    if (patch.lastEvaluatedAt !== undefined) sets.lastEvaluatedAt = patch.lastEvaluatedAt;
-    if (patch.lastFiredAt !== undefined) sets.lastFiredAt = patch.lastFiredAt;
-    if (patch.fireCount !== undefined) sets.fireCount = patch.fireCount;
+    const existing = await this.findById(id);
+    if (!existing) return undefined;
 
-    const [row] = await this.db
-      .update(alertRules)
-      .set(sets)
-      .where(eq(alertRules.id, id))
-      .returning();
-    return row ? rowToRule(row) : undefined;
+    // Merge: `undefined` in the patch is treated as "clear the field"
+    // for optional columns — matches the in-memory store which assigns
+    // `patch.pendingSince = undefined` in transition() to clear it.
+    const hasKey = (k: string): boolean => Object.prototype.hasOwnProperty.call(patch, k);
+
+    const merged = {
+      name: patch.name ?? existing.name,
+      description: patch.description ?? existing.description,
+      originalPrompt: hasKey('originalPrompt') ? patch.originalPrompt ?? null : existing.originalPrompt ?? null,
+      condition: patch.condition ?? existing.condition,
+      evaluationIntervalSec: patch.evaluationIntervalSec ?? existing.evaluationIntervalSec,
+      severity: patch.severity ?? existing.severity,
+      labels: hasKey('labels') ? patch.labels ?? null : existing.labels ?? null,
+      state: patch.state ?? existing.state,
+      stateChangedAt: patch.stateChangedAt ?? existing.stateChangedAt,
+      pendingSince: hasKey('pendingSince') ? patch.pendingSince ?? null : existing.pendingSince ?? null,
+      notificationPolicyId: hasKey('notificationPolicyId')
+        ? patch.notificationPolicyId ?? null
+        : existing.notificationPolicyId ?? null,
+      investigationId: hasKey('investigationId')
+        ? patch.investigationId ?? null
+        : existing.investigationId ?? null,
+      workspaceId: hasKey('workspaceId') ? patch.workspaceId ?? null : existing.workspaceId ?? null,
+      lastEvaluatedAt: hasKey('lastEvaluatedAt')
+        ? patch.lastEvaluatedAt ?? null
+        : existing.lastEvaluatedAt ?? null,
+      lastFiredAt: hasKey('lastFiredAt') ? patch.lastFiredAt ?? null : existing.lastFiredAt ?? null,
+      fireCount: patch.fireCount ?? existing.fireCount,
+    };
+
+    const now = nowIso();
+    this.db.run(sql`
+      UPDATE alert_rules SET
+        name                    = ${merged.name},
+        description             = ${merged.description},
+        original_prompt         = ${merged.originalPrompt},
+        condition               = ${stringifyJson(merged.condition)},
+        evaluation_interval_sec = ${merged.evaluationIntervalSec},
+        severity                = ${merged.severity},
+        labels                  = ${stringifyJsonOrNull(merged.labels)},
+        state                   = ${merged.state},
+        state_changed_at        = ${merged.stateChangedAt},
+        pending_since           = ${merged.pendingSince},
+        notification_policy_id  = ${merged.notificationPolicyId},
+        investigation_id        = ${merged.investigationId},
+        workspace_id            = ${merged.workspaceId},
+        last_evaluated_at       = ${merged.lastEvaluatedAt},
+        last_fired_at           = ${merged.lastFiredAt},
+        fire_count              = ${merged.fireCount},
+        updated_at              = ${now}
+      WHERE id = ${id}
+    `);
+    return this.findById(id);
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.db.delete(alertRules).where(eq(alertRules.id, id)).returning();
-    return result.length > 0;
+    const before = await this.findById(id);
+    if (!before) return false;
+    this.db.run(sql`DELETE FROM alert_rules WHERE id = ${id}`);
+    return true;
   }
 
-  async transition(id: string, newState: AlertRuleState, value?: number): Promise<AlertRule | undefined> {
+  async transition(
+    id: string,
+    newState: AlertRuleState,
+    value?: number,
+  ): Promise<AlertRule | undefined> {
     const rule = await this.findById(id);
     if (!rule) return undefined;
-    if (rule.state === newState) return rule;
+    const oldState = rule.state;
+    // No-op transition: return the rule untouched. Mirrors the in-memory
+    // store which early-returned before appending history or updating
+    // stateChangedAt/lastEvaluatedAt for idempotent polls.
+    if (oldState === newState) return rule;
 
-    const now = new Date().toISOString();
+    const now = nowIso();
 
-    // Record history entry
-    await this.db.insert(alertHistory).values({
-      id: randomUUID(),
-      ruleId: id,
-      ruleName: rule.name,
-      fromState: rule.state,
-      toState: newState,
-      value: value ?? 0,
-      threshold: rule.condition.threshold,
-      timestamp: now,
-      labels: toJsonColumn(rule.labels ?? {}),
-    });
+    // 1) append history row
+    this.db.run(sql`
+      INSERT INTO alert_history (
+        id, rule_id, rule_name, from_state, to_state,
+        value, threshold, timestamp, labels
+      ) VALUES (
+        ${randomUUID()},
+        ${id},
+        ${rule.name},
+        ${oldState},
+        ${newState},
+        ${value ?? 0},
+        ${rule.condition.threshold},
+        ${now},
+        ${stringifyJson(rule.labels ?? {})}
+      )
+    `);
 
+    // 2) apply state-specific side-effects exactly as the old store did
     const patch: Partial<AlertRule> = {
       state: newState,
       stateChangedAt: now,
@@ -249,58 +432,61 @@ export class SqliteAlertRuleRepository implements IAlertRuleRepository {
     return this.update(id, patch);
   }
 
-  // — History
+  // -- History --------------------------------------------------------
 
   async getHistory(ruleId: string, limit = 50): Promise<AlertHistoryEntry[]> {
-    const rows = await this.db
-      .select()
-      .from(alertHistory)
-      .where(eq(alertHistory.ruleId, ruleId))
-      .orderBy(sql`${alertHistory.timestamp} desc`)
-      .limit(limit);
+    const rows = this.db.all<HistoryRow>(sql`
+      SELECT * FROM alert_history
+      WHERE rule_id = ${ruleId}
+      ORDER BY timestamp DESC
+      LIMIT ${limit}
+    `);
     return rows.map(rowToHistoryEntry);
   }
 
   async getAllHistory(limit = 100): Promise<AlertHistoryEntry[]> {
-    const rows = await this.db
-      .select()
-      .from(alertHistory)
-      .orderBy(sql`${alertHistory.timestamp} desc`)
-      .limit(limit);
+    const rows = this.db.all<HistoryRow>(sql`
+      SELECT * FROM alert_history
+      ORDER BY timestamp DESC
+      LIMIT ${limit}
+    `);
     return rows.map(rowToHistoryEntry);
   }
 
-  // — Silences
+  // -- Silences -------------------------------------------------------
 
   async createSilence(data: Omit<AlertSilence, 'id' | 'createdAt'>): Promise<AlertSilence> {
-    const now = new Date().toISOString();
     const id = `silence_${randomUUID().slice(0, 12)}`;
-    const [row] = await this.db
-      .insert(alertSilences)
-      .values({
-        id,
-        matchers: data.matchers as unknown[],
-        startsAt: data.startsAt,
-        endsAt: data.endsAt,
-        comment: data.comment,
-        createdBy: data.createdBy,
-        createdAt: now,
-      })
-      .returning();
-    return rowToSilence(row!);
+    const now = nowIso();
+    this.db.run(sql`
+      INSERT INTO alert_silences (
+        id, matchers, starts_at, ends_at, comment, created_by, created_at
+      ) VALUES (
+        ${id},
+        ${stringifyJson(data.matchers)},
+        ${data.startsAt},
+        ${data.endsAt},
+        ${data.comment},
+        ${data.createdBy},
+        ${now}
+      )
+    `);
+    const rows = this.db.all<SilenceRow>(sql`SELECT * FROM alert_silences WHERE id = ${id}`);
+    if (!rows[0])
+      throw new Error(`[AlertRuleRepository] createSilence: row ${id} not found after insert`);
+    return rowToSilence(rows[0]);
   }
 
   async findSilences(): Promise<AlertSilence[]> {
-    const now = new Date().toISOString();
-    const rows = await this.db
-      .select()
-      .from(alertSilences)
-      .where(sql`${alertSilences.endsAt} > ${now}`);
+    const now = nowIso();
+    const rows = this.db.all<SilenceRow>(
+      sql`SELECT * FROM alert_silences WHERE ends_at > ${now}`,
+    );
     return rows.map(rowToSilence);
   }
 
   async findAllSilencesIncludingExpired(): Promise<AlertSilence[]> {
-    const rows = await this.db.select().from(alertSilences);
+    const rows = this.db.all<SilenceRow>(sql`SELECT * FROM alert_silences`);
     return rows.map(rowToSilence);
   }
 
@@ -308,90 +494,126 @@ export class SqliteAlertRuleRepository implements IAlertRuleRepository {
     id: string,
     patch: Partial<Omit<AlertSilence, 'id' | 'createdAt'>>,
   ): Promise<AlertSilence | undefined> {
-    const sets: Record<string, unknown> = {};
-    if (patch.matchers !== undefined) sets.matchers = patch.matchers;
-    if (patch.startsAt !== undefined) sets.startsAt = patch.startsAt;
-    if (patch.endsAt !== undefined) sets.endsAt = patch.endsAt;
-    if (patch.comment !== undefined) sets.comment = patch.comment;
-    if (patch.createdBy !== undefined) sets.createdBy = patch.createdBy;
-
-    const [row] = await this.db
-      .update(alertSilences)
-      .set(sets)
-      .where(eq(alertSilences.id, id))
-      .returning();
-    return row ? rowToSilence(row) : undefined;
+    const rows = this.db.all<SilenceRow>(sql`SELECT * FROM alert_silences WHERE id = ${id}`);
+    const current = rows[0];
+    if (!current) return undefined;
+    const merged = {
+      matchers: patch.matchers !== undefined
+        ? stringifyJson(patch.matchers)
+        : current.matchers,
+      startsAt: patch.startsAt ?? current.starts_at,
+      endsAt: patch.endsAt ?? current.ends_at,
+      comment: patch.comment ?? current.comment,
+      createdBy: patch.createdBy ?? current.created_by,
+    };
+    this.db.run(sql`
+      UPDATE alert_silences SET
+        matchers   = ${merged.matchers},
+        starts_at  = ${merged.startsAt},
+        ends_at    = ${merged.endsAt},
+        comment    = ${merged.comment},
+        created_by = ${merged.createdBy}
+      WHERE id = ${id}
+    `);
+    const updated = this.db.all<SilenceRow>(sql`SELECT * FROM alert_silences WHERE id = ${id}`);
+    return updated[0] ? rowToSilence(updated[0]) : undefined;
   }
 
   async deleteSilence(id: string): Promise<boolean> {
-    const result = await this.db.delete(alertSilences).where(eq(alertSilences.id, id)).returning();
-    return result.length > 0;
+    const rows = this.db.all<SilenceRow>(sql`SELECT id FROM alert_silences WHERE id = ${id}`);
+    if (rows.length === 0) return false;
+    this.db.run(sql`DELETE FROM alert_silences WHERE id = ${id}`);
+    return true;
   }
 
-  // — Notification Policies (flat)
+  // -- Notification Policies (flat) -----------------------------------
 
   async createPolicy(
     data: Omit<NotificationPolicy, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<NotificationPolicy> {
-    const now = new Date().toISOString();
     const id = `policy_${randomUUID().slice(0, 12)}`;
-    const [row] = await this.db
-      .insert(notificationPolicies)
-      .values({
-        id,
-        name: data.name,
-        matchers: data.matchers as unknown[],
-        channels: data.channels as unknown[],
-        groupBy: data.groupBy ?? null,
-        groupWaitSec: data.groupWaitSec ?? null,
-        groupIntervalSec: data.groupIntervalSec ?? null,
-        repeatIntervalSec: data.repeatIntervalSec ?? null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    return rowToPolicy(row!);
+    const now = nowIso();
+    this.db.run(sql`
+      INSERT INTO notification_policies (
+        id, name, matchers, channels, group_by,
+        group_wait_sec, group_interval_sec, repeat_interval_sec,
+        created_at, updated_at
+      ) VALUES (
+        ${id},
+        ${data.name},
+        ${stringifyJson(data.matchers)},
+        ${stringifyJson(data.channels)},
+        ${stringifyJsonOrNull(data.groupBy)},
+        ${data.groupWaitSec ?? null},
+        ${data.groupIntervalSec ?? null},
+        ${data.repeatIntervalSec ?? null},
+        ${now},
+        ${now}
+      )
+    `);
+    const saved = await this.findPolicyById(id);
+    if (!saved)
+      throw new Error(`[AlertRuleRepository] createPolicy: row ${id} not found after insert`);
+    return saved;
   }
 
   async findAllPolicies(): Promise<NotificationPolicy[]> {
-    const rows = await this.db.select().from(notificationPolicies);
+    const rows = this.db.all<PolicyRow>(sql`SELECT * FROM notification_policies`);
     return rows.map(rowToPolicy);
   }
 
   async findPolicyById(id: string): Promise<NotificationPolicy | undefined> {
-    const [row] = await this.db
-      .select()
-      .from(notificationPolicies)
-      .where(eq(notificationPolicies.id, id));
-    return row ? rowToPolicy(row) : undefined;
+    const rows = this.db.all<PolicyRow>(
+      sql`SELECT * FROM notification_policies WHERE id = ${id}`,
+    );
+    return rows[0] ? rowToPolicy(rows[0]) : undefined;
   }
 
   async updatePolicy(
     id: string,
     patch: Partial<Omit<NotificationPolicy, 'id' | 'createdAt'>>,
   ): Promise<NotificationPolicy | undefined> {
-    const sets: Record<string, unknown> = { updatedAt: new Date().toISOString() };
-    if (patch.name !== undefined) sets.name = patch.name;
-    if (patch.matchers !== undefined) sets.matchers = patch.matchers;
-    if (patch.channels !== undefined) sets.channels = patch.channels;
-    if (patch.groupBy !== undefined) sets.groupBy = patch.groupBy;
-    if (patch.groupWaitSec !== undefined) sets.groupWaitSec = patch.groupWaitSec;
-    if (patch.groupIntervalSec !== undefined) sets.groupIntervalSec = patch.groupIntervalSec;
-    if (patch.repeatIntervalSec !== undefined) sets.repeatIntervalSec = patch.repeatIntervalSec;
-
-    const [row] = await this.db
-      .update(notificationPolicies)
-      .set(sets)
-      .where(eq(notificationPolicies.id, id))
-      .returning();
-    return row ? rowToPolicy(row) : undefined;
+    const existing = await this.findPolicyById(id);
+    if (!existing) return undefined;
+    const hasKey = (k: string): boolean => Object.prototype.hasOwnProperty.call(patch, k);
+    const merged = {
+      name: patch.name ?? existing.name,
+      matchers: patch.matchers ?? existing.matchers,
+      channels: patch.channels ?? existing.channels,
+      groupBy: hasKey('groupBy') ? patch.groupBy : existing.groupBy,
+      groupWaitSec: hasKey('groupWaitSec') ? patch.groupWaitSec : existing.groupWaitSec,
+      groupIntervalSec: hasKey('groupIntervalSec') ? patch.groupIntervalSec : existing.groupIntervalSec,
+      repeatIntervalSec: hasKey('repeatIntervalSec') ? patch.repeatIntervalSec : existing.repeatIntervalSec,
+    };
+    const now = nowIso();
+    this.db.run(sql`
+      UPDATE notification_policies SET
+        name                = ${merged.name},
+        matchers            = ${stringifyJson(merged.matchers)},
+        channels            = ${stringifyJson(merged.channels)},
+        group_by            = ${stringifyJsonOrNull(merged.groupBy)},
+        group_wait_sec      = ${merged.groupWaitSec ?? null},
+        group_interval_sec  = ${merged.groupIntervalSec ?? null},
+        repeat_interval_sec = ${merged.repeatIntervalSec ?? null},
+        updated_at          = ${now}
+      WHERE id = ${id}
+    `);
+    return this.findPolicyById(id);
   }
 
   async deletePolicy(id: string): Promise<boolean> {
-    const result = await this.db
-      .delete(notificationPolicies)
-      .where(eq(notificationPolicies.id, id))
-      .returning();
-    return result.length > 0;
+    const existing = await this.findPolicyById(id);
+    if (!existing) return false;
+    this.db.run(sql`DELETE FROM notification_policies WHERE id = ${id}`);
+    return true;
   }
 }
+
+/**
+ * Back-compat alias — existing consumers (factory.ts, barrel) import
+ * `SqliteAlertRuleRepository`. Keep the name exported so the parent's
+ * factory reconciliation in a follow-up commit doesn't crash the build
+ * before it lands.
+ */
+export const SqliteAlertRuleRepository = AlertRuleRepository;
+export type SqliteAlertRuleRepository = AlertRuleRepository;

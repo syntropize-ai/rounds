@@ -1,63 +1,108 @@
 # Tech-debt cleanup — progress snapshot (2026-04-19)
 
-Multi-wave cleanup driven by audit at [tech-debt-audit-plan.md](./tech-debt-audit-plan.md).
+Multi-wave cleanup driven by audit at [tech-debt-audit-plan.md](./tech-debt-audit-plan.md),
+plus a follow-up sprint on permissions / UX surfaced by manual smoke test.
 
 ## User decisions (locked in)
 
-- `instance_datasources.org_id` TEXT NULL, null = instance-global; no per-org logic in v1
+- `instance_datasources.org_id` TEXT NULL — null = instance-global; no per-org logic in v1
 - Credentials encrypt via existing `SECRET_KEY` / `@agentic-obs/common/crypto`
-- **No migration code** — fresh build, no data, no users. `setup-config.json` is deleted outright, not migrated.
-- Ship everything AGPL (no OSS/Enterprise split scaffolding yet)
+- **No migration code** — fresh build, no data, no users. Old `setup-config.json` deleted outright.
+- Ship everything AGPL (no OSS/Enterprise split scaffolding)
+- One orchestrator agent for every chat surface (specialized agents removed) — RBAC at Layer 3 does the per-user filtering, not per-page agent ceilings
+- "Legacy 该删的就删" — no compatibility shims; rip out dead code on sight
 
-## Commits landed (on `main`, **not pushed**, ~28 commits ahead of origin)
+## Status
 
-Newest first:
+- **53 commits ahead of `origin/main`**
+- **Pushed to `origin/dev`** — PR-ready at <https://github.com/openobs/openobs/pull/new/dev>
+- Workspace tests: **1037/1037 pass**
+- `npx tsc --build` clean across all 8 packages
 
-- `156baea` **W4 partial** — T4.1 unified error envelope everywhere (middleware, routes, services, common types); T4.2 web-client parsing only. **T4.2 server-side / T4.3 / T4.4 deferred** — W4 agent ran out of tokens.
-- `436ca73` **W3** — frontend dedup (single-source types; 3 latent bugs fixed: corporate-gateway provider fallback, missing authType, invalid hex color)
-- `ab94368` **W2** (T2.1–T2.7, one big commit — tasks interleaved) — SQLite migration 019, 3 repos with AES-GCM encryption, `SetupConfigService`, `/api/system/*` namespace, `bootstrapAware()` middleware, `instance_settings.bootstrapped_at` marker. Deleted: `setup-config.json` path, `inMemoryConfig`, `loadConfig`/`saveConfig`, `getSetupConfig`, `POST /api/setup/complete`, `POST /api/setup/datasource`, `POST /api/setup/notifications`, `body.test` flag, legacy in-memory server branch.
-- `fe52cb4` audit plan doc + `.gitignore` adds `.openobs/` + `.agentic-obs/`
-- `d317380` **T1.4** LDAP RFC 4515 escape
-- `2518dd4` **T1.2** remove insecure SECRET_KEY dev fallback
-- `e36b639` **T1.1** SSRF coverage (setup LLM/models fetches, webhook delivery, OIDC discovery)
-- `f7fa0e6` **T1.3** login rate limiter + HTTP 429 + Retry-After
-- `1bb6a6c` pre-W1 setup wizard bug fixes (duplicate datasources, avatar menu popover, SetupGuard redirect)
+## Commit history (newest first, since the original doc)
 
-## Deferred scope (needs a follow-up run)
+### Backend RBAC cleanup (this evening)
 
-### W4 leftovers
+- `dbdc154` — **Backend RBAC wave 2**: migrated chat / dashboard / feed / meta / notifications / investigation-reports / versions / webhooks routers + websocket gateway off the legacy string-based `requirePermission`. **Deleted `packages/api-gateway/src/middleware/rbac.ts`** entirely (BUILTIN_ROLES, RoleStore, hasPermission, legacyRoleFromIdentity all gone). Side-fix: feed mutating endpoints were under a Viewer-readable gate — now under `InvestigationsWrite`.
+- `16284a8` — **Backend RBAC wave 1**: alert-rules / investigation / approval routes migrated off legacy strings; introduced canonical `instance.config:read/write` action; Settings LLM/Notifications/Reset stop using `datasources:write` as a hack.
+- `71c0a46` — **Full frontend permission audit**: gated every mutating affordance (Alerts Disable/Delete, Dashboards "+New" / "+Folder", Investigations new/delete, ActionCenter approve/reject, DashboardWorkspace title-rename / move-folder / Permissions, per-panel hover edit/trash, Settings tabs, Admin Users delete). Also drops the legacy-string fallbacks left in earlier audit.
+- `bfc4a21` — first slice of frontend gating: Settings nav + `/settings` route, Dashboard Edit / Add Panel / Delete buttons.
+- `e718f5e` — `/api/datasources` granular per-action RBAC (was incorrectly on `dashboard:write`).
 
-- **T4.2 server-side silent swallows** still there:
-  - `packages/llm-gateway/src/router/smart-router.ts:~124` — LLM JSON parse → `{}` silently
-  - `packages/web/src/api/client.ts:36-50` — `authHeaders()` catches localStorage parse, still has bare `// ignore`
-  - `packages/data-layer/src/cache/redis.ts:30-31` — JSON.parse fail → `null` silently
-  - `packages/adapters/src/prometheus/metrics-adapter.ts:71,80,95` — HTTP fail returns `[]` silently
-  - `packages/llm-gateway/src/providers/*` — every `listModels()` returns `[]` on error with no log
-- **T4.3 legacy path cleanup** not started:
-  - `packages/api-gateway/src/paths.ts` — `LEGACY_NAMES = ['.agentic-obs', '.uname-data']` (lines ~33-34) still there. `legacyHomeConfigPath()` export should be removed too if no consumer remains (W2 deleted the setup.ts caller).
-  - `packages/api-gateway/src/persistence.ts` — `legacyStoresPath()`
-  - `packages/common/src/rbac/actions.ts:112` — "legacy, kept for back-compat" stale comment
-  - `packages/common/src/models/index.ts:14` — stale workspace-model comment
-- **T4.4 dead code sweep** not started — needs a re-audit to identify what survived W1+W2+W3 that nothing consumes.
+### Server-admin UX
 
-## Pending — W5 (verify)
+- `28fc8a4` — Grafana-parity Server Admin org-edit page: `userCount` per org row, drill-down `/admin/orgs/:id` for cross-org member management without switching active org.
 
-1. `npx tsc --build` from repo root — currently clean as of `156baea`.
-2. **Vitest workspace-wide failure**: multiple agents reported `TypeError: Cannot read properties of undefined (reading 'config')` on every test file, likely `vitest@4.1.4` incompatibility. Diagnose. Probably a package-lock or config regression from the W1–W2 work.
-3. **`auth-login.test.ts`**: agents flagged pre-existing failures (rate limiter + audit shape). With the vitest fix in place, confirm whether these are real regressions from T1.3 (`AuthError.rateLimited(retryAfterSeconds)` signature change, new `loginRateLimiter` on `/api/setup/admin`) or pre-existing.
-4. Wipe `.openobs/` before smoke test (user approved — "没有数据没有用户").
-5. `npm start` — manual smoke through the setup wizard end-to-end. Verify:
-   - admin bootstrap sets `instance_settings.bootstrapped_at`
-   - LLM provider saves via `PUT /api/system/llm` (unauth pre-bootstrap via `bootstrapAware`)
-   - datasource add/edit/delete via `/api/datasources` (no more `POST /api/setup/datasource`)
-   - **no `setup-config.json` is ever written** to `.openobs/` (the positive-deletion acceptance test)
-   - browser Back doesn't land on setup after configured
-6. Write `docs/config-architecture.md` — final target state described (one-source-of-truth SQLite, bootstrap flow, credential encryption, bootstrap-aware middleware model).
-7. (Optional) push the ~28 local commits once user approves — first push of this sprint.
+### Smoke-test bug fixes (rolling)
+
+- `c9a690f` — RowActions menu in admin tables now portals to body so the dashboard's `overflow-x-auto` can't clip it.
+- `5ee2cc3` — OrgSwitcher renders org names (added `name` to `/api/user` orgs[]).
+- `232acab` — Team members drawer shows login/email/name (JOIN on user table).
+- `8715e5b` — Admin → Users tab hides service accounts (default `is_service_account=false` filter).
+- `28ffcb4` — `/api/orgs` + `/api/org/users` use the canonical `{ items, totalCount }` envelope (was bare arrays).
+- `c9ead0d`, `2e20715`, `a4c1fa9` — agent `dashboard.create` / `investigation.create` / `create_alert_rule` now thread `workspaceId: ctx.identity.orgId` so the new row is reachable from the redirect.
+- `d626a50` — setup routes use `bootstrapAware` instead of hard-closing post-bootstrap, so the wizard's LLM step works after admin creation.
+- `f6cbe36` — collapse to single `orchestrator` agent, removing the 4 per-page specialized agents.
+- `fe8b8ae` — global rate limit raised 100 → 600 req/min/IP (operator-tunable via `OPENOBS_RATE_LIMIT_MAX`).
+- `1bb6a6c` — setup wizard duplicate-datasource bug, avatar menu popover, SetupGuard back-button trap.
+
+### W4 deferred + W5 verify (earlier this sprint)
+
+- `25e082d` — apikey-service tests assert new AppError shape (T4.1 fallout).
+- `05efd4a` — silent swallows + legacy paths + dead code (T4.2 server / T4.3 / T4.4).
+- `7943749`, `def3902`, `76c6616` — config-architecture.md, auth-login test fix, vitest pin to ^3.2.4.
+- `156baea` — W4 partial (T4.1 error envelope + T4.2 web client).
+
+(W1–W3 commits are documented in the original audit plan.)
+
+---
+
+## Architecture summary (where things live now)
+
+- **Auth + RBAC**: Grafana-parity. SQLite `user` / `org` / `org_user` / `team` / `team_member` / `role` / `permission` / `user_role` / `team_role` / `builtin_role` (see migrations 001–017). Three-layer agent gate (allowedTools ∩ permissionMode ∩ RBAC) in `packages/agent-core/src/agent/permission-gate.ts`. Single canonical `requirePermission(ac)` middleware everywhere.
+- **Instance config**: SQLite `instance_llm_config` / `instance_datasources` / `notification_channels` / `instance_settings` (migration 019). All secrets encrypted at rest via `@agentic-obs/common/crypto` + `SECRET_KEY`. Owned by `SetupConfigService`.
+- **Setup wizard**: pre-bootstrap (`instance_settings.bootstrapped_at` IS NULL) → unauth on `bootstrapAware`-wrapped routes. Post-bootstrap → `authMiddleware` + per-action `requirePermission`.
+- **Agent**: one `orchestrator`, full toolset; chat at every surface goes through it. Agent's tool calls run under the **caller's** identity, RBAC enforced per call.
+- **Frontend**: every mutating affordance gated on `useAuth().hasPermission(action, scope?)`. Pages whose entire surface is write-only (Settings) wrapped in `PermissionGate`.
+
+Reference: [docs/config-architecture.md](./config-architecture.md).
+
+---
+
+## Outstanding follow-ups (not done; here's the catalog)
+
+### Architecture
+
+- **Dashboard / Investigation / Alert-rule stores still in-memory**. Restart wipes all dashboards / investigations / alerts. SQLite tables exist for some (alert_rules has migration), but the `defaultDashboardStore` / `defaultInvestigationStore` adapters in `packages/data-layer/src/stores/` are still in-memory. Mirror what W2 did for instance config: move them into SQLite with proper repositories, retire the in-memory stores. Big task; treat as W6.
+- **Per-user rate limiting**. Current `defaultRateLimiter` keys on IP. Behind a NAT (corporate LAN, K8s ingress) all users share one IP and hit the limit together. Add a layered limiter that keys on `req.auth.userId` post-auth, falling back to IP pre-auth.
+- **Postgres adapter for instance-config repos**. Server.ts deletes the `DATABASE_URL` (Postgres) branch with a "throw at startup" because the new `InstanceConfigRepository` / `DatasourceRepository` / `NotificationChannelRepository` only have SQLite implementations. If we ever want Postgres back, port them.
+
+### UX
+
+- **Chat in-flight pre-check**. The agent attempts a tool, hits Layer-3 RBAC denial, narrates "I don't have permission" — that's correct, but a Viewer asking "delete X" still wastes one tool call. Could pre-filter the LLM prompt to say "you're operating as a Viewer; don't propose mutations" — but only a UX nicety, not a security one.
+- **Settings tab refinement**. Current `SettingsGate` allows any of `datasources:write` / `datasources:create` / `admin:write`. If a user has `datasources:*` but not `instance.config:write`, they see all tabs but the LLM/Notifications tabs error on save. Fine for v1; revisit if we ever split datasource-admin from instance-admin roles.
+- **PostMortem.tsx** is dead UI — backend route `/incidents/:id/post-mortem` doesn't exist. Either implement or delete the page + the nav entry.
+- **Hover-reveal pattern** elsewhere — the `opacity-0 group-hover:opacity-100` was hiding mutation buttons in DashboardPanelCard before being properly gated. Audit the rest of the components for the same anti-pattern.
+
+### Documentation
+
+- `docs/auth-perm-design/11-agent-permissions.md` has a status note at the top after the single-agent collapse. Eventually rewrite the body for the post-rollback shape (it still describes the four specialized agents in detail).
+- The original `docs/tech-debt-audit-plan.md` still describes the W4 scope as four tasks; it's effectively obsolete now (everything done). Could be marked as historical.
+
+### Testing / CI
+
+- Vitest is pinned to `^3.2.4` to compat with vite@5 (vitepress chain). When vitepress catches up to vite 6+, can unpin and try vitest 4 again.
+- 5 pre-existing apikey-service tests had to be updated for the new `AppError` shape (`25e082d`). No more known pre-existing failures, but new integration tests should follow the established harness pattern (`createTestDb()`, real sqlite, no mocks).
+
+### Workflow
+
+- **Branching**: this sprint pushed to `origin/dev`. Open a PR to merge into `main` when ready. Don't push directly to main.
+- **Sandbox quirk** for future sub-agents: `git commit` is denied inside agent sessions. Agents should stage + write the commit message to `.<task>-commit-msg.txt` at repo root; the parent commits on their behalf. This pattern is now the established convention for the sprint.
+
+---
 
 ## Context handoff notes
 
-- **Sandbox blocks `git commit` from sub-agents.** Every W-wave agent stages its work, writes a commit message, reports. Parent agent commits after typecheck. Established workflow.
-- **Commit convention**: `TN.M:` per-task when independent; `WN (partial):` or `WN:` when tasks interleave or are bundled. Footer: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
-- **Do NOT push** without explicit user approval.
-- When picking up this sprint in a fresh session: read this file first; the "Deferred" section is the precise TODO list.
+- **Memory pointer**: `~/.claude/projects/c--Users-shiqi-Documents-openobs/memory/project_tech_debt_cleanup.md` — keep updated when waves complete.
+- **Commit convention**: `TN.M:` per-task when independent; `WN:` for combined waves; descriptive subject otherwise. Footer: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
+- **Do not push to `main`** without explicit user approval. `dev` is the working branch.

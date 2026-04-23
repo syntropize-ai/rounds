@@ -163,7 +163,9 @@ function buildPostgresRepositories(url: string): SqliteRepositories & {
   };
 }
 
-function isPostgresUrl(url: string | undefined): url is string {
+function isPostgresUrl(
+  url: string | undefined,
+): url is `postgres://${string}` | `postgresql://${string}` {
   return (
     typeof url === 'string' &&
     (url.startsWith('postgres://') || url.startsWith('postgresql://'))

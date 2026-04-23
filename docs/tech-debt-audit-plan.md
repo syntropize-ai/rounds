@@ -1,3 +1,6 @@
+> **HISTORICAL** — audit completed through W5; W6 in flight.  
+> For current state see [tech-debt-progress.md](./tech-debt-progress.md).
+
 # openobs Tech-Debt Audit + Long-Term Fix Plan
 
 **Date:** 2026-04-19

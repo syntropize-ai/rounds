@@ -3,20 +3,6 @@
 **Applies to:** Wave 7 / Tasks T10.1 – T10.9
 **Grafana reference:** N/A — Grafana has no agent layer. This is openobs-native design.
 
-> **Status update (2026-04-19):** the three-layer gate (Layer 1 allowedTools,
-> Layer 2 permissionMode, Layer 3 RBAC) is live and unchanged. However, the
-> **specialized-agents-per-page dispatch** described below (dashboard-assistant
-> / alert-advisor / incident-responder / readonly-analyst) has been removed.
-> openobs runs a **single full-capability agent** (`orchestrator`) for every
-> chat surface regardless of page context. Layer 1 still exists — the
-> orchestrator's own `allowedTools` is the ceiling — but we no longer narrow
-> it per page. The product model is Claude-Code-like: one agent, full kit,
-> RBAC does the filtering.
->
-> References to "dashboard-assistant", "alert-advisor", etc. below describe a
-> design that was implemented and then rolled back; keep them for context but
-> don't treat them as the current shape.
-
 ## Problem
 
 Waves 1–6 built Grafana-parity RBAC on the **HTTP boundary**. Any request that
@@ -25,9 +11,9 @@ permissions.
 
 openobs adds a second execution path: the **agent**. A user chats with the
 orchestrator; the orchestrator's ReActLoop decides which tools to call (e.g.
-`dashboard.create`, `prometheus.query`); each tool is a function that — today —
-runs with whatever privileges the server process has, i.e. effectively
-server-admin.
+`dashboard.create`, `prometheus.query`); each tool is a function that — before
+this wave — ran with whatever privileges the server process had, i.e.
+effectively server-admin.
 
 This defeats the RBAC model on its own terms. A Viewer user cannot `POST
 /api/dashboards`, but can ask the agent to create one and succeed. A user with
@@ -46,6 +32,26 @@ authority.
 Background tasks that have no human caller run under a **service account** —
 explicit identity, explicit scope, no exceptions.
 
+## Shape: one orchestrator, full toolset, RBAC does the filtering
+
+openobs runs a **single full-capability agent** (`orchestrator`) for every
+chat surface regardless of page context. It is registered once in
+`agent-registry.ts` with the complete tool catalog as its `allowedTools`. The
+same agent answers the user whether they opened chat from a dashboard page,
+an alert page, an investigation page, or the global launcher.
+
+Per-user narrowing happens at **Layer 3 (RBAC)**, not by swapping in a
+smaller agent per page. A Viewer who opens chat on a dashboard page gets the
+same `orchestrator` as an Admin; when the LLM decides to call
+`dashboard.create`, the gate evaluates the caller's identity against
+`dashboards:create` on `folders:uid:<folderUid>` and denies the call with a
+synthesized observation. The LLM reads the denial and adapts.
+
+The product model is Claude-Code-like: one agent, full kit, RBAC does the
+filtering. This keeps the prompt cacheable across users, avoids brittle
+page-to-agent routing, and lets a user's capabilities evolve (e.g. a new
+grant) without any client-side agent-selection change.
+
 ## Three-layer model
 
 Every tool invocation must satisfy **all three** of these. Intersection, not
@@ -56,23 +62,56 @@ union. Any single layer returning "no" terminates the call with a
 ┌────────────────────────────────────────────────────┐
 │ Layer 1 — Agent-type capability ceiling            │
 │   AgentDef.allowedTools must include the tool name │
-│   (already implemented in agent-registry.ts)        │
+│   For the orchestrator this is the full toolset —  │
+│   the ceiling is wide, not narrow.                 │
 ├────────────────────────────────────────────────────┤
-│ Layer 2 — Agent behavior mode                       │
-│   AgentDef.permissionMode ∈                         │
-│     { read_only, artifact_mutation,                 │
-│       approval_required, propose_only }             │
-│   (already implemented in orchestrator-agent.ts)    │
+│ Layer 2 — Agent behavior mode                      │
+│   AgentDef.permissionMode ∈                        │
+│     { read_only, artifact_mutation,                │
+│       approval_required, propose_only }            │
+│   Reads always pass Layer 2; only mutations are    │
+│   mode-gated.                                      │
 ├────────────────────────────────────────────────────┤
-│ Layer 3 — Caller's RBAC (NEW, this wave)            │
-│   accessControl.evaluate(identity, evaluator)       │
-│   where evaluator is built from TOOL_PERMS[tool]    │
-│   applied to the tool call's args                   │
+│ Layer 3 — Caller's RBAC (the per-user gate)        │
+│   accessControl.evaluate(identity, evaluator)      │
+│   where evaluator is built from TOOL_PERMS[tool]   │
+│   applied to the tool call's args                  │
 └────────────────────────────────────────────────────┘
 ```
 
-Layers 1 and 2 already exist. **This wave adds Layer 3** and plumbs Identity
-through the agent core so Layer 3 has the data it needs.
+Layers 1 and 2 are static properties of the agent definition. **Layer 3 is
+where per-user filtering happens** and is the primary enforcement in this
+design. The orchestrator's Layer-1 ceiling stays wide on purpose.
+
+## Gate flow
+
+```
+ReActLoop picks action ──► checkPermission(agentDef, tool, args, ctx)
+                                │
+                                ├─ Terminal (reply/finish/ask_user)? ──► allow
+                                │
+                                ├─ Layer 1: tool ∉ allowedTools? ─────► deny
+                                │      reason=allowedTools
+                                │
+                                ├─ Layer 2: mutation + read_only /
+                                │           propose_only mode?    ────► deny
+                                │      reason=permissionMode
+                                │
+                                └─ Layer 3: buildToolEvaluator(tool, args)
+                                            ├─ null (ungated) ────────► allow
+                                            ├─ evaluate → false ──────► deny
+                                            │      reason=rbac
+                                            └─ evaluate → true ───────► allow
+
+ deny ──► denialObservation() ──► fed back into ReActLoop as the
+          tool's observation. LLM reads "permission denied: …" and
+          decides what to do next. No exception thrown.
+```
+
+The gate is implemented in `packages/agent-core/src/agent/permission-gate.ts`.
+ReActLoop calls `checkPermission` before dispatching any non-terminal action;
+on deny it calls `denialObservation(result)` and surfaces the string as the
+tool's observation.
 
 ## Design decisions
 
@@ -192,9 +231,10 @@ specific uid remain. This matches Grafana's HTTP list semantics.
 
 ### D6 — Static tool list in prompt + runtime enforcement
 
-The system prompt lists all of the agent's `allowedTools` regardless of
-caller permissions. This keeps the prompt cacheable and simple. Tools the
-caller cannot execute return `permission_denied` on call; the LLM adapts.
+The orchestrator's system prompt lists **all** of its `allowedTools`
+regardless of caller permissions. This keeps the prompt cacheable across
+users and simple to reason about. Tools the caller cannot execute return
+`permission_denied` on call; the LLM adapts.
 
 We considered dynamic prompt pruning ("don't tell Viewer about
 `dashboard.create`") but rejected it: dynamic prompts defeat LLM prompt
@@ -237,7 +277,9 @@ That's the whole addition. No case list, no "if this then that" table,
 no examples. The LLM generalizes from the principle.
 
 Template variables (`{{ user.name }}` etc.) are resolved at request
-time from the bound identity before the system prompt is sent.
+time from the bound identity before the system prompt is sent. The
+actual implementation lives in `getIdentitySection()` inside
+`orchestrator-prompt.ts`.
 
 ### D9 — Audit logging per tool call
 
@@ -284,6 +326,22 @@ return visible
 `accessControl.filterByPermission` is a helper we add; runs the evaluator
 per row but uses the cached permission set so N rows = O(N) scope
 comparisons, not O(N) DB hits.
+
+### D11 — Single agent type, wide ceiling
+
+Layer 1 is still meaningful but does not do per-user narrowing. The
+orchestrator is registered with the complete tool catalog in
+`agent-registry.ts`; its `allowedTools` is essentially the whole list of
+tools the product knows about. Other agent *types* still exist for
+specialized non-chat roles (`alert-rule-builder`, `verification`) where a
+narrow ceiling genuinely matches the job, but the chat surface uses
+`orchestrator` exclusively.
+
+The rationale: narrowing Layer 1 per user (a "Viewer orchestrator",
+"Editor orchestrator", …) would duplicate what Layer 3 already does
+correctly, break prompt caching, and require keeping two sources of
+permission truth in sync. One agent definition, one wide ceiling, and
+Layer 3 enforces the rest.
 
 ### D12 — Partial permissions: the agent does what it can, honestly
 
@@ -408,26 +466,10 @@ This separation matters: primed LLMs self-censor unpredictably and
 produce worse output. Let the LLM try, let the gate enforce, let the
 denial observation steer the next step.
 
-### D11 — Agent-type capability ceiling remains
-
-Nothing changes at Layer 1. We already have multiple agent types in
-`agent-registry.ts` (`orchestrator`, `alert-rule-builder`, `verification`).
-Wave 7 introduces new specialized agents as needed:
-
-- `readonly-analyst` — no write tools at all
-- `dashboard-assistant` — dashboard + folder + prometheus tools; no alert
-  or user management
-- `alert-advisor` — alert + prometheus tools; no dashboard mutation
-- `incident-responder` — investigation + post-mortem + alert read
-
-Each has an `allowedTools` list. The chat UI or page-level context decides
-which agent type to instantiate per user request. A Viewer opening the
-chat panel on a dashboard page gets `readonly-analyst` by default.
-
 ## Tool permission catalog (complete)
 
 Source of truth is `packages/agent-core/src/agent/tool-permissions.ts`. The
-table below enumerates every tool the orchestrator currently has and its
+table below enumerates every tool the orchestrator has and its
 required (action, scope).
 
 ### Dashboard tools
@@ -443,7 +485,7 @@ required (action, scope).
 | `dashboard.add_variable` | `dashboards:write` | `dashboards:uid:<dashboardId>` |
 | `dashboard.rearrange` | `dashboards:write` | `dashboards:uid:<dashboardId>` |
 
-### Folder tools (new agent capability)
+### Folder tools
 
 | Tool | Action | Scope |
 |---|---|---|
@@ -497,7 +539,7 @@ required (action, scope).
 
 ## Interfaces and file layout
 
-### New files
+### Files
 
 - `packages/agent-core/src/agent/tool-permissions.ts` — the TOOL_PERMS table
   and `buildToolEvaluator` function.
@@ -508,29 +550,28 @@ required (action, scope).
 - `packages/agent-core/src/agent/list-filter.ts` — post-filter helper for
   list tools.
 
-### Modified files
+### Integration points
 
-- `packages/agent-core/src/agent/react-loop.ts` — accept `identity` in
-  `ReActDeps`; call `permissionGate.check` before each non-terminal
-  action; synthesize `permission denied:` observation on deny.
-- `packages/agent-core/src/agent/orchestrator-agent.ts` — accept
-  `identity` in constructor or `handleMessage`; pass to `ReActLoop`.
+- `packages/agent-core/src/agent/react-loop.ts` — accepts `identity` in
+  `ReActDeps`; calls `checkPermission` before each non-terminal action;
+  synthesizes `permission denied:` observation on deny.
+- `packages/agent-core/src/agent/orchestrator-agent.ts` — accepts
+  `identity` at construction / `handleMessage`; passes to `ReActLoop`.
 - `packages/agent-core/src/agent/orchestrator-action-handlers.ts` —
-  `ActionContext` gains `identity: Identity` and
+  `ActionContext` carries `identity: Identity` and
   `accessControl: IAccessControlService`; list handlers use
   `filterByPermission`.
-- `packages/agent-core/src/agent/orchestrator-prompt.ts` — inject
-  identity context into prompt (user name, org role, permission-denial
-  instructions).
-- `packages/agent-core/src/agent/agent-registry.ts` — register new
-  specialized agent types (`readonly-analyst`, `dashboard-assistant`,
-  `alert-advisor`).
-- `packages/api-gateway/src/routes/dashboard/chat-handler.ts` (or wherever
-  the orchestrator is instantiated from a request) — pass
-  `req.auth` as the identity to the orchestrator.
-- `packages/api-gateway/src/services/accesscontrol-service.ts` — add
-  `filterByPermission(identity, items, evaluator)` helper.
-- `packages/common/src/audit/actions.ts` — add
+- `packages/agent-core/src/agent/orchestrator-prompt.ts` — injects
+  identity context into the prompt (user name, org role, denial
+  principle) via `getIdentitySection()`.
+- `packages/agent-core/src/agent/agent-registry.ts` — registers the
+  `orchestrator` with the full tool catalog as its `allowedTools`.
+- `packages/api-gateway/src/routes/dashboard/chat-handler.ts` (and other
+  orchestrator entry points) — passes `req.auth` as the identity to the
+  orchestrator.
+- `packages/api-gateway/src/services/accesscontrol-service.ts` — provides
+  `filterByPermission(identity, items, evaluator)`.
+- `packages/common/src/audit/actions.ts` — defines
   `AgentToolCalled: 'agent.tool_called'` and
   `AgentToolDenied: 'agent.tool_denied'`.
 
@@ -555,10 +596,12 @@ required (action, scope).
 - Unit-test every builder: given fixture args, produces expected evaluator.
 
 ### T10.4 — Permission gate
-- `permission-gate.ts` with `check(agentDef, tool, args, ctx)` that runs
-  layers 1 → 2 → 3 in order, returns `{ ok: true } | { ok: false, reason }`.
+- `permission-gate.ts` with `checkPermission(agentDef, tool, args, ctx)`
+  that runs layers 1 → 2 → 3 in order, returns
+  `{ ok: true } | { ok: false, reason, action, scope }`.
 - `ReActLoop` calls it before dispatching non-terminal actions.
-- On deny: synthesize `permission denied: <action> on <scope>` observation.
+- On deny: synthesize `permission denied: <action> on <scope>` observation
+  via `denialObservation(result)`.
 - Emit audit event via `ctx.auditWriter`.
 
 ### T10.5 — Per-handler refinements
@@ -573,7 +616,7 @@ required (action, scope).
 
 ### T10.7 — Prompt updates
 - `orchestrator-prompt.ts`: inject identity context + permission-denial
-  instructions.
+  principle in `getIdentitySection()`.
 - Templates parametrized with user name / org role / org name.
 - Cache key updated.
 
@@ -582,14 +625,11 @@ required (action, scope).
 - Rate-limit `agent.tool_called` (allow path) to one per (identity, tool)
   per 60s. Deny path always writes.
 
-### T10.9 — New specialized agent registrations
-- `readonly-analyst` — no write tools.
-- `dashboard-assistant` — dashboard + folder + prometheus + web.search.
-- `alert-advisor` — alert + prometheus + folder read.
-- `incident-responder` — investigation + post-mortem read/write + alert
-  read.
-- Chat entry-point picks agent based on page context OR explicit user
-  choice.
+### T10.9 — Orchestrator registration
+- `orchestrator` registered in `agent-registry.ts` with the full tool
+  catalog as `allowedTools`.
+- Chat entry-points always instantiate `orchestrator` regardless of
+  page context. No per-page agent selection logic.
 
 ### T10.10 — Tests
 - Unit: every TOOL_PERMS builder.
@@ -621,56 +661,53 @@ required (action, scope).
 5. **SA with Viewer role runs proactive investigator** → same
    behavior as Viewer user (can read, can't write).
 6. **No identity at ReActLoop start** → throws, loop does not begin.
-7. **Specialized `readonly-analyst` agent asked to create dashboard**
-   → layer-1 denial (`dashboard.create` not in `allowedTools`) →
-   observation includes `denied_by: allowedTools`.
-8. **`propose_only` agent asked to create dashboard** → layer-2
+7. **`propose_only` agent asked to create dashboard** → layer-2
    non-execute → observation includes `denied_by: permissionMode`
    + serialized proposal.
-9. **Audit log**: both allow and deny rows appear with correct
+8. **Audit log**: both allow and deny rows appear with correct
    metadata.
-10. **Rate limit**: 10 repeated `dashboard.list` calls produce 1
-    audit row (within 60s window), not 10.
-11. **Prompt injection** (`{{ user.name }}` populated) shows up in
+9. **Rate limit**: 10 repeated `dashboard.list` calls produce 1
+   audit row (within 60s window), not 10.
+10. **Prompt injection** (`{{ user.name }}` populated) shows up in
     LLM system prompt.
-12. **LLM ignores denial warning and retries** (simulate with mock) —
+11. **LLM ignores denial warning and retries** (simulate with mock) —
     retry also denied, no extra damage.
 
 ### Partial permissions (D12, D13, D14)
 
-13. **Read allowed, write denied — data is surfaced, not dropped** —
+12. **Read allowed, write denied — data is surfaced, not dropped** —
     user has `datasources:query` on `prom-app` but no
     `dashboards:create`. Agent mock calls query (gets data), then
     `dashboard.create` (denied). Final reply MUST include the fetched
     metric values AND the denial explanation; MUST NOT fabricate a
     dashboard creation.
 
-14. **Mixed datasource access in one investigation** — user has
+13. **Mixed datasource access in one investigation** — user has
     `datasources:query` on `prom-app` but not `prom-infra`.
     `investigation.add_section` allowed on an investigation they own.
     Agent mock queries both (one allow, one deny); writes up findings
     with explicit "what I examined" and "what I could not examine"
     sections per D13.
 
-15. **Dashboard list with permission-filtered rows** — user has
+14. **Dashboard list with permission-filtered rows** — user has
     `dashboards:read` on three specific dashboard UIDs (via direct
     managed-role grants), not org-wide. `dashboard.list` tool returns
     exactly those three, not the full org list. Verify via assertion
     on returned UIDs.
 
-16. **Datasource-level isolation holds (D14)** — two datasources
+15. **Datasource-level isolation holds (D14)** — two datasources
     registered (`prom-app` and `prom-infra`), user granted query on
     `prom-app` only. Agent executes `prometheus.query(datasourceId:
     'prom-app', …)` — allowed. Agent executes
     `prometheus.query(datasourceId: 'prom-infra', …)` — denied. No
     PromQL parsing; the gate checks only the datasource UID scope.
 
-17. **Prompt does NOT prime LLM toward caution** — snapshot-test the
+16. **Prompt does NOT prime LLM toward caution** — snapshot-test the
     generated prompt for a Viewer user. Assert it contains identity
     facts (name, role, org) but NOT strings like "be careful", "only
     try", "don't attempt". (D15.)
 
-18. **Verifier marks partial-data investigations as 'partial' not
+17. **Verifier marks partial-data investigations as 'partial' not
     'failed'** — when the investigation agent runs with permission
     denials that block confirming its top hypothesis, the verifier
     agent returns `status: 'partial'` with reasons listing the
@@ -689,7 +726,7 @@ Rollout:
 3. T10.6 (background tasks) as a separate PR — more isolated.
 4. T10.7 prompt update can ship anytime after T10.4.
 5. T10.8 audit — ideally same PR as T10.4.
-6. T10.9 specialized agents in a follow-up PR.
+6. T10.9 registration is trivial and can ride with T10.4.
 
 Feature flag is *not* used. The gate is always on.
 
@@ -723,3 +760,18 @@ Feature flag is *not* used. The gate is always on.
    Admin bypass? **No** — that reintroduces exactly the pattern we're
    closing. Admins can use direct HTTP endpoints; agent honors their
    RBAC like anyone else.
+
+## Historical note
+
+Earlier iterations of this design explored **per-page specialized
+agents** — a `dashboard-assistant`, `alert-advisor`, `incident-responder`,
+and `readonly-analyst`, each registered with a narrow `allowedTools` list
+chosen to match the page context the user opened chat from. That shape
+was implemented and then rolled back to the single-orchestrator design
+described above (see git history around `f6cbe36`). The collapse was
+motivated by the realization that Layer 3 RBAC already does the
+per-user filtering correctly; per-page agent ceilings duplicated that
+filter with coarser data, broke prompt caching across users, and
+introduced a routing surface (page → agent type) that had to stay in
+sync with product layout changes. One orchestrator, full kit, RBAC
+filters.

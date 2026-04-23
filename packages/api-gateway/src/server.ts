@@ -5,7 +5,11 @@ import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { sql } from 'drizzle-orm';
 import { cors } from './middleware/cors.js';
-import { defaultRateLimiter, createRateLimiter } from './middleware/rate-limiter.js';
+import {
+  defaultRateLimiter,
+  createRateLimiter,
+  createUserRateLimiter,
+} from './middleware/rate-limiter.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { healthRouter } from './routes/health.js';
 import { sessionsRouter } from './routes/sessions.js';
@@ -50,6 +54,11 @@ import {
   createSqliteRepositories,
   ensureSchema,
   applyNamedMigrations,
+  createDbClient,
+  PostgresInstanceConfigRepository,
+  PostgresDatasourceRepository,
+  PostgresNotificationChannelRepository,
+  applyPostgresInstanceMigrations,
   EventEmittingFeedRepository,
   EventEmittingApprovalRepository,
   EventEmittingAlertRuleRepository,
@@ -117,6 +126,50 @@ function buildSqliteRepositories(): SqliteRepositories & {
   return Object.assign(createSqliteRepositories(db), { _sqliteClient: db });
 }
 
+/**
+ * T6.B — hybrid Postgres mode.
+ *
+ * When `DATABASE_URL` points at Postgres, the W2 instance-config stores
+ * (LLM config, datasources, notification channels) move to Postgres while
+ * the W6 stores (dashboards, investigations, alert rules, etc.) remain on
+ * SQLite for this sprint. We do that by building the full SQLite repos
+ * first and then swapping the three W2 fields with their Postgres siblings.
+ *
+ * Migrations run in a fire-and-forget IIFE so `createApp()` stays sync
+ * (matching the auth subsystem pattern); if the migration fails we log and
+ * surface it on first-query rather than blocking boot.
+ *
+ * Follow-ups owned by Wave 6 teams will port the remaining repos to
+ * Postgres; until then operators who set `DATABASE_URL` still need a
+ * writable DATA_DIR for the SQLite file that holds everything else.
+ */
+function buildPostgresRepositories(url: string): SqliteRepositories & {
+  _sqliteClient: ReturnType<typeof createSqliteClient>;
+} {
+  const base = buildSqliteRepositories();
+  const pg = createDbClient({ url });
+  void applyPostgresInstanceMigrations(pg).catch((err) => {
+    log.error(
+      { err: err instanceof Error ? err.message : err },
+      'postgres instance-config migration failed',
+    );
+  });
+  // Swap the three W2 repos.
+  return {
+    ...base,
+    instanceConfig: new PostgresInstanceConfigRepository(pg),
+    datasources: new PostgresDatasourceRepository(pg),
+    notificationChannels: new PostgresNotificationChannelRepository(pg),
+  };
+}
+
+function isPostgresUrl(url: string | undefined): url is string {
+  return (
+    typeof url === 'string' &&
+    (url.startsWith('postgres://') || url.startsWith('postgresql://'))
+  );
+}
+
 function mountStaticAssets(app: Application): void {
   const here = dirname(fileURLToPath(import.meta.url));
   const webDistCandidates = [
@@ -166,8 +219,23 @@ export function createApp(): Application {
   // CORS
   app.use(cors);
 
-  // Rate limiting on all routes
+  // Rate limiting on all routes.
+  //
+  // Two layers cooperate:
+  //   1. `defaultRateLimiter` (per-IP) — runs globally here, throttles the
+  //      pre-auth surface where we have no user identity yet.
+  //   2. `userRateLimiter` (per-userId) — mounted per-route immediately AFTER
+  //      `authMw` in each authenticated chain, so behind a shared NAT each
+  //      authenticated user gets their own bucket instead of sharing the IP
+  //      bucket with every coworker on the same egress. The limiter's keyFn
+  //      returns `null` when `req.auth` is absent (pre-auth request hit the
+  //      wrong place), in which case it falls through to `next()`.
+  //
+  // We build the singleton here so every authenticated route shares one
+  // bucket store (a user with 5 tabs shouldn't multiply their quota by 5
+  // because each tab hits a different router).
   app.use(defaultRateLimiter);
+  const userRateLimiter = createUserRateLimiter();
 
   // Wave 7 — permission gate dependencies. These are late-bound inside the
   // async auth-subsystem IIFE below; routers that need them receive the
@@ -186,16 +254,34 @@ export function createApp(): Application {
   const queryRateLimiter = createRateLimiter({ windowMs: 60_000, max: 600 });
   app.use('/api/query', queryRateLimiter);
 
-  // Determine persistence backend
+  // Determine persistence backend.
+  //
+  // Default: SQLite via DATA_DIR / SQLITE_PATH. Pure-sqlite install, no
+  // connection pool to manage.
+  //
+  // Hybrid: DATABASE_URL=postgres(ql)://... moves the W2 instance-config
+  // tables (LLM, datasources, notification channels) to Postgres; everything
+  // else still lives in the SQLite file under DATA_DIR. See
+  // `buildPostgresRepositories()` above and `postgres/README.md`.
+  //
+  // Any other DATABASE_URL value is ignored with a warning — historically
+  // this env var gated an in-memory "no-persistence" mode that W2 deleted.
   const dbUrl = process.env['DATABASE_URL'];
-  const useSqlite = !dbUrl;
+  if (dbUrl && !isPostgresUrl(dbUrl)) {
+    log.warn(
+      { dbUrl: dbUrl.slice(0, 12) },
+      'DATABASE_URL is set but does not start with postgres://; falling back to SQLite',
+    );
+  }
 
   // Mount common routes shared across all backends
   mountCommonRoutes(app, { ac: accessControlHolder });
 
-  if (useSqlite) {
-    // -- SQLite mode: all persistence via SQLite repos
-    const repos = buildSqliteRepositories();
+  {
+    // -- Persistence wiring (SQLite default, Postgres-hybrid when DATABASE_URL set)
+    const repos = isPostgresUrl(dbUrl)
+      ? buildPostgresRepositories(dbUrl)
+      : buildSqliteRepositories();
     // — Auth subsystem wiring (Wave 2 / T2) ————————————————————————
     const sqliteDb = repos._sqliteClient;
     // T7 folder backend — shared across RBAC seeder (above in the auth block)
@@ -249,6 +335,7 @@ export function createApp(): Application {
       setupConfig: setupConfigService,
       authMiddleware,
       postAuthChain: [
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
       ],
     });
@@ -272,6 +359,7 @@ export function createApp(): Application {
     app.use(
       '/api/query',
       authMiddleware,
+      userRateLimiter,
       createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
       createQueryRouter({ setupConfig: setupConfigService }),
     );
@@ -345,6 +433,7 @@ export function createApp(): Application {
       app.use(
         '/api/user',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createUserRouter({
           users: authRepos.users,
@@ -375,6 +464,7 @@ export function createApp(): Application {
       app.use(
         '/api/admin',
         authMw,
+        userRateLimiter,
         createAdminRouter({
           users: authRepos.users,
           orgUsers: authRepos.orgUsers,
@@ -455,6 +545,7 @@ export function createApp(): Application {
       app.use(
         '/api/user',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createUserPermissionsRouter(accessControl),
       );
@@ -462,6 +553,7 @@ export function createApp(): Application {
       app.use(
         '/api/access-control',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createAccessControlRouter({
           ac: accessControl,
@@ -488,6 +580,7 @@ export function createApp(): Application {
       app.use(
         '/api/orgs',
         authMw,
+        userRateLimiter,
         // Cross-org endpoints. orgContext middleware is omitted because
         // server-admin flows here (list-all, create new org) don't require
         // a specific current org.
@@ -497,6 +590,7 @@ export function createApp(): Application {
       app.use(
         '/api/org',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createOrgRouter({
           orgs: orgService,
@@ -516,6 +610,7 @@ export function createApp(): Application {
       app.use(
         '/api/teams',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createTeamsRouter({ teams: teamService, ac: accessControl }),
       );
@@ -533,6 +628,7 @@ export function createApp(): Application {
       app.use(
         '/api/serviceaccounts',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createServiceAccountsRouter({
           serviceAccounts: saService,
@@ -543,12 +639,14 @@ export function createApp(): Application {
       app.use(
         '/api/user',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createUserTokensRouter({ apiKeys: apiKeyService }),
       );
       app.use(
         '/api/auth/keys',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createAuthKeysRouter({
           serviceAccounts: saService,
@@ -577,6 +675,7 @@ export function createApp(): Application {
       app.use(
         '/api/folders',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createFolderRouter({
           folderService,
@@ -587,6 +686,7 @@ export function createApp(): Application {
       app.use(
         '/api/dashboards',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createDashboardPermissionsRouter({
           permissionService: resourcePermissionService,
@@ -597,6 +697,7 @@ export function createApp(): Application {
       app.use(
         '/api/datasources',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createDatasourcePermissionsRouter({
           permissionService: resourcePermissionService,
@@ -606,6 +707,7 @@ export function createApp(): Application {
       app.use(
         '/api/access-control/alert.rules',
         authMw,
+        userRateLimiter,
         createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
         createAlertRulePermissionsRouter({
           permissionService: resourcePermissionService,
@@ -709,34 +811,15 @@ export function createApp(): Application {
       store: repos.versions,
       ac: accessControlHolder,
     }));
-  } else {
-    // -- Legacy in-memory mode removed in W2.
-    //
-    // Before W2 this branch ran whenever `DATABASE_URL` was set (the
-    // Postgres experiment) or whenever SQLite was disabled. It never wired
-    // LLM / datasource / notification persistence — those lived in the
-    // flat-file `setup-config.json`. With W2 moving all instance config
-    // into SQLite (migration 019 + `SetupConfigService`), the in-memory
-    // branch can no longer serve dashboards, chat, or queries; there is
-    // no store for the datasource list it needs to consult.
-    //
-    // Fail loudly rather than silently serve a broken app. Operators who
-    // want Postgres should wire the equivalent repositories + a Postgres
-    // adapter for `IInstanceConfigRepository` / `IDatasourceRepository` /
-    // `INotificationChannelRepository` — out of scope for W2.
-    throw new Error(
-      'openobs no longer supports DATABASE_URL (in-memory/Postgres) mode. ' +
-        'Set DATA_DIR (or SQLITE_PATH) instead — the SQLite path is the only ' +
-        'supported runtime as of the W2 config consolidation.',
-    );
   }
 
   mountStaticAssets(app);
 
-  // 404 + error handlers for the SQLite branch are mounted inside the auth
-  // IIFE's `.finally()` above, once /api/user, /api/admin, etc. have been
-  // asynchronously registered. (The legacy `DATABASE_URL` branch was
-  // removed — `createApp` throws for it before reaching this point.)
+  // 404 + error handlers are mounted inside the auth IIFE's `.finally()`
+  // above, once /api/user, /api/admin, etc. have been asynchronously
+  // registered. Both SQLite and Postgres-hybrid branches share that path —
+  // the repo-backend choice only affects which implementations back
+  // `instance_llm_config` / `instance_datasources` / `notification_channels`.
   return app;
 }
 

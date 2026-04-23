@@ -1,10 +1,17 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { ApiErrorResponse } from '@agentic-obs/common'
+import type { AuthenticatedRequest } from './auth.js'
 
 interface RateLimiterOptions {
   windowMs: number
   max: number
-  keyFn?: (req: Request) => string
+  /**
+   * Custom key extractor. Return a string to key the limiter on that value,
+   * or `null` to **skip** this request entirely (pass-through to `next()`).
+   * When omitted, the limiter falls back to a per-IP key derived from
+   * x-forwarded-for / socket.remoteAddress.
+   */
+  keyFn?: (req: Request) => string | null
 }
 
 export type RateLimiterMiddleware = (
@@ -21,7 +28,7 @@ export function createRateLimiter(options: RateLimiterOptions) {
   const { windowMs, max, keyFn } = options
   const store = new Map<string, WindowEntry>()
 
-  function getKey(req: Request): string {
+  function getKey(req: Request): string | null {
     if (keyFn)
       return keyFn(req)
     const forwarded = req.headers['x-forwarded-for']
@@ -33,6 +40,12 @@ export function createRateLimiter(options: RateLimiterOptions) {
 
   return function rateLimiter(req: Request, res: Response, next: NextFunction): void {
     const key = getKey(req)
+    // `null` key = skip the limiter entirely (e.g. pre-auth request hitting
+    // the per-user limiter before `req.auth` has been populated).
+    if (key === null) {
+      next()
+      return
+    }
     const now = Date.now()
     const windowStart = now - windowMs
 
@@ -99,3 +112,44 @@ export const loginRateLimiter = createRateLimiter({
   windowMs: 60_000,
   max: 10,
 })
+
+/**
+ * Per-user rate limiter, layered on top of the per-IP `defaultRateLimiter`.
+ *
+ * Rationale: behind a shared NAT (corporate office, residential CGNAT,
+ * container egress, etc.) every user looks like the same source IP to the
+ * per-IP limiter, so one noisy tab can starve everyone else on the same
+ * egress. Keying on `req.auth.userId` gives each authenticated user their
+ * own bucket regardless of upstream IP.
+ *
+ * This MUST be mounted **after** `authMiddleware` — unauthenticated requests
+ * have no `req.auth` and fall through (`keyFn` returns `null`). The per-IP
+ * limiter already throttles the pre-auth surface.
+ *
+ * Tune with `OPENOBS_USER_RATE_LIMIT_MAX` (default 600/min, parallel to
+ * `OPENOBS_RATE_LIMIT_MAX`). Operators running multi-tenant SaaS should
+ * usually set this LOWER than the IP limit — the IP limit protects the
+ * pre-auth surface, the per-user limit protects one user from another.
+ */
+const DEFAULT_USER_RATE_LIMIT_MAX = Number.parseInt(
+  process.env['OPENOBS_USER_RATE_LIMIT_MAX'] ?? '600',
+  10,
+);
+
+export function createUserRateLimiter() {
+  const max =
+    Number.isFinite(DEFAULT_USER_RATE_LIMIT_MAX) && DEFAULT_USER_RATE_LIMIT_MAX > 0
+      ? DEFAULT_USER_RATE_LIMIT_MAX
+      : 600
+  return createRateLimiter({
+    windowMs: 60_000,
+    max,
+    keyFn: (req) => {
+      // Auth middleware populates `req.auth` when a session/api-key is
+      // present. Casting is safe: this limiter is only mounted on routes
+      // that run AFTER the auth middleware (which uses the same type).
+      const auth = (req as AuthenticatedRequest).auth
+      return auth?.userId ?? null
+    },
+  })
+}

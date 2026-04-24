@@ -14,8 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/PerforMance308/prism/actions/workflows/ci.yml"><img src="https://github.com/PerforMance308/prism/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/PerforMance308/prism/blob/main/LICENSE"><img src="https://img.shields.io/github/license/PerforMance308/prism" alt="License" /></a>
+  <a href="https://www.npmjs.com/package/openobs"><img src="https://img.shields.io/npm/v/openobs.svg?color=cb3837" alt="npm" /></a>
+  <a href="https://github.com/openobs/openobs/actions/workflows/ci.yml"><img src="https://github.com/openobs/openobs/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/openobs/openobs/blob/main/LICENSE"><img src="https://img.shields.io/github/license/openobs/openobs" alt="License" /></a>
   <a href="https://docs.openobs.com"><img src="https://img.shields.io/badge/docs-docs.openobs.com-blue" alt="Docs" /></a>
 </p>
 
@@ -23,7 +24,7 @@
   <a href="https://openobs.com">Website</a> &middot;
   <a href="https://docs.openobs.com">Documentation</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#deploy-with-helm">Helm Install</a>
+  <a href="#deploy-with-helm">Helm</a>
 </p>
 
 ---
@@ -46,15 +47,28 @@ OpenObs turns natural language into production-grade observability workflows:
 
 ## Quick Start
 
+Install from npm:
+
 ```bash
-git clone https://github.com/PerforMance308/prism.git && cd prism
+npm install -g openobs
+openobs
+```
+
+- First run opens a browser to the setup wizard
+- Auto-generates persistent crypto secrets in `~/.openobs/`
+- Zero configuration files required
+
+Then open **http://localhost:3000** and follow the wizard to connect an LLM provider and data sources.
+
+### Build from source
+
+```bash
+git clone https://github.com/openobs/openobs.git && cd openobs
 npm install
 cp .env.example .env      # set JWT_SECRET (min 32 chars)
 npm run build
 npm run start              # API on :3000, Web on :5173
 ```
-
-Open **http://localhost:5173** &mdash; the setup wizard walks you through connecting an LLM provider and data sources.
 
 ### Requirements
 
@@ -64,25 +78,22 @@ Open **http://localhost:5173** &mdash; the setup wizard walks you through connec
 | **LLM provider** | Anthropic, OpenAI, Gemini, DeepSeek, Ollama, or Azure/Bedrock |
 | **Prometheus** | Optional &mdash; dashboards work without one, but metric discovery and investigation require it |
 
-## Deploy with Docker
+## Deploy with Helm
+
+The chart is published to GitHub Container Registry as an OCI artifact — no `helm repo add` needed:
 
 ```bash
-docker build -t openobs:latest .
-docker run --rm -p 3000:3000 \
-  -e JWT_SECRET='your-secret-min-32-chars' \
-  -e LLM_API_KEY='your-provider-key' \
-  -v openobs-data:/var/lib/openobs \
-  openobs:latest
+helm install openobs oci://ghcr.io/openobs/charts/openobs \
+  --namespace observability --create-namespace \
+  --set secretEnv.LLM_API_KEY='your-provider-key'
 ```
 
-Then open **http://localhost:3000**.
-
-## Deploy with Helm
+For local development against the unpublished chart source:
 
 ```bash
 helm upgrade --install openobs ./helm/openobs \
   --namespace observability --create-namespace \
-  --set image.repository=ghcr.io/PerforMance308/prism \
+  --set image.repository=ghcr.io/openobs/openobs \
   --set image.tag=latest \
   --set secretEnv.LLM_API_KEY='your-provider-key'
 ```
@@ -91,7 +102,7 @@ See the full [Kubernetes install guide](https://docs.openobs.com/install/kuberne
 
 ## Architecture
 
-OpenObs is a TypeScript monorepo with 9 packages:
+OpenObs is a TypeScript monorepo with 10 packages:
 
 ```
 common            Shared types, errors, and utilities
@@ -103,6 +114,7 @@ guardrails        Safety guards, cost controls, and action policies
 agent-core        AI agent logic — orchestration, investigation, dashboard generation
 api-gateway       Express HTTP server, REST API, WebSocket
 web               React SPA (Vite + Tailwind CSS)
+cli               Published `openobs` npm package — self-contained all-in-one bundle
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full dependency graph and design patterns.

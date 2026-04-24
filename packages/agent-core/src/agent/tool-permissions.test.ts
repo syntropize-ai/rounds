@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { TOOL_PERMS, UNGATED_TOOLS, buildToolEvaluator } from './tool-permissions.js';
 import { agentRegistry } from './agent-registry.js';
 import type { ActionContext } from './orchestrator-action-handlers.js';
+import { AdapterRegistry } from '../adapters/index.js';
 
 /**
- * Minimal ctx stub — only fields the builders consult. Prometheus builders
- * pick up a default datasource from ctx.allDatasources; alert-rule async
- * builders pull the folderUid from the alertRuleStore.
+ * Minimal ctx stub — only fields the builders consult. Metrics/logs/changes
+ * builders take `sourceId` straight from args; alert-rule async builders
+ * pull the folderUid from the alertRuleStore.
  */
 function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
   return {
@@ -17,6 +18,7 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
     alertRuleStore: {
       findById: async () => null,
     } as unknown as ActionContext['alertRuleStore'],
+    adapters: new AdapterRegistry(),
     allDatasources: [{ id: 'ds-prom', type: 'prometheus', name: 'Prom', url: 'http://x', isDefault: true }],
     sendEvent: () => {},
     sessionId: 'sess-1',
@@ -64,17 +66,31 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('prometheus.query maps datasourceId to scope', () => {
-    const e = TOOL_PERMS['prometheus.query']!({ datasourceId: 'prom-prod', expr: 'up' }, makeCtx());
+  it('metrics.query maps sourceId to scope', () => {
+    const e = TOOL_PERMS['metrics.query']!({ sourceId: 'prom-prod', query: 'up' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'datasources:query on datasources:uid:prom-prod',
     );
   });
 
-  it('prometheus.query falls back to the default ctx datasource', () => {
-    const e = TOOL_PERMS['prometheus.query']!({ expr: 'up' }, makeCtx());
+  it('metrics.query falls back to wildcard when sourceId is missing', () => {
+    const e = TOOL_PERMS['metrics.query']!({ query: 'up' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
-      'datasources:query on datasources:uid:ds-prom',
+      'datasources:query on datasources:uid:*',
+    );
+  });
+
+  it('logs.query derives the datasource scope from sourceId', () => {
+    const e = TOOL_PERMS['logs.query']!({ sourceId: 'loki-prod' }, makeCtx());
+    expect((e as { string: () => string }).string()).toBe(
+      'datasources:query on datasources:uid:loki-prod',
+    );
+  });
+
+  it('changes.list_recent requires investigations:read', () => {
+    const e = TOOL_PERMS['changes.list_recent']!({}, makeCtx());
+    expect((e as { string: () => string }).string()).toBe(
+      'investigations:read on investigations:*',
     );
   });
 

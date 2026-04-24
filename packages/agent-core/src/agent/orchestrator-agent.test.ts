@@ -2,6 +2,39 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Dashboard, DashboardMessage, DashboardSseEvent } from '@agentic-obs/common'
 import { OrchestratorAgent } from './orchestrator-agent.js'
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
+import { AdapterRegistry, type IMetricsAdapter } from '../adapters/index.js'
+
+/**
+ * Build a fresh AdapterRegistry that owns a single fake Prometheus metrics
+ * adapter under `id: 'prom-test'` (+ `isDefault: true`). Tests can override
+ * specific adapter methods via `overrides`.
+ */
+function buildFakeMetricsAdapters(overrides: Partial<IMetricsAdapter> = {}): AdapterRegistry {
+  const registry = new AdapterRegistry()
+  const metrics: IMetricsAdapter = {
+    listMetricNames: vi.fn().mockResolvedValue([]),
+    listLabels: vi.fn().mockResolvedValue([]),
+    listLabelValues: vi.fn().mockResolvedValue([]),
+    findSeries: vi.fn().mockResolvedValue([]),
+    fetchMetadata: vi.fn().mockResolvedValue({}),
+    instantQuery: vi.fn().mockResolvedValue([]),
+    rangeQuery: vi.fn().mockResolvedValue([]),
+    testQuery: vi.fn().mockResolvedValue({ ok: true }),
+    isHealthy: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  }
+  registry.register({
+    info: {
+      id: 'prom-test',
+      name: 'Prom Test',
+      type: 'prometheus',
+      signalType: 'metrics',
+      isDefault: true,
+    },
+    metrics,
+  })
+  return registry
+}
 
 function createDashboard(): Dashboard {
   const now = new Date().toISOString()
@@ -107,6 +140,7 @@ describe('OrchestratorAgent structured alert follow-up', () => {
       },
       investigationReportStore: { save: vi.fn() },
       alertRuleStore: alertRuleStore as any,
+      adapters: buildFakeMetricsAdapters(),
       sendEvent,
       identity: makeTestIdentity(),
       accessControl: new AccessControlStub(),
@@ -189,6 +223,7 @@ describe('OrchestratorAgent structured alert follow-up', () => {
         }),
         delete: deleteFn,
       } as any,
+      adapters: buildFakeMetricsAdapters(),
       sendEvent,
       identity: makeTestIdentity(),
       accessControl: new AccessControlStub(),
@@ -264,13 +299,7 @@ describe('OrchestratorAgent panel explanation', () => {
       },
       investigationReportStore: { save: vi.fn() },
       alertRuleStore: { create: vi.fn() } as any,
-      metricsAdapter: {
-        listMetricNames: vi.fn(),
-        listLabels: vi.fn(),
-        listLabelValues: vi.fn(),
-        findSeries: vi.fn(),
-        fetchMetadata: vi.fn(),
-        instantQuery: vi.fn(),
+      adapters: buildFakeMetricsAdapters({
         rangeQuery: vi.fn().mockResolvedValue([
           {
             metric: {},
@@ -281,9 +310,7 @@ describe('OrchestratorAgent panel explanation', () => {
             ],
           },
         ]),
-        testQuery: vi.fn(),
-        isHealthy: vi.fn(),
-      },
+      }),
       timeRange: {
         start: '2026-04-08T00:00:00.000Z',
         end: '2026-04-08T01:00:00.000Z',

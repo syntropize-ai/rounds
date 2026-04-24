@@ -20,9 +20,15 @@ export type AgentToolName =
   | 'alert_rule.list' | 'alert_rule.history'
   // Navigation
   | 'navigate'
-  // Prometheus primitives
-  | 'prometheus.query' | 'prometheus.range_query' | 'prometheus.labels' | 'prometheus.label_values'
-  | 'prometheus.series' | 'prometheus.metadata' | 'prometheus.metric_names' | 'prometheus.validate'
+  // Source-agnostic metrics primitives (each requires `sourceId`)
+  | 'metrics.query' | 'metrics.range_query' | 'metrics.labels' | 'metrics.label_values'
+  | 'metrics.series' | 'metrics.metadata' | 'metrics.metric_names' | 'metrics.validate'
+  // Source-agnostic logs primitives (each requires `sourceId`)
+  | 'logs.query' | 'logs.labels' | 'logs.label_values'
+  // Recent change events (deploys, config rollouts, incidents)
+  | 'changes.list_recent'
+  // Datasource discovery (always-allowed, no RBAC)
+  | 'datasources.list'
   // Knowledge & utility
   | 'web.search' | 'llm.complete'
   | 'verifier.run';

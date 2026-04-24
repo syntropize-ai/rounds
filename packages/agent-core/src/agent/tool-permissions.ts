@@ -25,26 +25,24 @@ import type { ActionContext } from './orchestrator-action-handlers.js';
 import type { ToolPermissionBuilder } from './types-permissions.js';
 
 /**
- * Resolve the datasource UID for a Prometheus tool call. The LLM MAY pass
- * `datasourceId` in args; when it doesn't, we fall back to the default
- * Prometheus datasource from ctx (matches how the existing handlers pick the
- * adapter). If nothing resolves, we scope to `datasources:uid:*` so the gate
- * still runs — an org-wide `datasources:query` grant covers this, but a
- * per-UID grant does not (fail-closed for narrow grants).
+ * Resolve the datasource UID for a source-agnostic metrics / logs / changes
+ * tool call. The LLM is now required to pass `sourceId` (see orchestrator
+ * system prompt — "Datasource discovery first"); we still accept the older
+ * `datasourceId` / `datasourceUid` aliases for leniency. When nothing
+ * resolves we scope to `datasources:uid:*` so the gate still runs — an
+ * org-wide `datasources:query` grant covers this, but a per-UID grant does
+ * not (fail-closed for narrow grants).
  */
-function resolveDatasourceScope(
-  args: Record<string, unknown>,
-  ctx: ActionContext,
-): string {
+function resolveDatasourceScope(args: Record<string, unknown>): string {
+  if (typeof args.sourceId === 'string' && args.sourceId) {
+    return `datasources:uid:${args.sourceId}`;
+  }
   if (typeof args.datasourceId === 'string' && args.datasourceId) {
     return `datasources:uid:${args.datasourceId}`;
   }
   if (typeof args.datasourceUid === 'string' && args.datasourceUid) {
     return `datasources:uid:${args.datasourceUid}`;
   }
-  const defaults = (ctx.allDatasources ?? []).find((d) => d.isDefault);
-  const prom = defaults ?? (ctx.allDatasources ?? []).find((d) => d.type === 'prometheus');
-  if (prom?.id) return `datasources:uid:${prom.id}`;
   return 'datasources:uid:*';
 }
 
@@ -147,23 +145,37 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
       `alert.rules:uid:${String(args.ruleId ?? '*')}`,
     ),
 
-  // -- Prometheus primitives ------------------------------------------------
-  'prometheus.query': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
-  'prometheus.range_query': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
-  'prometheus.labels': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
-  'prometheus.label_values': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
-  'prometheus.series': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
-  'prometheus.metadata': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
-  'prometheus.metric_names': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
-  'prometheus.validate': (args: Record<string, unknown>, ctx: ActionContext) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args, ctx)),
+  // -- Metrics primitives (source-agnostic; sourceId is required) ----------
+  'metrics.query': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'metrics.range_query': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'metrics.labels': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'metrics.label_values': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'metrics.series': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'metrics.metadata': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'metrics.metric_names': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'metrics.validate': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+
+  // -- Logs primitives (source-agnostic; sourceId is required) -------------
+  'logs.query': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'logs.labels': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+  'logs.label_values': (args: Record<string, unknown>) =>
+    ac.eval('datasources:query', resolveDatasourceScope(args)),
+
+  // -- Recent change events ------------------------------------------------
+  // Gated as an investigation-style read so Viewer+ roles can consult
+  // deploy / incident history while diagnosing anomalies.
+  'changes.list_recent': () =>
+    ac.eval('investigations:read', 'investigations:*'),
 
   // -- Web / knowledge ------------------------------------------------------
   'web.search': () => ac.eval('chat:use'),
@@ -189,6 +201,10 @@ export const UNGATED_TOOLS: ReadonlySet<string> = new Set([
   'ask_user',
   'llm.complete',
   'verifier.run',
+  // Discovery is always allowed — the caller needs to see what's configured
+  // BEFORE they can form a gated call. This is a read of the in-process
+  // registry; no backend side effect.
+  'datasources.list',
 ]);
 
 /**

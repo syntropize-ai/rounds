@@ -37,9 +37,15 @@ agentRegistry.register({
     'investigation.create', 'investigation.list',
     'investigation.add_section',
     'investigation.complete',
-    // Prometheus primitives
-    'prometheus.query', 'prometheus.range_query', 'prometheus.labels', 'prometheus.label_values',
-    'prometheus.series', 'prometheus.metadata', 'prometheus.metric_names', 'prometheus.validate',
+    // Datasource discovery (always allowed; no RBAC)
+    'datasources.list',
+    // Source-agnostic metrics primitives (each requires sourceId)
+    'metrics.query', 'metrics.range_query', 'metrics.labels', 'metrics.label_values',
+    'metrics.series', 'metrics.metadata', 'metrics.metric_names', 'metrics.validate',
+    // Source-agnostic logs primitives (each requires sourceId)
+    'logs.query', 'logs.labels', 'logs.label_values',
+    // Recent change events
+    'changes.list_recent',
     // Knowledge
     'web.search',
     // Alert rules
@@ -56,8 +62,8 @@ agentRegistry.register({
 
 agentRegistry.register({
   type: 'alert-rule-builder',
-  description: 'Generates alert rules from natural language, using dashboard context and Prometheus metric discovery',
-  allowedTools: ['create_alert_rule', 'prometheus.query', 'prometheus.labels', 'llm.complete'],
+  description: 'Generates alert rules from natural language, using dashboard context and metric discovery',
+  allowedTools: ['create_alert_rule', 'metrics.query', 'metrics.labels', 'llm.complete'],
   inputKinds: ['dashboard', 'panel'],
   outputKinds: ['alert_rule'],
   permissionMode: 'propose_only',
@@ -66,7 +72,7 @@ agentRegistry.register({
 agentRegistry.register({
   type: 'verification',
   description: 'Verifies generated artifacts (dashboards, investigation reports, alert rules) meet quality standards',
-  allowedTools: ['verifier.run', 'prometheus.query', 'llm.complete'],
+  allowedTools: ['verifier.run', 'metrics.query', 'llm.complete'],
   inputKinds: ['dashboard', 'investigation_report', 'alert_rule'],
   outputKinds: [],
   permissionMode: 'read_only',

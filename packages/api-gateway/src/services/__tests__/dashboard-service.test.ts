@@ -13,6 +13,16 @@ vi.mock('@agentic-obs/agent-core', () => ({
       consumeNavigate: vi.fn().mockReturnValue(undefined),
     };
   }),
+  AdapterRegistry: vi.fn(function MockAdapterRegistry() {
+    return {
+      register: vi.fn(),
+      get: vi.fn(),
+      list: vi.fn(() => []),
+      metrics: vi.fn(),
+      logs: vi.fn(),
+      changes: vi.fn(),
+    };
+  }),
 }));
 
 import { DashboardService } from '../dashboard-service.js';

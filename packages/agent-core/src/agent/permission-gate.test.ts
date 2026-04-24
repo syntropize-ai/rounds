@@ -3,6 +3,7 @@ import { checkPermission, denialObservation } from './permission-gate.js';
 import type { AgentDefinition } from './agent-definition.js';
 import type { ActionContext } from './orchestrator-action-handlers.js';
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js';
+import { AdapterRegistry } from '../adapters/index.js';
 
 function makeCtx(allowAll = true): ActionContext {
   return {
@@ -11,6 +12,7 @@ function makeCtx(allowAll = true): ActionContext {
     store: {} as ActionContext['store'],
     investigationReportStore: {} as ActionContext['investigationReportStore'],
     alertRuleStore: {} as ActionContext['alertRuleStore'],
+    adapters: new AdapterRegistry(),
     allDatasources: [{ id: 'ds-prom', type: 'prometheus', name: 'Prom', url: 'http://x', isDefault: true }],
     sendEvent: () => {},
     sessionId: 's',
@@ -28,7 +30,7 @@ function makeCtx(allowAll = true): ActionContext {
 const writeAgent: AgentDefinition = {
   type: 'orchestrator',
   description: 'test orchestrator',
-  allowedTools: ['dashboard.create', 'dashboard.list', 'prometheus.query'],
+  allowedTools: ['dashboard.create', 'dashboard.list', 'metrics.query'],
   inputKinds: ['dashboard'],
   outputKinds: [],
   permissionMode: 'artifact_mutation',

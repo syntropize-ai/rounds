@@ -11,7 +11,7 @@ import type {
 } from '@agentic-obs/common'
 import { ac } from '@agentic-obs/common'
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
-import type { IMetricsAdapter, IWebSearchAdapter } from '../adapters/index.js'
+import type { AdapterRegistry, IWebSearchAdapter, SignalType } from '../adapters/index.js'
 import type { AgentEvent } from './agent-events.js'
 import type {
   IDashboardAgentStore,
@@ -37,7 +37,13 @@ export interface ActionContext {
    *  Optional so tests / in-memory setups can omit; folder.* handlers
    *  return a clear "folder backend not configured" observation if absent. */
   folderRepository?: IFolderRepository
-  metricsAdapter?: IMetricsAdapter
+  /**
+   * Source-agnostic adapter registry. Required — the orchestrator resolves
+   * every metrics/logs/changes call through it by `sourceId`. A session with
+   * no backends configured still gets an empty registry so handlers can
+   * return "unknown datasource" observations uniformly.
+   */
+  adapters: AdapterRegistry
   webSearchAdapter?: IWebSearchAdapter
   allDatasources?: DatasourceConfig[]
   sendEvent: (event: DashboardSseEvent) => void
@@ -187,14 +193,21 @@ export async function handleInvestigationAddSection(
       ...(typeof p.colorScale === 'string' ? { colorScale: p.colorScale as PanelConfig['colorScale'] } : {}),
     }
 
-    // Capture snapshot data if metrics adapter is available
+    // Capture snapshot data if any metrics adapter is available in the
+    // registry. Evidence panels don't carry a sourceId today — pick the
+    // first registered metrics datasource (preferring default) so snapshot
+    // capture keeps working during the migration. Phase 2 may plumb the
+    // sourceId through the panel config.
     const queries = panelConfig.queries ?? []
-    if (ctx.metricsAdapter && queries.length > 0) {
+    const metricsSources = ctx.adapters.list({ signalType: 'metrics' })
+    const chosenSource = metricsSources.find((d) => d.isDefault) ?? metricsSources[0]
+    const evidenceAdapter = chosenSource ? ctx.adapters.metrics(chosenSource.id) : undefined
+    if (evidenceAdapter && queries.length > 0) {
       try {
         const hasInstantQuery = queries.some((q) => q.instant)
         if (hasInstantQuery) {
           // Instant snapshot
-          const results = await ctx.metricsAdapter.instantQuery(queries[0]!.expr)
+          const results = await evidenceAdapter.instantQuery(queries[0]!.expr)
           // For stat panels with sparkline=true, also capture a range so the
           // saved investigation renders the trend without needing live data.
           // Failure here is non-fatal — we keep the instant snapshot either way.
@@ -203,7 +216,7 @@ export async function handleInvestigationAddSection(
             try {
               const end = new Date()
               const start = new Date(end.getTime() - 60 * 60_000)
-              const sparkResults = await ctx.metricsAdapter.rangeQuery(
+              const sparkResults = await evidenceAdapter.rangeQuery(
                 queries[0]!.expr,
                 start,
                 end,
@@ -239,7 +252,7 @@ export async function handleInvestigationAddSection(
           const step = '60s'
           const rangeResults = await Promise.all(
             queries.map(async (q) => {
-              const results = await ctx.metricsAdapter!.rangeQuery(q.expr, start, end, step)
+              const results = await evidenceAdapter.rangeQuery(q.expr, start, end, step)
               return {
                 refId: q.refId,
                 series: results.map((r) => ({
@@ -675,44 +688,110 @@ export async function handleDeleteAlertRule(
 }
 
 // ---------------------------------------------------------------------------
-// Prometheus primitive tools
+// Datasource discovery (always allowed — required before metrics/logs/changes)
 // ---------------------------------------------------------------------------
 
-export async function handlePrometheusQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
-  const expr = String(args.expr ?? '')
-  if (!expr) return 'Error: "expr" is required.'
+export async function handleDatasourcesList(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const signalType = typeof args.signalType === 'string' ? args.signalType : undefined
+  const filter: { signalType?: SignalType } | undefined =
+    signalType === 'metrics' || signalType === 'logs' || signalType === 'changes'
+      ? { signalType }
+      : undefined
+  ctx.sendEvent({
+    type: 'tool_call',
+    tool: 'datasources.list',
+    args: filter ? filter : {},
+    displayText: filter ? `Listing ${filter.signalType} datasources` : 'Listing datasources',
+  })
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.query', args: { expr }, displayText: `Querying: ${expr.slice(0, 80)}` })
+  const infos = ctx.adapters.list(filter)
+  if (infos.length === 0) {
+    const msg = filter
+      ? `No ${filter.signalType} datasources are configured.`
+      : 'No datasources are configured.'
+    ctx.sendEvent({ type: 'tool_result', tool: 'datasources.list', summary: msg, success: true })
+    return msg
+  }
+  const lines = infos.map((d) => {
+    const tail = d.isDefault ? ' — default' : ''
+    return `id: ${d.id} (${d.type}, ${d.signalType})${tail}`
+  })
+  const summary = lines.join('\n')
+  ctx.sendEvent({
+    type: 'tool_result',
+    tool: 'datasources.list',
+    summary: `${infos.length} datasource(s)`,
+    success: true,
+  })
+  return summary
+}
+
+// ---------------------------------------------------------------------------
+// Source-agnostic metrics primitives — each takes `sourceId` and resolves the
+// concrete adapter through `ctx.adapters.metrics(sourceId)`.
+// ---------------------------------------------------------------------------
+
+function unknownMetricsSource(sourceId: string): string {
+  return `Error: unknown metrics datasource '${sourceId}'. Call datasources.list to see available sources.`
+}
+
+function unknownLogsSource(sourceId: string): string {
+  return `Error: unknown logs datasource '${sourceId}'. Call datasources.list to see available sources.`
+}
+
+export async function handleMetricsQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
+  const expr = String(args.query ?? args.expr ?? '')
+  if (!expr) return 'Error: "query" is required.'
+
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.query', args: { sourceId, query: expr }, displayText: `Querying ${sourceId}: ${expr.slice(0, 80)}` })
   try {
-    const results = await ctx.metricsAdapter.instantQuery(expr)
+    const results = await adapter.instantQuery(expr)
     const summary = results.length === 0
       ? 'Query returned no data.'
       : results.slice(0, 20).map((s) => {
           const labelStr = Object.entries(s.labels).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}="${v}"`).join(', ')
           return `${labelStr || s.labels.__name__ || 'series'}: ${s.value}`
         }).join('\n') + (results.length > 20 ? `\n... and ${results.length - 20} more series` : '')
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.query', summary: `${results.length} series returned`, success: true })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.query', summary: `${results.length} series returned`, success: true })
     return summary
   } catch (err) {
     const msg = `Query failed: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.query', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.query', summary: msg, success: false })
     return msg
   }
 }
 
-export async function handlePrometheusRangeQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
-  const expr = String(args.expr ?? '')
-  if (!expr) return 'Error: "expr" is required.'
+export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
+  const expr = String(args.query ?? args.expr ?? '')
+  if (!expr) return 'Error: "query" is required.'
   const step = String(args.step ?? '60s')
-  const durationMin = Number(args.duration_minutes ?? 60)
-  const end = new Date()
-  const start = new Date(end.getTime() - durationMin * 60_000)
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.range_query', args: { expr, step, duration_minutes: durationMin }, displayText: `Range query: ${expr.slice(0, 60)}` })
+  // Two input modes: (start, end) explicit ISO strings, or duration_minutes.
+  let start: Date
+  let end: Date
+  if (args.start && args.end) {
+    start = new Date(String(args.start))
+    end = new Date(String(args.end))
+  } else {
+    const durationMin = Number(args.duration_minutes ?? 60)
+    end = new Date()
+    start = new Date(end.getTime() - durationMin * 60_000)
+  }
+
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.range_query', args: { sourceId, query: expr, step }, displayText: `Range query on ${sourceId}: ${expr.slice(0, 60)}` })
   try {
-    const results = await ctx.metricsAdapter.rangeQuery(expr, start, end, step)
+    const results = await adapter.rangeQuery(expr, start, end, step)
     const summary = results.length === 0
       ? 'Range query returned no data.'
       : results.slice(0, 10).map((r) => {
@@ -720,139 +799,326 @@ export async function handlePrometheusRangeQuery(ctx: ActionContext, args: Recor
           const lastVal = r.values.length > 0 ? r.values[r.values.length - 1]![1] : 'N/A'
           return `${labelStr || r.metric.__name__ || 'series'}: ${r.values.length} points, latest=${lastVal}`
         }).join('\n') + (results.length > 10 ? `\n... and ${results.length - 10} more series` : '')
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.range_query', summary: `${results.length} series returned`, success: true })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.range_query', summary: `${results.length} series returned`, success: true })
     return summary
   } catch (err) {
     const msg = `Range query failed: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.range_query', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.range_query', summary: msg, success: false })
     return msg
   }
 }
 
-export async function handlePrometheusLabels(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
+export async function handleMetricsLabels(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
   const metric = String(args.metric ?? '')
-  if (!metric) return 'Error: "metric" is required.'
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.labels', args: { metric }, displayText: `Listing labels for ${metric}` })
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.labels', args: { sourceId, metric }, displayText: `Listing labels${metric ? ` for ${metric}` : ''}` })
   try {
-    const labels = await ctx.metricsAdapter.listLabels(metric)
-    const summary = labels.length === 0 ? `No labels found for ${metric}.` : labels.join(', ')
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.labels', summary: `${labels.length} labels`, success: true })
+    const labels = await adapter.listLabels(metric)
+    const summary = labels.length === 0 ? `No labels found${metric ? ` for ${metric}` : ''}.` : labels.join(', ')
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.labels', summary: `${labels.length} labels`, success: true })
     return summary
   } catch (err) {
     const msg = `Failed to list labels: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.labels', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.labels', summary: msg, success: false })
     return msg
   }
 }
 
-export async function handlePrometheusLabelValues(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
+export async function handleMetricsLabelValues(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
   const label = String(args.label ?? '')
   if (!label) return 'Error: "label" is required.'
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.label_values', args: { label }, displayText: `Listing values for label "${label}"` })
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.label_values', args: { sourceId, label }, displayText: `Listing values for label "${label}"` })
   try {
-    const values = await ctx.metricsAdapter.listLabelValues(label)
+    const values = await adapter.listLabelValues(label)
     const summary = values.length === 0
       ? `No values found for label "${label}".`
       : values.slice(0, 50).join(', ') + (values.length > 50 ? ` ... and ${values.length - 50} more` : '')
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.label_values', summary: `${values.length} values`, success: true })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.label_values', summary: `${values.length} values`, success: true })
     return summary
   } catch (err) {
     const msg = `Failed to list label values: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.label_values', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.label_values', summary: msg, success: false })
     return msg
   }
 }
 
-export async function handlePrometheusSeries(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
-  const patterns = Array.isArray(args.patterns) ? args.patterns.map(String) : [String(args.pattern ?? args.patterns ?? '')]
-  if (patterns.length === 0 || !patterns[0]) return 'Error: "patterns" (array of match[] selectors) is required.'
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.series', args: { patterns }, displayText: `Finding series matching: ${patterns.join(', ').slice(0, 60)}` })
+export async function handleMetricsSeries(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
+  const rawMatch = args.match ?? args.patterns ?? args.pattern
+  const patterns = Array.isArray(rawMatch) ? rawMatch.map(String) : [String(rawMatch ?? '')]
+  if (patterns.length === 0 || !patterns[0]) return 'Error: "match" (array of selectors) is required.'
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.series', args: { sourceId, match: patterns }, displayText: `Finding series matching: ${patterns.join(', ').slice(0, 60)}` })
   try {
-    const series = await ctx.metricsAdapter.findSeries(patterns)
+    const series = await adapter.findSeries(patterns)
     const summary = series.length === 0
       ? 'No series matched.'
       : series.slice(0, 50).join('\n') + (series.length > 50 ? `\n... and ${series.length - 50} more` : '')
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.series', summary: `${series.length} series found`, success: true })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.series', summary: `${series.length} series found`, success: true })
     return summary
   } catch (err) {
     const msg = `Series search failed: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.series', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.series', summary: msg, success: false })
     return msg
   }
 }
 
-export async function handlePrometheusMetadata(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
-  const metrics = Array.isArray(args.metrics) ? args.metrics.map(String) : undefined
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.metadata', args: { metrics: metrics ?? 'all' }, displayText: `Fetching metadata${metrics ? ` for ${metrics.length} metrics` : ''}` })
+export async function handleMetricsMetadata(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
+  const metric = typeof args.metric === 'string' ? args.metric : undefined
+  const metrics = metric ? [metric] : (Array.isArray(args.metrics) ? args.metrics.map(String) : undefined)
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.metadata', args: { sourceId, metric: metric ?? metrics ?? 'all' }, displayText: `Fetching metadata${metric ? ` for ${metric}` : ''}` })
   try {
-    const metadata = await ctx.metricsAdapter.fetchMetadata(metrics)
+    const metadata = await adapter.fetchMetadata(metrics)
     const entries = Object.entries(metadata)
     const summary = entries.length === 0
       ? 'No metadata available.'
       : entries.slice(0, 30).map(([name, m]) => `${name} (${m.type}): ${m.help}`).join('\n')
         + (entries.length > 30 ? `\n... and ${entries.length - 30} more` : '')
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.metadata', summary: `${entries.length} metrics`, success: true })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.metadata', summary: `${entries.length} metrics`, success: true })
     return summary
   } catch (err) {
     const msg = `Metadata fetch failed: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.metadata', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.metadata', summary: msg, success: false })
     return msg
   }
 }
 
-export async function handlePrometheusMetricNames(ctx: ActionContext, args: Record<string, unknown> = {}): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
-  const filter = typeof args.filter === 'string' ? args.filter.toLowerCase() : undefined
+export async function handleMetricsMetricNames(ctx: ActionContext, args: Record<string, unknown> = {}): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
+  const filter = typeof args.match === 'string'
+    ? args.match.toLowerCase()
+    : typeof args.filter === 'string'
+      ? args.filter.toLowerCase()
+      : undefined
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.metric_names', args: filter ? { filter } : {}, displayText: filter ? `Searching metrics matching "${filter}"` : 'Listing metric names' })
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.metric_names', args: { sourceId, ...(filter ? { match: filter } : {}) }, displayText: filter ? `Searching metrics matching "${filter}"` : 'Listing metric names' })
   try {
-    const allNames = await ctx.metricsAdapter.listMetricNames()
+    const allNames = await adapter.listMetricNames()
     const totalCount = allNames.length
 
     let names: string[]
     if (filter) {
-      // Filter by substring match (case-insensitive)
       names = allNames.filter((n) => n.toLowerCase().includes(filter))
     } else if (totalCount <= 500) {
-      // Small cluster — safe to return all
       names = allNames
     } else {
-      // Large cluster — return a sample + count, ask the model to use filter
       const sample = allNames.slice(0, 50)
-      const summary = `${totalCount} metrics available (too many to list). Showing first 50:\n${sample.join('\n')}\n\nUse prometheus.metric_names({ filter: "keyword" }) to search for specific metrics.`
-      ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.metric_names', summary: `${totalCount} metrics (sampled)`, success: true })
+      const summary = `${totalCount} metrics available (too many to list). Showing first 50:\n${sample.join('\n')}\n\nUse metrics.metric_names({ sourceId, match: "keyword" }) to search for specific metrics.`
+      ctx.sendEvent({ type: 'tool_result', tool: 'metrics.metric_names', summary: `${totalCount} metrics (sampled)`, success: true })
       return summary
     }
 
     const summary = names.length === 0
       ? filter ? `No metrics matching "${filter}" (${totalCount} total metrics in cluster).` : 'No metrics found.'
       : `${names.length} metrics${filter ? ` matching "${filter}"` : ''} (${totalCount} total).\n` + names.join('\n')
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.metric_names', summary: `${names.length} metrics`, success: true })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.metric_names', summary: `${names.length} metrics`, success: true })
     return summary
   } catch (err) {
     const msg = `Failed to list metrics: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.metric_names', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.metric_names', summary: msg, success: false })
     return msg
   }
 }
 
-export async function handlePrometheusValidate(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
-  if (!ctx.metricsAdapter) return 'Error: No Prometheus datasource configured.'
-  const expr = String(args.expr ?? '')
-  if (!expr) return 'Error: "expr" is required.'
-  ctx.sendEvent({ type: 'tool_call', tool: 'prometheus.validate', args: { expr }, displayText: `Validating: ${expr.slice(0, 60)}` })
+export async function handleMetricsValidate(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.metrics(sourceId)
+  if (!adapter) return unknownMetricsSource(sourceId)
+  const expr = String(args.query ?? args.expr ?? '')
+  if (!expr) return 'Error: "query" is required.'
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.validate', args: { sourceId, query: expr }, displayText: `Validating: ${expr.slice(0, 60)}` })
   try {
-    const result = await ctx.metricsAdapter.testQuery(expr)
-    const summary = result.ok ? `Valid PromQL: ${expr}` : `Invalid PromQL: ${result.error ?? 'unknown error'}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.validate', summary, success: result.ok })
+    const result = await adapter.testQuery(expr)
+    const summary = result.ok ? `Valid query: ${expr}` : `Invalid query: ${result.error ?? 'unknown error'}`
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary, success: result.ok })
     return summary
   } catch (err) {
     const msg = `Validation failed: ${err instanceof Error ? err.message : String(err)}`
-    ctx.sendEvent({ type: 'tool_result', tool: 'prometheus.validate', summary: msg, success: false })
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary: msg, success: false })
+    return msg
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Source-agnostic logs primitives — each takes `sourceId` and resolves the
+// concrete adapter through `ctx.adapters.logs(sourceId)`.
+// ---------------------------------------------------------------------------
+
+const LOGS_QUERY_MAX_CHARS = 2000
+
+export async function handleLogsQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.logs(sourceId)
+  if (!adapter) return unknownLogsSource(sourceId)
+  const query = String(args.query ?? '')
+  if (!query) return 'Error: "query" is required (backend-native — e.g. LogQL for Loki).'
+  if (!args.start || !args.end) return 'Error: "start" and "end" (ISO-8601 timestamps) are required.'
+  const start = new Date(String(args.start))
+  const end = new Date(String(args.end))
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return 'Error: "start" / "end" must be valid ISO-8601 timestamps.'
+  }
+  const limit = typeof args.limit === 'number' ? Math.max(1, Math.min(1000, args.limit)) : undefined
+
+  ctx.sendEvent({
+    type: 'tool_call',
+    tool: 'logs.query',
+    args: { sourceId, query, limit },
+    displayText: `Querying logs on ${sourceId}: ${query.slice(0, 60)}`,
+  })
+  try {
+    const result = await adapter.query({ query, start, end, ...(limit !== undefined ? { limit } : {}) })
+    if (result.entries.length === 0) {
+      const msg = 'Logs query returned no entries.'
+      ctx.sendEvent({ type: 'tool_result', tool: 'logs.query', summary: msg, success: true })
+      return msg
+    }
+    // Format: `[ts] {k=v, k=v} message` — truncate the whole blob to keep the
+    // observation reasonable even when the backend returns many rows.
+    const lines: string[] = []
+    let shown = 0
+    let totalLen = 0
+    for (const e of result.entries) {
+      const labelStr = Object.entries(e.labels).map(([k, v]) => `${k}=${v}`).join(',')
+      const line = `[${e.timestamp}]${labelStr ? ` {${labelStr}}` : ''} ${e.message}`
+      if (totalLen + line.length > LOGS_QUERY_MAX_CHARS) break
+      lines.push(line)
+      totalLen += line.length + 1
+      shown += 1
+    }
+    const truncated = shown < result.entries.length
+    const header = truncated
+      ? `${shown} of ${result.entries.length} log entries (truncated):`
+      : `${result.entries.length} log entries:`
+    const partialTail = result.partial ? '\n(Backend indicated results were partial — narrow the time window or add filters for completeness.)' : ''
+    const warnTail = result.warnings?.length ? `\nWarnings: ${result.warnings.join('; ')}` : ''
+    const summary = `${header}\n${lines.join('\n')}${partialTail}${warnTail}`
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs.query', summary: `${result.entries.length} entries`, success: true })
+    return summary
+  } catch (err) {
+    const msg = `Logs query failed: ${err instanceof Error ? err.message : String(err)}`
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs.query', summary: msg, success: false })
+    return msg
+  }
+}
+
+export async function handleLogsLabels(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.logs(sourceId)
+  if (!adapter) return unknownLogsSource(sourceId)
+  ctx.sendEvent({ type: 'tool_call', tool: 'logs.labels', args: { sourceId }, displayText: `Listing log labels on ${sourceId}` })
+  try {
+    const labels = await adapter.listLabels()
+    const summary = labels.length === 0 ? 'No log labels available.' : labels.join(', ')
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs.labels', summary: `${labels.length} labels`, success: true })
+    return summary
+  } catch (err) {
+    const msg = `Failed to list log labels: ${err instanceof Error ? err.message : String(err)}`
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs.labels', summary: msg, success: false })
+    return msg
+  }
+}
+
+export async function handleLogsLabelValues(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
+  const sourceId = String(args.sourceId ?? '')
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.'
+  const adapter = ctx.adapters.logs(sourceId)
+  if (!adapter) return unknownLogsSource(sourceId)
+  const label = String(args.label ?? '')
+  if (!label) return 'Error: "label" is required.'
+  ctx.sendEvent({ type: 'tool_call', tool: 'logs.label_values', args: { sourceId, label }, displayText: `Listing values for log label "${label}"` })
+  try {
+    const values = await adapter.listLabelValues(label)
+    const summary = values.length === 0
+      ? `No values found for label "${label}".`
+      : values.slice(0, 50).join(', ') + (values.length > 50 ? ` ... and ${values.length - 50} more` : '')
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs.label_values', summary: `${values.length} values`, success: true })
+    return summary
+  } catch (err) {
+    const msg = `Failed to list log label values: ${err instanceof Error ? err.message : String(err)}`
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs.label_values', summary: msg, success: false })
+    return msg
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recent change events — deploys / config rollouts / incidents / feature flags
+// ---------------------------------------------------------------------------
+
+export async function handleChangesListRecent(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const explicitSource = typeof args.sourceId === 'string' && args.sourceId ? args.sourceId : undefined
+  let sourceId = explicitSource
+  if (!sourceId) {
+    const firstChange = ctx.adapters.list({ signalType: 'changes' })[0]
+    sourceId = firstChange?.id
+  }
+  if (!sourceId) {
+    const msg = 'No change-event datasource configured. Call datasources.list to see available sources.'
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: false })
+    return msg
+  }
+  const adapter = ctx.adapters.changes(sourceId)
+  if (!adapter) {
+    const msg = `Error: unknown changes datasource '${sourceId}'. Call datasources.list to see available sources.`
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: false })
+    return msg
+  }
+
+  const service = typeof args.service === 'string' && args.service ? args.service : undefined
+  const windowMinutes = typeof args.window_minutes === 'number'
+    ? args.window_minutes
+    : typeof args.windowMinutes === 'number' ? args.windowMinutes : 60
+
+  ctx.sendEvent({
+    type: 'tool_call',
+    tool: 'changes.list_recent',
+    args: { sourceId, service, window_minutes: windowMinutes },
+    displayText: service ? `Recent changes for ${service} (last ${windowMinutes}m)` : `Recent changes (last ${windowMinutes}m)`,
+  })
+
+  try {
+    const records = await adapter.listRecent({
+      windowMinutes,
+      ...(service ? { service } : {}),
+    })
+    if (records.length === 0) {
+      const msg = service
+        ? `No changes for ${service} in the last ${windowMinutes} minute(s).`
+        : `No changes in the last ${windowMinutes} minute(s).`
+      ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: true })
+      return msg
+    }
+    const bullets = records.slice(0, 30).map((r) =>
+      `- [${r.at}] ${r.service} (${r.kind}): ${r.summary}`,
+    )
+    const summary = `${records.length} change(s)${service ? ` for ${service}` : ''} in last ${windowMinutes}m:\n${bullets.join('\n')}${records.length > 30 ? `\n... and ${records.length - 30} more` : ''}`
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: `${records.length} changes`, success: true })
+    return summary
+  } catch (err) {
+    const msg = `Failed to list recent changes: ${err instanceof Error ? err.message : String(err)}`
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: false })
     return msg
   }
 }

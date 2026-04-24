@@ -15,7 +15,7 @@ import type {
   IAlertRuleStore,
   DatasourceConfig,
 } from './types.js'
-import type { IMetricsAdapter, IWebSearchAdapter } from '../adapters/index.js'
+import type { AdapterRegistry, IWebSearchAdapter } from '../adapters/index.js'
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
 import { ActionExecutor } from './action-executor.js'
 import { AlertRuleAgent } from './alert-rule-agent.js'
@@ -52,14 +52,19 @@ import {
   handleDashboardRemovePanels,
   handleDashboardModifyPanel,
   handleDashboardAddVariable,
-  handlePrometheusQuery,
-  handlePrometheusRangeQuery,
-  handlePrometheusLabels,
-  handlePrometheusLabelValues,
-  handlePrometheusSeries,
-  handlePrometheusMetadata,
-  handlePrometheusMetricNames,
-  handlePrometheusValidate,
+  handleDatasourcesList,
+  handleMetricsQuery,
+  handleMetricsRangeQuery,
+  handleMetricsLabels,
+  handleMetricsLabelValues,
+  handleMetricsSeries,
+  handleMetricsMetadata,
+  handleMetricsMetricNames,
+  handleMetricsValidate,
+  handleLogsQuery,
+  handleLogsLabels,
+  handleLogsLabelValues,
+  handleChangesListRecent,
   handleWebSearch,
   handleDashboardList,
   handleInvestigationList,
@@ -82,7 +87,13 @@ export interface OrchestratorDeps {
    *  in-memory deployments; folder.* tools return a clear "not configured"
    *  observation if absent. */
   folderRepository?: IFolderRepository
-  metricsAdapter?: IMetricsAdapter
+  /**
+   * Source-agnostic adapter registry — the orchestrator dispatches every
+   * metrics/logs/changes tool through this. Required; pass an empty
+   * `new AdapterRegistry()` if no backends are wired (all handlers will
+   * return a uniform "unknown datasource" observation).
+   */
+  adapters: AdapterRegistry
   webSearchAdapter?: IWebSearchAdapter
   allDatasources?: DatasourceConfig[]
   sendEvent: (event: DashboardSseEvent) => void
@@ -160,10 +171,20 @@ export class OrchestratorAgent {
     }
     this.agentDef = def
 
+    // AlertRuleAgent still needs a single metrics adapter for its PromQL
+    // grounding / validation step. Pick the default metrics source (or the
+    // first one registered) — the generator is a helper scoped to one
+    // backend per call, not a multi-source tool.
+    const metricsSources = deps.adapters.list({ signalType: 'metrics' })
+    const defaultMetricsSource = metricsSources.find((d) => d.isDefault) ?? metricsSources[0]
+    const metricsForAlertRule = defaultMetricsSource
+      ? deps.adapters.metrics(defaultMetricsSource.id)
+      : undefined
+
     this.alertRuleAgent = new AlertRuleAgent({
       gateway: deps.gateway,
       model: deps.model,
-      metrics: deps.metricsAdapter,
+      metrics: metricsForAlertRule,
     })
 
     this.reactLoop = new ReActLoop({
@@ -176,7 +197,7 @@ export class OrchestratorAgent {
       conversationSummary: deps.conversationSummary,
     })
 
-    log.info(`[Orchestrator] init: agentType=${type}, metricsAdapter=${deps.metricsAdapter ? 'SET' : 'UNSET'}`)
+    log.info(`[Orchestrator] init: agentType=${type}, metricsSources=${metricsSources.length}`)
   }
 
   private emitAgentEvent(event: AgentEvent): void {
@@ -311,8 +332,9 @@ export class OrchestratorAgent {
       return finalReply
     }
 
+    const hasMetrics = this.deps.adapters.list({ signalType: 'metrics' }).length > 0
     const systemPrompt = buildSystemPrompt(dashboard ?? null, history, alertRules, activeAlertRule, this.deps.allDatasources ?? [], {
-      hasPrometheus: !!this.deps.metricsAdapter,
+      hasPrometheus: hasMetrics,
       timeRange: this.deps.timeRange ? { start: this.deps.timeRange.start, end: this.deps.timeRange.end } : undefined,
       identity: this.deps.identity,
       permissionEscalationContact: this.deps.permissionEscalationContact,
@@ -345,7 +367,7 @@ export class OrchestratorAgent {
       investigationStore: this.deps.investigationStore,
       alertRuleStore: this.deps.alertRuleStore,
       folderRepository: this.deps.folderRepository,
-      metricsAdapter: this.deps.metricsAdapter,
+      adapters: this.deps.adapters,
       webSearchAdapter: this.deps.webSearchAdapter,
       allDatasources: this.deps.allDatasources,
       sendEvent: this.deps.sendEvent,
@@ -435,15 +457,23 @@ export class OrchestratorAgent {
         case 'folder.list': return handleFolderList(ctx, args)
         // Navigation
         case 'navigate': return handleNavigate(ctx, args)
-        // Prometheus primitives
-        case 'prometheus.query': return handlePrometheusQuery(ctx, args)
-        case 'prometheus.range_query': return handlePrometheusRangeQuery(ctx, args)
-        case 'prometheus.labels': return handlePrometheusLabels(ctx, args)
-        case 'prometheus.label_values': return handlePrometheusLabelValues(ctx, args)
-        case 'prometheus.series': return handlePrometheusSeries(ctx, args)
-        case 'prometheus.metadata': return handlePrometheusMetadata(ctx, args)
-        case 'prometheus.metric_names': return handlePrometheusMetricNames(ctx, args)
-        case 'prometheus.validate': return handlePrometheusValidate(ctx, args)
+        // Datasource discovery (always allowed)
+        case 'datasources.list': return handleDatasourcesList(ctx, args)
+        // Source-agnostic metrics primitives
+        case 'metrics.query': return handleMetricsQuery(ctx, args)
+        case 'metrics.range_query': return handleMetricsRangeQuery(ctx, args)
+        case 'metrics.labels': return handleMetricsLabels(ctx, args)
+        case 'metrics.label_values': return handleMetricsLabelValues(ctx, args)
+        case 'metrics.series': return handleMetricsSeries(ctx, args)
+        case 'metrics.metadata': return handleMetricsMetadata(ctx, args)
+        case 'metrics.metric_names': return handleMetricsMetricNames(ctx, args)
+        case 'metrics.validate': return handleMetricsValidate(ctx, args)
+        // Source-agnostic logs primitives
+        case 'logs.query': return handleLogsQuery(ctx, args)
+        case 'logs.labels': return handleLogsLabels(ctx, args)
+        case 'logs.label_values': return handleLogsLabelValues(ctx, args)
+        // Recent change events
+        case 'changes.list_recent': return handleChangesListRecent(ctx, args)
         // Web search
         case 'web.search': return handleWebSearch(ctx, args)
         // 'finish' is handled as a terminal action in ReActLoop
@@ -475,7 +505,14 @@ function inferTargetType(tool: string): string | null {
   if (tool.startsWith('dashboard.')) return 'dashboard';
   if (tool.startsWith('folder.')) return 'folder';
   if (tool.startsWith('investigation.')) return 'investigation';
-  if (tool.startsWith('prometheus.')) return 'datasource';
+  if (
+    tool.startsWith('metrics.') ||
+    tool.startsWith('logs.') ||
+    tool === 'datasources.list'
+  ) {
+    return 'datasource';
+  }
+  if (tool === 'changes.list_recent') return 'changes';
   if (tool.startsWith('alert_rule.') || tool === 'create_alert_rule' || tool === 'modify_alert_rule' || tool === 'delete_alert_rule') {
     return 'alert_rule';
   }
@@ -487,7 +524,9 @@ function inferTargetId(tool: string, args: Record<string, unknown>): string | nu
   if (tool.startsWith('dashboard.')) return pickString(args.dashboardId);
   if (tool.startsWith('investigation.')) return pickString(args.investigationId);
   if (tool.startsWith('folder.')) return pickString(args.folderUid ?? args.parentUid);
-  if (tool.startsWith('prometheus.')) return pickString(args.datasourceId ?? args.datasourceUid);
+  if (tool.startsWith('metrics.') || tool.startsWith('logs.') || tool === 'changes.list_recent') {
+    return pickString(args.sourceId ?? args.datasourceId ?? args.datasourceUid);
+  }
   if (tool === 'create_alert_rule') return pickString(args.folderUid);
   if (tool === 'modify_alert_rule' || tool === 'delete_alert_rule' || tool === 'alert_rule.history') {
     return pickString(args.ruleId);

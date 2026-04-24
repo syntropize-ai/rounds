@@ -1,4 +1,4 @@
-# Tech-debt cleanup — progress snapshot (2026-04-22)
+# Tech-debt cleanup — progress snapshot (2026-04-23)
 
 Multi-wave cleanup driven by audit at [tech-debt-audit-plan.md](./tech-debt-audit-plan.md),
 plus a follow-up sprint on permissions / UX surfaced by manual smoke test.
@@ -20,6 +20,23 @@ plus a follow-up sprint on permissions / UX surfaced by manual smoke test.
 - See "W6 verification + follow-up" at the bottom before merging to main.
 
 ## Commit history (newest first, since the original doc)
+
+### Agent source-agnostic wave — metrics/logs/changes via AdapterRegistry (2026-04-23)
+
+Driven by the AI Ops audit: the orchestrator was Prometheus-only (8 hardcoded `prometheus.*` tools + one `ctx.metricsAdapter`), even though the underlying adapter layer was already signal-agnostic by design. This wave wires the agent through a multi-source registry so the same code path serves any backend the user configures.
+
+- **`T-adapt-A+D`** — new adapter interfaces (`ILogsAdapter`, `IChangesAdapter`) + `AdapterRegistry` with typed per-signal accessors in `packages/agent-core/src/adapters/`; 9 new registry tests. Frontend `TOOL_LABELS` + `phaseOf` updated for the new tool names (mirrors the old `prometheus.*` phase mapping 1:1).
+- **`T-adapt-B`** — `LokiLogsAdapter` over `/loki/api/v1/query_range` + labels. BigInt-based nanosecond timestamp handling, AbortSignal timeouts, 12 HTTP-mocked tests.
+- **`T-adapt-C`** — orchestrator refactor: 8 `prometheus.*` tools renamed to `metrics.*` (each now takes `sourceId`); 5 new tool families (`logs.query` / `logs.labels` / `logs.label_values` / `changes.list_recent` / `datasources.list`); `ActionContext.metricsAdapter` removed and replaced with `adapters: AdapterRegistry`. System prompt rewritten to lead with `datasources.list` + explicit `sourceId`.
+- **`T-adapt-wiring`** — `packages/api-gateway/src/services/dashboard-service.ts` now exports `buildAdapterRegistry(datasources)` that iterates every configured source and instantiates the right adapter class per type (Prom / VictoriaMetrics → metrics; Loki → logs). `chat-service.ts` and `dashboard-service.ts` both call it and pass `adapters` to the orchestrator. Loki flipped from `supported: false` → `true` in the Settings datasource-type picker.
+- **Token-budget loop termination** (same commit) — addresses the "30-iter hard cap" item from the agent audit:
+  - `MAX_ITERATIONS` 30 → 200 (safety ceiling only, not the normal terminator)
+  - NEW token-budget check each turn: if estimated messages > 95% of `CONTEXT_WINDOW`, exit gracefully with an honest "ran out of budget, here's where I am" reply
+  - Iteration-ceiling fallback message rewritten — no more dishonest "I have completed the requested changes"
+
+Tests: **1143 passed / 16 skipped / 0 failed** (baseline 1120, +23 new). `npx tsc --build` clean across all packages.
+
+Out of scope, tracked as follow-ups: native Anthropic tool_use API (replace `responseFormat: 'json'`), extended thinking (`thinking` param), multi-tool-per-turn, traces adapter.
 
 ### W6 — in-memory stores → SQLite + remaining follow-ups (2026-04-22)
 

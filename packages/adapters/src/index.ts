@@ -29,5 +29,6 @@ export type { ChangeEventAdapterConfig, ChangeQuery, WebhookPayload,
 export { ChangeEventStore, normalizeWebhook } from './change-event/index.js';
 
 export * from './prometheus/index.js';
+export * from './loki/index.js';
 export * from './execution/index.js';
 export * from './web-search/index.js';

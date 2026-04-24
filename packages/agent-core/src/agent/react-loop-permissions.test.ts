@@ -16,6 +16,11 @@ import { ac, type Evaluator, type Identity } from '@agentic-obs/common';
 import { OrchestratorAgent } from './orchestrator-agent.js';
 import type { IAuditWriter } from './types-permissions.js';
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js';
+import { AdapterRegistry } from '../adapters/index.js';
+
+function makeEmptyAdapters(): AdapterRegistry {
+  return new AdapterRegistry();
+}
 
 type LLMResponse = { content: string };
 
@@ -98,6 +103,7 @@ function build(opts: {
     },
     investigationReportStore: { save: vi.fn() },
     alertRuleStore: { create: vi.fn() } as any,
+    adapters: makeEmptyAdapters(),
     sendEvent,
     identity: opts.identity ?? makeTestIdentity(),
     accessControl: opts.accessControl ?? new AccessControlStub(),
@@ -151,7 +157,7 @@ describe('Scenario 3 — mixed: query allowed, create denied', () => {
     const mixed = new AccessControlStub((_id, e) => !e.string().includes('dashboards:create'));
     const { agent, audit } = build({
       llmResponses: [
-        asStep('query first', 'prometheus.query', { expr: 'up', datasourceId: 'ds-prom' }),
+        asStep('query first', 'metrics.query', { query: 'up', sourceId: 'ds-prom' }),
         asStep('try to create', 'dashboard.create', { folderUid: 'prod', title: 'x' }),
         asStep('explain', 'finish', {}, 'Queried but cannot create.'),
       ],
@@ -161,9 +167,9 @@ describe('Scenario 3 — mixed: query allowed, create denied', () => {
     const rows = audit.entries as Array<{ action: string }>;
     const called = rows.filter((e) => e.action === 'agent.tool_called').length;
     const denied = rows.filter((e) => e.action === 'agent.tool_denied').length;
-    // prometheus.query fails because the test has no metrics adapter → that
-    // still runs through the gate as ALLOWED. Only dashboard.create should
-    // be denied.
+    // metrics.query has no registered adapter in the empty AdapterRegistry,
+    // so the handler emits an "unknown datasource" observation — but the gate
+    // still passes it as ALLOWED. Only dashboard.create should be denied.
     expect(denied).toBe(1);
     expect(called).toBeGreaterThanOrEqual(1);
   });
@@ -227,7 +233,7 @@ describe('Scenario 7 — propose_only agent + dashboard.create', () => {
 });
 
 describe('Scenario 5 / 16 — cross-org / datasource isolation', () => {
-  it('denies prometheus.query when the datasource scope is not granted', async () => {
+  it('denies metrics.query when the datasource scope is not granted', async () => {
     const deny = new AccessControlStub((_id, e: Evaluator) => {
       // Grant query on prom-app, deny on prom-infra.
       if (e.string().includes('datasources:uid:prom-app')) return true;
@@ -236,8 +242,8 @@ describe('Scenario 5 / 16 — cross-org / datasource isolation', () => {
     });
     const { agent, audit } = build({
       llmResponses: [
-        asStep('ok', 'prometheus.query', { datasourceId: 'prom-app', expr: 'up' }),
-        asStep('denied', 'prometheus.query', { datasourceId: 'prom-infra', expr: 'up' }),
+        asStep('ok', 'metrics.query', { sourceId: 'prom-app', query: 'up' }),
+        asStep('denied', 'metrics.query', { sourceId: 'prom-infra', query: 'up' }),
         asStep('explain', 'finish', {}, 'Mixed result.'),
       ],
       accessControl: deny,
@@ -287,6 +293,7 @@ describe('Prompt template population (Scenario 11)', () => {
       },
       investigationReportStore: { save: vi.fn() },
       alertRuleStore: { create: vi.fn() } as any,
+      adapters: makeEmptyAdapters(),
       sendEvent,
       identity: makeTestIdentity({ orgRole: 'Viewer', userId: 'u-viewer' }),
       accessControl: new AccessControlStub(),

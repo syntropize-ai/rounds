@@ -94,14 +94,17 @@ describe('buildSystemPrompt — T6.C role-conditional nudge', () => {
   it('appends the Viewer nudge when orgRole is Viewer', () => {
     const prompt = build({ orgRole: 'Viewer' });
     expect(prompt).toContain(VIEWER_LINE);
-    expect(prompt).toContain('do not propose or attempt mutations');
+    // Rephrased away from the D0-adjacent "do not propose or attempt mutations".
+    // Anchor on the gate-centric framing instead.
+    expect(prompt).toContain('the RBAC gate rejects any mutation request');
     expect(prompt).not.toContain(EDITOR_LINE);
   });
 
   it('appends the Editor nudge when orgRole is Editor', () => {
     const prompt = build({ orgRole: 'Editor' });
     expect(prompt).toContain(EDITOR_LINE);
-    expect(prompt).toContain('Layer 3 RBAC will block them anyway');
+    // Same reframing: the gate does the blocking, the agent doesn't self-censor.
+    expect(prompt).toContain('the gate will reject them');
     expect(prompt).not.toContain(VIEWER_LINE);
   });
 

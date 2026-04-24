@@ -85,15 +85,23 @@ export const USER_VISIBLE_TOOLS = new Set([
   'investigate_plan',
   'investigate_query',
   'investigate_analyze',
-  // Prometheus primitives (runtime-first toolized access)
-  'prometheus.query',
-  'prometheus.range_query',
-  'prometheus.labels',
-  'prometheus.label_values',
-  'prometheus.series',
-  'prometheus.metadata',
-  'prometheus.metric_names',
-  'prometheus.validate',
+  // Data source discovery
+  'datasources.list',
+  // Metrics primitives (runtime-first toolized access, source-agnostic)
+  'metrics.query',
+  'metrics.range_query',
+  'metrics.labels',
+  'metrics.label_values',
+  'metrics.series',
+  'metrics.metadata',
+  'metrics.metric_names',
+  'metrics.validate',
+  // Logs primitives
+  'logs.query',
+  'logs.labels',
+  'logs.label_values',
+  // Changes / deployment events
+  'changes.list_recent',
   // Dashboard mutation primitives
   'dashboard.add_panels',
   'dashboard.remove_panels',
@@ -111,11 +119,21 @@ export const USER_VISIBLE_TOOLS = new Set([
  * Convention: tool names with common prefix group together.
  */
 export function phaseOf(tool: string): string {
-  // Prometheus primitives — group by activity type
-  if (tool === 'prometheus.metric_names' || tool === 'prometheus.series' || tool === 'prometheus.metadata') return 'discover';
-  if (tool === 'prometheus.labels' || tool === 'prometheus.label_values') return 'discover';
-  if (tool === 'prometheus.query' || tool === 'prometheus.range_query') return 'query';
-  if (tool === 'prometheus.validate') return 'validate';
+  // Data source discovery
+  if (tool === 'datasources.list') return 'discover';
+
+  // Metrics primitives — group by activity type (mirrors old prometheus mapping 1:1)
+  if (tool === 'metrics.metric_names' || tool === 'metrics.series' || tool === 'metrics.metadata') return 'discover';
+  if (tool === 'metrics.labels' || tool === 'metrics.label_values') return 'discover';
+  if (tool === 'metrics.query' || tool === 'metrics.range_query') return 'query';
+  if (tool === 'metrics.validate') return 'validate';
+
+  // Logs primitives — same split as metrics
+  if (tool === 'logs.labels' || tool === 'logs.label_values') return 'discover';
+  if (tool === 'logs.query') return 'query';
+
+  // Changes / deployment events
+  if (tool === 'changes.list_recent') return 'discover';
 
   // Dashboard mutation primitives
   if (tool.startsWith('dashboard.')) return 'dashboard';
@@ -148,15 +166,23 @@ export const TOOL_LABELS: Record<string, string> = {
   validate_query: 'Validating queries',
   fix_query: 'Fixing queries',
   critic: 'Reviewing panels',
-  // Prometheus primitives
-  'prometheus.query': 'Querying Prometheus',
-  'prometheus.range_query': 'Querying time range',
-  'prometheus.labels': 'Discovering labels',
-  'prometheus.label_values': 'Discovering label values',
-  'prometheus.series': 'Searching series',
-  'prometheus.metadata': 'Fetching metadata',
-  'prometheus.metric_names': 'Listing metrics',
-  'prometheus.validate': 'Validating PromQL',
+  // Data source discovery
+  'datasources.list': 'Listing data sources',
+  // Metrics primitives (source-agnostic)
+  'metrics.query': 'Querying metrics',
+  'metrics.range_query': 'Range-querying metrics',
+  'metrics.labels': 'Listing metric labels',
+  'metrics.label_values': 'Listing label values',
+  'metrics.series': 'Finding metric series',
+  'metrics.metadata': 'Fetching metric metadata',
+  'metrics.metric_names': 'Listing metric names',
+  'metrics.validate': 'Validating query',
+  // Logs primitives
+  'logs.query': 'Searching logs',
+  'logs.labels': 'Listing log labels',
+  'logs.label_values': 'Listing log label values',
+  // Changes / deployment events
+  'changes.list_recent': 'Checking recent changes',
   // Dashboard mutation primitives
   'dashboard.add_panels': 'Adding panels',
   'dashboard.remove_panels': 'Removing panels',

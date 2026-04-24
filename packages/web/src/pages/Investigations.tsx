@@ -160,16 +160,7 @@ export default function Investigations() {
               </svg>
             </div>
             <p className="mb-1 text-sm text-on-surface-variant">No investigations yet</p>
-            <p className="mb-4 text-xs text-[var(--color-outline)]">Start an investigation to diagnose production issues with AI</p>
-            {canCreateInvestigation && (
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary-fixed"
-              >
-                + New Investigation
-              </button>
-            )}
+            <p className="text-xs text-[var(--color-outline)]">Start an investigation to diagnose production issues with AI</p>
           </div>
         )}
 

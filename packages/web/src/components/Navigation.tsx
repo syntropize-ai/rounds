@@ -237,19 +237,19 @@ export default function Navigation() {
       || hasPermission('datasources:write')
       || hasPermission('datasources:create')
       || hasPermission('admin:write'));
-  // Default expanded on Home page, collapsed on others
-  const [expanded, setExpanded] = useState(location.pathname === '/');
+  // Default expanded, persisted across sessions. User's explicit toggle wins
+  // over any route-based behavior (we used to auto-collapse when leaving Home,
+  // which fought against users who preferred the expanded rail everywhere).
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const saved = window.localStorage.getItem('openobs:sidebar-expanded');
+    return saved === null ? true : saved === '1';
+  });
 
-  // Auto-expand on Home, auto-collapse elsewhere (user can still toggle manually afterward)
-  const prevPathRef = useRef(location.pathname);
   useEffect(() => {
-    const prevWasHome = prevPathRef.current === '/';
-    const nowHome = location.pathname === '/';
-    if (prevWasHome !== nowHome) {
-      setExpanded(nowHome);
-    }
-    prevPathRef.current = location.pathname;
-  }, [location.pathname]);
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('openobs:sidebar-expanded', expanded ? '1' : '0');
+  }, [expanded]);
 
   const handleLogout = async () => {
     await logout();

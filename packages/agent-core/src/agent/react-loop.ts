@@ -6,10 +6,27 @@ import type {
 import { createLogger } from '@agentic-obs/common/logging'
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common'
 import type { IAccessControlService } from './types-permissions.js'
+import { estimateMessagesTokens, CONTEXT_WINDOW } from './token-utils.js'
 
 const log = createLogger('react-loop')
 
-const MAX_ITERATIONS = 30
+/**
+ * Safety ceiling on iterations to prevent pathological infinite loops
+ * (LLM stuck emitting parse errors, provider returning identical results,
+ * etc). This is NOT the normal terminator — under well-behaved operation
+ * the LLM emits `reply` / `ask_user` / `finish` long before this is hit.
+ * The real budget is tokens (see TOKEN_BUDGET_BYTES below), matching the
+ * way Claude Code's loop terminates.
+ */
+const MAX_ITERATIONS = 200
+
+/**
+ * Soft token budget: when the messages about to be sent to the LLM would
+ * exceed this, exit the loop with a graceful "reached context limit" reply
+ * rather than letting the gateway reject the request. Set slightly under
+ * CONTEXT_WINDOW to leave headroom for the model's own completion tokens.
+ */
+const TOKEN_BUDGET_TOKENS = Math.floor(CONTEXT_WINDOW * 0.95)
 /** Keep the last N observations in full; older ones are summarized to save context. */
 const OBSERVATION_KEEP_RECENT = 6
 /** Truncate individual observation text to this many characters. */
@@ -183,6 +200,17 @@ export class ReActLoop {
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const messages = this.buildMessages(systemPrompt, userMessage, observations)
 
+      // Token-budget termination — the primary "we're done" signal once the
+      // LLM stops emitting terminal actions on its own. Estimated, not exact,
+      // so leave headroom (TOKEN_BUDGET_TOKENS < CONTEXT_WINDOW).
+      const estimatedTokens = estimateMessagesTokens(messages)
+      if (estimatedTokens > TOKEN_BUDGET_TOKENS) {
+        log.warn({ step: i, estimatedTokens, budget: TOKEN_BUDGET_TOKENS }, 'token budget exhausted — ending loop')
+        const reply = `I've worked through ${i} step${i === 1 ? '' : 's'} on this task, but the conversation has grown past the context budget. Here's a summary of where I am so far — ask me a focused follow-up if you need more detail.`
+        this.deps.sendEvent({ type: 'reply', content: reply })
+        return reply
+      }
+
       let step: ReActStep
       let rawContent = ''
       try {
@@ -311,8 +339,11 @@ export class ReActLoop {
       return finalReply
     }
 
-    // Max iterations reached - emit a fallback reply
-    const fallback = 'I have completed the requested changes to your dashboard.'
+    // Iteration ceiling reached — safety net, not a normal completion path.
+    // Be honest: we didn't converge, the user needs to know to retry with a
+    // narrower scope rather than assume success.
+    log.warn({ iterations: MAX_ITERATIONS }, 'iteration ceiling reached without terminal action')
+    const fallback = `I ran through ${MAX_ITERATIONS} steps without reaching a clear stopping point. This usually means the task branched more than expected or I got stuck on a loop. Try narrowing the request, or ask me what I learned along the way.`
     this.deps.sendEvent({ type: 'reply', content: fallback })
     return fallback
   }

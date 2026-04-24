@@ -84,7 +84,7 @@ describe('LokiLogsAdapter', () => {
         labels: { app: 'api', level: 'info' },
       });
       // Ties broken by insertion order is fine; both must have correct ISO
-      const secondThird = [result.entries[1], result.entries[2]];
+      const secondThird = [result.entries[1]!, result.entries[2]!];
       expect(secondThird.every((e) => e.timestamp === '2024-01-01T00:00:00.000Z')).toBe(true);
       const msgs = secondThird.map((e) => e.message).sort();
       expect(msgs).toEqual(['db up', 'hello']);

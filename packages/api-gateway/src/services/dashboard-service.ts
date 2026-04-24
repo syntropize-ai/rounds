@@ -6,9 +6,9 @@ const log = createLogger('dashboard-service');
 import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
 import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore } from '@agentic-obs/data-layer';
 import { createLlmGateway } from '../routes/llm-factory.js';
-import { DashboardOrchestratorAgent as OrchestratorAgent } from '@agentic-obs/agent-core';
+import { DashboardOrchestratorAgent as OrchestratorAgent, AdapterRegistry } from '@agentic-obs/agent-core';
 import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
-import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
+import { PrometheusMetricsAdapter, LokiLogsAdapter } from '@agentic-obs/adapters';
 import type { AccessControlSurface } from './accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import type { SetupConfigService } from './setup-config-service.js';
@@ -76,6 +76,46 @@ export function resolvePrometheusDatasource(datasources: InstanceDatasource[]): 
   }
 
   return { url: prom.url, headers };
+}
+
+/** Build HTTP auth headers from an InstanceDatasource's stored credentials. */
+export function datasourceHeaders(ds: InstanceDatasource): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (ds.username && ds.password) {
+    headers.Authorization = `Basic ${Buffer.from(`${ds.username}:${ds.password}`).toString('base64')}`;
+  } else if (ds.apiKey) {
+    headers.Authorization = `Bearer ${ds.apiKey}`;
+  }
+  return headers;
+}
+
+/**
+ * Build an AdapterRegistry from the user's configured datasources.
+ *
+ * Each recognized datasource type is instantiated with the appropriate
+ * backend adapter class and registered under its `id`. Unrecognized types
+ * are skipped silently (the setup wizard may let users save types that
+ * we don't have an adapter for yet; those just won't be queryable by the
+ * agent until an adapter lands).
+ */
+export function buildAdapterRegistry(datasources: InstanceDatasource[]): AdapterRegistry {
+  const registry = new AdapterRegistry();
+  for (const ds of datasources) {
+    const headers = datasourceHeaders(ds);
+    if (ds.type === 'prometheus' || ds.type === 'victoria-metrics') {
+      registry.register({
+        info: { id: ds.id, name: ds.name, type: ds.type, url: ds.url, signalType: 'metrics', isDefault: ds.isDefault },
+        metrics: new PrometheusMetricsAdapter(ds.url, headers),
+      });
+    } else if (ds.type === 'loki') {
+      registry.register({
+        info: { id: ds.id, name: ds.name, type: ds.type, url: ds.url, signalType: 'logs', isDefault: ds.isDefault },
+        logs: new LokiLogsAdapter(ds.url, headers),
+      });
+    }
+    // elasticsearch / clickhouse / tempo / jaeger / otel: adapters not yet implemented
+  }
+  return registry;
 }
 
 // -- Dashboard lock (prevents concurrent mutations on same dashboard)
@@ -182,11 +222,7 @@ export class DashboardService {
 
     const gateway = createLlmGateway(llm);
     const model = llm.model;
-    const prom = resolvePrometheusDatasource(datasources);
-
-    const metricsAdapter = prom
-      ? new PrometheusMetricsAdapter(prom.url, prom.headers)
-      : undefined;
+    const adapters = buildAdapterRegistry(datasources);
 
     const orchestrator = new OrchestratorAgent({
       gateway,
@@ -197,7 +233,7 @@ export class DashboardService {
       investigationStore: this.investigationStore as IInvestigationStore | undefined,
       alertRuleStore: toAlertRuleStore(this.alertRuleStore),
       ...(this.folderRepository ? { folderRepository: this.folderRepository } : {}),
-      metricsAdapter,
+      adapters,
       allDatasources: toAgentDatasources(datasources),
       sendEvent,
       timeRange: timeRange?.start && timeRange?.end

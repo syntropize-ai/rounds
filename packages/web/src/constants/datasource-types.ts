@@ -31,7 +31,7 @@ export interface DatasourceTypeInfo {
 export const DATASOURCE_TYPES: DatasourceTypeInfo[] = [
   { value: 'prometheus',       label: 'Prometheus',       category: 'Metrics', supported: true,  icon: 'P',  color: '#06E5F2' },
   { value: 'victoria-metrics', label: 'VictoriaMetrics',  category: 'Metrics', supported: true,  icon: 'VM', color: '#D2619C' },
-  { value: 'loki',             label: 'Loki',             category: 'Logs',    supported: false, icon: 'L',  color: '#7FA835' },
+  { value: 'loki',             label: 'Loki',             category: 'Logs',    supported: true,  icon: 'L',  color: '#7FA835' },
   { value: 'elasticsearch',    label: 'Elasticsearch',    category: 'Logs',    supported: false, icon: 'ES', color: '#00B0F3' },
   { value: 'clickhouse',       label: 'ClickHouse',       category: 'Logs',    supported: false, icon: 'CH', color: '#FFCC00' },
   { value: 'tempo',            label: 'Tempo',            category: 'Traces',  supported: false, icon: 'T',  color: '#FF701F' },

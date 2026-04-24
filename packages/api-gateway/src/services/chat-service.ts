@@ -4,8 +4,7 @@ import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
 import { createLlmGateway } from '../routes/llm-factory.js';
 import { DashboardOrchestratorAgent as OrchestratorAgent, shouldCompact, compactMessages, estimateTokens } from '@agentic-obs/agent-core';
 import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
-import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
-import { resolvePrometheusDatasource, toAgentDatasources } from './dashboard-service.js';
+import { buildAdapterRegistry, toAgentDatasources } from './dashboard-service.js';
 import type { AccessControlSurface } from './accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import type { SetupConfigService } from './setup-config-service.js';
@@ -150,11 +149,7 @@ export class ChatService {
 
     const gateway = createLlmGateway(llm);
     const model = llm.model;
-    const prom = resolvePrometheusDatasource(datasources);
-
-    const metricsAdapter = prom
-      ? new PrometheusMetricsAdapter(prom.url, prom.headers)
-      : undefined;
+    const adapters = buildAdapterRegistry(datasources);
 
     // Parse relative time range (e.g., "1h", "6h", "24h", "7d") to absolute start/end
     let timeRange: { start: string; end: string } | undefined;
@@ -234,7 +229,7 @@ export class ChatService {
       investigationStore: this.deps.investigationStore as IInvestigationStore | undefined,
       alertRuleStore: toAlertRuleStore(this.deps.alertRuleStore),
       ...(this.deps.folderRepository ? { folderRepository: this.deps.folderRepository } : {}),
-      metricsAdapter,
+      adapters,
       allDatasources: toAgentDatasources(datasources),
       sendEvent: wrappedSendEvent,
       timeRange,

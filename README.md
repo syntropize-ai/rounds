@@ -24,7 +24,6 @@
   <a href="https://openobs.com">Website</a> &middot;
   <a href="https://docs.openobs.com">Documentation</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#deploy-with-docker">Docker</a> &middot;
   <a href="#deploy-with-helm">Helm</a>
 </p>
 
@@ -48,11 +47,11 @@ OpenObs turns natural language into production-grade observability workflows:
 
 ## Quick Start
 
-The fastest way to try OpenObs — one command, zero config:
+Install from npm:
 
 ```bash
-npx openobs
-# or install globally:  npm install -g openobs && openobs
+npm install -g openobs
+openobs
 ```
 
 - First run opens a browser to the setup wizard
@@ -78,19 +77,6 @@ npm run start              # API on :3000, Web on :5173
 | **Node.js 20+** | Required |
 | **LLM provider** | Anthropic, OpenAI, Gemini, DeepSeek, Ollama, or Azure/Bedrock |
 | **Prometheus** | Optional &mdash; dashboards work without one, but metric discovery and investigation require it |
-
-## Deploy with Docker
-
-```bash
-docker build -t openobs:latest .
-docker run --rm -p 3000:3000 \
-  -e JWT_SECRET='your-secret-min-32-chars' \
-  -e LLM_API_KEY='your-provider-key' \
-  -v openobs-data:/var/lib/openobs \
-  openobs:latest
-```
-
-Then open **http://localhost:3000**.
 
 ## Deploy with Helm
 

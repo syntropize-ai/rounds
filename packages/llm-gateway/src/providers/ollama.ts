@@ -101,6 +101,8 @@ interface OllamaMessage {
   content: string;
   tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
   tool_call_id?: string;
+  /** Optional on `role: 'tool'` messages — echoes the function name. */
+  name?: string;
 }
 
 function translateMessages(messages: CompletionMessage[]): OllamaMessage[] {
@@ -130,7 +132,12 @@ function translateMessages(messages: CompletionMessage[]): OllamaMessage[] {
       for (const b of blocks) {
         if (b.type === 'text') textParts.push(b.text);
         else if (b.type === 'tool_result') {
-          out.push({ role: 'tool', tool_call_id: b.tool_use_id, content: b.content });
+          out.push({
+            role: 'tool',
+            tool_call_id: b.tool_use_id,
+            name: nameToOllama(b.tool_name),
+            content: b.content,
+          });
         }
       }
       if (textParts.length > 0) {

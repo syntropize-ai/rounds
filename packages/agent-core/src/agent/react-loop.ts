@@ -491,6 +491,7 @@ export class ReActLoop {
         userBlocks.push({
           type: 'tool_result',
           tool_use_id: id,
+          tool_name: obs.action,
           content: resultText,
         })
       }

@@ -284,6 +284,54 @@ describe('OllamaProvider response parsing', () => {
     });
   });
 
+  it('threads tool_name onto the role:tool message (normalized) for tool_result blocks', async () => {
+    const { calls } = setupFetchQueue([
+      makeResponse(TOOL_CAPABLE_SHOW),
+      makeResponse({
+        model: 'llama3.1',
+        message: { role: 'assistant', content: 'ok' },
+      }),
+    ]);
+    const provider = new OllamaProvider();
+    await provider.complete(
+      [
+        { role: 'user', content: 'check' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'ollama_call_0',
+              name: 'metrics.query',
+              input: { sourceId: 'prom', query: 'up' },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'ollama_call_0',
+              tool_name: 'metrics.query',
+              content: '1 1 1',
+            },
+          ],
+        },
+      ],
+      OPTS,
+    );
+
+    const chatBody = JSON.parse((calls[1]!.init?.body as string) ?? '{}') as {
+      messages: Array<{ role: string; tool_call_id?: string; name?: string; content?: string }>;
+    };
+    const toolMsg = chatBody.messages.find((m) => m.role === 'tool');
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.tool_call_id).toBe('ollama_call_0');
+    expect(toolMsg!.name).toBe('metrics_query');
+    expect(toolMsg!.content).toBe('1 1 1');
+  });
+
   it('does NOT double-parse arguments (Ollama returns objects, not JSON strings)', async () => {
     setupFetchQueue([
       makeResponse(TOOL_CAPABLE_SHOW),

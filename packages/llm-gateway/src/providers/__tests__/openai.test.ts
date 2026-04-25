@@ -416,6 +416,56 @@ describe('OpenAIProvider — name normalization round-trip', () => {
   });
 });
 
+describe('OpenAIProvider — tool_result wiring', () => {
+  let restore: () => void;
+  afterEach(() => restore?.());
+
+  it('emits role:tool messages with tool_call_id and normalized name from tool_name', async () => {
+    const m = installFetchMock();
+    restore = m.restore;
+    const provider = new OpenAIProvider({ apiKey: 'sk-test' });
+
+    await provider.complete(
+      [
+        { role: 'user', content: 'check' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'call_abc',
+              name: 'metrics.query',
+              input: { sourceId: 'prom', query: 'up' },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'call_abc',
+              tool_name: 'metrics.query',
+              content: '1 1 1',
+            },
+          ],
+        },
+      ],
+      { model: 'gpt-4o' },
+    );
+
+    const sent = m.capture[0]!.body as {
+      messages: Array<{ role: string; tool_call_id?: string; name?: string; content?: string | null }>;
+    };
+    const toolMsg = sent.messages.find((mm) => mm.role === 'tool');
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.tool_call_id).toBe('call_abc');
+    // dotted canonical name is encoded with the double-underscore wire form.
+    expect(toolMsg!.name).toBe('metrics__query');
+    expect(toolMsg!.content).toBe('1 1 1');
+  });
+});
+
 describe('OpenAIProvider — config', () => {
   let restore: () => void;
   afterEach(() => restore?.());

@@ -115,6 +115,8 @@ interface OpenAIMessage {
   content: string | null;
   tool_calls?: OpenAIToolCall[];
   tool_call_id?: string;
+  /** Optional on `role: 'tool'` messages — echoes the function name the call resolved. */
+  name?: string;
 }
 
 function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
@@ -152,7 +154,12 @@ function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
       for (const b of blocks as ContentBlock[]) {
         if (b.type === 'text') textParts.push(b.text);
         else if (b.type === 'tool_result') {
-          out.push({ role: 'tool', tool_call_id: b.tool_use_id, content: b.content });
+          out.push({
+            role: 'tool',
+            tool_call_id: b.tool_use_id,
+            name: nameToOpenAi(b.tool_name),
+            content: b.content,
+          });
         }
       }
       if (textParts.length > 0) {

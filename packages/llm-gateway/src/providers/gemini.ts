@@ -131,11 +131,11 @@ export class GeminiProvider implements LLMProvider {
         } else if (b.type === 'tool_result') {
           // Gemini wants the tool result as a structured response; we emit text wrapped
           // in `result` so the model can read the observation regardless of shape.
+          // Gemini pairs results to function calls by name (not id), so we mirror the
+          // wire-name we used when emitting the matching functionCall part.
           parts.push({
             functionResponse: {
-              // Gemini ties result to a name, not an id. Best-effort: we don't carry
-              // the original tool name here so use a placeholder; pairing is by order.
-              name: 'tool',
+              name: nameToGemini(b.tool_name),
               response: { result: b.content },
             },
           });

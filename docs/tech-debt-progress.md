@@ -21,6 +21,26 @@ plus a follow-up sprint on permissions / UX surfaced by manual smoke test.
 
 ## Commit history (newest first, since the original doc)
 
+### LLM gateway: native tool_use across 4 providers (2026-04-25)
+
+The orchestrator used to ask the LLM to emit JSON via prompt instructions (`responseFormat: 'json'` + `parseLlmJson(content)` → `ReActStep`). Audit found this was the single biggest cap on perceived agent intelligence — Anthropic-trained models score 15–30 points higher on tool-selection benchmarks via native `tool_use` than via prompt-engineered JSON. Same story for OpenAI / Gemini / DeepSeek.
+
+This wave migrated all 4 providers and the orchestrator to native tool_use. PR-B for extended thinking lands separately on top.
+
+- **`T-tools-A`** — new types in `packages/llm-gateway/src/types.ts`: `ToolDefinition`, `ToolCall`, `LLMOptions.tools/toolChoice`, `LLMResponse.toolCalls`, `LLMResponse.content` is now plain prose. `responseFormat` narrowed to `'text'` (no `'json'`). New `providers/capabilities.ts` with `getCapabilities(provider, model)` + `ProviderCapabilityError`. New `agent-core/src/agent/tool-schema-registry.ts` with hand-written JSON schemas for all 35 tools.
+- **`T-tools-B`** — Anthropic provider sends `tools` + `tool_choice`, parses `content[]` for both `text` and `tool_use` blocks. 11 tests covering text-only / tool_use-only / mixed / parallel multi-tool.
+- **`T-tools-C`** — OpenAI provider translates canonical `ToolDefinition` → `{type:'function', function:{name, description, parameters}}`. Tool name dot→`__` normalization (OpenAI rejects dots). Parses `choices[0].message.tool_calls` back, defensively JSON-parses `arguments` strings. 13 tests.
+- **`T-tools-D`** — Gemini provider translates → `tools: [{functionDeclarations: [...]}]` + `toolConfig.functionCallingConfig`. Tool name dot→`_` normalization. Parses `candidates[0].content.parts[]` for text + functionCall mix. Synthesizes `gemini_call_<i>` ids (Gemini 2.x doesn't echo ids; Gemini 3.x does and could be used in a future cleanup). 11 tests.
+- **`T-tools-E`** — Ollama provider sends `tools` to `/api/chat` (Ollama uses OpenAI-shape natively). Lazy capability probe via `POST /api/show` on first `complete()` call: throws `ProviderCapabilityError` with friendly message when the model lacks the `tools` capability (older Ollama or non-tool models). Probe cached after success. 12 tests.
+- **`T-tools-F`** — `react-loop.ts` rewritten: gateway call uses `tools: toolsForAgent(allowedTools)` + `toolChoice: 'auto'`; ReActStep synthesized from `resp.toolCalls[0]`; `parseLlmJson` import + `parse_error` retry path deleted. `alert-rule-agent.ts` migrated to forced `toolChoice: { type: 'tool', name: 'emit_alert_rule' }`. `orchestrator-prompt.ts` `getToolsSection` + `getResponseFormatSection` deleted; examples rewritten to `tool(args) → result` arrow notation. `llm-json.ts` deleted (no remaining callers). `dashboard.rearrange` dropped from orchestrator `allowedTools` (no LLM-invokable handler). Net prompt drops ~600 tokens.
+- **`T-tools-parent`** — mock provider gets `toolCalls: []`; smart-router drops `responseFormat` (its classifier prompt asks for JSON prose, `parseLlmResponse` already tolerates fences).
+
+Tests: **1191 pass / 16 skip / 0 fail** (baseline 1143 → +48). `npx tsc --build` clean.
+
+DeepSeek V4 / GPT-5.5 / Gemini 3.x compatibility: all three keep the same tool-use API shape as their predecessors (verified 2026-04-25). DeepSeek users hit our OpenAI provider with `baseUrl=https://api.deepseek.com`; legacy `deepseek-chat` / `deepseek-reasoner` model IDs retire 2026-07-24, switch to `deepseek-v4-pro` / `deepseek-v4-flash`.
+
+Out of scope for this PR (follow-ups): native extended thinking (PR-B), multi-tool-per-turn execution, tool streaming (`tool_use_delta`), aws-bedrock provider (currently falls through to AnthropicProvider default — pre-existing issue).
+
 ### Agent source-agnostic wave — metrics/logs/changes via AdapterRegistry (2026-04-23)
 
 Driven by the AI Ops audit: the orchestrator was Prometheus-only (8 hardcoded `prometheus.*` tools + one `ctx.metricsAdapter`), even though the underlying adapter layer was already signal-agnostic by design. This wave wires the agent through a multi-source registry so the same code path serves any backend the user configures.

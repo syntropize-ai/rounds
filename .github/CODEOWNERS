@@ -1,0 +1,12 @@
+# CODEOWNERS — auto-requests review when matching files change in a PR.
+# Format: <pattern>  <owner1> <owner2> ...
+# Catch-all (no other rule matches) → repo owner
+*                              @shiqi308
+
+# Per-area overrides — add more reviewers here as the team grows
+/packages/llm-gateway/         @shiqi308
+/packages/agent-core/          @shiqi308
+/packages/api-gateway/         @shiqi308
+/packages/web/                 @shiqi308
+/helm/                         @shiqi308
+/.github/                      @shiqi308

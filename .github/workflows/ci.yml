@@ -63,7 +63,7 @@ jobs:
           cache: npm
       - run: npm ci
       # vitest needs a coverage provider; install ad-hoc to avoid touching package-lock
-      - run: npm install --no-save @vitest/coverage-v8
+      - run: npm install --no-save @vitest/coverage-v8@^3.2.0
       - run: npx vitest run --coverage --coverage.reporter=lcov --coverage.reporter=text
       - uses: codecov/codecov-action@v4
         with:

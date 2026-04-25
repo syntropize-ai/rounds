@@ -1,17 +1,25 @@
 /**
- * Fixed roles — pre-defined RBAC bundles seeded at startup. Named
- * `fixed:<kind>:<role>`. Operators assign these to users/teams to grant a
- * cohesive capability (e.g. "can administer datasources" via
- * `fixed:datasources:writer`).
+ * `FIXED_ROLES` is the catalog of pre-defined RBAC bundles seeded into every
+ * organization at startup. Each entry packages together a coherent set of
+ * (action, scope) permissions so operators can hand out a capability with a
+ * single grant instead of assembling permissions one-by-one.
  *
- * Grafana reference (read for the list of roles + their permission sets —
- * NOT copied as code):
- *   pkg/services/accesscontrol/roles.go (v11.3.0).
+ * Naming convention:
+ *   fixed:<area>:<verb>          — e.g. `fixed:dashboards:reader`,
+ *                                   `fixed:datasources:writer`
+ *   fixed:<area>.<sub>:<verb>    — used when an area has a finer-grained
+ *                                   sub-resource that needs its own role,
+ *                                   e.g. `fixed:dashboards.permissions:writer`
  *
- * Parity rule: every fixed role in Grafana's v11.3.0 catalog must be present
- * here. The enumeration below was built from the design document §03 +
- * Grafana's role catalog reviewed for completeness. Action strings match the
- * operator-facing vocabulary; the TypeScript data structures are our own.
+ *   <verb> is typically `reader`, `writer`, `creator`, or `admin`. The role's
+ *   `uid` is derived by replacing `:` and `.` with `_` (see `def()` below).
+ *
+ * Each role also carries a `groupName` that the admin UI uses to cluster
+ * related roles together in the assignment dropdowns.
+ *
+ * The catalog below is the source of truth — application code references
+ * roles by their `name` string, and the seeder writes them into the `role`
+ * and `permission` tables verbatim.
  */
 
 import { ACTIONS, type RbacAction } from './actions.js';
@@ -602,7 +610,7 @@ const APIKEYS_WRITER = def(
 
 // -- openobs-specific ---------------------------------------------------
 
-// [openobs-extension] — not in Grafana. Investigation/approval/chat roles.
+// Roles for openobs-specific features: investigation, approval, chat.
 
 const INVESTIGATIONS_READER = def(
   'fixed:investigations:reader',

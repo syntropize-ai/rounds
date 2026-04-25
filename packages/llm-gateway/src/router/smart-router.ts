@@ -105,9 +105,13 @@ Choose with high skill only if truly required: "reasoning", "creativity", "analy
 
 Respond ONLY as JSON: { "model": "<model_id>", "reasoning": "<1 sentence>" }`;
 
+    // Classifier returns JSON via prose — `parseLlmResponse` strips fences and
+    // tolerates surrounding text. Native tool_use would be cleaner here; if
+    // routing accuracy turns out to need it, define a `select_model` tool with
+    // `toolChoice: { type: 'tool', name: 'select_model' }` instead.
     const response = await this.classifierLlm.complete(
       [{ role: 'user', content: prompt }],
-      { model: this.classifierModel, temperature: 0, maxTokens: 256, responseFormat: 'json' },
+      { model: this.classifierModel, temperature: 0, maxTokens: 256 },
     );
 
     let parsed: LLMRoutingResponse;

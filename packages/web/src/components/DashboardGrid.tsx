@@ -48,26 +48,26 @@ function compactLayout(panels: PanelConfig[], editMode: boolean): LayoutItem[] {
   const raw = panels.map((panel) => {
     const isStat = panel.visualization === 'stat';
     const isGauge = panel.visualization === 'gauge';
-    // stat panels render best as squares: big number on top, sparkline on
-    // bottom — tall panels read as "tile cards" the user can scan in a row.
-    // 3 cols wide × 3 rows tall ≈ 300×300 px on a 1200px container.
-    const defaultH = isStat ? 3 : isGauge ? 3 : 3;
+    // Per-viz default heights — stat reads as a tight number tile (≈ 200px),
+    // gauge needs vertical room for the SVG arc, everything else (time_series
+    // / heatmap / table / bar / pie) wants a real chart area. Old dashboards
+    // with explicit gridHeight win over the default.
+    const defaultH = isStat ? 2 : isGauge ? 3 : 3;
     const defaultW = isStat ? 3 : 6;
     const h = panel.gridHeight ?? panel.height ?? defaultH;
     const w = panel.gridWidth ?? panel.width ?? defaultW;
-    // stat: at least 3 rows so number + sparkline render as a square tile —
-    //   older dashboards persisted with height: 2 auto-upgrade here.
-    // gauge: needs vertical space for the SVG arc (at least 2)
-    // other: at least 3
-    const finalH = isStat ? Math.max(3, h) : isGauge ? Math.max(2, h) : Math.max(3, h);
+    // Minimum heights per type, mirroring the defaults: stat tolerates
+    // smaller cells, gauge needs at least 2 to render the arc, everything
+    // else needs 3 so the chart area is meaningful.
+    const finalH = isStat ? Math.max(2, h) : isGauge ? Math.max(2, h) : Math.max(3, h);
     return {
       i: panel.id,
       x: panel.gridCol ?? panel.col ?? 0,
       y: panel.gridRow ?? panel.row ?? 0,
       w: Math.min(COLS, w),
       h: finalH,
-      minW: isStat ? 2 : 2,
-      minH: isStat ? 3 : isGauge ? 2 : 3,
+      minW: 2,
+      minH: isStat ? 2 : isGauge ? 2 : 3,
       static: !editMode,
     };
   });

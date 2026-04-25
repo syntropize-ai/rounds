@@ -664,7 +664,25 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   const wideForList = metas.length > 6 || (metas.length >= 2 && statColumns >= 2);
   const effectiveLegendMode: 'list' | 'table' =
     legend === 'list' && wideForList ? 'table' : (legend as 'list' | 'table');
-  const showLegend = legend !== 'hidden' && metas.length > 0;
+
+  // Height-aware legend gating — when the panel is too short, the legend
+  // eats most of the space and the chart becomes unreadable. Hide it under
+  // the threshold; users on a small panel almost always know which series
+  // they're looking at from the title alone.
+  const [containerHeight, setContainerHeight] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height ?? 0;
+      setContainerHeight((prev) => (prev === h ? prev : h));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const tooShortForLegend = containerHeight > 0 && containerHeight < 180;
+
+  const showLegend = legend !== 'hidden' && metas.length > 0 && !tooShortForLegend;
 
   // -- Render ----------------------------------------------------------------
 

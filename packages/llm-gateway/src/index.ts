@@ -1,6 +1,20 @@
 // @agentic-obs/llm-gateway — Unified LLM invocation layer
 
-export type { CompletionMessage, LLMOptions, LLMUsage, LLMResponse, LLMProvider, MessageRole, ModelInfo } from './types.js';
+export type {
+  CompletionMessage,
+  LLMOptions,
+  LLMUsage,
+  LLMResponse,
+  LLMProvider,
+  MessageRole,
+  ModelInfo,
+  ToolDefinition,
+  ToolCall,
+  JsonSchemaObject,
+  JsonSchemaProperty,
+} from './types.js';
+export type { ProviderCapabilities } from './providers/capabilities.js';
+export { getCapabilities, ProviderCapabilityError } from './providers/capabilities.js';
 export { LLMGateway } from './gateway.js';
 export type { GatewayConfig, TokenMetrics } from './gateway.js';
 export { OpenAIProvider } from './providers/openai.js';

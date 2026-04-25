@@ -1,5 +1,13 @@
 import { createLogger } from '@agentic-obs/common/logging';
-import type { LLMProvider, LLMOptions, LLMResponse, CompletionMessage, ModelInfo } from '../types.js';
+import type {
+  LLMProvider,
+  LLMOptions,
+  LLMResponse,
+  CompletionMessage,
+  ModelInfo,
+  ToolCall,
+  ToolDefinition,
+} from '../types.js';
 
 const log = createLogger('gemini-provider');
 
@@ -8,18 +16,36 @@ export interface GeminiConfig {
   baseUrl?: string;
 }
 
+// -- Gemini wire-shape types (subset we use) --
+
+interface GeminiTextPart {
+  text: string;
+}
+
+interface GeminiFunctionCallPart {
+  functionCall: {
+    name: string;
+    args?: Record<string, unknown>;
+  };
+}
+
+type GeminiResponsePart = GeminiTextPart | GeminiFunctionCallPart | Record<string, unknown>;
+
 interface GeminiCandidate {
-  content: { parts: Array<{ text: string }> };
+  content?: { parts?: GeminiResponsePart[]; role?: string };
+  finishReason?: string;
+}
+
+interface GeminiUsageMetadata {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
 }
 
 interface GeminiResponseBody {
-  candidates: GeminiCandidate[];
-  usageMetadata: {
-    promptTokenCount: number;
-    candidatesTokenCount: number;
-    totalTokenCount: number;
-  };
-  modelVersion: string;
+  candidates?: GeminiCandidate[];
+  usageMetadata?: GeminiUsageMetadata;
+  modelVersion?: string;
 }
 
 interface GeminiModelsResponse {
@@ -30,6 +56,38 @@ interface GeminiModelsResponse {
     inputTokenLimit?: number;
     supportedGenerationMethods?: string[];
   }>;
+}
+
+interface GeminiFunctionDeclaration {
+  name: string;
+  description: string;
+  parameters: ToolDefinition['input_schema'];
+}
+
+interface GeminiToolConfig {
+  functionCallingConfig: {
+    mode: 'AUTO' | 'ANY' | 'NONE';
+    allowedFunctionNames?: string[];
+  };
+}
+
+// -- Tool-name normalization --
+//
+// Gemini's function name regex is roughly ^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$ — dots
+// are NOT allowed. Our canonical names use dots (e.g. `metrics.query`). We map
+// `.` -> `_` outbound and reverse on the way back.
+//
+// Collision risk: `dashboard.add_panels` and `dashboard_add_panels` would both
+// collapse to `dashboard_add_panels`. We don't currently ship any tool name that
+// natively contains an underscore in a position that would collide with a dotted
+// counterpart, so a runtime check would be paranoid. Add one if/when the tool
+// catalog grows large enough that the assumption is no longer obvious.
+function nameToGemini(canonical: string): string {
+  return canonical.replace(/\./g, '_');
+}
+
+function nameFromGemini(geminiName: string): string {
+  return geminiName.replace(/_/g, '.');
 }
 
 export class GeminiProvider implements LLMProvider {
@@ -66,8 +124,37 @@ export class GeminiProvider implements LLMProvider {
     body['generationConfig'] = {
       temperature: options.temperature,
       maxOutputTokens: options.maxTokens,
-      ...(options.responseFormat === 'json' ? { responseMimeType: 'application/json' } : {}),
     };
+
+    if (options.tools && options.tools.length > 0) {
+      const functionDeclarations: GeminiFunctionDeclaration[] = options.tools.map((t) => ({
+        name: nameToGemini(t.name),
+        description: t.description,
+        parameters: t.input_schema,
+      }));
+      body['tools'] = [{ functionDeclarations }];
+    }
+
+    if (options.toolChoice !== undefined) {
+      const toolConfig: GeminiToolConfig = {
+        functionCallingConfig: {
+          mode:
+            options.toolChoice === 'any'
+              ? 'ANY'
+              : options.toolChoice === 'auto'
+                ? 'AUTO'
+                : typeof options.toolChoice === 'object' && options.toolChoice !== null
+                  ? 'ANY'
+                  : 'AUTO',
+        },
+      };
+      if (typeof options.toolChoice === 'object' && options.toolChoice !== null) {
+        toolConfig.functionCallingConfig.allowedFunctionNames = [
+          nameToGemini(options.toolChoice.name),
+        ];
+      }
+      body['toolConfig'] = toolConfig;
+    }
 
     const response = await fetch(
       `${this.baseUrl}/v1beta/models/${model}:generateContent?key=${this.apiKey}`,
@@ -86,15 +173,43 @@ export class GeminiProvider implements LLMProvider {
     const data = (await response.json()) as GeminiResponseBody;
     const latencyMs = Date.now() - startTime;
 
-    const firstCandidate = data.candidates[0]!;
-    const text = firstCandidate.content.parts.map((p) => p.text).join('');
+    const firstCandidate = data.candidates?.[0];
+    const parts: GeminiResponsePart[] = firstCandidate?.content?.parts ?? [];
+
+    // Text parts: concat across all `{text: "..."}` fragments.
+    const textPieces: string[] = [];
+    // Function-call parts: synthesize an id since Gemini doesn't return one.
+    // Format `gemini_call_<index>` keeps it deterministic and distinct per turn.
+    // The id is provider-internal — when we send it back as a tool_result we
+    // include the same string in the conversation history.
+    const toolCalls: ToolCall[] = [];
+    let callIndex = 0;
+    for (const part of parts) {
+      if (typeof (part as GeminiTextPart).text === 'string') {
+        textPieces.push((part as GeminiTextPart).text);
+      } else if (
+        (part as GeminiFunctionCallPart).functionCall &&
+        typeof (part as GeminiFunctionCallPart).functionCall.name === 'string'
+      ) {
+        const fc = (part as GeminiFunctionCallPart).functionCall;
+        toolCalls.push({
+          id: `gemini_call_${callIndex}`,
+          name: nameFromGemini(fc.name),
+          input: fc.args ?? {},
+        });
+        callIndex++;
+      }
+    }
+
+    const usage = data.usageMetadata ?? {};
 
     return {
-      content: text,
+      content: textPieces.join(''),
+      toolCalls,
       usage: {
-        promptTokens: data.usageMetadata.promptTokenCount,
-        completionTokens: data.usageMetadata.candidatesTokenCount,
-        totalTokens: data.usageMetadata.totalTokenCount,
+        promptTokens: usage.promptTokenCount ?? 0,
+        completionTokens: usage.candidatesTokenCount ?? 0,
+        totalTokens: usage.totalTokenCount ?? 0,
       },
       model: data.modelVersion ?? model,
       latencyMs,

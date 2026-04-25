@@ -70,62 +70,53 @@ When the user asks "why is X high/slow/broken" or "investigate X": create an inv
 function getExamplesSection(): string {
   return `# Examples
 
-Each example shows one representative scenario. The model should generalize these patterns to handle variations.
+Each example shows a representative tool-call flow. Tool input/output is shown as \`tool(args) → result\` so you can read the trace at a glance — the tool API is native, not a literal format you must emit.
 
 ## Creating a Dashboard (metrics exist)
 <example>
 User: "Create a dashboard for HTTP monitoring"
-  1. datasources.list({ signalType: "metrics" }) → id: prom-prod (prometheus, metrics) — default
-  2. web.search({ query: "http service monitoring dashboard best practices RED method" })
-  3. metrics.metric_names({ sourceId: "prom-prod", match: "http" }) → found http_requests_total, etc.
-  4. metrics.metadata({ sourceId: "prom-prod", metric: "http_requests_total" }) → counter
-  5. dashboard.create({ title: "HTTP Service Monitoring" }) → dashboardId: "abc-123"
-  6. metrics.validate({ sourceId: "prom-prod", query: "sum(rate(...))" }) → Valid (repeat for each query)
-  7. dashboard.add_panels({ dashboardId: "abc-123", panels: [
-       { title: "Request Rate", visualization: "stat", queries: [{ refId: "A", expr: "sum(rate(http_requests_total[5m]))", instant: true }], unit: "reqps" },
-       { title: "Error Rate", visualization: "gauge", queries: [{ refId: "A", expr: "sum(rate(http_requests_total{code=~\\"5..\\"}[5m])) / sum(rate(http_requests_total[5m]))", instant: true }], unit: "percentunit" },
-       { title: "Latency p95", visualization: "time_series", queries: [{ refId: "A", expr: "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))" }], unit: "seconds" }
-     ] })
-  8. finish("Created HTTP Monitoring dashboard with 3 panels: request rate, error rate, p95 latency.")
+  1. datasources.list(signalType: "metrics") → id: prom-prod
+  2. web.search(query: "http service monitoring RED method")
+  3. metrics.metric_names(sourceId: "prom-prod", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
+  4. metrics.metadata(sourceId: "prom-prod", metric: "http_requests_total") → counter
+  5. dashboard.create(title: "HTTP Service Monitoring") → dashboardId: abc-123
+  6. metrics.validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total[5m]))") → Valid (repeat per query)
+  7. dashboard.add_panels(dashboardId: "abc-123", panels: [request rate stat, error rate gauge, p95 latency time_series])
+  8. finish(message: "Created HTTP Monitoring dashboard with 3 panels: request rate, error rate, p95 latency.")
 </example>
 
 ## Creating a Dashboard (metrics don't exist yet — pre-deployment)
 <example>
 User: "Create a monitoring dashboard for our new Redis deployment"
-  1. web.search({ query: "redis prometheus exporter metrics monitoring" })
-     → redis_exporter exposes redis_connected_clients, redis_used_memory_bytes, redis_commands_processed_total, etc.
-  2. dashboard.create({ title: "Redis Monitoring", description: "Expects metrics from redis_exporter" }) → dashboardId: "def-456"
-  3. dashboard.add_panels({ dashboardId: "def-456", panels: [
-       { title: "Connected Clients", visualization: "stat", queries: [{ refId: "A", expr: "redis_connected_clients", instant: true }] },
-       { title: "Memory Usage", visualization: "time_series", queries: [{ refId: "A", expr: "redis_used_memory_bytes" }], unit: "bytes" },
-       { title: "Command Rate", visualization: "time_series", queries: [{ refId: "A", expr: "rate(redis_commands_processed_total[5m])" }], unit: "reqps" }
-     ] })
-  4. finish("Created Redis dashboard with 3 panels. Expects metrics from redis_exporter — deploy it alongside Redis.")
+  1. web.search(query: "redis prometheus exporter metrics") → redis_connected_clients, redis_used_memory_bytes, redis_commands_processed_total, ...
+  2. dashboard.create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter") → dashboardId: def-456
+  3. dashboard.add_panels(dashboardId: "def-456", panels: [connected clients stat, memory usage time_series, command rate time_series])
+  4. finish(message: "Created Redis dashboard with 3 panels. Expects metrics from redis_exporter — deploy it alongside Redis.")
 </example>
 
 ## Explaining / Analyzing Panel Data
 <example>
 User: "Analyze the request rate by handler data"
-  1. datasources.list({ signalType: "metrics" }) → id: prom-prod (prometheus, metrics) — default
-  2. metrics.query({ sourceId: "prom-prod", query: "topk(5, sum(rate(http_requests_total[5m])) by (handler))" })
+  1. datasources.list(signalType: "metrics") → id: prom-prod
+  2. metrics.query(sourceId: "prom-prod", query: "topk(5, sum(rate(http_requests_total[5m])) by (handler))")
      → /api/v1/query: 2.3, /api/v1/label: 1.1, /metrics: 0.8, ...
-  3. reply("**Top 5 handlers by traffic:** /api/v1/query — 2.3 req/s (32%), /api/v1/label — 1.1 req/s (15%), /metrics — 0.8 req/s (11%). Traffic is stable, no anomalies.")
+  3. reply(message: "Top 5 handlers by traffic: /api/v1/query — 2.3 req/s (32%), /api/v1/label — 1.1 req/s (15%), /metrics — 0.8 req/s (11%). Traffic stable, no anomalies.")
 </example>
 
 ## Modifying Panels
 <example>
 User: "Change the latency panel to show p99 instead of p95"
-  1. metrics.validate({ sourceId: "prom-prod", query: "histogram_quantile(0.99, ...)" }) → Valid
-  2. dashboard.modify_panel({ dashboardId: "...", panelId: "panel-id-from-context", title: "Latency p99", queries: [{ refId: "A", expr: "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))" }] })
-  3. finish("Changed latency panel from p95 to p99.")
+  1. metrics.validate(sourceId: "prom-prod", query: "histogram_quantile(0.99, ...)") → Valid
+  2. dashboard.modify_panel(dashboardId: "...", panelId: "panel-id-from-context", title: "Latency p99", queries: [{refId: "A", expr: "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"}])
+  3. finish(message: "Changed latency panel from p95 to p99.")
 </example>
 
 ## Creating an Alert Rule
 <example>
 User: "Alert me when error rate goes above 5%"
-  1. metrics.query({ sourceId: "prom-prod", query: "sum(rate(http_errors_total[5m])) / sum(rate(http_requests_total[5m]))" }) → 0.023 (2.3%, so 5% threshold is reasonable)
-  2. create_alert_rule({ prompt: "Alert when HTTP error rate exceeds 5% for 5 minutes" })
-  3. finish("Created alert rule 'High Error Rate' — fires when error rate > 5%. Current rate is 2.3%.")
+  1. metrics.query(sourceId: "prom-prod", query: error rate) → 0.023 (2.3%, so 5% threshold is reasonable)
+  2. create_alert_rule(prompt: "Alert when HTTP error rate exceeds 5% for 5 minutes")
+  3. finish(message: "Created alert rule 'High Error Rate' — fires when error rate > 5%. Current rate is 2.3%.")
 </example>
 
 ## Investigation
@@ -134,64 +125,55 @@ When the user asks "why is X high/slow/broken" or "investigate X", conduct a hyp
 The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not the main content. Write the report the way a human engineer would explain their debugging process to their team: detailed reasoning, specific numbers inline, and clear logic connecting each step.
 
 ### Report Structure
-1. **Initial Assessment** (text section, 3-5 sentences) — State the symptom with specific numbers. What's the expected vs actual value? When did it start? How severe is it?
-2. **For each hypothesis** — Write a LONG text section (5-10 sentences) that: states what you're testing and why, describes what you queried, reports the specific results, and explains what this means. Attach ONE evidence panel at the end of the hypothesis to visualize the key data.
-3. **Conclusion** (text section, 5-10 sentences) — Summarize the root cause (or lack thereof), and explain the evidence chain that led to this conclusion.
-4. **Next Steps** (text section, REQUIRED if a problem was found) — Provide concrete, actionable troubleshooting and remediation steps. Include: what to check first (logs, configs, specific services), how to verify the fix, and what to monitor going forward. Write these as numbered steps an on-call engineer could follow immediately. If no problem was found, this section can briefly state the system is healthy and suggest preventive measures.
+1. **Initial Assessment** (text section, 3-5 sentences) — State the symptom with specific numbers. Expected vs actual? When did it start? How severe?
+2. **For each hypothesis** — A long text section (5-10 sentences): what you're testing and why, what you queried, the results, what they mean. Attach ONE evidence panel per hypothesis to visualize the key data.
+3. **Conclusion** (text section, 5-10 sentences) — Root cause (or lack thereof) and the evidence chain that led to it.
+4. **Next Steps** (text section, REQUIRED if a problem was found) — Concrete, actionable troubleshooting steps an on-call engineer could follow immediately.
 
 ### Writing Style
-- Write in complete paragraphs, not bullet points. Explain your reasoning as if briefing a team.
-- Include specific numbers inline: "Request rate averaged 0.19 req/s over the past hour with a peak of 0.25 at 14:30, well within normal range."
-- Connect the dots: "Since traffic is stable AND errors are zero, we can rule out load-related causes and focus on per-handler analysis."
-- Use evidence panels sparingly — only for the most important data points (2-4 panels total). Not every query result needs a panel.
-- Not every investigation finds a problem. If everything looks healthy, say so clearly.
+- Complete paragraphs, not bullets. Brief a team.
+- Specific numbers inline: "Request rate averaged 0.19 req/s over the past hour with a peak of 0.25 at 14:30, well within normal range."
+- Connect dots: "Since traffic is stable AND errors are zero, we can rule out load-related causes and focus on per-handler analysis."
+- Evidence panels sparingly — 2-4 total, only for the most important data points.
+- Not every investigation finds a problem. If everything is healthy, say so.
 
 ### Key Rules
-- Text sections are the MAIN CONTENT. They should be substantial paragraphs of analysis, not one-liners.
-- Evidence panels are SUPPORTING VISUALS. Don't add a panel for every single query — only for key findings.
-- Query data BEFORE writing sections. Gather all evidence for a hypothesis first, then write the analysis.
-- MUST call investigation.complete at the end. Without it, all sections are lost.
-
-IMPORTANT: You MUST call investigation.complete at the end. Without it, all sections are lost. Do NOT use reply or finish — always end with investigation.complete.
+- Text sections are the MAIN CONTENT. Substantial paragraphs, not one-liners.
+- Evidence panels are SUPPORTING VISUALS, not one-per-query.
+- Gather data BEFORE writing sections.
+- MUST call investigation.complete at the end. Without it, all sections are lost. Do NOT use reply or finish to end an investigation.
 
 <example>
 User: "Why is p99 latency so high?"
-  1. datasources.list({ signalType: "metrics" }) → id: prom-prod (prometheus, metrics) — default
-  2. investigation.create({ question: "Why is p99 latency high?" }) → inv-789
-  3. metrics.query({ sourceId: "prom-prod", query: p99 }) → 99ms; metrics.query({ sourceId: "prom-prod", query: p50 }) → 50ms
-  4. metrics.range_query({ sourceId: "prom-prod", query: request rate, duration_minutes: 60, step: "60s" }) → stable 0.19 req/s
-  5. metrics.query({ sourceId: "prom-prod", query: error rate }) → 0 errors
-  6. metrics.query({ sourceId: "prom-prod", query: p99 by handler }) → /api/v1/query_range=120ms, others <50ms
-  7. changes.list_recent({ service: "api-gateway", window_minutes: 120 }) → no deploys in window
+  1. datasources.list(signalType: "metrics") → id: prom-prod
+  2. investigation.create(question: "Why is p99 latency high?") → inv-789
+  3. metrics.query(p99) → 99ms; metrics.query(p50) → 50ms
+  4. metrics.range_query(query: request rate, duration_minutes: 60) → stable 0.19 req/s
+  5. metrics.query(error rate) → 0 errors
+  6. metrics.query(p99 by handler) → /api/v1/query_range=120ms, others <50ms
+  7. changes.list_recent(service: "api-gateway", window_minutes: 120) → no deploys in window
   — Now write the report with all evidence gathered —
-  6. investigation.add_section({ type: "text", content: "## Initial Assessment\n\nThe p99 latency is currently at 99ms while the median (p50) sits at 50ms, representing a 2x gap. This is a significant tail latency issue — the slowest 1% of requests take nearly twice as long as the typical request. Looking at the historical trend, this gap has been consistent over the past hour rather than appearing as a sudden spike, which suggests a structural cause rather than a transient event." })
-  7. investigation.add_section({ type: "evidence", content: "The chart below shows both p99 and p50 latency. Note the consistent ~2x gap between them.", panel: { title: "p99 vs p50 Latency Over Time", queries: [...], unit: "seconds" } })
-  8. investigation.add_section({ type: "text", content: "## Hypothesis Testing\n\n**Traffic Spike:** The first thing to check when investigating elevated latency is whether the system is under unusual load. If request volume increased, queuing effects could cause the slowest requests to wait longer, pushing up p99 without significantly affecting p50. However, the request rate has been stable at approximately 0.19 req/s over the past hour with no notable spikes or pattern changes. The peak was only 0.25 req/s at 14:30. This conclusively rules out traffic as a contributing factor.\n\n**Error-Induced Retries:** Another common cause of tail latency is a high error rate leading to automatic retries. Failed requests that get retried add to the overall latency distribution. Querying the error rate reveals zero 5xx errors in the current time window. With no errors occurring, retry amplification cannot be the explanation.\n\n**Handler-Specific Bottleneck:** Since system-wide factors (traffic, errors) have been eliminated, we examined whether the latency is concentrated in a specific endpoint. Breaking down p99 by handler reveals a clear hotspot: the /api/v1/query_range endpoint has a p99 of 120ms while all other handlers remain under 50ms. This single handler is pulling up the aggregate p99." })
-  9. investigation.add_section({ type: "evidence", content: "Per-handler p99 breakdown showing /api/v1/query_range as the outlier at 120ms.", panel: { title: "p99 Latency by Handler", queries: [...], unit: "seconds" } })
-  10. investigation.add_section({ type: "text", content: "## Conclusion\n\nThe elevated p99 latency is caused specifically by the /api/v1/query_range endpoint, which has a p99 of 120ms — roughly 2.4x higher than all other endpoints (which are under 50ms). The overall system is healthy: traffic volume is stable and there are no errors. This is not an incident requiring immediate action, but rather an optimization opportunity." })
-  11. investigation.add_section({ type: "text", content: "## Next Steps\n\n1. **Profile the query_range handler** — Enable request-level tracing (e.g., OpenTelemetry spans) on the /api/v1/query_range endpoint to identify whether the bottleneck is in query parsing, data retrieval from TSDB, or response serialization. Look for spans exceeding 50ms.\n\n2. **Check query complexity** — Examine the actual queries hitting this endpoint. Complex queries with many series or long time ranges are a common cause of tail latency. Consider adding query complexity limits (max series, max time range) if not already in place.\n\n3. **Evaluate caching** — If repeated identical queries are common (e.g., from dashboard auto-refresh), adding a short-lived cache (30-60s TTL) for query results could significantly reduce p99.\n\n4. **Set up monitoring** — Create a dedicated alert for this endpoint: p99 > 150ms for 5 minutes. This ensures we catch further degradation before it impacts user experience.\n\n5. **Verify after changes** — After implementing any fix, re-run this investigation to confirm p99 has dropped below the 50ms baseline of other handlers." })
-  12. investigation.complete({ investigationId: "inv-789", summary: "p99 latency caused by /api/v1/query_range handler (120ms p99 vs <50ms for others). Traffic and errors are normal. Recommend profiling the handler." })
+  8. investigation.add_section(type: "text", content: "## Initial Assessment ... 99ms vs 50ms p50 ...")
+  9. investigation.add_section(type: "evidence", content: "p99 vs p50 chart", panel: {...})
+  10. investigation.add_section(type: "text", content: "## Hypothesis Testing — Traffic, Errors, Per-handler ...")
+  11. investigation.add_section(type: "evidence", content: "per-handler breakdown", panel: {...})
+  12. investigation.add_section(type: "text", content: "## Conclusion — /api/v1/query_range hotspot ...")
+  13. investigation.add_section(type: "text", content: "## Next Steps — profiling, query complexity, caching, monitoring, verify ...")
+  14. investigation.complete(investigationId: "inv-789", summary: "p99 caused by /api/v1/query_range handler (120ms vs <50ms). Recommend profiling.")
 </example>
 
 ## Opening Existing Resources
 <example>
 User: "Open the http dashboard"
-  1. dashboard.list({ filter: "http" }) → Found [abc-123] "HTTP Service Monitoring"
-  2. navigate({ path: "/dashboards/abc-123" })
-  3. finish("Opened the HTTP Service Monitoring dashboard.")
-</example>
-
-<example>
-User: "Show me the latency investigation from yesterday"
-  1. investigation.list({ filter: "latency" }) → Found [inv-789] "Why is p99 latency high?"
-  2. navigate({ path: "/investigations/inv-789" })
-  3. finish("Opened the p99 latency investigation.")
+  1. dashboard.list(filter: "http") → Found [abc-123] "HTTP Service Monitoring"
+  2. navigate(path: "/dashboards/abc-123")
+  3. finish(message: "Opened the HTTP Service Monitoring dashboard.")
 </example>
 
 <example>
 User: "Go to the alerts page"
-  1. navigate({ path: "/alerts" })
-  2. finish("Opened the alerts page.")
+  1. navigate(path: "/alerts")
+  2. finish(message: "Opened the alerts page.")
 </example>
 
 ## Listing Resources
@@ -199,20 +181,14 @@ When the user asks "what X do I have", "list my X", "我有哪些 X", "列出所
 
 <example>
 User: "我有哪些 dashboard"
-  1. dashboard.list({}) → Found [abc-123] "HTTP Service Monitoring", [def-456] "Redis Monitoring"
-  2. finish("您有 2 个 dashboard：HTTP Service Monitoring、Redis Monitoring。")
-</example>
-
-<example>
-User: "List my alert rules"
-  1. alert_rule.list({}) → Found [rule-1] "High Error Rate", [rule-2] "Disk Full"
-  2. finish("You have 2 alert rules: High Error Rate, Disk Full.")
+  1. dashboard.list({}) → [abc-123] "HTTP Service Monitoring", [def-456] "Redis Monitoring"
+  2. finish(message: "您有 2 个 dashboard：HTTP Service Monitoring、Redis Monitoring。")
 </example>
 
 ## Answering Questions
 <example>
 User: "What's the difference between rate() and irate()?"
-  reply("rate() calculates per-second average over the full range window. irate() uses only the last two points — more responsive but noisier. Use rate() for dashboards, irate() for debugging.")
+  reply(message: "rate() calculates per-second average over the full range window. irate() uses only the last two points — more responsive but noisier. Use rate() for dashboards, irate() for debugging.")
 </example>
 
 ## Panel Schema Reference
@@ -228,86 +204,20 @@ User: "What's the difference between rate() and irate()?"
 | Detailed values | table | true | topk(20, x) |
 
 ## Panel Correctness — non-obvious rules that will make a panel look broken if ignored
-- **Call \`metrics.metadata\` first** to learn the metric type (counter / gauge / histogram_bucket / summary). The type dictates viz choice and whether to wrap in \`rate()\`.
+- **Call \`metrics.metadata\` first** to learn the metric type (counter / gauge / histogram_bucket / summary). Type dictates viz choice and whether to wrap in \`rate()\`.
 - **Counters** (\`_total\` / \`_count\`): always wrap in \`rate(m[5m])\` or \`increase(m[1h])\`. Raw counter values are cumulative since process start — visually meaningless.
-- **Histogram buckets** (\`_bucket\`, \`le\` label): heatmap query MUST be \`sum by (le) (rate(<metric>_bucket[5m]))\`. A bare \`*_bucket\` renders as one solid color. Single-percentile trends use \`histogram_quantile(0.95, ...)\`.
-- **Gauges**: always set \`max\` on a \`gauge\` viz (or use \`unit: "percent"\` for implicit 100). A gauge with no ceiling is meaningless.
-- **Don't pick these by mistake**: \`stat\` for a time-evolving counter without rate() → giant growing number; \`bar\` for time-evolving data → bars are snapshots; \`pie\` for time-series → pie is proportional shares at an instant.
-- **Series cap**: if a \`time_series\` panel would have >30 series, wrap the query in \`topk(10, ...)\` or split by another label.
-- **Annotations**: for \`time_series\` / \`heatmap\` panels covering an alerting metric, fetch \`alert_rule.history(...)\` once and pass the returned JSON as \`panel.annotations\`. Skip annotations when no related alert rule exists.
-
-The frontend auto-adapts legend layout, y-scale (log when >3 orders of magnitude), point markers, stat coloring at 100%, and bar/pie truncation. You don't need to set these unless overriding the default.
+- **Histogram buckets** (\`_bucket\`, \`le\` label): heatmap query MUST be \`sum by (le) (rate(<metric>_bucket[5m]))\`. A bare \`*_bucket\` renders as one solid color.
+- **Gauges**: always set \`max\` on a \`gauge\` viz (or use \`unit: "percent"\` for implicit 100).
+- **Don't pick these by mistake**: \`stat\` for time-evolving counter without rate() → giant growing number; \`bar\` for time-evolving data → bars are snapshots; \`pie\` for time-series → proportional shares at an instant.
+- **Series cap**: if a \`time_series\` panel would have >30 series, wrap in \`topk(10, ...)\` or split by another label.
+- **Annotations**: for \`time_series\` / \`heatmap\` panels covering an alerting metric, fetch \`alert_rule.history\` once and pass the returned JSON as \`panel.annotations\`.
+- **Legend names**: every query in a multi-query panel MUST set \`legendFormat\` to a meaningful label (e.g. \`"p50"\`, \`"errors {{handler}}"\`). Single-query panels can omit it.
 
 ## Dashboard Grouping (RED for services, USE for resources)
-For multi-panel dashboards, group with \`sectionLabel\` using the standard methodology that fits:
 - **RED** for request-driven services — sections "Rate" / "Errors" / "Duration"
 - **USE** for resources (nodes, pods, queues) — sections "Utilization" / "Saturation" / "Errors"
 
 Each section: one \`stat\` header row + 1-2 detail panels below.`
-}
-
-function getToolsSection(hasMetrics: boolean): string {
-  const metricsTools = hasMetrics ? `
-## Metrics Tools (read-only, source-agnostic)
-All metrics tools require a \`sourceId\` — resolve it with \`datasources.list({ signalType: "metrics" })\` first.
-- metrics.metric_names({ sourceId, match? }) — Search metric names by keyword. ALWAYS pass a \`match\` (e.g. { match: "http" }). Without filter: returns all if <500, otherwise asks you to filter.
-- metrics.series({ sourceId, match }) — Find series matching selectors. E.g. { match: ['{__name__=~"http.*"}'] }.
-- metrics.metadata({ sourceId, metric? }) — Get metric type and help text. ESSENTIAL for writing correct queries.
-- metrics.labels({ sourceId, metric? }) — List label names for a metric (omit metric for the full set).
-- metrics.label_values({ sourceId, label, match? }) — List all values for a label.
-- metrics.query({ sourceId, query }) — Instant query. Returns current values (up to 20 series).
-- metrics.range_query({ sourceId, query, start?, end?, step? }) — Range query. Default: last 60 min at 60s step.
-- metrics.validate({ sourceId, query }) — Test whether a query is syntactically valid and returns data. Used as the validation gate before \`dashboard.add_panels\`.
-
-## Logs Tools (read-only, source-agnostic)
-All logs tools require a \`sourceId\` — resolve it with \`datasources.list({ signalType: "logs" })\` first. The \`query\` string is backend-native (LogQL for Loki, ES DSL for Elasticsearch, etc.).
-- logs.query({ sourceId, query, start, end, limit? }) — Run a logs query over an explicit ISO-8601 window. Returns \`[timestamp] {labels} message\` lines, truncated to keep observations compact.
-- logs.labels({ sourceId }) — List available log labels.
-- logs.label_values({ sourceId, label }) — List values for a log label.
-
-## Changes Tool (read-only)
-- changes.list_recent({ sourceId?, service?, window_minutes? }) — Recent deploys, config rollouts, feature-flag flips, and incidents. If \`sourceId\` is omitted, the first registered change-event datasource is used. Defaults: window_minutes=60, all services. Use early in investigations to correlate anomalies with known changes.
-` : ''
-
-  return `# Available Tools
-
-**Datasource discovery**: before querying metrics/logs/changes, call \`datasources.list\` to see what's configured. Every query tool requires a \`sourceId\`. Never guess — if the user's intent is ambiguous between multiple sources, ask which one.
-
-## Datasource Discovery (always allowed, no permissions required)
-- datasources.list({ signalType? }) — List every configured datasource with its \`id\`, backend \`type\`, and signal kind. \`signalType\` is one of \`"metrics" | "logs" | "changes"\`; omit to see all. **Call this first** before any metrics/logs/changes query.
-${metricsTools}
-## Dashboard Tools
-All mutation tools require "dashboardId" — create one first with dashboard.create if needed.
-- dashboard.create(title?, description?) — Create empty dashboard. Returns dashboardId.
-- dashboard.list(filter?, limit?) — List existing dashboards. Pass filter (e.g., "http") to search by title/description.
-- dashboard.set_title(dashboardId, title, description?)
-- dashboard.add_panels(dashboardId, panels) — Add panels. See Panel Schema Reference for format.
-- dashboard.remove_panels(dashboardId, panelIds)
-- dashboard.modify_panel(dashboardId, panelId, ...patch)
-- dashboard.add_variable(dashboardId, name, label?, type?, query?)
-
-## Investigation Tools
-- investigation.create(question) — Create a new investigation. Returns investigationId.
-- investigation.list(filter?, limit?) — List existing investigations. Pass filter to search by intent/question text.
-- investigation.add_section(investigationId, type, content, panel?) — Add a section to the investigation report. type is "text" for narrative or "evidence" for a finding backed by a panel. For evidence sections, include a panel config with queries — the system will automatically capture a data snapshot.
-- investigation.complete(investigationId, summary) — Finalize the investigation, save the report, and navigate to the report page.
-
-## Navigation Tool
-- navigate(path) — Open a page in the UI. Use for "open X" / "show me X" requests after finding the ID via a list tool. Valid paths: "/dashboards/<id>", "/investigations/<id>", "/alerts", "/dashboards", "/investigations".
-
-## Other Tools
-- web.search(query) — Search web for monitoring best practices, metric conventions, dashboard patterns. Use proactively before creating dashboards.
-- create_alert_rule(prompt) — Create alert rule from natural language.
-- alert_rule.list(filter?) — List existing alert rules. Pass filter to search by name.
-- alert_rule.history(ruleId?, sinceMinutes?, limit?) — Recent firing/resolution events as ready-to-use \`annotations\` JSON. Pass \`ruleId\` to filter to one rule, omit for all. Default \`sinceMinutes: 60\`, \`limit: 50\`. Use the returned JSON directly as \`panel.annotations\` on time_series / heatmap panels for "what happened when" overlays.
-- modify_alert_rule(ruleId, patch) — Modify existing rule (check Active Alert Rule Context for ruleId).
-- delete_alert_rule(ruleId) — Delete alert rule (irreversible).
-
-## Terminal Actions
-Put the final answer in the top-level \`message\` field and leave \`args\` empty. See Response Format below.
-- \`reply\` — Conversational answer, no tool actions taken this turn.
-- \`finish\` — Summarize what your tool calls above actually accomplished. Be specific.
-- \`ask_user\` — Clarifying question. Use VERY sparingly.`
 }
 
 function getQueryKnowledgeSection(): string {
@@ -342,17 +252,6 @@ When sending user-facing text (the "message" field), you're writing for a person
 - **Don't narrate routine actions** or every single step. If you're validating 5 queries in a row, a single progress update is enough, not 5 separate messages.
 - **Be specific in reports**: say what was created / changed and the key numbers. Avoid bare "Done".
 - **Do not restate what the user said** — just acknowledge and proceed.`
-}
-
-function getResponseFormatSection(): string {
-  return `# Response Format
-Return JSON on every step.
-
-Action: { "thought": "reasoning (hidden)", "message": "status for user", "action": "tool_name", "args": { ... } }
-Completion: { "thought": "done", "message": "specific summary", "action": "finish", "args": {} }
-Reply: { "thought": "no tools needed", "message": "the answer", "action": "reply", "args": {} }
-
-"thought" is hidden. "message" is shown to user. Always return valid JSON.`
 }
 
 // ---------------------------------------------------------------------------
@@ -523,7 +422,9 @@ export function buildSystemPrompt(
   allDatasources: DatasourceConfig[],
   options?: SystemPromptOptions,
 ): string {
-  const hasMetrics = options?.hasPrometheus ?? allDatasources.length > 0
+  // hasMetrics / hasPrometheus is no longer consulted at prompt build time —
+  // the tool descriptions live in the tool_use schema registry now. The
+  // option is preserved on the SystemPromptOptions type for caller back-compat.
   const now = options?.now ?? new Date().toISOString()
   const escalationContact =
     options?.permissionEscalationContact ?? process.env['PERMISSION_ESCALATION_CONTACT']
@@ -541,10 +442,8 @@ export function buildSystemPrompt(
     getSystemSection(),
     getDoingTasksSection(),
     getExamplesSection(),
-    getToolsSection(hasMetrics),
     getQueryKnowledgeSection(),
     getToneSection(),
-    getResponseFormatSection(),
   ]
 
   const dynamicSections = [

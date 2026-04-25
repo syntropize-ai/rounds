@@ -1,5 +1,12 @@
 import { createLogger } from '@agentic-obs/common/logging';
-import type { LLMProvider, LLMOptions, LLMResponse, CompletionMessage, ModelInfo } from '../types.js';
+import type {
+  LLMProvider,
+  LLMOptions,
+  LLMResponse,
+  CompletionMessage,
+  ModelInfo,
+  ToolCall,
+} from '../types.js';
 
 const log = createLogger('anthropic-provider');
 
@@ -17,17 +24,56 @@ export interface AnthropicConfig {
   /** If true, sends cache-control headers to enable prompt caching. */
 }
 
+interface AnthropicTextBlock {
+  type: 'text';
+  text: string;
+}
+
+interface AnthropicToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+type AnthropicContentBlock = AnthropicTextBlock | AnthropicToolUseBlock | { type: string };
+
 interface AnthropicResponseBody {
-  content: Array<{
-    type: string;
-    text: string;
-  }>;
+  content: AnthropicContentBlock[];
   usage: {
     input_tokens: number;
     output_tokens: number;
   };
   model: string;
   stop_reason: string | null;
+}
+
+type AnthropicToolChoice =
+  | { type: 'auto' }
+  | { type: 'any' }
+  | { type: 'tool'; name: string }
+  | undefined;
+
+function buildToolChoice(toolChoice: LLMOptions['toolChoice']): AnthropicToolChoice {
+  if (!toolChoice) return undefined;
+  if (toolChoice === 'auto') return { type: 'auto' };
+  if (toolChoice === 'any') return { type: 'any' };
+  if (typeof toolChoice === 'object' && toolChoice.type === 'tool') {
+    return { type: 'tool', name: toolChoice.name };
+  }
+  return undefined;
+}
+
+function isTextBlock(block: AnthropicContentBlock): block is AnthropicTextBlock {
+  return block.type === 'text' && typeof (block as AnthropicTextBlock).text === 'string';
+}
+
+function isToolUseBlock(block: AnthropicContentBlock): block is AnthropicToolUseBlock {
+  return (
+    block.type === 'tool_use' &&
+    typeof (block as AnthropicToolUseBlock).id === 'string' &&
+    typeof (block as AnthropicToolUseBlock).name === 'string'
+  );
 }
 
 export class AnthropicProvider implements LLMProvider {
@@ -51,6 +97,23 @@ export class AnthropicProvider implements LLMProvider {
     const systemParts = messages.filter((m) => m.role === 'system');
     const conversationParts = messages.filter((m) => m.role !== 'system');
 
+    const tools = options.tools && options.tools.length > 0 ? options.tools : undefined;
+    const toolChoice = tools ? buildToolChoice(options.toolChoice) : undefined;
+
+    const requestBody: Record<string, unknown> = {
+      model: options.model,
+      system: systemParts.length > 0 ? systemParts.map((m) => m.content).join('\n') : undefined,
+      messages: conversationParts,
+      temperature: options.temperature,
+      max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+    };
+    if (tools) {
+      requestBody.tools = tools;
+      if (toolChoice) {
+        requestBody.tool_choice = toolChoice;
+      }
+    }
+
     const response = await fetch(`${this.baseUrl}/v1/messages`, {
       method: 'POST',
       headers: {
@@ -58,13 +121,7 @@ export class AnthropicProvider implements LLMProvider {
         'x-api-key': this.apiKey,
         'anthropic-version': this.apiVersion,
       },
-      body: JSON.stringify({
-        model: options.model,
-        system: systemParts.length > 0 ? systemParts.map((m) => m.content).join('\n') : undefined,
-        messages: conversationParts,
-        temperature: options.temperature,
-        max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -75,47 +132,34 @@ export class AnthropicProvider implements LLMProvider {
     const data = (await response.json()) as AnthropicResponseBody;
     const latencyMs = Date.now() - startTime;
 
-    if (!data.content || data.content.length === 0) {
-      return {
-        content: '',
-        usage: {
-          promptTokens: data.usage?.input_tokens ?? 0,
-          completionTokens: data.usage?.output_tokens ?? 0,
-          totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
-        },
-        model: data.model,
-        latencyMs,
-      };
-    }
+    const inputTokens = data.usage?.input_tokens ?? 0;
+    const outputTokens = data.usage?.output_tokens ?? 0;
+    const usage = {
+      promptTokens: inputTokens,
+      completionTokens: outputTokens,
+      totalTokens: inputTokens + outputTokens,
+    };
 
-    const firstBlock = data.content[0];
-    if (!firstBlock || firstBlock.type !== 'text') {
-      return {
-        content: '',
-        usage: {
-          promptTokens: data.usage.input_tokens,
-          completionTokens: data.usage.output_tokens,
-          totalTokens: data.usage.input_tokens + data.usage.output_tokens,
-        },
-        model: data.model,
-        latencyMs,
-      };
-    }
+    const blocks: AnthropicContentBlock[] = Array.isArray(data.content) ? data.content : [];
 
-    // If output was truncated due to max_tokens, throw so callers can retry with higher limit
-    if (data.stop_reason === 'max_tokens' && options.responseFormat === 'json') {
-      throw new Error(
-        `Response truncated at ${data.usage.input_tokens + data.usage.output_tokens} tokens — output is likely incomplete JSON. Consider increasing maxTokens.`,
-      );
+    const textPieces: string[] = [];
+    const toolCalls: ToolCall[] = [];
+    for (const block of blocks) {
+      if (isTextBlock(block)) {
+        textPieces.push(block.text);
+      } else if (isToolUseBlock(block)) {
+        toolCalls.push({
+          id: block.id,
+          name: block.name,
+          input: block.input ?? {},
+        });
+      }
     }
 
     return {
-      content: firstBlock.text,
-      usage: {
-        promptTokens: data.usage.input_tokens,
-        completionTokens: data.usage.output_tokens,
-        totalTokens: data.usage.input_tokens + data.usage.output_tokens,
-      },
+      content: textPieces.join('\n'),
+      toolCalls,
+      usage,
       model: data.model,
       latencyMs,
     };

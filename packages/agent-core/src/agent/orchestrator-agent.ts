@@ -193,6 +193,7 @@ export class OrchestratorAgent {
       sendEvent: deps.sendEvent,
       identity: deps.identity,
       accessControl: deps.accessControl,
+      allowedTools: this.agentDef.allowedTools,
       maxTokenBudget: deps.maxTokenBudget,
       conversationSummary: deps.conversationSummary,
     })

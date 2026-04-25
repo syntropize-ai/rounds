@@ -428,6 +428,13 @@ export async function handleDashboardAddPanels(
 
   const observationText = `Added ${panelConfigs.length} panel(s): ${panelConfigs.map((p) => p.title).join(', ')}`
   ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.add_panels', summary: observationText, success: true })
+  // Stream each new panel as a discrete `panel_added` event so the live
+  // dashboard view (useDashboardChat) can splice it into the rendered grid
+  // without a page refresh. Without these the chat hook only sees
+  // `tool_result` and the user has to F5 to see the new panels.
+  for (const panel of panelConfigs) {
+    ctx.sendEvent({ type: 'panel_added', panel } as never)
+  }
   ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard.add_panels', summary: observationText }))
   return observationText
 }
@@ -464,6 +471,10 @@ export async function handleDashboardRemovePanels(
 
   const observationText = `Removed ${panelIds.length} panel(s).`
   ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.remove_panels', summary: observationText, success: true })
+  // Stream `panel_removed` per id so the live view drops them without F5.
+  for (const panelId of panelIds) {
+    ctx.sendEvent({ type: 'panel_removed', panelId } as never)
+  }
   return observationText
 }
 
@@ -483,6 +494,8 @@ export async function handleDashboardModifyPanel(
 
   const observationText = `Modified panel ${panelId}.`
   ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.modify_panel', summary: observationText, success: true })
+  // Stream `panel_modified` so the live view applies the patch without F5.
+  ctx.sendEvent({ type: 'panel_modified', panelId, patch } as never)
   return observationText
 }
 

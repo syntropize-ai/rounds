@@ -37,6 +37,7 @@ export class MockProvider implements LLMProvider {
 
     return {
       content: this.mockResponse.content ?? 'Mock response content',
+      toolCalls: this.mockResponse.toolCalls ?? [],
       usage: this.mockResponse.usage ?? {
         promptTokens: 10,
         completionTokens: 20,

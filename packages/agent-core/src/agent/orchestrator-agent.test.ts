@@ -280,6 +280,7 @@ describe('OrchestratorAgent panel explanation', () => {
 
     gateway.complete.mockResolvedValueOnce({
       content: 'Over the past hour, Average Latency has been stable around 0.24s, ranging from 0.21s to 0.27s with no significant degradation trend.',
+      toolCalls: [],
     })
 
     const agent = new OrchestratorAgent({

@@ -2,17 +2,26 @@ import { describe, it, expect, vi } from 'vitest'
 import { ReActLoop } from './react-loop.js'
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
 
+const ALLOWED_TOOLS = [
+  'reply',
+  'finish',
+  'ask_user',
+  'dashboard.modify_panel',
+] as const
+
 describe('ReActLoop', () => {
-  it('emits a reply event when the model returns a final reply message', async () => {
+  it('emits a reply event when the model returns a final reply via the reply tool', async () => {
     const sendEvent = vi.fn()
     const gateway = {
       complete: vi.fn().mockResolvedValue({
-        content: JSON.stringify({
-          thought: 'done',
-          message: 'I updated the p95 panel to use a stat visualization.',
-          action: 'reply',
-          args: {},
-        }),
+        content: '',
+        toolCalls: [
+          {
+            id: 'call_1',
+            name: 'reply',
+            input: { message: 'I updated the p95 panel to use a stat visualization.' },
+          },
+        ],
       }),
     } as any
 
@@ -22,6 +31,7 @@ describe('ReActLoop', () => {
       sendEvent,
       identity: makeTestIdentity(),
       accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
     })
 
     const result = await loop.runLoop(
@@ -37,20 +47,25 @@ describe('ReActLoop', () => {
     })
   })
 
-  it('stops after the first successful mutation and emits a final reply', async () => {
+  it('stops after the first successful mutation and emits a final reply (text-only second turn)', async () => {
     const sendEvent = vi.fn()
     const gateway = {
       complete: vi.fn()
         .mockResolvedValueOnce({
-          content: JSON.stringify({
-            thought: 'edit the panel',
-            message: 'I’ll split that merged panel back into separate views.',
-            action: 'modify_panel',
-            args: { panelId: 'panel-1', patch: {} },
-          }),
+          content: 'I’ll split that merged panel back into separate views.',
+          toolCalls: [
+            {
+              id: 'call_1',
+              name: 'dashboard.modify_panel',
+              input: { dashboardId: 'd1', panelId: 'panel-1', patch: {} },
+            },
+          ],
         })
+        // Second turn: model returns plain text with no tool call — the loop
+        // treats it as a final reply.
         .mockResolvedValueOnce({
           content: 'I split the merged panel back into separate panels.',
+          toolCalls: [],
         }),
     } as any
 
@@ -62,6 +77,7 @@ describe('ReActLoop', () => {
       sendEvent,
       identity: makeTestIdentity(),
       accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
     })
 
     const result = await loop.runLoop(
@@ -76,6 +92,32 @@ describe('ReActLoop', () => {
     expect(sendEvent).toHaveBeenCalledWith({
       type: 'reply',
       content: 'I split the merged panel back into separate panels.',
+    })
+  })
+
+  it('returns a misconfiguration error when the model emits neither tool call nor text', async () => {
+    const sendEvent = vi.fn()
+    const gateway = {
+      complete: vi.fn().mockResolvedValue({
+        content: '',
+        toolCalls: [],
+      }),
+    } as any
+
+    const loop = new ReActLoop({
+      gateway,
+      model: 'test-model',
+      sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+    })
+
+    const result = await loop.runLoop('system', 'hi', vi.fn())
+    expect(result).toMatch(/no content and no tool call/i)
+    expect(sendEvent).toHaveBeenCalledWith({
+      type: 'error',
+      message: expect.stringMatching(/no content and no tool call/i),
     })
   })
 })

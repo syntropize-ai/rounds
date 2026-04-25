@@ -1,7 +1,6 @@
 # API Reference
 
-Complete list of openobs authentication and authorization endpoints.
-For architectural detail see [docs/auth-perm-design/08-api-surface.md](./auth-perm-design/08-api-surface.md).
+Complete list of OpenObs authentication and authorization endpoints.
 
 ## Conventions
 
@@ -577,6 +576,4 @@ All three authenticate via `Authorization: Bearer <token>` OR `X-Api-Key: <token
 
 ## Related docs
 
-- [Operator guide](./auth.md) — bootstrap, providers, roles, troubleshooting.
-- [auth-perm-design/08-api-surface.md](./auth-perm-design/08-api-surface.md) — endpoint spec with full request/response DTOs.
-- [auth-perm-design/03-rbac-model.md](./auth-perm-design/03-rbac-model.md) — action catalog + scope grammar.
+- [Authentication](/auth) — operator guide for users, roles, OAuth, sessions, and troubleshooting.

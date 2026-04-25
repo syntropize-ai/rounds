@@ -4,10 +4,12 @@ import type {
   LLMOptions,
   LLMResponse,
   CompletionMessage,
+  ContentBlock,
   ModelInfo,
   ToolCall,
   ToolDefinition,
 } from '../types.js';
+import { getCapabilities } from './capabilities.js';
 
 const log = createLogger('openai-provider');
 
@@ -101,6 +103,72 @@ function translateToolChoice(choice: LLMOptions['toolChoice']): OpenAIToolChoice
   return undefined;
 }
 
+// -- Message translation: canonical (Anthropic-flavor blocks) -> OpenAI shape --
+//
+// Our CompletionMessage.content is `string | ContentBlock[]` where blocks are
+// `text | tool_use | tool_result`. OpenAI's wire format is different:
+//   - Assistant tool calls live in a separate `tool_calls` field, not `content`.
+//   - Tool results become standalone `role: "tool"` messages with `tool_call_id`.
+// This function flattens our canonical history into OpenAI's expected shape.
+interface OpenAIMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+}
+
+function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
+  const out: OpenAIMessage[] = [];
+  for (const m of messages) {
+    if (typeof m.content === 'string') {
+      out.push({ role: m.role, content: m.content });
+      continue;
+    }
+
+    const blocks = m.content;
+    if (m.role === 'assistant') {
+      // Assistant: text blocks join into content; tool_use blocks become tool_calls.
+      const textParts: string[] = [];
+      const toolCalls: OpenAIToolCall[] = [];
+      for (const b of blocks as ContentBlock[]) {
+        if (b.type === 'text') textParts.push(b.text);
+        else if (b.type === 'tool_use') {
+          toolCalls.push({
+            id: b.id,
+            type: 'function',
+            function: { name: nameToOpenAi(b.name), arguments: JSON.stringify(b.input) },
+          });
+        }
+      }
+      const msg: OpenAIMessage = {
+        role: 'assistant',
+        content: textParts.length > 0 ? textParts.join('\n') : null,
+      };
+      if (toolCalls.length > 0) msg.tool_calls = toolCalls;
+      out.push(msg);
+    } else if (m.role === 'user') {
+      // User content blocks: text → user message; tool_result → role:"tool" message.
+      const textParts: string[] = [];
+      for (const b of blocks as ContentBlock[]) {
+        if (b.type === 'text') textParts.push(b.text);
+        else if (b.type === 'tool_result') {
+          out.push({ role: 'tool', tool_call_id: b.tool_use_id, content: b.content });
+        }
+      }
+      if (textParts.length > 0) {
+        out.push({ role: 'user', content: textParts.join('\n') });
+      }
+    } else {
+      // system: flatten text blocks
+      const textParts = (blocks as ContentBlock[])
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text);
+      out.push({ role: 'system', content: textParts.join('\n') });
+    }
+  }
+  return out;
+}
+
 function parseToolCalls(raw: OpenAIToolCall[] | undefined): ToolCall[] {
   if (!raw || raw.length === 0) return [];
   return raw.map((tc) => {
@@ -146,7 +214,7 @@ export class OpenAIProvider implements LLMProvider {
 
     const body: Record<string, unknown> = {
       model: options.model,
-      messages,
+      messages: translateMessages(messages),
       temperature: options.temperature,
       max_tokens: options.maxTokens,
     };
@@ -156,6 +224,11 @@ export class OpenAIProvider implements LLMProvider {
 
     const toolChoice = translateToolChoice(options.toolChoice);
     if (toolChoice !== undefined) body.tool_choice = toolChoice;
+
+    // Reasoning effort — only on o1/o3/o4 and gpt-5.x; silently dropped otherwise
+    if (options.thinking && getCapabilities('openai', options.model ?? '').supportsThinking) {
+      body.reasoning_effort = options.thinking.effort;
+    }
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',

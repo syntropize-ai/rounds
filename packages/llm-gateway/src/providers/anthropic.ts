@@ -7,6 +7,7 @@ import type {
   ModelInfo,
   ToolCall,
 } from '../types.js';
+import { effortToBudgetTokens, getCapabilities } from './capabilities.js';
 
 const log = createLogger('anthropic-provider');
 
@@ -36,7 +37,16 @@ interface AnthropicToolUseBlock {
   input: Record<string, unknown>;
 }
 
-type AnthropicContentBlock = AnthropicTextBlock | AnthropicToolUseBlock | { type: string };
+interface AnthropicThinkingBlock {
+  type: 'thinking';
+  thinking: string;
+}
+
+type AnthropicContentBlock =
+  | AnthropicTextBlock
+  | AnthropicToolUseBlock
+  | AnthropicThinkingBlock
+  | { type: string };
 
 interface AnthropicResponseBody {
   content: AnthropicContentBlock[];
@@ -76,6 +86,10 @@ function isToolUseBlock(block: AnthropicContentBlock): block is AnthropicToolUse
   );
 }
 
+function isThinkingBlock(block: AnthropicContentBlock): block is AnthropicThinkingBlock {
+  return block.type === 'thinking' && typeof (block as AnthropicThinkingBlock).thinking === 'string';
+}
+
 export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
   private readonly apiKey: string;
@@ -100,9 +114,18 @@ export class AnthropicProvider implements LLMProvider {
     const tools = options.tools && options.tools.length > 0 ? options.tools : undefined;
     const toolChoice = tools ? buildToolChoice(options.toolChoice) : undefined;
 
+    // System message is always plain text in our usage; if a caller ever
+    // passed blocks, flatten the text blocks to preserve compatibility.
+    const flattenContent = (c: CompletionMessage['content']): string => {
+      if (typeof c === 'string') return c;
+      return c.filter((b) => b.type === 'text').map((b) => (b as { type: 'text'; text: string }).text).join('\n');
+    };
     const requestBody: Record<string, unknown> = {
       model: options.model,
-      system: systemParts.length > 0 ? systemParts.map((m) => m.content).join('\n') : undefined,
+      system: systemParts.length > 0 ? systemParts.map((m) => flattenContent(m.content)).join('\n') : undefined,
+      // Conversation messages pass through as-is. Anthropic's API natively
+      // accepts content as either a string or an array of {type:'text'|'tool_use'|'tool_result'}
+      // blocks, which exactly matches our ContentBlock shape — no translation needed.
       messages: conversationParts,
       temperature: options.temperature,
       max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
@@ -111,6 +134,19 @@ export class AnthropicProvider implements LLMProvider {
       requestBody.tools = tools;
       if (toolChoice) {
         requestBody.tool_choice = toolChoice;
+      }
+    }
+
+    // Extended thinking — only attach when the model supports it. Anthropic
+    // requires temperature=1 when thinking is enabled, so we override here.
+    if (options.thinking && getCapabilities('anthropic', options.model ?? '').supportsThinking) {
+      const budget = effortToBudgetTokens(options.thinking.effort);
+      requestBody.thinking = { type: 'enabled', budget_tokens: budget };
+      requestBody.temperature = 1;
+      // budget_tokens must be < max_tokens; bump max_tokens if needed
+      const currentMax = (requestBody.max_tokens as number) ?? DEFAULT_MAX_TOKENS;
+      if (currentMax <= budget) {
+        requestBody.max_tokens = budget + DEFAULT_MAX_TOKENS;
       }
     }
 
@@ -144,6 +180,7 @@ export class AnthropicProvider implements LLMProvider {
 
     const textPieces: string[] = [];
     const toolCalls: ToolCall[] = [];
+    const thinkingBlocks: string[] = [];
     for (const block of blocks) {
       if (isTextBlock(block)) {
         textPieces.push(block.text);
@@ -153,12 +190,15 @@ export class AnthropicProvider implements LLMProvider {
           name: block.name,
           input: block.input ?? {},
         });
+      } else if (isThinkingBlock(block)) {
+        thinkingBlocks.push(block.thinking);
       }
     }
 
     return {
       content: textPieces.join('\n'),
       toolCalls,
+      thinkingBlocks: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
       usage,
       model: data.model,
       latencyMs,

@@ -9,7 +9,7 @@ import type {
   HypothesisFeedback,
   ActionFeedback,
   FeedbackStats,
-} from '../../stores/feed-store.js';
+} from '../types/feed.js';
 import type { IGatewayFeedStore } from '../../stores/interfaces.js';
 
 type FeedSubscriber = (item: FeedItem) => void;

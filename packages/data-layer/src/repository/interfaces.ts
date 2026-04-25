@@ -28,7 +28,7 @@ import type {
 } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
 import type { FeedEvent, Case, ApprovalRecord, ShareLink } from './types.js';
-import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../stores/investigation-store.js';
+import type { FollowUpRecord, FeedbackBody, StoredFeedback } from './types/investigation.js';
 import type {
   FeedItem,
   FeedPage,
@@ -39,7 +39,7 @@ import type {
   HypothesisFeedback,
   ActionFeedback,
   FeedbackStats,
-} from '../stores/feed-store.js';
+} from './types/feed.js';
 import type { ApprovalAction, ApprovalContext, ApprovalRequest } from '../stores/approval-store.js';
 import type { SharePermission, ShareLink as StoreShareLink } from '../stores/share-store.js';
 import type { Folder } from '../stores/folder-store.js';

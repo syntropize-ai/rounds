@@ -9,7 +9,7 @@ import type {
   IInvestigationRepository,
   InvestigationFindAllOptions,
 } from '../interfaces.js';
-import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../../stores/investigation-store.js';
+import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../types/investigation.js';
 
 type DbRow = typeof investigations.$inferSelect;
 

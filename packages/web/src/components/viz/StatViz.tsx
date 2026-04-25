@@ -3,6 +3,18 @@ import { getFormatter } from '../../lib/format/index.js';
 import type { FormattedValue } from '../../lib/format/index.js';
 import { resolveThresholdColor, PALETTE } from '../../lib/theme/index.js';
 import type { Threshold } from '../../lib/data/types.js';
+import { useMeasure } from '../../hooks/useMeasure.js';
+
+/**
+ * Aspect ratio breakpoint above which the panel renders the number and
+ * sparkline side-by-side (wide layout) instead of stacked. Mirrors
+ * Grafana BigValueLayout's 2.5 threshold (BigValueLayout.tsx:534).
+ */
+const WIDE_LAYOUT_RATIO = 2.5;
+/** Below this height (px), the wide layout drops the sparkline. */
+const WIDE_SPARKLINE_MIN_HEIGHT = 50;
+/** Below this height (px), the stacked layout drops the sparkline. */
+const STACKED_SPARKLINE_MIN_HEIGHT = 100;
 
 /**
  * Props accepted by {@link StatViz}.
@@ -225,106 +237,151 @@ export default function StatViz({
   const showDescription =
     !!description && description.trim().length > 0 && description !== title;
 
+  // Measure the panel's actual pixel size so we can branch the layout on
+  // aspect ratio (Grafana BigValueLayout pattern). Pure CSS container
+  // queries can size text but can't decide whether to render the sparkline
+  // beside the number or stacked behind it — that needs JS.
+  const [containerRef, { width: containerW, height: containerH }] = useMeasure<HTMLDivElement>();
+  const useWideLayout =
+    containerW > 0 && containerH > 0 && containerW / containerH > WIDE_LAYOUT_RATIO;
+  const sparklineHeightThreshold = useWideLayout
+    ? WIDE_SPARKLINE_MIN_HEIGHT
+    : STACKED_SPARKLINE_MIN_HEIGHT;
+  // Hide sparkline when the container is too short for it to read well.
+  // Until first measurement (containerH === 0) keep it shown so the SSR
+  // / first-paint render isn't visibly different from the steady state.
+  const showSparkline =
+    !!sparkGeom && (containerH === 0 || containerH >= sparklineHeightThreshold);
+
+  // Sparkline SVG is the same in both layouts — only its container changes.
+  const sparklineSvg = sparkGeom ? (
+    <svg
+      aria-hidden="true"
+      className="pointer-events-none h-full w-full"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+    >
+      <defs>
+        <clipPath id={clipId}>
+          <rect x="0" y="0" width="100" height="100" />
+        </clipPath>
+      </defs>
+      <polygon
+        points={sparkGeom.area}
+        fill={sparkGeom.stroke}
+        opacity={0.18}
+        clipPath={`url(#${clipId})`}
+      />
+      <polyline
+        points={sparkGeom.line}
+        fill="none"
+        stroke={sparkGeom.stroke}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+        opacity={0.65}
+        clipPath={`url(#${clipId})`}
+      />
+    </svg>
+  ) : null;
+
+  // Number block, identical in both layouts.
+  const numberBlock = (
+    <div
+      className={`flex flex-col ${align} ${justify} w-full min-w-0`}
+    >
+      {title ? (
+        <div className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">
+          {title}
+        </div>
+      ) : null}
+
+      <div
+        className="font-[Manrope] font-bold tabular-nums leading-none tracking-tight"
+        style={{
+          // Size to the SMALLER of 20% inline-size or 50% block-size so
+          // wide-but-short panels don't overflow vertically. The clamp
+          // floors at 2.25rem and caps at 6rem.
+          fontSize: 'clamp(2.25rem, min(20cqw, 50cqh), 6rem)',
+          color: textColor,
+        }}
+      >
+        {formatted.prefix ? (
+          <span
+            style={{
+              fontSize: '55%',
+              fontWeight: 500,
+              color: 'var(--color-on-surface-variant)',
+              marginRight: '0.15em',
+            }}
+          >
+            {formatted.prefix}
+          </span>
+        ) : null}
+        <span>{formatted.text}</span>
+        {formatted.suffix ? (
+          <span
+            style={{
+              fontSize: '55%',
+              fontWeight: 500,
+              color: 'var(--color-on-surface-variant)',
+              marginLeft: '0.05em',
+            }}
+          >
+            {formatted.suffix}
+          </span>
+        ) : null}
+      </div>
+
+      {showDescription ? (
+        <div className="mt-1 text-[0.7rem] text-on-surface-variant">
+          {description}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  // Wide layout: number on the left taking 50% width, sparkline on the right
+  // taking the other 50%. Sparkline uses full panel height instead of the
+  // bottom 55% of the stacked layout.
+  if (useWideLayout && showSparkline) {
+    return (
+      <div
+        ref={containerRef}
+        className="relative flex h-full w-full flex-row items-center overflow-hidden px-3 py-2"
+        style={{
+          ...(backgroundColor ? { backgroundColor } : null),
+          containerType: 'size',
+        }}
+      >
+        <div className="flex h-full w-1/2 items-center">{numberBlock}</div>
+        <div className="h-full w-1/2 flex items-center">{sparklineSvg}</div>
+      </div>
+    );
+  }
+
+  // Stacked layout (default + narrow panels). Sparkline is rendered behind
+  // the number as a faint background fill — same visual as before Stage 2,
+  // just gated on container height.
   return (
     <div
+      ref={containerRef}
       className={`relative flex h-full w-full flex-col ${align} ${justify} overflow-hidden px-3 py-2`}
       style={{
         ...(backgroundColor ? { backgroundColor } : null),
-        // Enable container queries on BOTH axes so the number can scale with
-        // the smaller of width and height. `inline-size` only exposes cqw —
-        // a wide-but-short panel (e.g. 600×100) would size off width and
-        // overflow vertically. `size` exposes cqh too, then clamp picks
-        // min(20cqw, 50cqh) to stay inside both axes.
         containerType: 'size',
       }}
     >
-      {sparkGeom && (
-        <svg
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 w-full"
-          style={{ height: '55%' }}
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <clipPath id={clipId}>
-              <rect x="0" y="0" width="100" height="100" />
-            </clipPath>
-          </defs>
-          <polygon
-            points={sparkGeom.area}
-            fill={sparkGeom.stroke}
-            opacity={0.18}
-            clipPath={`url(#${clipId})`}
-          />
-          <polyline
-            points={sparkGeom.line}
-            fill="none"
-            stroke={sparkGeom.stroke}
-            strokeWidth={1.75}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-            opacity={0.65}
-            clipPath={`url(#${clipId})`}
-          />
-        </svg>
-      )}
-
-      <div
-        className={`relative z-10 flex flex-col ${align} ${justify} w-full`}
-      >
-        {title ? (
-          <div className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">
-            {title}
-          </div>
-        ) : null}
-
+      {showSparkline && (
         <div
-          className="font-[Manrope] font-bold tabular-nums leading-none tracking-tight"
-          style={{
-            // Size to the SMALLER of 20% inline-size or 50% block-size so
-            // wide-but-short panels don't overflow vertically. The clamp
-            // floors at 2.25rem (small panels stay readable) and caps at
-            // 6rem (huge panels don't get cartoonish). Punchier than
-            // Grafana's stock so the number dominates the tile.
-            fontSize: 'clamp(2.25rem, min(20cqw, 50cqh), 6rem)',
-            color: textColor,
-          }}
+          className="pointer-events-none absolute inset-x-0 bottom-0"
+          style={{ height: '55%' }}
         >
-          {formatted.prefix ? (
-            <span
-              style={{
-                fontSize: '55%',
-                fontWeight: 500,
-                color: 'var(--color-on-surface-variant)',
-                marginRight: '0.15em',
-              }}
-            >
-              {formatted.prefix}
-            </span>
-          ) : null}
-          <span>{formatted.text}</span>
-          {formatted.suffix ? (
-            <span
-              style={{
-                fontSize: '55%',
-                fontWeight: 500,
-                color: 'var(--color-on-surface-variant)',
-                marginLeft: '0.05em',
-              }}
-            >
-              {formatted.suffix}
-            </span>
-          ) : null}
+          {sparklineSvg}
         </div>
-
-        {showDescription ? (
-          <div className="mt-1 text-[0.7rem] text-on-surface-variant">
-            {description}
-          </div>
-        ) : null}
-      </div>
+      )}
+      <div className="relative z-10 w-full">{numberBlock}</div>
     </div>
   );
 }

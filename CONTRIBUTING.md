@@ -1,5 +1,39 @@
 # Contributing
 
+Thanks for your interest. Contributions of any size are welcome — typo fixes, bug reports, new datasource integrations, anything in between.
+
+## How to contribute
+
+The `main` branch is protected — direct pushes are blocked, all changes flow through pull requests.
+
+1. **Fork** the repo: <https://github.com/openobs/openobs/fork>
+2. **Clone** your fork and create a topic branch:
+   ```bash
+   git clone https://github.com/<you>/openobs.git
+   cd openobs
+   git checkout -b my-fix
+   ```
+3. **Make your change** (see [Development Setup](#development-setup) below). Add a test if you're changing behavior.
+4. **Run checks locally** — CI runs the same things, faster to catch issues here:
+   ```bash
+   npm run typecheck
+   npm run lint
+   npm test
+   npm run build
+   ```
+5. **Commit, push, open a PR** against `openobs/openobs:main`. Fill out the PR template.
+6. **Wait for review.** A maintainer will leave comments or approve. PRs need ≥1 approval and green CI before merge.
+
+If you're tackling something non-trivial, open an issue first to align on the approach — saves rework if the design needs adjusting.
+
+## Reporting bugs
+
+Open an issue at <https://github.com/openobs/openobs/issues> with: what you expected, what happened, steps to reproduce, and your `openobs --version` / Node version / OS.
+
+## Reporting security issues
+
+**Do not** open a public issue. Email security details privately to the maintainers.
+
 ## Project Structure
 
 ```

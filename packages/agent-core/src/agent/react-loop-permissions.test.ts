@@ -22,11 +22,23 @@ function makeEmptyAdapters(): AdapterRegistry {
   return new AdapterRegistry();
 }
 
-type LLMResponse = { content: string };
+type LLMResponse = {
+  content: string;
+  toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }>;
+};
 
-function asStep(thought: string, action: string, args: Record<string, unknown>, message?: string): LLMResponse {
+let __callCounter = 0;
+function asStep(_thought: string, action: string, args: Record<string, unknown>, message?: string): LLMResponse {
+  __callCounter += 1;
   return {
-    content: JSON.stringify({ thought, message, action, args }),
+    content: message ?? '',
+    toolCalls: [
+      {
+        id: `call_${__callCounter}`,
+        name: action,
+        input: args,
+      },
+    ],
   };
 }
 
@@ -36,7 +48,12 @@ function makeGateway(responses: LLMResponse[]) {
     complete: vi.fn().mockImplementation(() => {
       const next = queue.shift();
       if (!next) {
-        return Promise.resolve({ content: JSON.stringify({ thought: 'done', action: 'finish', args: {}, message: 'done' }) });
+        return Promise.resolve({
+          content: 'done',
+          toolCalls: [
+            { id: 'call_finish_default', name: 'finish', input: { message: 'done' } },
+          ],
+        });
       }
       return Promise.resolve(next);
     }),
@@ -270,6 +287,7 @@ describe('Scenario 6 — no identity → loop refuses to start', () => {
       sendEvent: vi.fn(),
       identity: { userId: '' } as unknown as Identity,
       accessControl: new AccessControlStub(),
+      allowedTools: ['reply', 'finish'],
     });
     await expect(loop.runLoop('', 'hi', vi.fn())).rejects.toThrow('identity is required');
   });

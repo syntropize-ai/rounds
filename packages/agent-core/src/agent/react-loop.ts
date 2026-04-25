@@ -1,4 +1,3 @@
-import { parseLlmJson } from './llm-json.js'
 import type {
   LLMGateway,
   CompletionMessage,
@@ -7,16 +6,16 @@ import { createLogger } from '@agentic-obs/common/logging'
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common'
 import type { IAccessControlService } from './types-permissions.js'
 import { estimateMessagesTokens, CONTEXT_WINDOW } from './token-utils.js'
+import { toolsForAgent } from './tool-schema-registry.js'
 
 const log = createLogger('react-loop')
 
 /**
  * Safety ceiling on iterations to prevent pathological infinite loops
- * (LLM stuck emitting parse errors, provider returning identical results,
- * etc). This is NOT the normal terminator — under well-behaved operation
- * the LLM emits `reply` / `ask_user` / `finish` long before this is hit.
- * The real budget is tokens (see TOKEN_BUDGET_BYTES below), matching the
- * way Claude Code's loop terminates.
+ * (provider returning identical results, model unable to terminate, etc).
+ * Under well-behaved operation the LLM emits `reply` / `ask_user` / `finish`
+ * long before this is hit. The real budget is tokens (see
+ * TOKEN_BUDGET_TOKENS below), matching the way Claude Code's loop terminates.
  */
 const MAX_ITERATIONS = 200
 
@@ -44,24 +43,22 @@ export interface ReActStep {
 const TERMINAL_ACTIONS = new Set(['reply', 'ask_user', 'finish'])
 
 /**
- * Distinguish LLM gateway HTTP failures from our own JSON parse errors.
- *
- * Only parse errors should retry in the ReAct loop — they mean "the model
- * answered, we just couldn't decode it, maybe it'll answer cleaner next
- * turn". Any HTTP error from the gateway means the model never responded
- * or the request was rejected; retrying in a tight loop just burns money /
- * quota / time and ends in the same misleading "I have completed"
- * fallback. All of them short-circuit the loop with a user-visible reason.
- *
- * Providers (anthropic.ts / openai.ts / gemini.ts / ollama.ts) throw
- * errors shaped as `"${Provider} API error ${status}: ${body}"`, so a
- * single regex handles all of them. parseLlmJson throws with a
- * "parseLlmJson:" prefix, which never matches.
+ * Classify gateway HTTP failures so the loop can bail out with a user-facing
+ * message instead of spinning through MAX_ITERATIONS hammering a provider
+ * that's rejecting every request. Providers (anthropic.ts / openai.ts /
+ * gemini.ts / ollama.ts) throw errors shaped as
+ * `"${Provider} API error ${status}: ${body}"`, so a single regex handles all
+ * of them. Anything that doesn't match the pattern is unknown — surface it
+ * as fatal too, since with native tool_use we no longer have a parse-retry
+ * path that could recover from a transient mis-format.
  */
-function classifyLlmError(message: string): { kind: 'fatal'; userMessage: string } | { kind: 'parse' } {
+function classifyLlmError(message: string): { kind: 'fatal'; userMessage: string } {
   const apiErr = message.match(/API error (\d+):/i)
   if (!apiErr) {
-    return { kind: 'parse' }
+    return {
+      kind: 'fatal',
+      userMessage: `The LLM call failed: ${message}`,
+    }
   }
   const status = Number(apiErr[1])
 
@@ -136,6 +133,12 @@ export interface ReActDeps {
   identity: Identity
   /** Access control surface the permission gate calls from the loop. */
   accessControl: IAccessControlService
+  /**
+   * The tool surface this loop exposes to the LLM. Resolved from
+   * `agent-registry.ts` `allowedTools` for the agent type. Required so the
+   * gateway call uses native tool_use — we no longer rely on prose-JSON.
+   */
+  allowedTools: readonly string[]
   /** Maximum total tokens per chat message. Default: 50000 */
   maxTokenBudget?: number
   /** LLM-generated summary of earlier conversation turns (from context compaction) */
@@ -192,6 +195,8 @@ export class ReActLoop {
       )
     }
 
+    const tools = toolsForAgent(this.deps.allowedTools)
+
     const observations: ReActObservation[] = []
     let lastAction: string | null = null
     let lastDraftReply: string | undefined
@@ -212,62 +217,63 @@ export class ReActLoop {
       }
 
       let step: ReActStep
-      let rawContent = ''
       try {
         const resp = await this.deps.gateway.complete(messages, {
           model: this.deps.model,
           maxTokens: 4096,
           temperature: 0,
-          responseFormat: 'json',
+          tools,
+          toolChoice: 'auto',
         })
-        rawContent = resp.content
+
         log.info(
-          { step: i, rawLen: rawContent.length, rawHead: rawContent.slice(0, 400) },
-          'ReAct: raw LLM response',
+          {
+            step: i,
+            toolCallCount: resp.toolCalls.length,
+            firstToolName: resp.toolCalls[0]?.name,
+            contentHead: resp.content.slice(0, 200),
+          },
+          'ReAct: gateway response',
         )
 
-        step = parseLlmJson(rawContent) as ReActStep
+        if (resp.toolCalls.length > 0) {
+          // Multi-tool turns are deferred to a follow-up PR; for now we honor
+          // the first tool_use block and ignore the rest. The pre-tool prose
+          // (if any) is preserved as `message` so the existing terminal-action
+          // logic and pre-tool narration paths still work.
+          const tc = resp.toolCalls[0]!
+          step = {
+            thought: '',
+            message: resp.content?.trim() ? resp.content.trim() : undefined,
+            action: tc.name,
+            args: tc.input ?? {},
+          }
+        } else {
+          // No tool call — model returned plain text. Two legitimate patterns:
+          //   - Q&A turns where the model answered inline instead of invoking
+          //     `reply`. Treat the text as the final reply.
+          //   - Truly empty content — surface as an error so the user knows
+          //     the prompt or schema is misconfigured rather than seeing a
+          //     silent "" return.
+          const text = resp.content?.trim() ?? ''
+          if (text) {
+            this.deps.sendEvent({ type: 'reply', content: text })
+            return text
+          }
+          const fallback =
+            'Model returned no content and no tool call. This usually means the prompt or tool schema is misconfigured.'
+          this.deps.sendEvent({ type: 'error', message: fallback })
+          this.deps.sendEvent({ type: 'reply', content: fallback })
+          return fallback
+        }
       }
       catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-
-        // Classify the failure. HTTP errors from the LLM gateway (429 rate
-        // limit, 5xx server, auth failures) are NOT the model's fault —
-        // retrying them in a tight loop just hammers the provider, burns
-        // quota, and returns the same error. Bail out with a user-facing
-        // message instead of spinning through MAX_ITERATIONS.
         const classification = classifyLlmError(msg)
-        if (classification.kind === 'fatal') {
-          log.warn({ step: i, err: msg }, 'LLM gateway error — aborting loop')
-          this.deps.sendEvent({ type: 'error', message: classification.userMessage })
-          this.deps.sendEvent({ type: 'reply', content: classification.userMessage })
-          return classification.userMessage
-        }
-
-        // Forgiving fallback: if the model returned plain prose with no
-        // JSON-shaped tokens, accept it as the direct user-facing reply.
-        // Covers two legitimate patterns:
-        //   - Q&A turns where the model answers inline instead of emitting
-        //     {action: 'reply', message: '...'}.
-        //   - Post-action wrap-ups where the model narrates "done" in prose.
-        // Retrying these just burns iterations and ends in the generic
-        // "I have completed the requested changes" fallback.
-        const looksLikeJson = /[{[]/.test(rawContent)
-        if (rawContent.trim() && !looksLikeJson) {
-          const finalReply = rawContent.trim()
-          this.deps.sendEvent({ type: 'reply', content: finalReply })
-          return finalReply
-        }
-
-        // True parse failure (malformed JSON attempt) — surface it to the
-        // next turn so the model sees what went wrong and can self-correct.
-        log.warn({ step: i, err: msg }, 'LLM returned non-JSON — retrying')
-        observations.push({
-          action: 'parse_error',
-          args: {},
-          result: `Your previous response was not valid JSON. Return ONLY the JSON object, no prose, no markdown fence. Error: ${msg}`,
-        })
-        continue
+        log.warn({ step: i, err: msg }, 'LLM gateway error — aborting loop')
+        this.deps.sendEvent({ type: 'error', message: classification.userMessage })
+        this.deps.sendEvent({ type: 'reply', content: classification.userMessage })
+        return classification.userMessage
       }
 
       const { message: chatReply, action, args = {} } = step
@@ -278,26 +284,25 @@ export class ReActLoop {
         {
           step: i,
           action,
-          thought: step.thought?.slice(0, 120),
           message: chatReply?.slice(0, 120),
           argsKeys: Object.keys(args),
-          allFields: Object.keys(step as unknown as Record<string, unknown>),
         },
-        'ReAct: parsed step',
+        'ReAct: synthesized step',
       )
 
       // --- Terminal actions: exit the loop immediately ---
       if (TERMINAL_ACTIONS.has(action)) {
-        // The prompt documents "put the answer in top-level `message`, leave
-        // args empty" — that lands in `chatReply`. But models routinely drift
-        // to args.text / args.message / args.content. Accept any of them so
-        // a harmless format variation doesn't drop the whole reply. Order:
-        // top-level message → args.text → args.message → args.content.
+        // The schema says reply/finish/ask_user carry their text in
+        // args.message (or args.question for ask_user). Models still
+        // occasionally drift to other field names — accept any of them so a
+        // harmless format variation doesn't drop the whole reply. Order:
+        // pre-tool prose (chatReply) → args.message → args.question →
+        // args.text → args.content.
         const pickString = (v: unknown): string | undefined =>
           typeof v === 'string' && v.trim() ? v : undefined
         const text = action === 'ask_user'
-          ? (chatReply ?? pickString(step.args.question) ?? pickString(step.args.text) ?? pickString(step.args.message) ?? '')
-          : (chatReply ?? pickString(step.args.text) ?? pickString(step.args.message) ?? pickString(step.args.content) ?? '')
+          ? (chatReply ?? pickString(step.args.question) ?? pickString(step.args.message) ?? pickString(step.args.text) ?? '')
+          : (chatReply ?? pickString(step.args.message) ?? pickString(step.args.text) ?? pickString(step.args.content) ?? '')
         if (text) {
           this.deps.sendEvent({ type: 'reply', content: text })
         }
@@ -321,12 +326,13 @@ export class ReActLoop {
       const observation = observationText
       lastObservation = observation
 
-      // Preserve the full step shape as the LLM produced it (reasoning,
-      // chain-of-thought, any extra fields), minus `message` — that's the
-      // user-facing narration and replaying it tempts the model to parrot
-      // itself verbatim on the next turn.
-      const { message: _omitMessage, ...stepForReplay } = step as unknown as Record<string, unknown>
-      void _omitMessage
+      // Preserve a compact replay of what the model invoked so the next turn
+      // can see its own action chain. With native tool_use there's no
+      // "thought" field to preserve — the action+args are the whole story.
+      const stepForReplay: Record<string, unknown> = {
+        action,
+        args: step.args ?? {},
+      }
       observations.push({
         action,
         args: step.args ?? {},
@@ -384,10 +390,12 @@ export class ReActLoop {
 
     for (let i = 0; i < observations.length; i++) {
       const obs = observations[i]!
-      // Replay the original step (thought + action + args + any extras)
-      // minus the user-facing `message`. This preserves the reasoning
-      // chain the LLM built up, so it doesn't re-reason from scratch on
-      // every turn and repeat itself.
+      // Replay the original step so the LLM sees its action chain. With
+      // native tool_use we don't yet send tool_use/tool_result content blocks
+      // through the gateway type system (CompletionMessage is text-only); we
+      // serialize the action+args into the assistant turn as a compact JSON
+      // marker. This keeps the model from re-reasoning from scratch each turn
+      // while staying within the existing string-content message shape.
       const assistantPayload = obs.stepForReplay ?? { action: obs.action, args: obs.args }
       messages.push({
         role: 'assistant',

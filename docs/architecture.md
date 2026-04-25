@@ -24,4 +24,4 @@ web
 - `api-gateway` orchestrates everything server-side
 - `web` consumes the API and shared types only
 
-For the longer package-by-package explanation, keep this page aligned with the root `ARCHITECTURE.md` in the repository.
+For the package-by-package explanation, see `ARCHITECTURE.md` in the repository root.

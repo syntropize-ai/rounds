@@ -1,8 +1,89 @@
-# Authentication and Authorization — Operator Guide
+# Security, Authentication & Authorization
 
-This guide covers how openobs identities, sessions, and permissions work in
-production. For the architectural rationale and full schema, see
-[docs/auth-perm-design/](./auth-perm-design/).
+This guide covers everything related to controlling who can do what in OpenObs — how identities work, how to wire up your SSO provider, how to scope permissions, and how to harden a production deployment.
+
+## Quick recipes
+
+Common tasks you'll do once and forget. Each one assumes you're logged in as an org admin.
+
+### Add a read-only user limited to one folder
+
+The user can view dashboards in `prod/` but nothing else.
+
+1. Admin → Users → **Invite user** → enter email, role: `Viewer`.
+2. Admin → Folders → click `prod/` → **Permissions** tab → **Add permission** → pick the user → level: `View` → Save.
+3. Optional: revoke their default `Viewer` role on the org so they don't see the folder list elsewhere.
+
+### Give the SRE team write access to a single folder
+
+1. Admin → Teams → **+ New team** named `SRE` → add members.
+2. Admin → Folders → click the target folder → **Permissions** → Add → pick team `SRE` → level: `Edit` → Save.
+
+All dashboards and alert rules in that folder (and sub-folders) are now editable by SRE members. No per-dashboard grants needed.
+
+### Issue a service account token for CI / automation
+
+1. Admin → Service accounts → **+ New service account** → name `ci-bot`, role: `Viewer` (or whatever the script needs).
+2. Click the SA → **Add token** → name it, optional expiry → **Generate**.
+3. Copy the `openobs_sa_...` value — **shown exactly once**. Store it in your CI secret manager.
+4. Use it: `curl -H "Authorization: Bearer openobs_sa_..." https://your-openobs/api/dashboards`.
+
+### Restrict who can create alert rules
+
+Default `Editor` role includes `alert.rules:create`. To narrow it:
+
+1. Create a custom role `custom:alerts_disabled` with no alert permissions.
+2. Or create `custom:alerts_only_in_dev` granting `alert.rules:create` scoped to `folders:uid:dev`.
+3. Assign via Admin → Users → row → **Roles** → unassign `basic:editor`, assign your custom role.
+
+### Force everyone to use SSO (disable local login)
+
+Set in environment:
+
+```sh
+DISABLE_LOGIN_FORM=true
+OAUTH_GOOGLE_CLIENT_ID=...      # or whichever provider
+OAUTH_GOOGLE_CLIENT_SECRET=...
+```
+
+The login page will only show the SSO button. Existing local-password users keep their accounts but can't log in via password.
+
+### Auto-assign new SSO users to an org
+
+For Google / generic OIDC with `ALLOW_SIGN_UP=true`, new users join `org_main` as `Viewer` by default. To override:
+
+```sh
+OAUTH_GOOGLE_DEFAULT_ROLE=Editor
+OAUTH_GOOGLE_DEFAULT_ORG_ID=org_main
+```
+
+Or use group-based mapping (LDAP / OIDC `groups` claim). See [LDAP](#ldap) for the example.
+
+### Lock down an org-admin from accidentally deleting things
+
+Org admins by default have `*:*` within their org. To remove destructive permissions while keeping management capability, build a custom role:
+
+```sh
+POST /api/access-control/roles
+{
+  "uid": "custom:org_admin_safe",
+  "name": "custom:org_admin_safe",
+  "displayName": "Org Admin (no delete)",
+  "permissions": [
+    { "action": "users:read", "scope": "users:*" },
+    { "action": "users:write", "scope": "users:*" },
+    { "action": "teams:read", "scope": "teams:*" },
+    { "action": "teams:write", "scope": "teams:*" },
+    { "action": "dashboards:read", "scope": "dashboards:*" },
+    { "action": "dashboards:write", "scope": "dashboards:*" }
+    /* note: no *:delete actions */
+  ]
+}
+```
+
+Assign it instead of `basic:admin`.
+
+---
 
 ## Concepts at a glance
 
@@ -503,10 +584,63 @@ Common culprits: cookies blocked, `SESSION_COOKIE_SECURE` required but
 serving over HTTP, or mismatched `<openobs-base-url>` vs registered
 redirect URL.
 
+## Production security checklist
+
+Run through this list before exposing OpenObs to the public internet or production users.
+
+### Transport & secrets
+
+- [ ] **HTTPS only.** Terminate TLS at your Ingress / load balancer. Set `SESSION_COOKIE_SECURE=true` so the session cookie refuses HTTP.
+- [ ] **Strong `JWT_SECRET`.** At least 32 characters of random data. Rotate by setting a new value and forcing a global session revoke (`POST /api/admin/users/:id/logout` per user, or restart with `INVALIDATE_ALL_SESSIONS_ON_BOOT=true` for a one-shot wipe).
+- [ ] **Encrypt OAuth tokens at rest.** Set `SECRET_KEY` (32 bytes hex) before any user logs in via OAuth/SAML. OpenObs uses this key to AES-256-GCM the provider tokens stored in `user_auth`.
+- [ ] **Database SSL.** If using Postgres, set `DATABASE_SSL=true` and verify CA. SQLite mode: ensure the data directory is on an encrypted volume.
+- [ ] **Secrets in env, not config files.** Never commit `.env` files. Use Kubernetes secrets, AWS Secrets Manager, Vault, etc.
+
+### Identity
+
+- [ ] **Disable local login** if you have SSO: `DISABLE_LOGIN_FORM=true`.
+- [ ] **Restrict SSO sign-up** to known domains/orgs:
+  - GitHub: `OAUTH_GITHUB_ALLOWED_ORGANIZATIONS=your-org`
+  - Google: `OAUTH_GOOGLE_ALLOWED_DOMAINS=yourcompany.com`
+  - Generic OIDC: validate the `groups` or `email` claim via your IdP's policy.
+- [ ] **No default sign-up** unless you trust everyone with email access: set `OAUTH_*_ALLOW_SIGN_UP=false` and pre-provision users.
+- [ ] **Server admin count ≤ 2.** Server admins can create/delete orgs and any user. Audit periodically: `SELECT login, email FROM "user" WHERE is_admin=1`.
+
+### Sessions
+
+- [ ] **Tighten idle timeout** for high-sensitivity environments: `SESSION_IDLE_TIMEOUT_MS=3600000` (1h).
+- [ ] **Enable session rotation** (default on). Confirm `SESSION_ROTATION_INTERVAL_MS` is set (default 10 min).
+- [ ] **Force logout on disable.** OpenObs does this automatically — but verify by disabling a test account and confirming their session 401s on next request.
+
+### Authorization
+
+- [ ] **Audit `basic:admin` membership** quarterly. Org admins have `*:*` within the org — be deliberate about who holds it.
+- [ ] **Use folder-scoped permissions** instead of global `Editor` where possible. Cuts blast radius of compromised accounts.
+- [ ] **Minimum-privilege service accounts.** Each automation gets its own SA with only the actions it needs. Do not share tokens across scripts.
+- [ ] **Set token expiry** when issuing SA / PAT tokens: `secondsToLive`. Never-expiring tokens should be rare and tracked.
+- [ ] **Quotas per org.** Cap dashboards / users / SAs to detect runaway provisioning early.
+
+### Network & API
+
+- [ ] **`CORS_ORIGINS` set to your actual domain(s).** Empty / `*` allows any origin to call your API in a browser context. Set to `https://openobs.example.com`.
+- [ ] **Rate-limit at the edge.** OpenObs has a built-in 5-attempt-per-5-min lockout on login. For everything else, put your CDN / WAF in front.
+- [ ] **API keys via header, not query string.** Both work; the query-string form leaks into logs. Audit your reverse proxy logs to confirm tokens aren't being captured.
+
+### Auditing
+
+- [ ] **Audit log retention ≥ 90 days.** `AUDIT_RETENTION_DAYS=180` for regulated environments.
+- [ ] **Forward audit log to SIEM.** OpenObs writes to `audit_log` table; tail and ship via your standard log pipeline. Look for `outcome=failure` spikes on `user.login`, `permission.granted`, `service_account.token_issued`.
+- [ ] **Backup `audit_log` separately.** Keep it on append-only / immutable storage if compliance requires it.
+
+### Incident response
+
+- [ ] **Document the break-glass procedure.** What's the steps if the only org admin is locked out? (Server admin can re-add via Admin → Users → row → **Roles**.)
+- [ ] **Document SA token revocation.** A leaked `openobs_sa_...` token: `DELETE /api/serviceaccounts/:id/tokens/:tokenId` then rotate dependent automations.
+- [ ] **Test the audit log query** before you need it. Confirm you can filter by actor, action, time range, outcome.
+
+---
+
 ## Further reading
 
-- `docs/auth-perm-design/00-overview.md` — architectural overview.
-- `docs/auth-perm-design/01-database-schema.md` — full DDL.
-- `docs/auth-perm-design/03-rbac-model.md` — action catalog, evaluator
-  semantics, scope grammar.
-- `docs/api-reference.md` — complete endpoint reference.
+- [API Reference](/api-reference) — complete endpoint reference for auth and authorization endpoints.
+- [Configuration](/configuration) — every environment variable mentioned above.

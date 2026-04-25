@@ -100,9 +100,18 @@ export class AnthropicProvider implements LLMProvider {
     const tools = options.tools && options.tools.length > 0 ? options.tools : undefined;
     const toolChoice = tools ? buildToolChoice(options.toolChoice) : undefined;
 
+    // System message is always plain text in our usage; if a caller ever
+    // passed blocks, flatten the text blocks to preserve compatibility.
+    const flattenContent = (c: CompletionMessage['content']): string => {
+      if (typeof c === 'string') return c;
+      return c.filter((b) => b.type === 'text').map((b) => (b as { type: 'text'; text: string }).text).join('\n');
+    };
     const requestBody: Record<string, unknown> = {
       model: options.model,
-      system: systemParts.length > 0 ? systemParts.map((m) => m.content).join('\n') : undefined,
+      system: systemParts.length > 0 ? systemParts.map((m) => flattenContent(m.content)).join('\n') : undefined,
+      // Conversation messages pass through as-is. Anthropic's API natively
+      // accepts content as either a string or an array of {type:'text'|'tool_use'|'tool_result'}
+      // blocks, which exactly matches our ContentBlock shape — no translation needed.
       messages: conversationParts,
       temperature: options.temperature,
       max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,

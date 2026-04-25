@@ -2,10 +2,25 @@
 
 export type MessageRole = 'system' | 'user' | 'assistant';
 
+/**
+ * A single message in a conversation. `content` is either a plain string
+ * (legacy / simple turns) or an array of typed blocks (native tool_use
+ * protocol). When the loop sends an assistant turn back as history, it
+ * uses the block form so the model sees its own previous tool_use calls
+ * in their original shape — without that, replaying as a JSON-stringified
+ * `{action, args}` blob teaches the model that prose-JSON is a valid
+ * response, and it eventually drifts back to emitting prose instead of
+ * native tool_use blocks.
+ */
 export interface CompletionMessage {
   role: MessageRole;
-  content: string;
+  content: string | ContentBlock[];
 }
+
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
 export interface LLMOptions {
   model?: string;

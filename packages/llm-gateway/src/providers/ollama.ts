@@ -4,6 +4,7 @@ import type {
   LLMOptions,
   LLMResponse,
   CompletionMessage,
+  ContentBlock,
   ModelInfo,
   ToolCall,
   ToolDefinition,
@@ -90,6 +91,61 @@ function translateTools(tools: ToolDefinition[] | undefined): OllamaToolDef[] | 
   }));
 }
 
+// -- Message translation: canonical (Anthropic-flavor blocks) -> Ollama/OpenAI shape --
+//
+// Ollama's /api/chat follows the OpenAI message shape: assistant tool calls go in
+// a separate `tool_calls` field (not `content`), and tool results are standalone
+// `role: "tool"` messages with `tool_call_id`.
+interface OllamaMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
+  tool_call_id?: string;
+}
+
+function translateMessages(messages: CompletionMessage[]): OllamaMessage[] {
+  const out: OllamaMessage[] = [];
+  for (const m of messages) {
+    if (typeof m.content === 'string') {
+      out.push({ role: m.role, content: m.content });
+      continue;
+    }
+    const blocks = m.content as ContentBlock[];
+    if (m.role === 'assistant') {
+      const textParts: string[] = [];
+      const toolCalls: OllamaMessage['tool_calls'] = [];
+      for (const b of blocks) {
+        if (b.type === 'text') textParts.push(b.text);
+        else if (b.type === 'tool_use') {
+          toolCalls.push({
+            function: { name: nameToOllama(b.name), arguments: b.input },
+          });
+        }
+      }
+      const msg: OllamaMessage = { role: 'assistant', content: textParts.join('\n') };
+      if (toolCalls.length > 0) msg.tool_calls = toolCalls;
+      out.push(msg);
+    } else if (m.role === 'user') {
+      const textParts: string[] = [];
+      for (const b of blocks) {
+        if (b.type === 'text') textParts.push(b.text);
+        else if (b.type === 'tool_result') {
+          out.push({ role: 'tool', tool_call_id: b.tool_use_id, content: b.content });
+        }
+      }
+      if (textParts.length > 0) {
+        out.push({ role: 'user', content: textParts.join('\n') });
+      }
+    } else {
+      const textParts = blocks
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text);
+      out.push({ role: 'system', content: textParts.join('\n') });
+    }
+  }
+  return out;
+}
+
 function parseToolCalls(raw: OllamaToolCall[] | undefined): ToolCall[] {
   if (!raw || raw.length === 0) return [];
   return raw.map((tc, i) => {
@@ -128,7 +184,7 @@ export class OllamaProvider implements LLMProvider {
 
     const body: Record<string, unknown> = {
       model,
-      messages,
+      messages: translateMessages(messages),
       stream: false,
       options: {
         temperature: options.temperature,

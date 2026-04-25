@@ -4,6 +4,7 @@ import type {
   LLMOptions,
   LLMResponse,
   CompletionMessage,
+  ContentBlock,
   ModelInfo,
   ToolCall,
   ToolDefinition,
@@ -108,16 +109,50 @@ export class GeminiProvider implements LLMProvider {
     const systemParts = messages.filter((m) => m.role === 'system');
     const conversationParts = messages.filter((m) => m.role !== 'system');
 
-    const contents = conversationParts.map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    }));
+    // Translate canonical content blocks into Gemini's `parts` shape:
+    //   text         -> { text }
+    //   tool_use     -> { functionCall: { name, args } }       (assistant-side)
+    //   tool_result  -> { functionResponse: { name, response } } (user-side)
+    // Plain string content stays as a single text part.
+    const contents = conversationParts.map((m) => {
+      const role = m.role === 'assistant' ? 'model' : 'user';
+      if (typeof m.content === 'string') {
+        return { role, parts: [{ text: m.content }] };
+      }
+      const parts: Record<string, unknown>[] = [];
+      for (const b of m.content as ContentBlock[]) {
+        if (b.type === 'text') {
+          parts.push({ text: b.text });
+        } else if (b.type === 'tool_use') {
+          parts.push({ functionCall: { name: nameToGemini(b.name), args: b.input } });
+        } else if (b.type === 'tool_result') {
+          // Gemini wants the tool result as a structured response; we emit text wrapped
+          // in `result` so the model can read the observation regardless of shape.
+          parts.push({
+            functionResponse: {
+              // Gemini ties result to a name, not an id. Best-effort: we don't carry
+              // the original tool name here so use a placeholder; pairing is by order.
+              name: 'tool',
+              response: { result: b.content },
+            },
+          });
+        }
+      }
+      return { role, parts };
+    });
 
     const body: Record<string, unknown> = { contents };
 
     if (systemParts.length > 0) {
+      const flattenContent = (c: CompletionMessage['content']): string => {
+        if (typeof c === 'string') return c;
+        return c
+          .filter((b) => b.type === 'text')
+          .map((b) => (b as { type: 'text'; text: string }).text)
+          .join('\n');
+      };
       body['systemInstruction'] = {
-        parts: [{ text: systemParts.map((s) => s.content).join('\n') }],
+        parts: [{ text: systemParts.map((s) => flattenContent(s.content)).join('\n') }],
       };
     }
 

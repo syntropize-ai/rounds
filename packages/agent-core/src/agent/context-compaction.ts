@@ -28,10 +28,12 @@ export async function compactMessages(
     return { summary: '', recentMessages }
   }
 
-  // Build summarization prompt
-  const conversationText = oldMessages.map(m =>
-    `${m.role}: ${m.content.slice(0, 500)}`  // truncate individual messages
-  ).join('\n')
+  // Build summarization prompt — content is union (string | ContentBlock[]),
+  // so flatten to text before truncating.
+  const conversationText = oldMessages.map(m => {
+    const flat = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+    return `${m.role}: ${flat.slice(0, 500)}`
+  }).join('\n')
 
   const summaryPrompt = `Summarize the following conversation history concisely. Preserve:
 1. What the user asked for and what was accomplished

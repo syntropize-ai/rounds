@@ -103,14 +103,25 @@ export const USER_VISIBLE_TOOLS = new Set([
   // Changes / deployment events
   'changes.list_recent',
   // Dashboard mutation primitives
+  'dashboard.create',
+  'dashboard.list',
   'dashboard.add_panels',
   'dashboard.remove_panels',
   'dashboard.modify_panel',
   'dashboard.rearrange',
   'dashboard.add_variable',
   'dashboard.set_title',
-  // Web search primitive
+  // Investigation primitives
+  'investigation.create',
+  'investigation.list',
+  'investigation.add_section',
+  'investigation.complete',
+  // Alert rule primitives
+  'alert_rule.list',
+  'alert_rule.history',
+  // Web search primitive (both name styles)
   'web_search',
+  'web.search',
 ]);
 
 /**
@@ -135,8 +146,16 @@ export function phaseOf(tool: string): string {
   // Changes / deployment events
   if (tool === 'changes.list_recent') return 'discover';
 
-  // Dashboard mutation primitives
+  // Dashboard mutation primitives — list is read-only discovery
+  if (tool === 'dashboard.list') return 'discover';
   if (tool.startsWith('dashboard.')) return 'dashboard';
+
+  // Investigation primitives
+  if (tool === 'investigation.list') return 'discover';
+  if (tool.startsWith('investigation.')) return 'investigate';
+
+  // Alert rule primitives — read-only listing groups under discover
+  if (tool === 'alert_rule.list' || tool === 'alert_rule.history') return 'discover';
 
   // Web search
   if (tool === 'web_search' || tool === 'web.search') return 'research';
@@ -184,12 +203,24 @@ export const TOOL_LABELS: Record<string, string> = {
   // Changes / deployment events
   'changes.list_recent': 'Checking recent changes',
   // Dashboard mutation primitives
+  'dashboard.create': 'Creating dashboard',
+  'dashboard.list': 'Listing dashboards',
   'dashboard.add_panels': 'Adding panels',
   'dashboard.remove_panels': 'Removing panels',
   'dashboard.modify_panel': 'Modifying panel',
   'dashboard.rearrange': 'Rearranging layout',
   'dashboard.add_variable': 'Adding variable',
   'dashboard.set_title': 'Setting title',
+  // Investigation primitives
+  'investigation.create': 'Creating investigation',
+  'investigation.list': 'Listing investigations',
+  'investigation.add_section': 'Adding investigation section',
+  'investigation.complete': 'Completing investigation',
+  // Alert rule primitives
+  'alert_rule.list': 'Listing alerts',
+  'alert_rule.history': 'Checking alert history',
+  // Web search (dotted variant)
+  'web.search': 'Researching',
   // Panel operations
   add_panels: 'Adding panels',
   remove_panels: 'Removing panels',

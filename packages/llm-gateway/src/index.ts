@@ -2,6 +2,7 @@
 
 export type {
   CompletionMessage,
+  ContentBlock,
   LLMOptions,
   LLMUsage,
   LLMResponse,

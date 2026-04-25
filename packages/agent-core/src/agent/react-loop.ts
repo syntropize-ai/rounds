@@ -1,6 +1,9 @@
 import type {
   LLMGateway,
+  LLMResponse,
   CompletionMessage,
+  ContentBlock,
+  ToolCall,
 } from '@agentic-obs/llm-gateway'
 import { createLogger } from '@agentic-obs/common/logging'
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common'
@@ -113,12 +116,23 @@ export interface ReActObservation {
   args: Record<string, unknown>
   result: string
   /**
-   * The full step object the LLM produced (minus `message`, which is
-   * user-facing and would invite parroting). We replay this verbatim so
-   * the model sees its own reasoning chain on the next turn, without us
-   * second-guessing which fields matter.
+   * The original tool_use id from the provider (Anthropic toolu_*, OpenAI
+   * call_*). Required so the next turn's tool_result block can be paired
+   * with the matching tool_use block — without it Anthropic rejects the
+   * request and OpenAI loses the threading. When the model emits multiple
+   * parallel tool_use blocks in one turn, we group them under a single
+   * batchId so buildMessages knows to coalesce them into one assistant
+   * message containing all tool_use blocks + one user message containing
+   * all matching tool_result blocks.
    */
-  stepForReplay?: Record<string, unknown>
+  toolUseId?: string
+  batchId?: number
+  /**
+   * The pre-tool prose the model emitted alongside this batch (only set on
+   * the first observation of each batch). Replayed as a text block before
+   * the tool_use blocks in the assistant turn.
+   */
+  preToolText?: string
 }
 
 export interface ReActDeps {
@@ -201,6 +215,7 @@ export class ReActLoop {
     let lastAction: string | null = null
     let lastDraftReply: string | undefined
     let lastObservation: string | null = null
+    let batchCounter = 0
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       const messages = this.buildMessages(systemPrompt, userMessage, observations)
@@ -216,9 +231,11 @@ export class ReActLoop {
         return reply
       }
 
-      let step: ReActStep
+      let toolCalls: ToolCall[]
+      let preToolProse: string | undefined
+      let resp: LLMResponse
       try {
-        const resp = await this.deps.gateway.complete(messages, {
+        resp = await this.deps.gateway.complete(messages, {
           model: this.deps.model,
           maxTokens: 4096,
           temperature: 0,
@@ -226,39 +243,29 @@ export class ReActLoop {
           toolChoice: 'auto',
         })
 
+        toolCalls = resp.toolCalls
+        preToolProse = resp.content?.trim() ? resp.content.trim() : undefined
+
         log.info(
           {
             step: i,
-            toolCallCount: resp.toolCalls.length,
-            firstToolName: resp.toolCalls[0]?.name,
+            toolCallCount: toolCalls.length,
+            toolNames: toolCalls.map((tc) => tc.name),
             contentHead: resp.content.slice(0, 200),
           },
           'ReAct: gateway response',
         )
 
-        if (resp.toolCalls.length > 0) {
-          // Multi-tool turns are deferred to a follow-up PR; for now we honor
-          // the first tool_use block and ignore the rest. The pre-tool prose
-          // (if any) is preserved as `message` so the existing terminal-action
-          // logic and pre-tool narration paths still work.
-          const tc = resp.toolCalls[0]!
-          step = {
-            thought: '',
-            message: resp.content?.trim() ? resp.content.trim() : undefined,
-            action: tc.name,
-            args: tc.input ?? {},
-          }
-        } else {
+        if (toolCalls.length === 0) {
           // No tool call — model returned plain text. Two legitimate patterns:
           //   - Q&A turns where the model answered inline instead of invoking
           //     `reply`. Treat the text as the final reply.
           //   - Truly empty content — surface as an error so the user knows
           //     the prompt or schema is misconfigured rather than seeing a
           //     silent "" return.
-          const text = resp.content?.trim() ?? ''
-          if (text) {
-            this.deps.sendEvent({ type: 'reply', content: text })
-            return text
+          if (preToolProse) {
+            this.deps.sendEvent({ type: 'reply', content: preToolProse })
+            return preToolProse
           }
           const fallback =
             'Model returned no content and no tool call. This usually means the prompt or tool schema is misconfigured.'
@@ -276,69 +283,84 @@ export class ReActLoop {
         return classification.userMessage
       }
 
-      const { message: chatReply, action, args = {} } = step
-      step.args = args // normalize undefined to empty object
-      lastAction = action
-      lastDraftReply = chatReply
-      log.info(
-        {
-          step: i,
-          action,
-          message: chatReply?.slice(0, 120),
-          argsKeys: Object.keys(args),
-        },
-        'ReAct: synthesized step',
-      )
+      // Emit the model's pre-tool narration ONCE per turn (not once per
+      // tool call) — it's a single sentence describing the whole batch.
+      if (preToolProse) {
+        this.deps.sendEvent({ type: 'reply', content: preToolProse })
+      }
 
-      // --- Terminal actions: exit the loop immediately ---
-      if (TERMINAL_ACTIONS.has(action)) {
-        // The schema says reply/finish/ask_user carry their text in
-        // args.message (or args.question for ask_user). Models still
-        // occasionally drift to other field names — accept any of them so a
-        // harmless format variation doesn't drop the whole reply. Order:
-        // pre-tool prose (chatReply) → args.message → args.question →
-        // args.text → args.content.
-        const pickString = (v: unknown): string | undefined =>
-          typeof v === 'string' && v.trim() ? v : undefined
-        const text = action === 'ask_user'
-          ? (chatReply ?? pickString(step.args.question) ?? pickString(step.args.message) ?? pickString(step.args.text) ?? '')
-          : (chatReply ?? pickString(step.args.message) ?? pickString(step.args.text) ?? pickString(step.args.content) ?? '')
-        if (text) {
-          this.deps.sendEvent({ type: 'reply', content: text })
+      // --- Execute every tool call in this turn ---
+      // Native tool_use providers (Anthropic, OpenAI, ...) routinely emit
+      // multiple tool_use blocks per assistant turn for parallel discovery
+      // (e.g. metrics.metric_names + metrics.metadata in one shot).
+      // Dropping the extras left the model expecting results it never got
+      // and confused subsequent turns; iterating honors the protocol.
+      // A terminal action (reply/finish/ask_user) inside the batch ends
+      // the loop immediately — anything queued after it is discarded
+      // because the conversation is over.
+      const batchId = batchCounter++
+      for (const tc of toolCalls) {
+        const step: ReActStep = {
+          thought: '',
+          // Only the first call inherits the pre-tool prose so it isn't
+          // re-emitted per call. Subsequent calls have no separate message.
+          message: tc === toolCalls[0] ? preToolProse : undefined,
+          action: tc.name,
+          args: tc.input ?? {},
         }
-        return text
+        const { action, args = {} } = step
+        step.args = args
+        lastAction = action
+        lastDraftReply = step.message
+
+        log.info(
+          {
+            step: i,
+            action,
+            message: step.message?.slice(0, 120),
+            argsKeys: Object.keys(args),
+          },
+          'ReAct: synthesized step',
+        )
+
+        // --- Terminal action inside the batch — exit immediately ---
+        if (TERMINAL_ACTIONS.has(action)) {
+          const pickString = (v: unknown): string | undefined =>
+            typeof v === 'string' && v.trim() ? v : undefined
+          const text = action === 'ask_user'
+            ? (step.message ?? pickString(args.question) ?? pickString(args.message) ?? pickString(args.text) ?? '')
+            : (step.message ?? pickString(args.message) ?? pickString(args.text) ?? pickString(args.content) ?? '')
+          if (text) {
+            this.deps.sendEvent({ type: 'reply', content: text })
+          }
+          return text
+        }
+
+        // --- Non-terminal: execute and record observation ---
+        const observationText = await executeAction(step)
+        if (observationText === null)
+          return ''
+
+        lastObservation = observationText
+
+        // Record the observation with its tool_use_id and batchId so the
+        // next-turn replay can rebuild proper Anthropic-style content
+        // blocks: [tool_use_a, tool_use_b] in the assistant turn, paired
+        // with [tool_result_a, tool_result_b] in the user turn. Without
+        // this pairing the model would see a string-serialized assistant
+        // turn and learn that prose-JSON is a valid response — which is
+        // exactly what destabilized the loop before this fix.
+        observations.push({
+          action,
+          args,
+          result: observationText,
+          toolUseId: tc.id,
+          batchId,
+          // Only the first tool of the batch carries the pre-tool prose so
+          // we don't repeat it across N tool_result blocks.
+          ...(tc === toolCalls[0] && preToolProse ? { preToolText: preToolProse } : {}),
+        })
       }
-
-      // Emit the agent's pre-tool narration as a reply so it renders as an
-      // AssistantMessage bubble interleaved between tool cards — mimicking
-      // Claude Code's pattern of "briefly state what you're about to do".
-      if (chatReply && chatReply.trim()) {
-        this.deps.sendEvent({ type: 'reply', content: chatReply.trim() })
-      }
-
-      // --- Non-terminal action: execute and continue the loop ---
-      const observationText = await executeAction(step)
-
-      // null means the action handler already returned a final response
-      if (observationText === null)
-        return ''
-
-      const observation = observationText
-      lastObservation = observation
-
-      // Preserve a compact replay of what the model invoked so the next turn
-      // can see its own action chain. With native tool_use there's no
-      // "thought" field to preserve — the action+args are the whole story.
-      const stepForReplay: Record<string, unknown> = {
-        action,
-        args: step.args ?? {},
-      }
-      observations.push({
-        action,
-        args: step.args ?? {},
-        result: observation,
-        stepForReplay,
-      })
     }
 
     if (lastAction && lastObservation) {
@@ -384,37 +406,74 @@ export class ReActLoop {
 
     messages.push({ role: 'user', content: userMessage })
 
-    // Compress older observations to save context window.
-    // Keep the last OBSERVATION_KEEP_RECENT in full; summarize earlier ones.
+    // Coalesce observations by batchId so each gateway turn reproduces the
+    // exact assistant/user content-block pair that originally happened —
+    // tool_use blocks in the assistant message, paired tool_result blocks
+    // in the user message. Without this the model sees its own previous
+    // multi-tool turns as a sequence of single-action steps, which both
+    // destabilizes the conversation and teaches it to emit prose-JSON.
+    //
+    // Older batches (beyond OBSERVATION_KEEP_RECENT) are compressed to
+    // one-line summaries to save context — but still as structured blocks
+    // so the model knows they were tool calls.
     const cutoff = Math.max(0, observations.length - OBSERVATION_KEEP_RECENT)
 
-    for (let i = 0; i < observations.length; i++) {
-      const obs = observations[i]!
-      // Replay the original step so the LLM sees its action chain. With
-      // native tool_use we don't yet send tool_use/tool_result content blocks
-      // through the gateway type system (CompletionMessage is text-only); we
-      // serialize the action+args into the assistant turn as a compact JSON
-      // marker. This keeps the model from re-reasoning from scratch each turn
-      // while staying within the existing string-content message shape.
-      const assistantPayload = obs.stepForReplay ?? { action: obs.action, args: obs.args }
-      messages.push({
-        role: 'assistant',
-        content: JSON.stringify(assistantPayload),
-      })
-
-      let resultText = obs.result
-      if (i < cutoff) {
-        // Older observation — compress to a one-line summary
-        resultText = `[Earlier observation] ${obs.action}: ${obs.result.slice(0, 120)}${obs.result.length > 120 ? '...' : ''}`
-      } else if (resultText.length > OBSERVATION_MAX_CHARS) {
-        // Recent but very long — truncate
-        resultText = resultText.slice(0, OBSERVATION_MAX_CHARS) + `\n... (truncated, ${resultText.length} chars total)`
+    // Group by batchId, preserving ordering.
+    const batches: ReActObservation[][] = []
+    let currentBatch: ReActObservation[] = []
+    let currentBatchId: number | undefined
+    for (const obs of observations) {
+      if (obs.batchId !== currentBatchId) {
+        if (currentBatch.length > 0) batches.push(currentBatch)
+        currentBatch = []
+        currentBatchId = obs.batchId
       }
+      currentBatch.push(obs)
+    }
+    if (currentBatch.length > 0) batches.push(currentBatch)
 
-      messages.push({
-        role: 'user',
-        content: `Observation: ${resultText}`,
-      })
+    let observationIndex = 0
+    for (const batch of batches) {
+      const isOlder = observationIndex + batch.length <= cutoff
+      observationIndex += batch.length
+
+      // Assistant turn: optional pre-tool text + one tool_use block per call.
+      const assistantBlocks: ContentBlock[] = []
+      const preText = batch[0]?.preToolText
+      if (preText) {
+        assistantBlocks.push({ type: 'text', text: preText })
+      }
+      for (const obs of batch) {
+        // Older batches without a recorded toolUseId (legacy) fall back to a
+        // synthesized id so block-pairing stays consistent. The id only has
+        // to be unique within this request, not stable across requests.
+        const id = obs.toolUseId ?? `replay_${observationIndex}_${obs.action}`
+        assistantBlocks.push({
+          type: 'tool_use',
+          id,
+          name: obs.action,
+          input: obs.args,
+        })
+      }
+      messages.push({ role: 'assistant', content: assistantBlocks })
+
+      // User turn: one tool_result block per call, paired by tool_use_id.
+      const userBlocks: ContentBlock[] = []
+      for (const obs of batch) {
+        const id = obs.toolUseId ?? `replay_${observationIndex - batch.length + userBlocks.length + 1}_${obs.action}`
+        let resultText = obs.result
+        if (isOlder) {
+          resultText = `[Earlier] ${obs.result.slice(0, 120)}${obs.result.length > 120 ? '...' : ''}`
+        } else if (resultText.length > OBSERVATION_MAX_CHARS) {
+          resultText = resultText.slice(0, OBSERVATION_MAX_CHARS) + `\n... (truncated, ${resultText.length} chars total)`
+        }
+        userBlocks.push({
+          type: 'tool_result',
+          tool_use_id: id,
+          content: resultText,
+        })
+      }
+      messages.push({ role: 'user', content: userBlocks })
     }
 
     return messages

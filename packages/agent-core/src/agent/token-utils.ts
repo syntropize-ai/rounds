@@ -3,8 +3,15 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
-export function estimateMessagesTokens(messages: Array<{ role: string; content: string }>): number {
-  return messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0) // +4 for role/formatting overhead
+export function estimateMessagesTokens(
+  messages: Array<{ role: string; content: string | unknown[] }>,
+): number {
+  // Content blocks (native tool_use shape) get a JSON-stringified estimate
+  // since the field varies per block type. Plain strings pass through.
+  return messages.reduce((sum, m) => {
+    const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+    return sum + estimateTokens(text) + 4
+  }, 0) // +4 for role/formatting overhead
 }
 
 // Configurable thresholds

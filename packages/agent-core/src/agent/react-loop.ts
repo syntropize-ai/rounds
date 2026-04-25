@@ -18,14 +18,14 @@ const log = createLogger('react-loop')
  * (provider returning identical results, model unable to terminate, etc).
  * Under well-behaved operation the LLM emits `reply` / `ask_user` / `finish`
  * long before this is hit. The real budget is tokens (see
- * TOKEN_BUDGET_TOKENS below), matching the way Claude Code's loop terminates.
+ * TOKEN_BUDGET_TOKENS below); iteration count is just a backstop.
  */
 const MAX_ITERATIONS = 200
 
 /**
  * Soft token budget: when the messages about to be sent to the LLM would
  * exceed this, exit the loop with a graceful "reached context limit" reply
- * rather than letting the gateway reject the request. Set slightly under
+ * rather than letting the gateway reject the request. Set at 95% of
  * CONTEXT_WINDOW to leave headroom for the model's own completion tokens.
  */
 const TOKEN_BUDGET_TOKENS = Math.floor(CONTEXT_WINDOW * 0.95)

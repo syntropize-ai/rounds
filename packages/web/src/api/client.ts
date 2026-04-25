@@ -25,6 +25,40 @@ export function resourcePermissionsPath(resource: ResourceKind, uid: string): st
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
 
+const CSRF_COOKIE_NAME = 'openobs_csrf';
+const CSRF_HEADER_NAME = 'X-CSRF-Token';
+const NON_MUTATING_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Read a cookie value by name from `document.cookie`. Returns `null` if the
+ * cookie is missing or `document` is unavailable (SSR / test envs).
+ *
+ * The CSRF cookie is intentionally NOT HttpOnly — see backend
+ * `middleware/csrf.ts` for the double-submit cookie rationale.
+ */
+function readBrowserCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(';')) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) return trimmed.slice(prefix.length);
+  }
+  return null;
+}
+
+/**
+ * Build the headers needed for CSRF on state-changing requests. Returns an
+ * empty object for safe methods or when no CSRF cookie is present (e.g. the
+ * very first request after login — backend mints the cookie on that
+ * response, the next request will include it).
+ */
+function csrfHeaders(method: string): Record<string, string> {
+  if (NON_MUTATING_METHODS.has(method.toUpperCase())) return {};
+  const token = readBrowserCookie(CSRF_COOKIE_NAME);
+  if (!token) return {};
+  return { [CSRF_HEADER_NAME]: token };
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -76,12 +110,14 @@ class ApiClient {
     path: string,
     options: RequestInit = {},
   ): Promise<ApiResponse<T>> {
+    const method = options.method ?? 'GET';
     const res = await fetch(`${this.baseUrl}${path}`, {
       // credentials: 'include' so the session cookie rides along on every request.
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...this.authHeaders(),
+        ...csrfHeaders(method),
         ...options.headers,
       },
       ...options,
@@ -165,6 +201,7 @@ class ApiClient {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
         ...this.authHeaders(),
+        ...csrfHeaders('POST'),
       },
       body: JSON.stringify(body),
       signal,
@@ -380,11 +417,13 @@ async function authFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  const method = init.method ?? 'GET';
   const res = await fetch(path, {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...csrfHeaders(method),
       ...(init.headers ?? {}),
     },
     ...init,

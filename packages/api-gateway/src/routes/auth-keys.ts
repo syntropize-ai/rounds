@@ -27,6 +27,7 @@ import {
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
+import { tokenIssueRateLimiter } from '../middleware/rate-limiter.js';
 import {
   ServiceAccountService,
   ServiceAccountServiceError,
@@ -108,8 +109,13 @@ export function createAuthKeysRouter(deps: AuthKeysRouterDeps): Router {
   );
 
   // -- POST /api/auth/keys -------------------------------------------------
+  // Strict per-user 5/min cap (token-issue limiter) — see
+  // `middleware/rate-limiter.ts`. Same protection as
+  // `POST /api/serviceaccounts/:id/tokens` (this endpoint provisions an SA
+  // and issues a token in one shot, same blast radius).
   router.post(
     '/',
+    tokenIssueRateLimiter,
     requirePermission(ac.eval(ACTIONS.ApiKeysCreate)),
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {

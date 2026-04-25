@@ -1,10 +1,12 @@
 import express from 'express';
 import type { Application } from 'express';
+import helmet from 'helmet';
 import { join, dirname } from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { sql } from 'drizzle-orm';
 import { cors } from './middleware/cors.js';
+import { createCsrfMiddleware } from './middleware/csrf.js';
 import {
   defaultRateLimiter,
   createRateLimiter,
@@ -212,6 +214,40 @@ function mountCommonRoutes(
 export function createApp(): Application {
   const app = express();
 
+  // -- Security headers (Helmet + CSP) ----------------------------------
+  // MUST be the first middleware so headers are present even on responses
+  // produced by error paths in later middleware.
+  //
+  // CSP: default-deny + an allowlist for the LLM API endpoints the chat /
+  // investigation flows hit directly from the browser, plus localhost:11434
+  // for Ollama. `script-src 'unsafe-inline'` is gated to development because
+  // Vite injects an inline HMR shim during `vite dev`; the production bundle
+  // emits hashed external scripts only.
+  const isDev = process.env['NODE_ENV'] === 'development';
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          connectSrc: [
+            "'self'",
+            'https://api.anthropic.com',
+            'https://api.openai.com',
+            'https://generativelanguage.googleapis.com',
+            'http://localhost:11434',
+          ],
+          scriptSrc: isDev ? ["'self'", "'unsafe-inline'"] : ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'blob:'],
+          fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+        },
+      },
+      // Browsers default to no-referrer-when-downgrade; tighten so we never
+      // leak query strings to upstream LLM providers.
+      referrerPolicy: { policy: 'no-referrer' },
+    }),
+  );
+
   // Parse JSON bodies
   app.use(express.json());
 
@@ -220,6 +256,15 @@ export function createApp(): Application {
 
   // CORS
   app.use(cors);
+
+  // CSRF — double-submit cookie. Mounts BEFORE auth middleware (auth runs
+  // per-route via the auth IIFE below) so we can set the cookie on the same
+  // response that returns from a session-establishing GET. Verifies on POST/
+  // PUT/PATCH/DELETE for cookie-authed callers; bearer-token callers bypass.
+  // First-contact auth endpoints (`/api/login`, OAuth callbacks, SAML ACS)
+  // are exempt — they have their own anti-CSRF (state param / RelayState)
+  // and the user has no session cookie when they hit them.
+  app.use(createCsrfMiddleware());
 
   // Rate limiting on all routes.
   //

@@ -152,4 +152,24 @@ describe('OpsCommandRunnerService', () => {
     expect(result.decision).toBe('denied');
     expect(result.observation).toContain('does not allow execute_approved');
   });
+
+  it('uses the injected secretRef resolver when connector credentials are external', async () => {
+    const service = new OpsCommandRunnerService({
+      connectors,
+      approvals,
+      secretResolver: {
+        resolve: vi.fn(async () => 'apiVersion: v1\nkind: Config\n'),
+      },
+    }, 'org_a');
+
+    const result = await service.runCommand({
+      connectorId: 'k8s-prod',
+      command: 'kubectl get pods -n default',
+      intent: 'read',
+      identity: identity(),
+      sessionId: 'session-1',
+    });
+
+    expect(result.observation).not.toContain('cannot resolve secretRef');
+  });
 });

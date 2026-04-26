@@ -8,12 +8,14 @@ import type {
   IOpsConnectorRepository,
   OpsConnector,
 } from '@agentic-obs/data-layer';
+import { DefaultOpsSecretRefResolver, type OpsSecretRefResolver } from './ops-secret-ref-resolver.js';
 
 export type OpsCommandDecision = 'read' | 'approval_required' | 'executed' | 'denied';
 
 export interface OpsCommandRunnerServiceDeps {
   connectors: IOpsConnectorRepository;
   approvals: IApprovalRequestRepository;
+  secretResolver?: OpsSecretRefResolver;
 }
 
 interface AgentOpsConnectorConfig {
@@ -25,7 +27,11 @@ interface AgentOpsConnectorConfig {
 }
 
 export class OpsCommandRunnerService {
-  constructor(private readonly deps: OpsCommandRunnerServiceDeps, private readonly orgId: string) {}
+  private readonly secretResolver: OpsSecretRefResolver;
+
+  constructor(private readonly deps: OpsCommandRunnerServiceDeps, private readonly orgId: string) {
+    this.secretResolver = deps.secretResolver ?? new DefaultOpsSecretRefResolver();
+  }
 
   async listConnectors(): Promise<AgentOpsConnectorConfig[]> {
     const connectors = await this.deps.connectors.listByOrg(this.orgId, { masked: true });
@@ -182,14 +188,14 @@ export class OpsCommandRunnerService {
     connector: OpsConnector,
     command: string,
   ): Promise<{ observation: string; decision: OpsCommandDecision }> {
-    if (!connector.secret) {
+    const kubeconfig = await this.resolveKubeconfig(connector);
+    if (!kubeconfig.ok) {
       return {
         decision: 'denied',
-        observation:
-          `Command is allowed by policy for connector "${connector.name}", but this server cannot resolve secretRef credentials yet.`,
+        observation: kubeconfig.error,
       };
     }
-    if (!looksLikeKubeconfig(connector.secret)) {
+    if (!looksLikeKubeconfig(kubeconfig.value)) {
       return {
         decision: 'denied',
         observation:
@@ -205,7 +211,7 @@ export class OpsCommandRunnerService {
     const tempDir = await mkdtemp(join(tmpdir(), 'openobs-kube-'));
     const kubeconfigPath = join(tempDir, 'config');
     try {
-      await writeFile(kubeconfigPath, connector.secret, { encoding: 'utf8', mode: 0o600 });
+      await writeFile(kubeconfigPath, kubeconfig.value, { encoding: 'utf8', mode: 0o600 });
       const args = tokenizeKubectlCommand(command).slice(1);
       const result = await runKubectl(args, kubeconfigPath);
       return {
@@ -214,6 +220,27 @@ export class OpsCommandRunnerService {
       };
     } finally {
       await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  private async resolveKubeconfig(
+    connector: OpsConnector,
+  ): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
+    if (connector.secret) return { ok: true, value: connector.secret };
+    if (!connector.secretRef) {
+      return {
+        ok: false,
+        error: `Ops connector "${connector.id}" is not connected: no credential secret or secretRef is configured.`,
+      };
+    }
+    try {
+      const value = await this.secretResolver.resolve(connector.secretRef);
+      return { ok: true, value };
+    } catch (err) {
+      return {
+        ok: false,
+        error: `Command was not executed because secretRef could not be resolved: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
   }
 }

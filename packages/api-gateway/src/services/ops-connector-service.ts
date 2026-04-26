@@ -1,4 +1,5 @@
 import type { OpsConnector, OpsConnectorConfig, OpsConnectorStatus } from '@agentic-obs/data-layer';
+import { DefaultOpsSecretRefResolver, type OpsSecretRefResolver } from './ops-secret-ref-resolver.js';
 
 export interface OpsConnectorTestResult {
   status: Exclude<OpsConnectorStatus, 'unknown'>;
@@ -15,6 +16,12 @@ export interface KubernetesConnectorRunner {
 }
 
 export class StructuralKubernetesConnectorRunner implements KubernetesConnectorRunner {
+  private readonly secretResolver: OpsSecretRefResolver;
+
+  constructor(secretResolver: OpsSecretRefResolver = new DefaultOpsSecretRefResolver()) {
+    this.secretResolver = secretResolver;
+  }
+
   async test(connector: OpsConnector): Promise<OpsConnectorTestResult> {
     const validation = validateKubernetesConnector(connector.config);
     if (validation) {
@@ -26,6 +33,17 @@ export class StructuralKubernetesConnectorRunner implements KubernetesConnectorR
     }
 
     const hasCredentials = Boolean(connector.secretRef || connector.secret);
+    if (connector.secretRef) {
+      try {
+        await this.secretResolver.resolve(connector.secretRef);
+      } catch (err) {
+        return {
+          status: 'error',
+          checks: { structure: 'ok', credentials: 'missing', runner: 'skipped' },
+          message: `Kubernetes connector structure is valid, but secretRef could not be resolved: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      }
+    }
     return {
       status: hasCredentials ? 'connected' : 'degraded',
       checks: {

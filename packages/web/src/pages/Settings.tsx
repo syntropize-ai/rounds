@@ -398,6 +398,7 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
     namespaces: '',
     kubeconfig: '',
     token: '',
+    secretRef: '',
     capabilities: { read: true, propose: true, execute_approved: false } as Record<OpsCapability, boolean>,
   });
 
@@ -432,6 +433,7 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
         namespaces: '',
         kubeconfig: '',
         token: '',
+        secretRef: '',
         capabilities: { read: true, propose: true, execute_approved: false },
       });
     } catch (err) {
@@ -524,6 +526,9 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
           </Field>
           <Field label="Kubeconfig">
             <textarea value={form.kubeconfig} onChange={(e) => updateForm({ kubeconfig: e.target.value })} rows={5} placeholder="Paste kubeconfig" className={inputCls + ' resize-y font-mono text-xs'} />
+          </Field>
+          <Field label="Secret Ref" hint="Optional. env://VAR_NAME, file://absolute/path, or vault://path#field. When set, pasted credentials are ignored.">
+            <input type="text" value={form.secretRef} onChange={(e) => updateForm({ secretRef: e.target.value })} placeholder="env://OPENOBS_KUBECONFIG_PROD" className={inputCls} />
           </Field>
           <Field label="Token">
             <input type="password" value={form.token} onChange={(e) => updateForm({ token: e.target.value })} placeholder="Service account token" className={inputCls} />

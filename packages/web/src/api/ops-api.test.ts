@@ -21,6 +21,7 @@ describe('ops-api helpers', () => {
       namespaces: 'default,api',
       kubeconfig: ' kubeconfig-yaml ',
       token: '',
+      secretRef: '',
       capabilities: {
         read: true,
         propose: true,
@@ -36,8 +37,32 @@ describe('ops-api helpers', () => {
         credentialType: 'kubeconfig',
       },
       allowedNamespaces: ['default', 'api'],
+      secretRef: null,
       secret: 'kubeconfig-yaml',
       capabilities: ['read', 'propose'],
+    });
+  });
+
+  it('prefers secretRef over pasted credentials', () => {
+    expect(buildOpsConnectorInput({
+      name: 'Prod',
+      environment: '',
+      apiServer: '',
+      clusterName: 'prod',
+      context: '',
+      namespaces: '',
+      kubeconfig: ' kubeconfig-yaml ',
+      token: '',
+      secretRef: ' env://OPENOBS_KUBECONFIG_PROD ',
+      capabilities: {
+        read: true,
+        propose: false,
+        execute_approved: false,
+      },
+    })).toMatchObject({
+      secretRef: 'env://OPENOBS_KUBECONFIG_PROD',
+      secret: null,
+      capabilities: ['read'],
     });
   });
 });

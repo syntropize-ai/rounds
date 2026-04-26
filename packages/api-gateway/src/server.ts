@@ -38,6 +38,7 @@ import { buildAuthSubsystem, mountAuthRoutes } from './app/auth-routes.js';
 import { mountRbacRoutes } from './app/rbac-routes.js';
 import { mountDomainRoutes } from './app/domain-routes.js';
 import { createShutdownHooks } from './app/lifecycle.js';
+import type { WebSocketGatewayDeps } from './websocket/gateway.js';
 
 const log = createLogger('api-gateway');
 
@@ -180,6 +181,24 @@ export async function createApp(): Promise<Application> {
     queryRateLimiter,
   });
 
+  app.locals['websocketGatewayDeps'] = {
+    auth: {
+      sessions: bundle.authSub.sessions,
+      users: bundle.authRepos.users,
+      orgUsers: bundle.authRepos.orgUsers,
+      apiKeyService: bundle.apiKeyService,
+    },
+    authorization: {
+      ac: accessControl,
+      resources: {
+        investigations: persistence.repos.investigations,
+        incidents: persistence.repos.incidents,
+        approvals: persistence.repos.approvals,
+        feedItems: persistence.repos.feedItems,
+      },
+    },
+  } satisfies WebSocketGatewayDeps;
+
   // -- SPA fallback + 404 / error handlers (must be LAST) ---------------
   mountStaticAssets(app);
   app.use(notFoundHandler);
@@ -193,7 +212,9 @@ export async function startServer(port = 3000): Promise<void> {
 
   // Wrap Express app in httpServer + attach Socket.io WebSocket gateway
   const { createWebSocketGateway } = await import('./websocket/gateway.js');
-  const { httpServer, gateway } = createWebSocketGateway(app);
+  const { createEventBusFromEnv } = await import('@agentic-obs/common/events');
+  const wsDeps = app.locals['websocketGatewayDeps'] as WebSocketGatewayDeps | undefined;
+  const { httpServer, gateway } = createWebSocketGateway(app, createEventBusFromEnv(), wsDeps);
 
   httpServer.listen(port, () => {
     log.info({ port }, 'API gateway listening');

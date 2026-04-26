@@ -51,6 +51,7 @@ export interface IInvestigationStore {
     tenantId?: string
     workspaceId?: string
   }): import('@agentic-obs/common').Investigation | Promise<import('@agentic-obs/common').Investigation>
+  findById?(id: string): import('@agentic-obs/common').Investigation | Promise<import('@agentic-obs/common').Investigation | null | undefined> | null | undefined
   findAll?(): import('@agentic-obs/common').Investigation[] | Promise<import('@agentic-obs/common').Investigation[]>
   updateStatus(id: string, status: import('@agentic-obs/common').InvestigationStatus): unknown
   updatePlan(id: string, plan: import('@agentic-obs/common').Investigation['plan']): unknown

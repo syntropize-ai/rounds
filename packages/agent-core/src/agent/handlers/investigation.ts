@@ -227,6 +227,18 @@ export async function handleInvestigationComplete(
     { investigationId },
     `Completing investigation`,
     async () => {
+      if (!ctx.investigationStore?.findById) {
+        return 'Error: investigation store is not available.';
+      }
+
+      const investigation = await ctx.investigationStore.findById(investigationId);
+      if (!investigation) {
+        return `Error: investigation "${investigationId}" was not found.`;
+      }
+      if (investigation.workspaceId !== ctx.identity.orgId) {
+        return `Error: investigation "${investigationId}" was not found.`;
+      }
+
       const sections = ctx.investigationSections.get(investigationId) ?? [];
 
       // Save the report

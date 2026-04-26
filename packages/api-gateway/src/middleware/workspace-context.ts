@@ -3,18 +3,20 @@ import type { Request } from 'express';
 /**
  * Extract the org identifier from a request.
  *
- * Post-T9 cutover: the legacy "workspace" concept is gone — routes either use
- * `req.auth.orgId` (populated by `org-context.ts` + auth middleware) or fall
- * through to the default org for pre-auth paths. This helper remains for the
- * handful of public endpoints that need an org scope before auth resolves,
- * and for integration tests that drive requests without a full auth chain.
+ * Post-T9 cutover: the legacy "workspace" concept is gone. Routes should use
+ * `req.auth.orgId` populated by auth/org context; the explicit header/query
+ * branch is only for tests and bootstrap surfaces that intentionally pass an
+ * org before the auth chain has run. Missing org context is a programming
+ * error, not a signal to fall back to a synthetic default workspace.
  */
 export function getOrgId(req: Request): string {
   const authed = (req as Request & { auth?: { orgId?: string } }).auth;
   if (authed?.orgId) return authed.orgId;
-  return (req.headers['x-openobs-org-id'] as string)
-    ?? (req.query['orgId'] as string)
-    ?? 'default';
+  const headerOrgId = req.headers['x-openobs-org-id'];
+  if (typeof headerOrgId === 'string' && headerOrgId) return headerOrgId;
+  const queryOrgId = req.query['orgId'];
+  if (typeof queryOrgId === 'string' && queryOrgId) return queryOrgId;
+  throw new Error('org context missing');
 }
 
 /**

@@ -140,21 +140,22 @@ export function useDashboardChat(
     }
   }, [initialPanels, isGenerating]);
 
-  // Load chat history (via the chat-service session messages endpoint) and the
-  // saved investigation report on mount / dashboard change. Chat history
-  // requires a `sessionId` — without one we skip history and just load the
-  // report (the dashboard may have been created before sessions existed).
+  // Load chat history from the chat-service session messages endpoint on
+  // mount / dashboard change. Without a sessionId there is no history to load,
+  // so the hook initializes empty messages/events for the new dashboard.
   useEffect(() => {
     if (!dashboardId) return;
     historyLoadedRef.current = false;
+    setMessages([]);
+    setEvents([]);
+    setInvestigationReport(null);
+    let cancelled = false;
     void (async () => {
       const chatPromise = sessionId
         ? apiClient.get<{ messages: ChatMessage[] }>(`/chat/sessions/${sessionId}/messages`)
         : Promise.resolve({ data: { messages: [] }, error: null } as { data: { messages: ChatMessage[] } | null; error: null | { code: string; message?: string } });
-      const [chatRes, reportRes] = await Promise.all([
-        chatPromise,
-        apiClient.get<InvestigationReport>(`/investigation-reports/by-dashboard/${dashboardId}`),
-      ]);
+      const chatRes = await chatPromise;
+      if (cancelled) return;
       const loadedMessages = chatRes.data?.messages ?? [];
       if (loadedMessages.length) {
         setMessages(loadedMessages);
@@ -174,14 +175,11 @@ export function useDashboardChat(
           }));
         });
       }
-      // Restore saved investigation report if one exists (API returns array, use latest)
-      if (!reportRes.error && reportRes.data) {
-        const reports = Array.isArray(reportRes.data) ? reportRes.data : [reportRes.data];
-        const latest = reports[reports.length - 1];
-        if (latest?.summary) setInvestigationReport(latest);
-      }
       historyLoadedRef.current = true;
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [dashboardId, sessionId]);
 
   const appendEvent = useCallback((evt: ChatEvent) => {

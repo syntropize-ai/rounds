@@ -6,7 +6,7 @@
  *   - Bootstrap-aware      — datasources, system, query (run pre-auth
  *                            during the wizard window, then auth-gated)
  *   - W6 business routes   — investigations, feed, shared, meta, approvals,
- *                            notifications, investigation-reports,
+ *                            notifications,
  *                            dashboards, chat, alert-rules, search, versions
  *
  * The bootstrap-aware mounts depend on `setupConfigService` (built in
@@ -36,7 +36,6 @@ import { createSharedRouter } from '../routes/shared.js';
 import { createMetaRouter } from '../routes/meta.js';
 import { createApprovalRouter } from '../routes/approval.js';
 import { createWebhookRouter } from '../routes/webhooks.js';
-import { createInvestigationReportRouter } from '../routes/investigation-reports.js';
 import { createDatasourcesRouter } from '../routes/datasources.js';
 import { createQueryRouter } from '../routes/dashboard/query.js';
 import { createSystemRouter } from '../routes/system.js';
@@ -120,7 +119,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     authMiddleware,
     userRateLimiter,
     createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
-    createQueryRouter({ setupConfig }),
+    createQueryRouter({ setupConfig, ac: accessControl }),
   );
 
   // -- W6 business routes ----------------------------------------------
@@ -160,10 +159,6 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     alertRuleStore: eventAlertRuleStore,
     ac: accessControl,
   }));
-  app.use('/api/investigation-reports', createInvestigationReportRouter({
-    store: repos.investigationReports,
-    ac: accessControl,
-  }));
   app.use('/api/dashboards', createDashboardRouter({
     store: repos.dashboards,
     accessControl,
@@ -194,7 +189,9 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   app.use('/api/search', createSearchRouter({
     dashboardStore: repos.dashboards,
     alertRuleStore: eventAlertRuleStore,
-    folderStore: repos.folders,
+    folderStore: sharedFolderRepo,
+    orgUsers: authRepos.orgUsers,
+    accessControl,
   }));
   app.use('/api/versions', createVersionRouter({
     store: repos.versions,

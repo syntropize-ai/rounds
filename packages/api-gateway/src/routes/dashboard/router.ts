@@ -8,7 +8,7 @@ import { createRequirePermission } from '../../middleware/require-permission.js'
 import type { IGatewayDashboardStore } from '@agentic-obs/data-layer'
 import { VariableResolver } from './variable-resolver.js'
 import { ac, ACTIONS } from '@agentic-obs/common'
-import type { PanelConfig } from '@agentic-obs/common'
+import type { Dashboard, PanelConfig } from '@agentic-obs/common'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
 import { getOrgId } from '../../middleware/workspace-context.js'
 
@@ -39,6 +39,19 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
 
   const router = Router()
   const requirePermission = createRequirePermission(accessControl)
+
+  function dashboardNotFound(res: Response): void {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
+  }
+
+  async function loadOwnedDashboard(req: Request, res: Response, id: string): Promise<Dashboard | undefined> {
+    const dashboard = await store.findById(id)
+    if (!dashboard || dashboard.workspaceId !== resolveOrgId(req)) {
+      dashboardNotFound(res)
+      return undefined
+    }
+    return dashboard
+  }
 
   // All dashboard routes require authentication
   router.use(authMiddleware)
@@ -84,7 +97,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       const workspaceId = resolveOrgId(req)
       let all = await store.findAll()
       // Filter by workspace
-      all = all.filter((d) => (d.workspaceId ?? 'default') === workspaceId)
+      all = all.filter((d) => d.workspaceId === workspaceId)
       res.json(all)
     }
     catch (err) {
@@ -96,9 +109,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.get('/:id/export', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
-      const dashboard = await store.findById(id)
+      const dashboard = await loadOwnedDashboard(req, res, id)
       if (!dashboard) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
         return
       }
       const filename = `${dashboard.title.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
@@ -112,14 +124,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.get('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
-      const dashboard = await store.findById(id)
+      const dashboard = await loadOwnedDashboard(req, res, id)
       if (!dashboard) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
-        return
-      }
-      const workspaceId = resolveOrgId(req)
-      if ((dashboard.workspaceId ?? 'default') !== workspaceId) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
         return
       }
       res.json(dashboard)
@@ -143,9 +149,14 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       if (body.folder !== undefined)
         patch.folder = body.folder
 
+      const dashboard = await loadOwnedDashboard(req, res, id)
+      if (!dashboard) {
+        return
+      }
+
       const updated = await store.update(id, patch)
       if (!updated) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
+        dashboardNotFound(res)
         return
       }
 
@@ -160,9 +171,14 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.delete('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsDelete, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
+      const dashboard = await loadOwnedDashboard(req, res, id)
+      if (!dashboard) {
+        return
+      }
+
       const deleted = await store.delete(id)
       if (!deleted) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
+        dashboardNotFound(res)
         return
       }
       // Chat history lives in chat_messages keyed by sessionId and is
@@ -185,9 +201,14 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
+      const dashboard = await loadOwnedDashboard(req, res, id)
+      if (!dashboard) {
+        return
+      }
+
       const updated = await store.updatePanels(id, body.panels)
       if (!updated) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
+        dashboardNotFound(res)
         return
       }
 
@@ -202,9 +223,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.post('/:id/panels', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
-      const d = await store.findById(id)
+      const d = await loadOwnedDashboard(req, res, id)
       if (!d) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
         return
       }
 
@@ -217,7 +237,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       const panel: PanelConfig = { ...body, id: randomUUID() }
       const updated = await store.updatePanels(id, [...d.panels, panel])
       if (!updated) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
+        dashboardNotFound(res)
         return
       }
 
@@ -233,9 +253,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     try {
       const id = req.params['id'] ?? ''
       const panelId = req.params['panelId'] ?? ''
-      const d = await store.findById(id)
+      const d = await loadOwnedDashboard(req, res, id)
       if (!d) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
         return
       }
 
@@ -257,9 +276,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.post('/:id/variables/resolve', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
-      const dashboard = await store.findById(id)
+      const dashboard = await loadOwnedDashboard(req, res, id)
       if (!dashboard) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
         return
       }
 

@@ -143,6 +143,31 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
     setupConfig,
     authMiddleware: deps.authMiddleware,
   });
+  const requirePostBootstrapPermission = (
+    evaluator: ReturnType<typeof ac.eval>,
+  ): RequestHandler => {
+    const permissionGate = requirePermission(evaluator);
+    return async (req, res, next) => {
+      try {
+        const bootstrapped = typeof res.locals['isBootstrapped'] === 'boolean'
+          ? res.locals['isBootstrapped'] as boolean
+          : await setupConfig.isBootstrapped();
+        if (!bootstrapped) {
+          next();
+          return;
+        }
+        permissionGate(req, res, next);
+      } catch (err) {
+        next(err);
+      }
+    };
+  };
+  const requireConfigRead = requirePostBootstrapPermission(
+    ac.eval(ACTIONS.InstanceConfigRead),
+  );
+  const requireConfigWrite = requirePostBootstrapPermission(
+    ac.eval(ACTIONS.InstanceConfigWrite),
+  );
 
   router.use(setupRateLimiter);
 
@@ -239,7 +264,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
   router.use(requireSetupAccess);
 
   // GET /api/setup/config — returns current config (secrets masked).
-  router.get('/config', async (_req: Request, res: Response) => {
+  router.get('/config', requireConfigRead, async (_req: Request, res: Response) => {
     try {
       const [llm, datasources, notifications] = await Promise.all([
         setupConfig.getLlm({ masked: true }),
@@ -260,7 +285,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
   });
 
   // POST /api/setup/llm/test — test-only, no persistence.
-  router.post('/llm/test', async (req: Request, res: Response) => {
+  router.post('/llm/test', requireConfigWrite, async (req: Request, res: Response) => {
     const cfg = req.body as LlmConfigWire;
     if (!cfg?.provider || !cfg?.model) {
       res.status(400).json({
@@ -273,7 +298,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
   });
 
   // POST /api/setup/llm/models — list available models.
-  router.post('/llm/models', async (req: Request, res: Response) => {
+  router.post('/llm/models', requireConfigWrite, async (req: Request, res: Response) => {
     const cfg = req.body as { provider: string; apiKey?: string; baseUrl?: string };
     if (!cfg?.provider) {
       res.status(400).json({

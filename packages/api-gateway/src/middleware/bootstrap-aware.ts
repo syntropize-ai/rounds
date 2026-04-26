@@ -43,6 +43,7 @@ export function bootstrapAware(deps: BootstrapAwareDeps): RequestHandler {
     void setupConfig
       .isBootstrapped()
       .then((bootstrapped) => {
+        res.locals['isBootstrapped'] = bootstrapped;
         if (!bootstrapped) {
           next();
           return;

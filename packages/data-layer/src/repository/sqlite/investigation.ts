@@ -71,6 +71,7 @@ export interface IInvestigationRepository {
 
   archive(id: string): Promise<Investigation | null>;
   restoreFromArchive(id: string): Promise<Investigation | null>;
+  restoreFromArchiveInWorkspace(id: string, workspaceId: string): Promise<Investigation | null>;
   getArchived(): Promise<Investigation[]>;
 
   addFollowUp(investigationId: string, question: string): Promise<FollowUpRecord>;
@@ -394,6 +395,24 @@ export class InvestigationRepository implements IInvestigationRepository {
       UPDATE investigations
       SET archived = 0, updated_at = ${nowIso()}
       WHERE id = ${id}
+    `);
+    return this.findById(id);
+  }
+
+  async restoreFromArchiveInWorkspace(id: string, workspaceId: string): Promise<Investigation | null> {
+    const rows = this.db.all<InvestigationRow>(sql`
+      SELECT * FROM investigations
+      WHERE id = ${id}
+        AND workspace_id = ${workspaceId}
+        AND archived = 1
+    `);
+    if (rows.length === 0) return null;
+    this.db.run(sql`
+      UPDATE investigations
+      SET archived = 0, updated_at = ${nowIso()}
+      WHERE id = ${id}
+        AND workspace_id = ${workspaceId}
+        AND archived = 1
     `);
     return this.findById(id);
   }

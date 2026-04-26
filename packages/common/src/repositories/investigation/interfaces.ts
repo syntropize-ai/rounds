@@ -100,6 +100,7 @@ export interface IInvestigationRepository {
   // Archive flow (eviction + manual archive)
   archive(id: string): Promise<Investigation | null>;
   restoreFromArchive(id: string): Promise<Investigation | null>;
+  restoreFromArchiveInWorkspace(id: string, workspaceId: string): Promise<Investigation | null>;
   getArchived(): Promise<Investigation[]>;
 
   // Follow-ups (one-to-many)

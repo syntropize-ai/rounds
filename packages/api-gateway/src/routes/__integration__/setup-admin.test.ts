@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import express, { type Application } from 'express';
+import express, { type Application, type RequestHandler } from 'express';
 import request from 'supertest';
 import {
   AuditLogRepository,
@@ -50,7 +50,10 @@ interface Ctx {
   setupConfig: SetupConfigService;
 }
 
-async function buildApp(): Promise<Ctx> {
+async function buildApp(opts: {
+  authMiddleware?: RequestHandler;
+  ac?: AccessControlSurface;
+} = {}): Promise<Ctx> {
   const db = createTestDb();
   await seedDefaultOrg(db);
 
@@ -83,10 +86,10 @@ async function buildApp(): Promise<Ctx> {
       // Tests that only exercise the pre-bootstrap branch never hit the
       // auth chain, so a 401-returning stub is sufficient — if a test
       // crosses into post-bootstrap, it must provide a real auth mw.
-      authMiddleware: (_req, res) => res.status(401).json({
+      authMiddleware: opts.authMiddleware ?? ((_req, res) => res.status(401).json({
         error: { code: 'UNAUTHORIZED', message: 'auth required' },
-      }),
-      ac: stubAc,
+      })),
+      ac: opts.ac ?? stubAc,
     }),
   );
   return { app, db, users, orgUsers, setupConfig };
@@ -249,5 +252,79 @@ describe('GET /api/setup/status', () => {
     const res = await request(app).get('/api/setup/status');
     expect(res.body.hasAdmin).toBe(true);
     expect(res.body.bootstrappedAt).toBeTruthy();
+  });
+});
+
+describe('setup config post-bootstrap permissions', () => {
+  const prevSecret = process.env['SECRET_KEY'];
+  beforeAll(() => {
+    process.env['SECRET_KEY'] =
+      prevSecret ?? 'test-secret-key-for-setup-config-integration-xxxxxxxxxxxxxxxxxxx';
+  });
+  afterAll(() => {
+    if (prevSecret === undefined) delete process.env['SECRET_KEY'];
+    else process.env['SECRET_KEY'] = prevSecret;
+  });
+
+  const authed: RequestHandler = (req, _res, next) => {
+    (req as typeof req & {
+      auth?: {
+        userId: string;
+        orgId: string;
+        orgRole: 'Viewer';
+        isServerAdmin: false;
+        authenticatedBy: 'session';
+      };
+    }).auth = {
+      userId: 'user_1',
+      orgId: 'org_main',
+      orgRole: 'Viewer',
+      isServerAdmin: false,
+      authenticatedBy: 'session',
+    };
+    next();
+  };
+
+  function acWith(allow: boolean): AccessControlSurface {
+    return {
+      getUserPermissions: async () => [],
+      ensurePermissions: async () => [],
+      filterByPermission: async (_identity, items) => [...items],
+      evaluate: async () => allow,
+    };
+  }
+
+  it('allows /config before bootstrap without auth', async () => {
+    const { app } = await buildApp();
+    const res = await request(app).get('/api/setup/config');
+    expect(res.status).toBe(200);
+  });
+
+  it('requires instance.config:read for /config after bootstrap', async () => {
+    const { app, setupConfig } = await buildApp({
+      authMiddleware: authed,
+      ac: acWith(false),
+    });
+    await setupConfig.markBootstrapped();
+
+    const res = await request(app).get('/api/setup/config');
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('instance.config:read');
+  });
+
+  it('requires instance.config:write for LLM probes after bootstrap', async () => {
+    const { app, setupConfig } = await buildApp({
+      authMiddleware: authed,
+      ac: acWith(false),
+    });
+    await setupConfig.markBootstrapped();
+
+    const res = await request(app)
+      .post('/api/setup/llm/models')
+      .send({ provider: 'openai' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('instance.config:write');
   });
 });

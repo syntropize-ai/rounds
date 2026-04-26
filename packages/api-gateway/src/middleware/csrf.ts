@@ -88,36 +88,40 @@ function constantTimeEqual(a: string, b: string): boolean {
 
 export interface CsrfMiddlewareOptions {
   /**
-   * Path prefixes (or exact paths) that bypass CSRF entirely. Defaults cover
-   * the first-contact auth endpoints — they have no session cookie yet, and
-   * carry their own anti-CSRF (OAuth `state`, SAML `RelayState`).
+   * Exact paths that bypass CSRF entirely. Defaults cover the first-contact
+   * auth endpoints — they have no session cookie yet, and carry their own
+   * anti-CSRF (OAuth `state`, SAML `RelayState`).
    */
   exemptPaths?: Array<string | RegExp>;
 }
 
-const DEFAULT_EXEMPT: Array<string | RegExp> = [
+// Exact-match exempt paths. A request must equal one of these strings exactly
+// to bypass CSRF — `/api/login/foo` is NOT exempted by `/api/login`.
+const DEFAULT_EXEMPT_EXACT: string[] = [
   '/api/login',
   '/api/logout',
   '/api/setup/admin',
-  // OAuth start + callbacks — `/api/login/:provider` and
-  // `/api/login/:provider/callback`. The provider param prevents a generic
-  // prefix match from picking up other `/api/login/...` we add later, so we
-  // use a regex.
-  /^\/api\/login\/[^/]+(\/callback)?$/,
-  // SAML
   '/api/saml/login',
   '/api/saml/acs',
   '/api/saml/metadata',
   '/api/saml/slo',
 ];
 
-function isExempt(path: string, exempt: Array<string | RegExp>): boolean {
-  for (const pat of exempt) {
-    if (typeof pat === 'string') {
-      if (path === pat || path.startsWith(`${pat}/`)) return true;
-    } else if (pat.test(path)) {
-      return true;
-    }
+// Regex-based exempt paths. Used for parameterized routes (OAuth provider
+// start + callback) where the path varies but is intentionally exempt.
+const DEFAULT_EXEMPT_REGEX: RegExp[] = [
+  // `/api/login/:provider` and `/api/login/:provider/callback`.
+  /^\/api\/login\/[^/]+(\/callback)?$/,
+];
+
+function isExempt(
+  path: string,
+  exemptExact: ReadonlySet<string>,
+  exemptRegex: readonly RegExp[],
+): boolean {
+  if (exemptExact.has(path)) return true;
+  for (const pat of exemptRegex) {
+    if (pat.test(path)) return true;
   }
   return false;
 }
@@ -133,14 +137,20 @@ function isExempt(path: string, exempt: Array<string | RegExp>): boolean {
  *     and exempt paths.
  */
 export function createCsrfMiddleware(opts: CsrfMiddlewareOptions = {}) {
-  const exempt = [...DEFAULT_EXEMPT, ...(opts.exemptPaths ?? [])];
+  const extra = opts.exemptPaths ?? [];
+  const exemptExact = new Set<string>(DEFAULT_EXEMPT_EXACT);
+  const exemptRegex: RegExp[] = [...DEFAULT_EXEMPT_REGEX];
+  for (const pat of extra) {
+    if (typeof pat === 'string') exemptExact.add(pat);
+    else exemptRegex.push(pat);
+  }
 
   return function csrfMiddleware(
     req: Request,
     res: Response,
     next: NextFunction,
   ): void {
-    if (isExempt(req.path, exempt)) {
+    if (isExempt(req.path, exemptExact, exemptRegex)) {
       next();
       return;
     }

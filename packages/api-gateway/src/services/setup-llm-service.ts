@@ -61,9 +61,13 @@ function describeFetchError(err: unknown): string {
 
 async function guardProviderUrl(
   finalUrl: string,
-  userSuppliedBase: string | undefined,
+  _userSuppliedBase: string | undefined,
 ): Promise<void> {
-  if (!userSuppliedBase) return;
+  // Always validate. Known-public defaults (api.openai.com, api.anthropic.com,
+  // generativelanguage.googleapis.com) pass ensureSafeUrl trivially. The
+  // Ollama default (http://localhost:11434) is a private host and is gated
+  // by OPENOBS_ALLOW_PRIVATE_URLS / NODE_ENV — which is the correct
+  // production posture (containerized prod must opt in explicitly).
   await ensureSafeUrl(finalUrl);
 }
 

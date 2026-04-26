@@ -37,11 +37,14 @@ export class InvestigationWorkspaceService {
       return false;
     }
 
-    await this.store.delete(id);
+    // Delete child reports first, then the investigation. If report deletion
+    // fails partway, the investigation still exists and the user can retry —
+    // avoiding orphaned reports that point at a missing investigation.
     const reports = await this.reportStore.findByDashboard(id);
     for (const report of reports) {
       await this.reportStore.delete(report.id);
     }
+    await this.store.delete(id);
     return true;
   }
 

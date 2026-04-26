@@ -53,9 +53,35 @@ function assertValidEmail(email: string): void {
 }
 
 export class SetupBootstrapService {
+  // Process-level mutex: serializes concurrent createFirstAdmin calls so that
+  // the check-then-create sequence (isBootstrapped → create user/org →
+  // markBootstrapped) cannot race itself. Without this, two parallel
+  // POST /api/setup/admin requests can both pass isBootstrapped() and create
+  // duplicate admin users + orgs.
+  private inflight: Promise<BootstrapAdminResult> | null = null;
+
   constructor(private readonly deps: SetupBootstrapServiceDeps) {}
 
   async createFirstAdmin(input: BootstrapAdminInput): Promise<BootstrapAdminResult> {
+    if (this.inflight) {
+      // Wait for the in-flight bootstrap to settle, then re-check the gate.
+      // Whether it succeeded or failed, we must re-evaluate isBootstrapped()
+      // because the previous call may have created the admin already.
+      await this.inflight.catch(() => undefined);
+      if (await this.deps.setupConfig.isBootstrapped()) {
+        throw new SetupBootstrapServiceError('conflict', 'admin already exists');
+      }
+    }
+    const promise = this.runCreateFirstAdmin(input);
+    this.inflight = promise;
+    try {
+      return await promise;
+    } finally {
+      if (this.inflight === promise) this.inflight = null;
+    }
+  }
+
+  private async runCreateFirstAdmin(input: BootstrapAdminInput): Promise<BootstrapAdminResult> {
     if (await this.deps.setupConfig.isBootstrapped()) {
       throw new SetupBootstrapServiceError('conflict', 'admin already exists');
     }

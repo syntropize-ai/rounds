@@ -24,21 +24,39 @@ export class InvestigationStreamService {
       return true;
     }
 
-    const keepalive = setInterval(() => {
-      void this.poll(id, res, keepalive);
-    }, 5000);
+    // Use setTimeout-recursion (not setInterval) to guarantee polls never
+    // overlap: the next poll is scheduled only after the current one settles.
+    // This avoids racing async runs that could each emit SSE events for the
+    // same state change under load.
+    let timer: NodeJS.Timeout | null = null;
+    let stopped = false;
+    const stop = (): void => {
+      stopped = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+    const schedule = (): void => {
+      if (stopped) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void this.poll(id, res, stop).then(() => {
+          if (!stopped) schedule();
+        });
+      }, 5000);
+    };
+    schedule();
 
-    req.on('close', () => {
-      clearInterval(keepalive);
-    });
+    req.on('close', stop);
     return true;
   }
 
-  private async poll(id: string, res: Response, keepalive: NodeJS.Timeout): Promise<void> {
+  private async poll(id: string, res: Response, stop: () => void): Promise<void> {
     try {
       const latest = await this.store.findById(id);
       if (!latest) {
-        clearInterval(keepalive);
+        stop();
         closeSse(res);
         return;
       }
@@ -46,12 +64,12 @@ export class InvestigationStreamService {
       sendSseKeepAlive(res);
 
       if (this.isTerminal(latest)) {
-        clearInterval(keepalive);
+        stop();
         sendSseEvent(res, { type: 'investigation:complete', data: latest });
         closeSse(res);
       }
     } catch {
-      clearInterval(keepalive);
+      stop();
       closeSse(res);
     }
   }

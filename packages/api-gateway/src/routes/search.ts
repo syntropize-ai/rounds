@@ -1,7 +1,12 @@
 import { Router } from 'express'
-import type { Request, Response } from 'express'
+import type { Response } from 'express'
+import { ac, ACTIONS } from '@agentic-obs/common'
+import type { IFolderRepository, IOrgUserRepository } from '@agentic-obs/common'
 import { authMiddleware } from '../middleware/auth.js'
-import type { IDashboardRepository, IAlertRuleRepository, IFolderRepository } from '@agentic-obs/data-layer'
+import type { AuthenticatedRequest } from '../middleware/auth.js'
+import { createOrgContextMiddleware } from '../middleware/org-context.js'
+import type { AccessControlSurface } from '../services/accesscontrol-holder.js'
+import type { IDashboardRepository, IAlertRuleRepository } from '@agentic-obs/data-layer'
 
 export interface SearchResult {
   type: 'dashboard' | 'investigation' | 'alert' | 'folder' | 'panel'
@@ -20,20 +25,25 @@ export interface SearchRouterDeps {
   dashboardStore: IDashboardRepository;
   alertRuleStore: IAlertRuleRepository;
   folderStore: IFolderRepository;
+  orgUsers: IOrgUserRepository;
+  accessControl: AccessControlSurface;
 }
 
 export function createSearchRouter(deps: SearchRouterDeps): Router {
   const dashStore = deps.dashboardStore;
   const alertStore = deps.alertRuleStore;
   const folderStore = deps.folderStore;
+  const accessControl = deps.accessControl;
 
   const router = Router()
   router.use(authMiddleware)
+  router.use(createOrgContextMiddleware({ orgUsers: deps.orgUsers }))
 
   // GET /api/search?q=redis&limit=20
-  router.get('/', async (req: Request, res: Response) => {
+  router.get('/', async (req: AuthenticatedRequest, res: Response) => {
     const q = (req.query['q'] as string ?? '').toLowerCase().trim()
     const limit = Math.min(parseInt(req.query['limit'] as string ?? '20', 10), 50)
+    const orgId = req.auth!.orgId
 
     if (!q) {
       res.json({ results: [] })
@@ -43,22 +53,35 @@ export function createSearchRouter(deps: SearchRouterDeps): Router {
     const results: SearchResult[] = []
 
     // Search folders
-    for (const f of await folderStore.findAll()) {
+    const folderItems = []
+    for (let offset = 0; ; ) {
+      const page = await folderStore.list({ orgId, limit: 200, offset })
+      folderItems.push(...page.items)
+      offset += page.items.length
+      if (page.items.length === 0 || offset >= page.total) break
+    }
+    const folders = await accessControl.filterByPermission(
+      req.auth!,
+      folderItems,
+      (f) => ac.eval(ACTIONS.FoldersRead, `folders:uid:${f.uid}`),
+    )
+    for (const f of folders) {
       if (results.length >= limit) break
-      if (matchesQuery(f.name, q)) {
-        const ancestors: string[] = []
-        let cur = f.parentId ? await folderStore.findById(f.parentId) : undefined
-        while (cur) {
-          ancestors.unshift(cur.id)
-          cur = cur.parentId ? await folderStore.findById(cur.parentId) : undefined
-        }
-        const expandIds = [...ancestors, f.id].join(',')
-        results.push({ type: 'folder', id: f.id, title: f.name, subtitle: await folderStore.getPath(f.id), navigateTo: `/dashboards?expand=${expandIds}` })
+      if (matchesQuery(f.title, q)) {
+        const ancestors = await folderStore.listAncestors(orgId, f.uid)
+        const path = [...ancestors].reverse().map((a) => a.title).concat(f.title).join('/')
+        const expandIds = [...ancestors].reverse().map((a) => a.uid).concat(f.uid).join(',')
+        results.push({ type: 'folder', id: f.uid, title: f.title, subtitle: path, navigateTo: `/dashboards?expand=${expandIds}` })
       }
     }
 
     // Search dashboards
-    for (const d of await dashStore.findAll()) {
+    const dashboards = await accessControl.filterByPermission(
+      req.auth!,
+      await dashStore.listByWorkspace(orgId),
+      (d) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${d.id}`),
+    )
+    for (const d of dashboards) {
       if (results.length >= limit) break
       const type = 'dashboard'
       const nav = `/dashboards/${d.id}`
@@ -90,8 +113,12 @@ export function createSearchRouter(deps: SearchRouterDeps): Router {
     }
 
     // Search alerts
-    const alertResults = await alertStore.findAll()
-    for (const a of alertResults.list) {
+    const alerts = await accessControl.filterByPermission(
+      req.auth!,
+      await alertStore.findByWorkspace(orgId),
+      (a) => ac.eval(ACTIONS.AlertRulesRead, `alert.rules:uid:${a.id}`),
+    )
+    for (const a of alerts) {
       if (results.length >= limit) break
       const name = a.name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/_/g, ' ').trim()
       if (matchesQuery(name, q) || matchesQuery(a.description, q) || matchesQuery(a.condition.query, q)) {

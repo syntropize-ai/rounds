@@ -151,10 +151,7 @@ export function useDashboardChat(
       const chatPromise = sessionId
         ? apiClient.get<{ messages: ChatMessage[] }>(`/chat/sessions/${sessionId}/messages`)
         : Promise.resolve({ data: { messages: [] }, error: null } as { data: { messages: ChatMessage[] } | null; error: null | { code: string; message?: string } });
-      const [chatRes, reportRes] = await Promise.all([
-        chatPromise,
-        apiClient.get<InvestigationReport>(`/investigation-reports/by-dashboard/${dashboardId}`),
-      ]);
+      const chatRes = await chatPromise;
       const loadedMessages = chatRes.data?.messages ?? [];
       if (loadedMessages.length) {
         setMessages(loadedMessages);
@@ -173,12 +170,6 @@ export function useDashboardChat(
             message: m,
           }));
         });
-      }
-      // Restore saved investigation report if one exists (API returns array, use latest)
-      if (!reportRes.error && reportRes.data) {
-        const reports = Array.isArray(reportRes.data) ? reportRes.data : [reportRes.data];
-        const latest = reports[reports.length - 1];
-        if (latest?.summary) setInvestigationReport(latest);
       }
       historyLoadedRef.current = true;
     })();

@@ -6,9 +6,9 @@ import { closeSse, initSse, sendSseEvent, sendSseKeepAlive } from '../routes/inv
 export class InvestigationStreamService {
   constructor(private readonly store: IGatewayInvestigationStore) {}
 
-  async stream(id: string, req: Request, res: Response): Promise<boolean> {
+  async stream(id: string, workspaceId: string, req: Request, res: Response): Promise<boolean> {
     const investigation = await this.store.findById(id);
-    if (!investigation) {
+    if (!investigation || !this.belongsToWorkspace(investigation, workspaceId)) {
       return false;
     }
 
@@ -41,7 +41,7 @@ export class InvestigationStreamService {
       if (stopped) return;
       timer = setTimeout(() => {
         timer = null;
-        void this.poll(id, res, stop).then(() => {
+        void this.poll(id, workspaceId, res, stop).then(() => {
           if (!stopped) schedule();
         });
       }, 5000);
@@ -52,10 +52,10 @@ export class InvestigationStreamService {
     return true;
   }
 
-  private async poll(id: string, res: Response, stop: () => void): Promise<void> {
+  private async poll(id: string, workspaceId: string, res: Response, stop: () => void): Promise<void> {
     try {
       const latest = await this.store.findById(id);
-      if (!latest) {
+      if (!latest || !this.belongsToWorkspace(latest, workspaceId)) {
         stop();
         closeSse(res);
         return;
@@ -76,5 +76,9 @@ export class InvestigationStreamService {
 
   private isTerminal(investigation: Investigation): boolean {
     return investigation.status === 'completed' || investigation.status === 'failed';
+  }
+
+  private belongsToWorkspace(investigation: Investigation, workspaceId: string): boolean {
+    return investigation.workspaceId === workspaceId;
   }
 }

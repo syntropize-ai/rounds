@@ -115,7 +115,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       });
 
       // Filter by workspace
-      results.list = results.list.filter((r) => (r.workspaceId ?? 'default') === workspaceId);
+      results.list = results.list.filter((r) => r.workspaceId === workspaceId);
       results.total = results.list.length;
 
       res.json(results);

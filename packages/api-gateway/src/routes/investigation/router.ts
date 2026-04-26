@@ -93,9 +93,10 @@ export function createInvestigationRouter(
   router.get(
     '/archived',
     requirePermission(() => ac.eval(ACTIONS.InvestigationsRead, 'investigations:*')),
-    async (_req: Request, res: Response, next: NextFunction) => {
+    async (req: Request, res: Response, next: NextFunction) => {
       try {
-        res.json(await store.getArchived());
+        const workspaceId = resolveOrgId(req);
+        res.json(await workspaceService.listArchived(workspaceId));
       } catch (err) {
         next(err);
       }
@@ -111,7 +112,8 @@ export function createInvestigationRouter(
     ),
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const inv = await store.restoreFromArchive(req.params['id'] ?? '');
+        const workspaceId = resolveOrgId(req);
+        const inv = await workspaceService.restoreArchived(req.params['id'] ?? '', workspaceId);
         if (!inv) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Archived investigation not found' } });
           return;
@@ -193,18 +195,17 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
-        if (!inv) {
+        const workspaceId = resolveOrgId(req);
+        const report = await workspaceService.getLatestReport(id, workspaceId);
+        if (report === null) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
         }
-        // Reports are stored with investigationId in the dashboardId field
-        const reports = await reportStore.findByDashboard(id);
-        if (!reports.length) {
+        if (!report) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Report not yet available' } });
           return;
         }
-        res.json(reports[reports.length - 1]);
+        res.json(report);
       } catch (err) {
         next(err);
       }
@@ -220,12 +221,13 @@ export function createInvestigationRouter(
     ),
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const inv = await store.findById(req.params['id'] ?? '');
-        if (!inv) {
+        const workspaceId = resolveOrgId(req);
+        const plan = await workspaceService.getPlan(req.params['id'] ?? '', workspaceId);
+        if (!plan) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
         }
-        res.json({ investigationId: inv.id, plan: inv.plan });
+        res.json(plan);
       } catch (err) {
         next(err);
       }
@@ -242,19 +244,18 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
-        if (!inv) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
-          return;
-        }
-
         const body = req.body as FollowUpBody;
         if (!body?.question || typeof body.question !== 'string' || body.question.trim() === '') {
           res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'question is required' } });
           return;
         }
 
-        const record = await store.addFollowUp(id, body.question.trim());
+        const workspaceId = resolveOrgId(req);
+        const record = await workspaceService.addFollowUp(id, workspaceId, body.question.trim());
+        if (!record) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
+          return;
+        }
         res.status(201).json(record);
       } catch (err) {
         next(err);
@@ -272,19 +273,18 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
-        if (!inv) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
-          return;
-        }
-
         const body = req.body as FeedbackBody;
         if (typeof body?.helpful !== 'boolean') {
           res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'helpful (boolean) is required' } });
           return;
         }
 
-        await store.addFeedback(id, body);
+        const workspaceId = resolveOrgId(req);
+        const added = await workspaceService.addFeedback(id, workspaceId, body);
+        if (!added) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
+          return;
+        }
         res.json({ received: true, investigationId: id });
       } catch (err) {
         next(err);
@@ -302,13 +302,12 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
-        if (!inv) {
+        const workspaceId = resolveOrgId(req);
+        const conclusion = await workspaceService.getConclusion(id, workspaceId);
+        if (conclusion === null) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
         }
-
-        const conclusion = await store.getConclusion(id);
         if (!conclusion) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Conclusion not yet available' } });
           return;
@@ -332,7 +331,8 @@ export function createInvestigationRouter(
       try {
         const authReq = req as AuthenticatedRequest;
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
+        const workspaceId = resolveOrgId(req);
+        const inv = await workspaceService.findByIdInWorkspace(id, workspaceId);
         if (!inv) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
@@ -368,7 +368,8 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
+        const workspaceId = resolveOrgId(req);
+        const inv = await workspaceService.findByIdInWorkspace(id, workspaceId);
         if (!inv) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
@@ -392,7 +393,8 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const streaming = await streamService.stream(id, req, res);
+        const workspaceId = resolveOrgId(req);
+        const streaming = await streamService.stream(id, workspaceId, req, res);
         if (!streaming) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;

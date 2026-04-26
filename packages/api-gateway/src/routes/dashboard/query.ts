@@ -4,34 +4,40 @@
 
 import { Router } from 'express'
 import type { Request, Response } from 'express'
-import { getErrorMessage } from '@agentic-obs/common'
+import { ac, ACTIONS, getErrorMessage } from '@agentic-obs/common'
 import type { InstanceDatasource } from '@agentic-obs/common'
+import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { PrometheusHttpClient } from '@agentic-obs/adapters'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
+import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
 
 export interface QueryRouterDeps {
   setupConfig: SetupConfigService
+  ac: AccessControlSurface
 }
 
 // -- Helpers
 
 async function resolvePrometheusDatasource(
   setupConfig: SetupConfigService,
+  orgId: string | null | undefined,
   datasourceId?: string,
   environment?: string,
   cluster?: string,
 ): Promise<InstanceDatasource | null> {
   const isPrometheus = (d: InstanceDatasource) =>
     d.type === 'prometheus' || d.type === 'victoria-metrics'
+  const belongsToOrg = (d: InstanceDatasource) =>
+    d.orgId === null || d.orgId === undefined || d.orgId === orgId
 
   if (datasourceId) {
     const ds = await setupConfig.getDatasource(datasourceId)
-    return ds && isPrometheus(ds) ? ds : null
+    return ds && isPrometheus(ds) && belongsToOrg(ds) ? ds : null
   }
 
   const all = await setupConfig.listDatasources()
-  const candidates = all.filter(isPrometheus)
+  const candidates = all.filter((d) => isPrometheus(d) && belongsToOrg(d))
 
   if (environment || cluster) {
     const match = candidates.find((d) => {
@@ -66,6 +72,38 @@ function buildFetchHeaders(ds: InstanceDatasource): Record<string, string> {
   return {}
 }
 
+function getRequestOrgId(req: Request): string | null | undefined {
+  return (req as AuthenticatedRequest).auth?.orgId
+}
+
+async function requireDatasourcePermission(
+  deps: QueryRouterDeps,
+  req: Request,
+  res: Response,
+  action: typeof ACTIONS.DatasourcesQuery | typeof ACTIONS.DatasourcesRead,
+  datasourceId: string,
+): Promise<boolean> {
+  const identity = (req as AuthenticatedRequest).auth
+  if (!identity) {
+    res.status(401).json({
+      error: { code: 'UNAUTHORIZED', message: 'authentication required' },
+    })
+    return false
+  }
+  const evaluator = ac.eval(action, `datasources:uid:${datasourceId}`)
+  const allowed = await deps.ac.evaluate(identity, evaluator)
+  if (!allowed) {
+    res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: `User has no permission to ${evaluator.string()}`,
+      },
+    })
+    return false
+  }
+  return true
+}
+
 // -- Router
 
 export function createQueryRouter(deps: QueryRouterDeps): Router {
@@ -89,11 +127,12 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       return
     }
 
-    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
     }
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
 
     const endDate = end ? new Date(end) : new Date()
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 60 * 1000)
@@ -122,11 +161,12 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       return
     }
 
-    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
     }
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
 
     try {
       const client = new PrometheusHttpClient(buildClientConfig(ds))
@@ -146,11 +186,12 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       cluster?: string
     }
 
-    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
     }
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesRead, ds.id))) return
 
     try {
       const baseUrl = ds.url.replace(/\/$/, '')
@@ -197,11 +238,12 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       cluster?: string
     }
 
-    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId, environment, cluster)
     if (!ds) {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
       return
     }
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesRead, ds.id))) return
 
     try {
       const baseUrl = ds.url.replace(/\/$/, '')
@@ -257,13 +299,27 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
 
     const endDate = end ? new Date(end) : new Date()
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 60 * 1000)
+    const resolved: InstanceDatasource[] = []
+    for (const q of queries) {
+      const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), q.datasourceId ?? datasourceId, environment, cluster)
+      if (!ds) {
+        res.status(400).json({
+          error: {
+            code: 'NO_DATASOURCE',
+            message: q.datasourceId
+              ? `Datasource ${q.datasourceId} is not a configured Prometheus datasource`
+              : 'No Prometheus datasource configured',
+          },
+        })
+        return
+      }
+      if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
+      resolved.push(ds)
+    }
 
     const settled = await Promise.allSettled(
-      queries.map(async (q) => {
-        const ds = await resolvePrometheusDatasource(setupConfig, q.datasourceId ?? datasourceId, environment, cluster)
-        if (!ds) {
-          throw new Error(q.datasourceId ? `Datasource ${q.datasourceId} is not a configured Prometheus datasource` : 'No Prometheus datasource configured')
-        }
+      queries.map(async (q, i) => {
+        const ds = resolved[i]!
         const client = new PrometheusHttpClient(buildClientConfig(ds))
         return q.instant
           ? client.instantQuery(q.expr)

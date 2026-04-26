@@ -23,6 +23,7 @@ function completedInvestigation(): Investigation {
     actions: [],
     evidence: [],
     symptoms: [],
+    workspaceId: 'org_a',
     createdAt: '2026-04-25T00:00:00.000Z',
     updatedAt: '2026-04-25T00:00:00.000Z',
   };
@@ -45,7 +46,7 @@ describe('InvestigationStreamService', () => {
       end: vi.fn(),
     } as unknown as Response;
 
-    await expect(new InvestigationStreamService(store).stream('inv_1', req, res))
+    await expect(new InvestigationStreamService(store).stream('inv_1', 'org_a', req, res))
       .resolves.toBe(true);
 
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
@@ -62,6 +63,23 @@ describe('InvestigationStreamService', () => {
 
     await expect(new InvestigationStreamService(store).stream(
       'missing',
+      'default',
+      new EventEmitter() as Request,
+      {} as Response,
+    )).resolves.toBe(false);
+  });
+
+  it('returns false when the investigation belongs to another workspace', async () => {
+    const store = {
+      findById: vi.fn().mockResolvedValue({
+        ...completedInvestigation(),
+        workspaceId: 'org_a',
+      }),
+    } as unknown as IGatewayInvestigationStore;
+
+    await expect(new InvestigationStreamService(store).stream(
+      'inv_1',
+      'org_b',
       new EventEmitter() as Request,
       {} as Response,
     )).resolves.toBe(false);

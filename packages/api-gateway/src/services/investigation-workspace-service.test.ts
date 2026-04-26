@@ -32,6 +32,8 @@ function store(investigations: Investigation[]): IGatewayInvestigationStore {
     findAll: vi.fn().mockResolvedValue(investigations),
     getArchived: vi.fn().mockResolvedValue(investigations),
     restoreFromArchive: vi.fn(async (id: string) => investigations.find((inv) => inv.id === id) ?? null),
+    restoreFromArchiveInWorkspace: vi.fn(async (id: string, workspaceId: string) =>
+      investigations.find((inv) => inv.id === id && inv.workspaceId === workspaceId) ?? null),
     findById: vi.fn(async (id: string) => investigations.find((inv) => inv.id === id) ?? null),
     delete: vi.fn().mockResolvedValue(true),
     addFollowUp: vi.fn().mockResolvedValue({ id: 'fu_1', investigationId: 'inv_a', question: 'why?', createdAt: '2026-04-25T00:00:00.000Z' }),
@@ -116,6 +118,7 @@ describe('InvestigationWorkspaceService', () => {
     await expect(svc.restoreArchived('inv_a', 'org_b')).resolves.toBeNull();
 
     expect(investigationStore.restoreFromArchive).not.toHaveBeenCalled();
+    expect(investigationStore.restoreFromArchiveInWorkspace).toHaveBeenCalledWith('inv_a', 'org_b');
   });
 
   it('does not read or mutate subresources outside the workspace', async () => {
@@ -123,11 +126,11 @@ describe('InvestigationWorkspaceService', () => {
     const reportStore = reports();
     const svc = new InvestigationWorkspaceService(investigationStore, reportStore);
 
-    await expect(svc.getLatestReport('inv_a', 'org_b')).resolves.toBeNull();
+    await expect(svc.getLatestReport('inv_a', 'org_b')).resolves.toEqual({ status: 'investigation_missing' });
     await expect(svc.getPlan('inv_a', 'org_b')).resolves.toBeNull();
     await expect(svc.addFollowUp('inv_a', 'org_b', 'why?')).resolves.toBeNull();
     await expect(svc.addFeedback('inv_a', 'org_b', { helpful: true })).resolves.toBe(false);
-    await expect(svc.getConclusion('inv_a', 'org_b')).resolves.toBeNull();
+    await expect(svc.getConclusion('inv_a', 'org_b')).resolves.toEqual({ status: 'investigation_missing' });
 
     expect(reportStore.findByDashboard).not.toHaveBeenCalled();
     expect(investigationStore.addFollowUp).not.toHaveBeenCalled();

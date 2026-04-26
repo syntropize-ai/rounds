@@ -98,8 +98,12 @@ type MW = (
 
 let resolvedMiddleware: MW | null = null;
 
-export function setAuthMiddleware(mw: MW): void {
+export function setAuthMiddleware(mw: MW | null): void {
   resolvedMiddleware = mw;
+}
+
+export function getAuthMiddleware(): MW | null {
+  return resolvedMiddleware;
 }
 
 export function authMiddleware(

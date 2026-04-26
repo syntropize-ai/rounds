@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import type { Evaluator, Identity, InstanceDatasource } from '@agentic-obs/common';
-import { setAuthMiddleware } from '../../middleware/auth.js';
+import { getAuthMiddleware, setAuthMiddleware } from '../../middleware/auth.js';
 import { createQueryRouter } from './query.js';
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js';
 import type { SetupConfigService } from '../../services/setup-config-service.js';
@@ -53,6 +53,8 @@ function appWith(opts: {
 }
 
 describe('query proxy permissions', () => {
+  const originalAuthMiddleware = getAuthMiddleware();
+
   beforeEach(() => {
     setAuthMiddleware((req, _res, next) => {
       req.auth = identity();
@@ -61,6 +63,7 @@ describe('query proxy permissions', () => {
   });
 
   afterEach(() => {
+    setAuthMiddleware(originalAuthMiddleware);
     vi.unstubAllGlobals();
   });
 

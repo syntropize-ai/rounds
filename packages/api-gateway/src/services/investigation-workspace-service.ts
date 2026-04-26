@@ -2,6 +2,16 @@ import type { Investigation } from '@agentic-obs/common';
 import type { IGatewayInvestigationStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
 import type { FeedbackBody, FollowUpRecord, InvestigationSummary, PlanResponse } from '../routes/investigation/types.js';
 
+export type LatestReportResult =
+  | { status: 'investigation_missing' }
+  | { status: 'not_found' }
+  | { status: 'ok'; report: unknown };
+
+export type ConclusionResult =
+  | { status: 'investigation_missing' }
+  | { status: 'not_found' }
+  | { status: 'ok'; conclusion: unknown };
+
 export class InvestigationWorkspaceService {
   constructor(
     private readonly store: IGatewayInvestigationStore,
@@ -29,17 +39,8 @@ export class InvestigationWorkspaceService {
   }
 
   async restoreArchived(id: string, workspaceId: string): Promise<Investigation | null> {
-    const archived = await this.store.getArchived();
-    const target = archived.find((inv) => inv.id === id);
-    if (!target || !this.belongsToWorkspace(target, workspaceId)) {
-      return null;
-    }
-
-    const restored = await this.store.restoreFromArchive(id);
-    if (!restored || !this.belongsToWorkspace(restored, workspaceId)) {
-      return null;
-    }
-    return restored;
+    const restored = await this.store.restoreFromArchiveInWorkspace(id, workspaceId);
+    return restored ?? null;
   }
 
   async findByIdInWorkspace(id: string, workspaceId: string): Promise<Investigation | null> {
@@ -50,15 +51,16 @@ export class InvestigationWorkspaceService {
     return investigation;
   }
 
-  async getLatestReport(id: string, workspaceId: string): Promise<unknown | null | undefined> {
+  async getLatestReport(id: string, workspaceId: string): Promise<LatestReportResult> {
     const investigation = await this.findByIdInWorkspace(id, workspaceId);
     if (!investigation) {
-      return null;
+      return { status: 'investigation_missing' };
     }
 
     // Reports are stored with investigationId in the dashboardId field.
     const reports = await this.reportStore.findByDashboard(id);
-    return reports[reports.length - 1];
+    const report = reports[reports.length - 1];
+    return report === undefined ? { status: 'not_found' } : { status: 'ok', report };
   }
 
   async getPlan(id: string, workspaceId: string): Promise<PlanResponse | null> {
@@ -86,12 +88,15 @@ export class InvestigationWorkspaceService {
     return true;
   }
 
-  async getConclusion(id: string, workspaceId: string): Promise<unknown | null | undefined> {
+  async getConclusion(id: string, workspaceId: string): Promise<ConclusionResult> {
     const investigation = await this.findByIdInWorkspace(id, workspaceId);
     if (!investigation) {
-      return null;
+      return { status: 'investigation_missing' };
     }
-    return this.store.getConclusion(id);
+    const conclusion = await this.store.getConclusion(id);
+    return conclusion === null || conclusion === undefined
+      ? { status: 'not_found' }
+      : { status: 'ok', conclusion };
   }
 
   async deleteWithReports(id: string, workspaceId: string): Promise<boolean> {

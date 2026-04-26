@@ -1,15 +1,34 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { EventTypes, type EventEnvelope, type EventHandler, type IEventBus } from '@agentic-obs/common';
 
 const jwtSecret = 'test-websocket-secret-xxxxxxxxxxxxxxxx';
 
-vi.hoisted(() => {
+const envSnapshot = vi.hoisted(() => {
+  const originalJwtSecret = process.env['JWT_SECRET'];
+  const originalApiKeys = process.env['API_KEYS'];
   process.env['JWT_SECRET'] = 'test-websocket-secret-xxxxxxxxxxxxxxxx';
+  return { originalJwtSecret, originalApiKeys };
 });
 
 const { authenticateHandshake, createWebSocketGateway } = await import('./gateway.js');
+
+function restoreEnv(): void {
+  if (envSnapshot.originalJwtSecret === undefined) delete process.env['JWT_SECRET'];
+  else process.env['JWT_SECRET'] = envSnapshot.originalJwtSecret;
+  if (envSnapshot.originalApiKeys === undefined) delete process.env['API_KEYS'];
+  else process.env['API_KEYS'] = envSnapshot.originalApiKeys;
+}
+
+afterEach(() => {
+  if (envSnapshot.originalApiKeys === undefined) delete process.env['API_KEYS'];
+  else process.env['API_KEYS'] = envSnapshot.originalApiKeys;
+});
+
+afterAll(() => {
+  restoreEnv();
+});
 
 class TestEventBus implements IEventBus {
   private handlers = new Map<string, Set<EventHandler>>();

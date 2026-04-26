@@ -57,6 +57,7 @@ export interface IGatewayInvestigationStore {
   findAll(): MaybeAsync<Investigation[]>
   getArchived(): MaybeAsync<Investigation[]>
   restoreFromArchive(id: string): MaybeAsync<Investigation | null | undefined>
+  restoreFromArchiveInWorkspace(id: string, workspaceId: string): MaybeAsync<Investigation | null | undefined>
   addFollowUp(investigationId: string, question: string): MaybeAsync<FollowUpRecord>
   addFeedback(investigationId: string, body: FeedbackBody): MaybeAsync<StoredFeedback>
   getConclusion(id: string): MaybeAsync<ExplanationResult | null | undefined>

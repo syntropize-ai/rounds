@@ -117,6 +117,17 @@ describe('dashboard router workspace ownership checks', () => {
     expect(res.body.error?.code).toBe('NOT_FOUND')
   })
 
+  it('allows reading an owned dashboard', async () => {
+    const owned = dashboard({ id: 'dash_owned', workspaceId: 'org_main' })
+    const store = makeStore(owned)
+    const app = makeApp(store)
+
+    const res = await request(app).get('/dashboards/dash_owned')
+
+    expect(res.status).toBe(200)
+    expect(res.body.id).toBe('dash_owned')
+  })
+
   it.each([
     ['put', '/dashboards/dash_other', { title: 'Renamed' }, 'update'],
     ['delete', '/dashboards/dash_other', undefined, 'delete'],
@@ -134,6 +145,25 @@ describe('dashboard router workspace ownership checks', () => {
     expect(res.status).toBe(404)
     expect(res.body.error?.code).toBe('NOT_FOUND')
     expect(store[mutation]).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['put', '/dashboards/dash_owned', { title: 'Renamed' }, 'update'],
+    ['delete', '/dashboards/dash_owned', undefined, 'delete'],
+    ['put', '/dashboards/dash_owned/panels', { panels: [] }, 'updatePanels'],
+  ] as const)('allows owned dashboard mutation for %s %s', async (method, path, body, mutation) => {
+    const store = makeStore(dashboard({ id: 'dash_owned', workspaceId: 'org_main' }))
+    vi.mocked(store.update).mockResolvedValue(dashboard({ id: 'dash_owned', workspaceId: 'org_main', title: 'Renamed' }))
+    vi.mocked(store.delete).mockResolvedValue(true)
+    vi.mocked(store.updatePanels).mockResolvedValue(dashboard({ id: 'dash_owned', workspaceId: 'org_main', panels: [] }))
+    const app = makeApp(store)
+    let req = request(app)[method](path)
+    if (body) req = req.send(body)
+
+    const res = await req
+
+    expect(res.status).toBe(method === 'delete' ? 204 : 200)
+    expect(store[mutation]).toHaveBeenCalled()
   })
 
   it('returns 404 and skips datasource resolution for cross-workspace variable resolution', async () => {

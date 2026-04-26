@@ -80,6 +80,7 @@ describe('migrate()', () => {
       '018_runtime_settings.sql',
       '019_instance_settings.sql',
       '020_drop_dashboard_messages.sql',
+      '021_backfill_resource_workspace_ids.sql',
     ]);
   });
 

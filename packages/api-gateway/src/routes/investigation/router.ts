@@ -197,15 +197,15 @@ export function createInvestigationRouter(
         const id = req.params['id'] ?? '';
         const workspaceId = resolveOrgId(req);
         const report = await workspaceService.getLatestReport(id, workspaceId);
-        if (report === null) {
+        if (report.status === 'investigation_missing') {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
         }
-        if (!report) {
+        if (report.status === 'not_found') {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Report not yet available' } });
           return;
         }
-        res.json(report);
+        res.json(report.report);
       } catch (err) {
         next(err);
       }
@@ -304,16 +304,16 @@ export function createInvestigationRouter(
         const id = req.params['id'] ?? '';
         const workspaceId = resolveOrgId(req);
         const conclusion = await workspaceService.getConclusion(id, workspaceId);
-        if (conclusion === null) {
+        if (conclusion.status === 'investigation_missing') {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
         }
-        if (!conclusion) {
+        if (conclusion.status === 'not_found') {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Conclusion not yet available' } });
           return;
         }
 
-        res.json({ investigationId: id, conclusion });
+        res.json({ investigationId: id, conclusion: conclusion.conclusion });
       } catch (err) {
         next(err);
       }

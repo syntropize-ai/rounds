@@ -23,13 +23,6 @@ const log = createLogger('websocket-gateway');
 
 const JWT_SECRET = getJwtSecret('websocket-gateway');
 
-// T9 / Wave 6 — the legacy `API_KEYS` env var is no longer parsed; operators
-// convert existing env keys one-shot via `POST /api/serviceaccounts/migrate`
-// and rely on the SA token middleware going forward. Leaving the set empty
-// means handshake always falls through to JWT auth, which is the only
-// supported path now.
-const VALID_API_KEYS: ReadonlySet<string> = new Set();
-
 /**
  * Per-socket auth identity. The handshake resolves a verifiable application
  * identity; room joins then use that identity for resource ownership + RBAC
@@ -91,6 +84,10 @@ function bearerToken(headers: HandshakeData['headers']): string | null {
   if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     return authHeader.slice(7).trim();
   }
+  return null;
+}
+
+function apiKeyFromHeaders(headers: HandshakeData['headers']): string | null {
   const xkey = headers['x-api-key'];
   return typeof xkey === 'string' && xkey.length > 0 ? xkey : null;
 }
@@ -130,7 +127,7 @@ async function authenticateWithDeps(
     }, 'session');
   }
 
-  const token = bearerToken(handshake.headers);
+  const token = apiKeyFromHeaders(handshake.headers) ?? bearerToken(handshake.headers);
   if (token) {
     const lookup = await deps.apiKeyService.validateAndLookup(token);
     if (!lookup) throw new Error('invalid api key');
@@ -150,26 +147,6 @@ async function authenticateWithDeps(
 export function authenticateHandshake(handshake: HandshakeData): SocketAuth {
   const auth = handshake.auth ?? {};
   const headers = handshake.headers;
-
-  // API key - from auth object or header
-  const apiKey
-    = typeof auth['apiKey'] === 'string'
-      ? auth['apiKey']
-      : typeof headers['x-api-key'] === 'string'
-        ? headers['x-api-key']
-        : typeof headers['x-api-key'.toLowerCase()] === 'string'
-          ? headers['x-api-key'.toLowerCase()] as string
-          : undefined;
-
-  if (apiKey && VALID_API_KEYS.has(apiKey)) {
-    return socketAuthFromIdentity({
-      userId: apiKey,
-      orgId: '',
-      orgRole: 'None',
-      isServerAdmin: false,
-      authenticatedBy: 'api_key',
-    }, 'api_key');
-  }
 
   // JWT - from auth.token or Authorization header
   let token: string | undefined;
@@ -234,7 +211,11 @@ function applyAuthMiddleware(ns: Namespace | SocketServer, deps?: WebSocketAuthD
         : authenticateHandshake({ auth, headers });
       (socket as AuthenticatedSocket).auth = socketAuth;
       next();
-    })().catch(() => {
+    })().catch((err) => {
+      log.debug({
+        err: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+        socketId: socket.id,
+      }, 'WebSocket authentication failed');
       next(new Error('Authentication failed'));
     });
   });
@@ -326,12 +307,21 @@ export function createWebSocketGateway(
     isAllowed: (identity: Identity) => Promise<boolean>,
   ): Promise<void> {
     const identity = socketIdentity(socket);
-    if (!identity || !await isAllowed(identity)) {
+    try {
+      if (!identity || !await isAllowed(identity)) {
+        emitJoinDenied(socket, room);
+        return;
+      }
+      await socket.join(room);
+      socket.emit('join_ok', { room });
+    } catch (err) {
+      log.error({
+        err: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+        room,
+        socketId: socket.id,
+      }, 'WebSocket room authorization failed');
       emitJoinDenied(socket, room);
-      return;
     }
-    await socket.join(room);
-    socket.emit('join_ok', { room });
   }
 
   investigations.on('connection', (socket) => {

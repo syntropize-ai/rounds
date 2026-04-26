@@ -149,7 +149,10 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
     const permissionGate = requirePermission(evaluator);
     return async (req, res, next) => {
       try {
-        if (!(await setupConfig.isBootstrapped())) {
+        const bootstrapped = typeof res.locals['isBootstrapped'] === 'boolean'
+          ? res.locals['isBootstrapped'] as boolean
+          : await setupConfig.isBootstrapped();
+        if (!bootstrapped) {
           next();
           return;
         }

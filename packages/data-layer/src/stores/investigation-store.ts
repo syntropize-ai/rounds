@@ -127,6 +127,15 @@ export class InvestigationStore implements Persistable {
     return inv;
   }
 
+  restoreFromArchiveInWorkspace(id: string, workspaceId: string): Investigation | undefined {
+    const inv = this.archivedItems.get(id);
+    if (!inv || inv.workspaceId !== workspaceId)
+      return undefined;
+    this.archivedItems.delete(id);
+    this.investigations.set(id, inv);
+    return inv;
+  }
+
   findAll(tenantId?: string): Investigation[] {
     const all = [...this.investigations.values()];
     if (tenantId === undefined)

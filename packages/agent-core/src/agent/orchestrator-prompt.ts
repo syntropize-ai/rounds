@@ -272,7 +272,7 @@ When sending user-facing text (the "message" field), you're writing for a person
 // Dynamic context sections
 // ---------------------------------------------------------------------------
 
-function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: string; end: string }): string {
+function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: string; end: string; clientTimezone?: string }): string {
   const panelsSummary = dashboard.panels.length > 0
     ? dashboard.panels.map((p) => {
         const queries = (p.queries ?? []).map((q) => q.expr).join('; ')
@@ -286,9 +286,29 @@ function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: s
 
   // Tool-call defaults (which start/end/time to pass) are taught in each
   // tool's schema description, not here. The prompt just supplies the data.
-  const timeRangeText = timeRange
-    ? `\nTime Range: ${timeRange.start} to ${timeRange.end} (user's current panel selection)`
-    : ''
+  // Emit Time Range in BOTH UTC (the format tools take) and the user's
+  // local clock (what panel x-axes display) so the agent can reconcile a
+  // clock time the user reads off a chart with the UTC range it queries.
+  let timeRangeText = ''
+  if (timeRange) {
+    timeRangeText = `\nTime Range (UTC, used in tool calls): ${timeRange.start} to ${timeRange.end}`
+    if (timeRange.clientTimezone) {
+      try {
+        const fmt = new Intl.DateTimeFormat('en-CA', {
+          timeZone: timeRange.clientTimezone,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false,
+        })
+        const localStart = fmt.format(new Date(timeRange.start))
+        const localEnd = fmt.format(new Date(timeRange.end))
+        timeRangeText += `\nTime Range (${timeRange.clientTimezone}, what the user sees on panel x-axes): ${localStart} to ${localEnd}`
+        timeRangeText += `\nWhen the user mentions a clock time (e.g. "9:59"), interpret it as ${timeRange.clientTimezone} local time and convert to UTC before querying. When reporting back, translate UTC timestamps from query results to ${timeRange.clientTimezone} so they match what the user sees on the chart.`
+      } catch {
+        timeRangeText += `\nUser's panel x-axis renders in timezone: ${timeRange.clientTimezone}`
+      }
+    }
+  }
 
   return `# Current Dashboard Context
 dashboardId: ${(dashboard as unknown as { id?: string }).id ?? 'unknown'}
@@ -348,7 +368,7 @@ Not scoped to a dashboard. Use dashboard.create to create one, then use the retu
 
 export interface SystemPromptOptions {
   hasPrometheus: boolean
-  timeRange?: { start: string; end: string }
+  timeRange?: { start: string; end: string; clientTimezone?: string }
   /**
    * Wave 7 — the caller's identity + an optional display name + org name for
    * factual prompt substitution (§D8). When omitted the identity section is

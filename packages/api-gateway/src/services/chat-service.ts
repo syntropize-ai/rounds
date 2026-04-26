@@ -102,7 +102,7 @@ export class ChatService {
     sessionId: string | undefined,
     sendEvent: (event: DashboardSseEvent) => void,
     identity: Identity,
-    pageContext?: { kind: string; id?: string; timeRange?: string },
+    pageContext?: { kind: string; id?: string; timeRange?: string; clientTimezone?: string },
     signal?: AbortSignal,
   ): Promise<ChatSessionResult> {
     const llm = await this.deps.setupConfig.getLlm();
@@ -162,8 +162,11 @@ export class ChatService {
     const model = llm.model;
     const adapters = buildAdapterRegistry(datasources);
 
-    // Parse relative time range (e.g., "1h", "6h", "24h", "7d") to absolute start/end
-    let timeRange: { start: string; end: string } | undefined;
+    // Parse relative time range (e.g., "1h", "6h", "24h", "7d") to absolute
+    // start/end. Carry the client's IANA timezone so the prompt can label
+    // both UTC and local time — without that the agent can't reconcile a
+    // clock time the user reads off the panel's x-axis.
+    let timeRange: { start: string; end: string; clientTimezone?: string } | undefined;
     if (pageContext?.timeRange) {
       const now = new Date();
       const match = pageContext.timeRange.match(/^(\d+)([mhd])$/);
@@ -171,7 +174,11 @@ export class ChatService {
         const amount = Number(match[1]);
         const unit = match[2];
         const ms = unit === 'm' ? amount * 60_000 : unit === 'h' ? amount * 3_600_000 : amount * 86_400_000;
-        timeRange = { start: new Date(now.getTime() - ms).toISOString(), end: now.toISOString() };
+        timeRange = {
+          start: new Date(now.getTime() - ms).toISOString(),
+          end: now.toISOString(),
+          ...(pageContext.clientTimezone ? { clientTimezone: pageContext.clientTimezone } : {}),
+        };
       }
     }
 

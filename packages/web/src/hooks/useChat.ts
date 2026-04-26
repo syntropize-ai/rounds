@@ -10,6 +10,10 @@ export interface PageContext {
   id?: string;
   /** Selected time range on the dashboard (e.g., "1h", "6h", "24h", "7d") */
   timeRange?: string;
+  /** IANA timezone the panel x-axis is rendered in (browser local). The
+   *  agent uses this to translate clock times the user mentions ("9:59")
+   *  into the UTC range it queries. Set automatically from the browser. */
+  clientTimezone?: string;
 }
 
 export interface UseChatResult {
@@ -253,12 +257,19 @@ export function useChat(): UseChatResult {
       setIsGenerating(true);
 
       try {
+        // Always inject the browser's local timezone so the agent can map
+        // any clock time the user mentions ("9:59" off the panel's x-axis)
+        // back to the UTC range it actually queries against.
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const ctxWithTz = pageContextRef.current
+          ? { ...pageContextRef.current, clientTimezone: tz }
+          : { kind: 'home', clientTimezone: tz };
         await apiClient.postStream(
           '/chat',
           {
             message: content,
             sessionId: sessionIdRef.current,
-            ...(pageContextRef.current ? { pageContext: pageContextRef.current } : {}),
+            pageContext: ctxWithTz,
           },
           handleSSEEvent,
           abortRef.current.signal,

@@ -32,6 +32,13 @@ interface GeminiFunctionCallPart {
     name: string;
     args?: Record<string, unknown>;
   };
+  /**
+   * Opaque token Gemini attaches to functionCall parts on thinking-enabled
+   * models. The next request that includes this functionCall in its history
+   * MUST echo the signature back or the API rejects with 400
+   * ("Function call is missing a thought_signature").
+   */
+  thoughtSignature?: string;
 }
 
 type GeminiResponsePart = GeminiTextPart | GeminiFunctionCallPart | Record<string, unknown>;
@@ -79,20 +86,21 @@ interface GeminiToolConfig {
 // -- Tool-name normalization --
 //
 // Gemini's function name regex is roughly ^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$ — dots
-// are NOT allowed. Our canonical names use dots (e.g. `metrics.query`). We map
-// `.` -> `_` outbound and reverse on the way back.
+// are NOT allowed. Our canonical names use dots (e.g. `metrics.query`,
+// `metrics.metric_names`). Single `_` would be lossy: `metric_names` already
+// contains an underscore, so a `.` -> `_` then `_` -> `.` round-trip turns
+// `metrics.metric_names` into `metrics.metric.names` and the dispatch breaks.
 //
-// Collision risk: `dashboard.add_panels` and `dashboard_add_panels` would both
-// collapse to `dashboard_add_panels`. We don't currently ship any tool name that
-// natively contains an underscore in a position that would collide with a dotted
-// counterpart, so a runtime check would be paranoid. Add one if/when the tool
-// catalog grows large enough that the assumption is no longer obvious.
+// Encode `.` as `__` instead (same trick as the OpenAI provider). Double
+// underscore is symmetrical and won't collide with our existing canonical
+// names since none currently contain `__`.
+const NAME_DELIM = '__';
 function nameToGemini(canonical: string): string {
-  return canonical.replace(/\./g, '_');
+  return canonical.replace(/\./g, NAME_DELIM);
 }
 
 function nameFromGemini(geminiName: string): string {
-  return geminiName.replace(/_/g, '.');
+  return geminiName.replace(new RegExp(NAME_DELIM, 'g'), '.');
 }
 
 export class GeminiProvider implements LLMProvider {
@@ -128,7 +136,19 @@ export class GeminiProvider implements LLMProvider {
         if (b.type === 'text') {
           parts.push({ text: b.text });
         } else if (b.type === 'tool_use') {
-          parts.push({ functionCall: { name: nameToGemini(b.name), args: b.input } });
+          // Echo the thoughtSignature back when present — Gemini thinking
+          // models reject the request without it (400 "missing
+          // thought_signature"). Stored on providerMetadata when we parsed
+          // the original response.
+          const meta = b.providerMetadata ?? {};
+          const sig = typeof meta['thoughtSignature'] === 'string'
+            ? (meta['thoughtSignature'] as string)
+            : undefined;
+          const part: Record<string, unknown> = {
+            functionCall: { name: nameToGemini(b.name), args: b.input },
+          };
+          if (sig) part['thoughtSignature'] = sig;
+          parts.push(part);
         } else if (b.type === 'tool_result') {
           // Gemini wants the tool result as a structured response; we emit text wrapped
           // in `result` so the model can read the observation regardless of shape.
@@ -249,12 +269,20 @@ export class GeminiProvider implements LLMProvider {
         (part as GeminiFunctionCallPart).functionCall &&
         typeof (part as GeminiFunctionCallPart).functionCall.name === 'string'
       ) {
-        const fc = (part as GeminiFunctionCallPart).functionCall;
-        toolCalls.push({
+        const fcPart = part as GeminiFunctionCallPart;
+        const fc = fcPart.functionCall;
+        const tc: ToolCall = {
           id: `gemini_call_${callIndex}`,
           name: nameFromGemini(fc.name),
           input: fc.args ?? {},
-        });
+        };
+        // Thinking-enabled Gemini models attach a per-call thoughtSignature
+        // that must be echoed on replay. Stash it in providerMetadata so the
+        // agent loop can thread it through ContentBlock['tool_use'].
+        if (typeof fcPart.thoughtSignature === 'string') {
+          tc.providerMetadata = { thoughtSignature: fcPart.thoughtSignature };
+        }
+        toolCalls.push(tc);
         callIndex++;
       }
     }

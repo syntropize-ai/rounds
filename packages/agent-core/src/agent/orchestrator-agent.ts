@@ -63,7 +63,7 @@ export interface OrchestratorDeps {
   webSearchAdapter?: IWebSearchAdapter
   allDatasources?: DatasourceConfig[]
   sendEvent: (event: DashboardSseEvent) => void
-  timeRange?: { start: string; end: string; timezone?: string }
+  timeRange?: { start: string; end: string; clientTimezone?: string }
   maxTokenBudget?: number
   /** LLM-generated summary of earlier conversation turns (from context compaction) */
   conversationSummary?: string

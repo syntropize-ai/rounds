@@ -38,6 +38,10 @@ Requests fall into four shapes: build something (dashboard / alert), investigate
 2. **Which datasource** — every metrics/logs/changes call requires an explicit \`sourceId\`. Call \`datasources.list\` first. If multiple same-signal sources exist and the user's intent is ambiguous, ask which one before querying.
 3. **Read before mutate** — mutation tools (dashboard.create / add_panels / modify_panel / create_alert_rule / investigation.add_section) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, query current values so the threshold is grounded.
 4. **Validate before adding panels** — panel queries must go through \`metrics.validate\` before \`dashboard.add_panels\`. Exception: pre-deployment dashboards (metrics don't exist yet) — skip validation, use web-researched naming conventions.
+5. **Named target → exporter or label?** — when the user names a target, first decide whether it's a standard system or their own service:
+   - \`web.search\` finds an established exporter naming convention → standard system; use those canonical metric names regardless of what's currently in the backend (empty = pre-deployment).
+   - No exporter found → it's an in-house service; filter existing metrics by label (e.g. \`{service="..."}\` / \`{job="..."}\`). If no matching labels either, ask the user which label identifies it.
+   When no target is named at all (exploratory: "what do I have"), use what the backend actually exposes.
 
 ## Cost asymmetry
 Discovery calls are cheap — a failed \`metric_names\` query burns one tool turn. Mutations and fabricated summaries are expensive — a wrong \`dashboard.add_panels\` pollutes the user's workspace; a made-up "done!" breaks their trust in you. **Spend reads liberally, spend mutations carefully.** If you don't have enough context for a mutation, that's a signal to do more discovery, not to guess.
@@ -64,10 +68,14 @@ Don't abandon a viable approach after one failure, but don't dig on a dead end e
 - When analyzing data ("what's happening with X"), cite specific numbers from actual queries. Never a vague summary without values.
 
 ## Dashboard design
-- Structure: overview stats at top → trends in middle → detailed breakdowns at bottom.
-- Prioritize RED signals: Rate, Errors, Duration. Don't add specialist panels unless asked.
-- 8-15 panels for a focused dashboard. Don't use template variables unless the user asks for drill-down.
-- Before creating any dashboard, use web.search to look up current monitoring best practices for the topic, even on familiar stacks.
+- Structure: overview stats top → trends middle → detailed breakdowns bottom.
+- Cover the dimensions the system's official dashboard covers. For control-plane / infrastructure systems that typically means resource usage (CPU/mem/IO), business flow (config push, request rate, queue depth), health (errors, restarts, cert expiry), and dependencies (downstream API success). Use \`web.search\` to find which dimensions matter for this specific system.
+- Panel design source — never a target to hit, never a cap. Always web-search a reference layout first; build using whichever metric names actually fit:
+  - Standard system → search its official dashboard, use that layout + its canonical exporter metric names.
+  - In-house service → identify the service pattern (HTTP server, gRPC, queue consumer, batch job, scheduled worker, etc.), search best-practice panels for that pattern, then build using existing metrics whose labels match.
+  - Exploratory → match what the backend already exposes.
+- Prioritize RED signals (Rate / Errors / Duration) for request-driven services. Don't add specialist panels for exploratory dashboards unless asked, but DO include them for named system dashboards if the standard layout has them.
+- Don't use template variables unless the user asks for drill-down.
 
 ## Investigations
 When the user asks "why is X high/slow/broken" or "investigate X": create an investigation record with \`investigation.create\`, then run a hypothesis-driven diagnosis — like a senior SRE writing an incident report. The report is primarily written analysis; panels are supporting evidence, not the main content. See the worked Investigation example below for the structure.`
@@ -264,7 +272,7 @@ When sending user-facing text (the "message" field), you're writing for a person
 // Dynamic context sections
 // ---------------------------------------------------------------------------
 
-function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: string; end: string }): string {
+function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: string; end: string; clientTimezone?: string }): string {
   const panelsSummary = dashboard.panels.length > 0
     ? dashboard.panels.map((p) => {
         const queries = (p.queries ?? []).map((q) => q.expr).join('; ')
@@ -278,9 +286,29 @@ function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: s
 
   // Tool-call defaults (which start/end/time to pass) are taught in each
   // tool's schema description, not here. The prompt just supplies the data.
-  const timeRangeText = timeRange
-    ? `\nTime Range: ${timeRange.start} to ${timeRange.end} (user's current panel selection)`
-    : ''
+  // Emit Time Range in BOTH UTC (the format tools take) and the user's
+  // local clock (what panel x-axes display) so the agent can reconcile a
+  // clock time the user reads off a chart with the UTC range it queries.
+  let timeRangeText = ''
+  if (timeRange) {
+    timeRangeText = `\nTime Range (UTC, used in tool calls): ${timeRange.start} to ${timeRange.end}`
+    if (timeRange.clientTimezone) {
+      try {
+        const fmt = new Intl.DateTimeFormat('en-CA', {
+          timeZone: timeRange.clientTimezone,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false,
+        })
+        const localStart = fmt.format(new Date(timeRange.start))
+        const localEnd = fmt.format(new Date(timeRange.end))
+        timeRangeText += `\nTime Range (${timeRange.clientTimezone}, what the user sees on panel x-axes): ${localStart} to ${localEnd}`
+        timeRangeText += `\nWhen the user mentions a clock time (e.g. "9:59"), interpret it as ${timeRange.clientTimezone} local time and convert to UTC before querying. When reporting back, translate UTC timestamps from query results to ${timeRange.clientTimezone} so they match what the user sees on the chart.`
+      } catch {
+        timeRangeText += `\nUser's panel x-axis renders in timezone: ${timeRange.clientTimezone}`
+      }
+    }
+  }
 
   return `# Current Dashboard Context
 dashboardId: ${(dashboard as unknown as { id?: string }).id ?? 'unknown'}
@@ -340,7 +368,7 @@ Not scoped to a dashboard. Use dashboard.create to create one, then use the retu
 
 export interface SystemPromptOptions {
   hasPrometheus: boolean
-  timeRange?: { start: string; end: string }
+  timeRange?: { start: string; end: string; clientTimezone?: string }
   /**
    * Wave 7 — the caller's identity + an optional display name + org name for
    * factual prompt substitution (§D8). When omitted the identity section is

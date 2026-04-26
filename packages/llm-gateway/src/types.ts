@@ -19,7 +19,23 @@ export interface CompletionMessage {
 
 export type ContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | {
+      type: 'tool_use';
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+      /**
+       * Provider-specific opaque metadata that MUST round-trip back to the
+       * provider on replay. Examples:
+       *   - Gemini thinking models attach a `thought_signature` to each
+       *     functionCall part; the next request's history must echo it or
+       *     the API rejects with 400 ("missing thought_signature").
+       *   - Anthropic extended-thinking attaches a per-block signature to
+       *     `tool_use` blocks emitted from a thinking turn.
+       * Treat as passthrough — the gateway does not interpret the contents.
+       */
+      providerMetadata?: Record<string, unknown>;
+    }
   | { type: 'tool_result'; tool_use_id: string; tool_name: string; content: string; is_error?: boolean };
 
 export interface LLMOptions {
@@ -101,6 +117,13 @@ export interface ToolCall {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  /**
+   * Provider-specific opaque metadata that the agent loop must thread back
+   * onto the matching `tool_use` ContentBlock when replaying conversation
+   * history. See `ContentBlock['tool_use'].providerMetadata` for the
+   * load-bearing example (Gemini thoughtSignature).
+   */
+  providerMetadata?: Record<string, unknown>;
 }
 
 // -- Provider errors -----------------------------------------------------

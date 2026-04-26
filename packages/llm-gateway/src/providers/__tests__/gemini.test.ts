@@ -98,12 +98,12 @@ describe('GeminiProvider', () => {
         {
           functionDeclarations: [
             {
-              name: 'metrics_query',
+              name: 'metrics__query',
               description: 'Query a metrics source',
               parameters: queryTool.input_schema,
             },
             {
-              name: 'logs_search',
+              name: 'logs__search',
               description: 'Search logs',
               parameters: logsTool.input_schema,
             },
@@ -192,7 +192,7 @@ describe('GeminiProvider', () => {
       expect(body['toolConfig']).toEqual({
         functionCallingConfig: {
           mode: 'ANY',
-          allowedFunctionNames: ['metrics_query'],
+          allowedFunctionNames: ['metrics__query'],
         },
       });
     });
@@ -236,7 +236,7 @@ describe('GeminiProvider', () => {
                 parts: [
                   {
                     functionCall: {
-                      name: 'metrics_query',
+                      name: 'metrics__query',
                       args: { sourceId: 'prom', query: 'up' },
                     },
                   },
@@ -271,7 +271,7 @@ describe('GeminiProvider', () => {
             {
               content: {
                 role: 'model',
-                parts: [{ functionCall: { name: 'logs_search' } }],
+                parts: [{ functionCall: { name: 'logs__search' } }],
               },
             },
           ],
@@ -300,14 +300,14 @@ describe('GeminiProvider', () => {
                   { text: 'Let me check the metrics ' },
                   {
                     functionCall: {
-                      name: 'metrics_query',
+                      name: 'metrics__query',
                       args: { sourceId: 'prom', query: 'up' },
                     },
                   },
                   { text: 'and the logs.' },
                   {
                     functionCall: {
-                      name: 'logs_search',
+                      name: 'logs__search',
                       args: { q: 'error' },
                     },
                   },
@@ -402,7 +402,7 @@ describe('GeminiProvider', () => {
       const responsePart = contents[2]!.parts[0] as {
         functionResponse: { name: string; response: { result: string } };
       };
-      expect(responsePart.functionResponse.name).toBe('metrics_query');
+      expect(responsePart.functionResponse.name).toBe('metrics__query');
       expect(responsePart.functionResponse.response.result).toBe('1 1 1');
     });
   });

@@ -141,6 +141,14 @@ export interface ReActObservation {
   toolUseId?: string
   batchId?: number
   /**
+   * Provider-specific opaque metadata captured from the ToolCall so it
+   * can be replayed onto the matching tool_use ContentBlock. Most
+   * providers don't use it; Gemini thinking models REQUIRE the
+   * thoughtSignature to round-trip or the next request 400s.
+   */
+  providerMetadata?: Record<string, unknown>
+
+  /**
    * The pre-tool prose the model emitted alongside this batch (only set on
    * the first observation of each batch). Replayed as a text block before
    * the tool_use blocks in the assistant turn.
@@ -410,6 +418,7 @@ export class ReActLoop {
           result: observationText,
           toolUseId: tc.id,
           batchId,
+          ...(tc.providerMetadata ? { providerMetadata: tc.providerMetadata } : {}),
           // Only the first tool of the batch carries the pre-tool prose so
           // we don't repeat it across N tool_result blocks.
           ...(tc === toolCalls[0] && preToolProse ? { preToolText: preToolProse } : {}),
@@ -507,6 +516,7 @@ export class ReActLoop {
           id,
           name: obs.action,
           input: obs.args,
+          ...(obs.providerMetadata ? { providerMetadata: obs.providerMetadata } : {}),
         })
       }
       messages.push({ role: 'assistant', content: assistantBlocks })

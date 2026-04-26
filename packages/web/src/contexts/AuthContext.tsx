@@ -55,6 +55,13 @@ export interface AuthState {
   permissions: UserPermissions;
   loading: boolean;
   error: string | null;
+  /**
+   * Set when the most recent `logout()` call cleared local state but failed
+   * to reach the server. Surfaces as a brief inline note so the user knows
+   * their server session may still be active until it expires. Cleared by
+   * `dismissLogoutWarning` or by a successful subsequent login/refresh.
+   */
+  logoutWarning: string | null;
 }
 
 export interface AuthApi {
@@ -63,6 +70,7 @@ export interface AuthApi {
   hasPermission(action: string, scope?: string): boolean;
   switchOrg(orgId: string): Promise<void>;
   refresh(): Promise<void>;
+  dismissLogoutWarning(): void;
 }
 
 export type AuthContextValue = AuthState & AuthApi;
@@ -113,6 +121,7 @@ const INITIAL_STATE: AuthState = {
   permissions: {},
   loading: true,
   error: null,
+  logoutWarning: null,
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -133,12 +142,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         permissions,
         loading: false,
         error: null,
+        logoutWarning: null,
       });
     },
     [],
   );
 
-  const applyUnauthenticated = useCallback(() => {
+  const applyUnauthenticated = useCallback((logoutWarning: string | null = null) => {
     if (!mountedRef.current) return;
     setState({
       user: null,
@@ -148,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       permissions: {},
       loading: false,
       error: null,
+      logoutWarning,
     });
   }, []);
 
@@ -197,13 +208,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback<AuthApi['logout']>(async () => {
+    let warning: string | null = null;
     try {
       await authApi.logout();
-    } catch {
-      // Swallow transport errors on logout — we still clear local state.
+    } catch (err) {
+      // Local-state-clear still happens (so the UI looks logged-out and the
+      // user can retry login), but we surface a brief inline note so the
+      // server-state divergence isn't silent: the cookie may still be valid
+      // until it expires server-side.
+      console.error('[auth] server logout failed; local state will still be cleared', err);
+      warning =
+        'Server logout failed; your local session has been cleared. The server session may still be active until it expires.';
     }
-    applyUnauthenticated();
+    applyUnauthenticated(warning);
   }, [applyUnauthenticated]);
+
+  const dismissLogoutWarning = useCallback(() => {
+    if (!mountedRef.current) return;
+    setState((prev) => (prev.logoutWarning === null ? prev : { ...prev, logoutWarning: null }));
+  }, []);
 
   const switchOrg = useCallback<AuthApi['switchOrg']>(
     async (orgId) => {
@@ -227,8 +250,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       hasPermission,
       switchOrg,
       refresh,
+      dismissLogoutWarning,
     }),
-    [state, login, logout, hasPermission, switchOrg, refresh],
+    [state, login, logout, hasPermission, switchOrg, refresh, dismissLogoutWarning],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

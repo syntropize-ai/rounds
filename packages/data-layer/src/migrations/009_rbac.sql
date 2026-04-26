@@ -1,20 +1,26 @@
--- Migration 009: RBAC — role, permission, builtin_role, user_role, team_role
+-- Migration 009: RBAC schema — role, permission, builtin_role, user_role, team_role
 --
--- Grafana ref:
---   pkg/services/sqlstore/migrations/accesscontrol/role_mig.go
---   pkg/services/sqlstore/migrations/accesscontrol/permission_mig.go
---   pkg/services/sqlstore/migrations/accesscontrol/builtin_role_mig.go
---   pkg/services/sqlstore/migrations/accesscontrol/team_role_mig.go
---   pkg/services/sqlstore/migrations/accesscontrol/user_role_mig.go
+-- Creates the relational tables that back the access-control system:
+--   * role          — named bundle of permissions, scoped per-org or globally.
+--   * permission    — individual (action, scope) entries owned by a role.
+--   * builtin_role  — maps an org-role label (Viewer/Editor/Admin/...) to a
+--                     concrete role row, so basic-role users inherit the right
+--                     permission set without an explicit user_role grant.
+--   * user_role     — direct grant of a role to a single user in an org.
+--   * team_role     — direct grant of a role to a team in an org.
+--
 -- See docs/auth-perm-design/01-database-schema.md §role, §permission,
--- §builtin_role, §user_role / §team_role, and §03-rbac-model.md.
+-- §builtin_role, §user_role / §team_role, and §03-rbac-model.md for the
+-- design rationale.
 --
--- NOTE: This migration only creates the tables. Seeding built-in roles and
--- their permissions (basic:viewer / basic:editor / basic:admin / basic:server_admin
--- plus all fixed roles) is T3.1's responsibility — not done here.
+-- NOTE: This migration only creates the tables. Seeding the built-in roles and
+-- their permissions (basic:viewer / basic:editor / basic:admin /
+-- basic:server_admin plus the fixed-role catalog) happens at startup in
+-- application code, not here.
 --
--- [openobs-deviation] org_id uses empty string '' for global roles where
---   Grafana uses int64 0.
+-- [openobs-deviation] org_id is TEXT and uses the empty string '' to mark a
+--   role as global (i.e. not bound to any specific org). All other id columns
+--   are TEXT (UUID-shaped) to stay consistent with the rest of the schema.
 
 CREATE TABLE IF NOT EXISTS role (
   id                    TEXT PRIMARY KEY,
@@ -29,9 +35,8 @@ CREATE TABLE IF NOT EXISTS role (
   created               TEXT NOT NULL,
   updated               TEXT NOT NULL
   -- [openobs-deviation] No FK on role.org_id because '' (global) is a valid
-  -- value that does not correspond to a row in org(id). Grafana uses org_id=0
-  -- for the same purpose and likewise does not declare a hard FK for global
-  -- roles (see role_mig.go).
+  -- value that does not correspond to a row in org(id), so a hard foreign
+  -- key would always fail for global roles.
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_role_org_name ON role(org_id, name);

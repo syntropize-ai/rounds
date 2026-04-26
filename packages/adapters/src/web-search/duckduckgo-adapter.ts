@@ -1,22 +1,13 @@
 /**
- * DuckDuckGo HTML search adapter.
- *
- * Structurally compatible with IWebSearchAdapter from @agentic-obs/agent-core.
- * We avoid an explicit import to prevent a circular package dependency
- * (agent-core depends on adapters).
+ * DuckDuckGo HTML search adapter — concrete implementation of IWebSearchAdapter.
  */
 
 import { createLogger } from '@agentic-obs/common/logging';
+import type { IWebSearchAdapter, WebSearchResult } from '../interfaces.js';
 
 const log = createLogger('duckduckgo-adapter');
 
-export interface WebSearchResult {
-  title?: string;
-  snippet: string;
-  url?: string;
-}
-
-export class DuckDuckGoSearchAdapter {
+export class DuckDuckGoSearchAdapter implements IWebSearchAdapter {
   async search(query: string, maxResults = 8): Promise<WebSearchResult[]> {
     try {
       const encodedQuery = encodeURIComponent(query)

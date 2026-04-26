@@ -6,7 +6,6 @@ import type {
   Dashboard,
   DashboardStatus,
   DashboardVariable,
-  DashboardMessage,
   PanelConfig,
   AlertRule,
   AlertRuleState,
@@ -28,7 +27,7 @@ import type {
 } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
 import type { FeedEvent, Case, ApprovalRecord, ShareLink } from './types.js';
-import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../stores/investigation-store.js';
+import type { FollowUpRecord, FeedbackBody, StoredFeedback } from './types/investigation.js';
 import type {
   FeedItem,
   FeedPage,
@@ -39,7 +38,7 @@ import type {
   HypothesisFeedback,
   ActionFeedback,
   FeedbackStats,
-} from '../stores/feed-store.js';
+} from './types/feed.js';
 import type { ApprovalAction, ApprovalContext, ApprovalRequest } from '../stores/approval-store.js';
 import type { SharePermission, ShareLink as StoreShareLink } from '../stores/share-store.js';
 import type { Folder } from '../stores/folder-store.js';
@@ -238,15 +237,11 @@ export interface IDashboardRepository {
   updatePanels(id: string, panels: PanelConfig[]): MaybeAsync<Dashboard | undefined>;
   updateVariables(id: string, variables: DashboardVariable[]): MaybeAsync<Dashboard | undefined>;
   delete(id: string): MaybeAsync<boolean>;
-}
-
-// — Conversation
-
-export interface IConversationRepository {
-  addMessage(dashboardId: string, msg: DashboardMessage): MaybeAsync<DashboardMessage>;
-  getMessages(dashboardId: string): MaybeAsync<DashboardMessage[]>;
-  clearMessages(dashboardId: string): MaybeAsync<void>;
-  deleteConversation(dashboardId: string): MaybeAsync<void>;
+  /**
+   * Resolve the folder UID for a dashboard within an org. Used by RBAC
+   * resolvers to enforce folder-scoped permissions.
+   */
+  getFolderUid(orgId: string, dashboardId: string): MaybeAsync<string | null>;
 }
 
 // — Folder
@@ -297,6 +292,11 @@ export interface IAlertRuleRepository {
   findPolicyById(id: string): MaybeAsync<NotificationPolicy | undefined>;
   updatePolicy(id: string, patch: Partial<Omit<NotificationPolicy, 'id' | 'createdAt'>>): MaybeAsync<NotificationPolicy | undefined>;
   deletePolicy(id: string): MaybeAsync<boolean>;
+  /**
+   * Resolve the folder UID for an alert rule within an org. Used by RBAC
+   * resolvers to enforce folder-scoped permissions.
+   */
+  getFolderUid(orgId: string, ruleId: string): MaybeAsync<string | null>;
 }
 
 // — Notification (contact points, policy tree, mute timings)

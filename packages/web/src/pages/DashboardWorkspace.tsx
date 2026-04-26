@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
+import { DashboardSchema } from '../api/schemas.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import DashboardGrid from '../components/DashboardGrid.js';
 import PanelEditor from '../components/PanelEditor.js';
@@ -90,7 +91,7 @@ export default function DashboardWorkspace() {
 
   const loadDashboard = useCallback(async () => {
     if (!id) return;
-    const res = await apiClient.get<Dashboard>(`/dashboards/${id}`);
+    const res = await apiClient.getValidated<Dashboard>(`/dashboards/${id}`, DashboardSchema, 'Dashboard');
     const errStatus = Number((res.error as Record<string, unknown> | undefined)?.status);
     const isTransient =
       !!res.error && (res.error.code === 'RATE_LIMITED' || (!Number.isNaN(errStatus) && errStatus >= 500));
@@ -144,7 +145,7 @@ export default function DashboardWorkspace() {
     setPanels,
     setVariables,
     investigationReport,
-  } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange);
+  } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange, dashboard?.sessionId);
   const [showReport, setShowReport] = useState(false);
   const globalChat = useGlobalChat();
 
@@ -194,7 +195,7 @@ export default function DashboardWorkspace() {
   useEffect(() => {
     if (wasGeneratingRef.current && !isGenerating && id) {
       // Generation just finished — fetch final dashboard state once
-      void apiClient.get<Dashboard>(`/dashboards/${id}`).then((res) => {
+      void apiClient.getValidated<Dashboard>(`/dashboards/${id}`, DashboardSchema, 'Dashboard').then((res) => {
         if (!res.error && res.data) {
           setDashboard(res.data);
           setPanels(res.data.panels ?? []);
@@ -221,9 +222,9 @@ export default function DashboardWorkspace() {
 
   const saveTitle = async () => {
     if (!id || !titleDraft.trim()) return;
-    const res = await apiClient.put<Dashboard>(`/dashboards/${id}`, {
+    const res = await apiClient.putValidated<Dashboard>(`/dashboards/${id}`, {
       title: titleDraft.trim(),
-    });
+    }, DashboardSchema, 'Dashboard');
     if (!res.error) setDashboard(res.data);
     setEditingTitle(false);
   };
@@ -238,7 +239,7 @@ export default function DashboardWorkspace() {
   const handleSavePanel = async (updated: PanelConfig) => {
     if (!id || !dashboard) return;
     const newPanels = panels.map((p) => (p.id === updated.id ? updated : p));
-    const res = await apiClient.put<Dashboard>(`/dashboards/${id}/panels`, newPanels);
+    const res = await apiClient.putValidated<Dashboard>(`/dashboards/${id}/panels`, newPanels, DashboardSchema, 'Dashboard');
     if (!res.error) {
       setDashboard(res.data);
       setPanels(res.data.panels);
@@ -264,7 +265,7 @@ export default function DashboardWorkspace() {
       visualization: 'time_series',
       refreshIntervalSec: 30,
     };
-    const res = await apiClient.post<Dashboard>(`/dashboards/${id}/panels`, newPanel);
+    const res = await apiClient.postValidated<Dashboard>(`/dashboards/${id}/panels`, newPanel, DashboardSchema, 'Dashboard');
     if (!res.error) {
       setDashboard(res.data);
       setPanels(res.data.panels);
@@ -294,7 +295,7 @@ export default function DashboardWorkspace() {
           };
         });
 
-        void apiClient.put<Dashboard>(`/dashboards/${id}/panels`, { panels: updatedPanels }).then((res) => {
+        void apiClient.putValidated<Dashboard>(`/dashboards/${id}/panels`, { panels: updatedPanels }, DashboardSchema, 'Dashboard').then((res) => {
           if (!res.error) {
             setDashboard(res.data);
             setPanels(res.data.panels);

@@ -201,33 +201,34 @@ Call emit_alert_rule with the complete payload — the schema enforces every req
     // Step 3: Validate query against Prometheus
     let finalRule = generated
     if (this.deps.metrics) {
-      try {
-        const testResult = await this.deps.metrics.testQuery(generated.condition.query)
-        if (!testResult.ok) {
-          // Query failed - ask LLM to fix. Re-emit via the same forced tool
-          // call so the response shape is identical to the first attempt.
-          const fixResp = await this.deps.gateway.complete([
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt },
-            { role: 'assistant', content: `(previous attempt: ${generated.condition.query})` },
-            { role: 'user', content: `The PromQL query "${generated.condition.query}" failed validation against Prometheus: ${testResult.error ?? 'unknown error'}. Please fix the query and call emit_alert_rule again with the corrected payload.` },
-          ], {
-            model: this.deps.model,
-            maxTokens: 1024,
-            temperature: 0,
-            tools: [EMIT_ALERT_RULE_TOOL],
-            toolChoice: { type: 'tool', name: 'emit_alert_rule' },
-          })
+      const testResult = await this.deps.metrics.testQuery(generated.condition.query)
+      if (!testResult.ok) {
+        // Query failed - ask LLM to fix. Re-emit via the same forced tool
+        // call so the response shape is identical to the first attempt.
+        // We deliberately do NOT swallow errors from the fix attempt: returning
+        // the original (still-broken) query silently produces a non-functional
+        // alert rule. Surface the failure to the caller so the user sees it.
+        const fixResp = await this.deps.gateway.complete([
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt },
+          { role: 'assistant', content: `(previous attempt: ${generated.condition.query})` },
+          { role: 'user', content: `The PromQL query "${generated.condition.query}" failed validation against Prometheus: ${testResult.error ?? 'unknown error'}. Please fix the query and call emit_alert_rule again with the corrected payload.` },
+        ], {
+          model: this.deps.model,
+          maxTokens: 1024,
+          temperature: 0,
+          tools: [EMIT_ALERT_RULE_TOOL],
+          toolChoice: { type: 'tool', name: 'emit_alert_rule' },
+        })
 
-          const fixCall = fixResp.toolCalls[0]
-          if (!fixCall || fixCall.name !== 'emit_alert_rule') {
-            throw new Error('LLM did not emit a fixed alert rule via the emit_alert_rule tool')
-          }
-          finalRule = inputToRule(fixCall.input)
+        const fixCall = fixResp.toolCalls[0]
+        if (!fixCall || fixCall.name !== 'emit_alert_rule') {
+          throw new Error(
+            `Alert rule generated but failed Prometheus validation (${testResult.error ?? 'unknown'}), ` +
+              `and the fix attempt did not return a corrected rule. Refine your prompt or fix the query manually.`,
+          )
         }
-      }
-      catch {
-        // Validation failed but non-fatal - return original
+        finalRule = inputToRule(fixCall.input)
       }
     }
 

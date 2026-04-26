@@ -35,12 +35,13 @@ export const TOOL_SCHEMAS: Record<string, ToolDefinition> = {
   'metrics.query': {
     name: 'metrics.query',
     description:
-      'Run an instant PromQL/MetricsQL query against a metrics datasource. Returns up to 20 series at the current timestamp. Validate complex queries with metrics.validate first when adding panels.',
+      'Run an instant PromQL/MetricsQL query against a metrics datasource. Returns up to 20 series at a specific timestamp (defaults to now). When analyzing what a panel currently shows, pass `time` set to the panel time-window end so the instant value matches the panel rather than "now". Validate complex queries with metrics.validate first when adding panels.',
     input_schema: {
       type: 'object',
       properties: {
         sourceId: { type: 'string', description: 'Datasource id from datasources.list' },
         query: { type: 'string', description: 'Backend-native query (PromQL for prometheus, MetricsQL for victoria-metrics)' },
+        time: { type: 'string', description: 'Optional ISO-8601 evaluation timestamp. Default: now. Use the panel time-window end when analyzing a panel.' },
       },
       required: ['sourceId', 'query'],
     },
@@ -48,14 +49,14 @@ export const TOOL_SCHEMAS: Record<string, ToolDefinition> = {
   'metrics.range_query': {
     name: 'metrics.range_query',
     description:
-      'Run a range PromQL/MetricsQL query over a time window. Returns each series as time-stamped points. Default window is the last 60 minutes at 60s step when start/end/duration_minutes are omitted.',
+      'Run a range PromQL/MetricsQL query over a time window. Returns each series as time-stamped points. When analyzing what a panel shows, pass `start` and `end` set to the panel time-window so the result matches the panel rather than "now"; otherwise default window is the last 60 minutes at 60s step.',
     input_schema: {
       type: 'object',
       properties: {
         sourceId: { type: 'string', description: 'Datasource id from datasources.list' },
         query: { type: 'string', description: 'Backend-native query expression' },
-        start: { type: 'string', description: 'ISO-8601 start timestamp (use with end)' },
-        end: { type: 'string', description: 'ISO-8601 end timestamp (use with start)' },
+        start: { type: 'string', description: 'ISO-8601 start timestamp (use with end). When analyzing a panel, set to the panel time-window start.' },
+        end: { type: 'string', description: 'ISO-8601 end timestamp (use with start). When analyzing a panel, set to the panel time-window end.' },
         duration_minutes: { type: 'number', description: 'Alternative to start/end — query the last N minutes (default 60)' },
         step: { type: 'string', description: 'Resolution step, e.g. "60s", "5m". Default "60s"' },
       },

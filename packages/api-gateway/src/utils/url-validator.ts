@@ -1,6 +1,8 @@
 import { isIP } from 'node:net';
 import * as dns from 'node:dns/promises';
 
+const DNS_LOOKUP_TIMEOUT_MS = 2_500;
+
 /**
  * SSRF posture
  * ============
@@ -77,6 +79,20 @@ export function isPrivateHost(hostname: string): boolean {
 /** Back-compat alias — older callers used `isBlockedHost`. */
 export const isBlockedHost = isPrivateHost;
 
+async function lookupHostname(hostname: string): Promise<string | null> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      dns.lookup(hostname).then(({ address }) => address),
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => resolve(null), DNS_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 /**
  * Validates that a URL is safe for server-side requests.
  * Throws if the URL is malformed, uses a disallowed protocol, or targets a
@@ -111,8 +127,8 @@ export async function ensureSafeUrl(rawUrl: string): Promise<URL> {
   // IPs may be private. Only enforced in strict mode.
   if (!allowPrivate && !isIP(parsed.hostname)) {
     try {
-      const { address } = await dns.lookup(parsed.hostname);
-      if (isPrivateHost(address)) {
+      const address = await lookupHostname(parsed.hostname);
+      if (address !== null && isPrivateHost(address)) {
         throw new Error('URL host resolves to a blocked (private/loopback) address');
       }
     } catch (err) {

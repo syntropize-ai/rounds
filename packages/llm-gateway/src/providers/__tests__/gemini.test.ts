@@ -353,6 +353,60 @@ describe('GeminiProvider', () => {
     });
   });
 
+  describe('tool_result wiring', () => {
+    it('uses tool_name (normalized) for functionResponse.name', async () => {
+      const spy = mockFetch(async () =>
+        makeJsonResponse({
+          candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] } }],
+          usageMetadata: baseUsage,
+        }),
+      );
+
+      await provider.complete(
+        [
+          { role: 'user', content: 'check' },
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'gemini_call_0',
+                name: 'metrics.query',
+                input: { sourceId: 'prom', query: 'up' },
+              },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'gemini_call_0',
+                tool_name: 'metrics.query',
+                content: '1 1 1',
+              },
+            ],
+          },
+        ],
+        { model: 'gemini-2.5-flash' },
+      );
+
+      const body = getRequestBody(spy);
+      const contents = body['contents'] as Array<{
+        role: string;
+        parts: Array<Record<string, unknown>>;
+      }>;
+      // contents[0] = initial user prompt
+      // contents[1] = assistant turn with functionCall (mapped to role: 'model')
+      // contents[2] = the tool_result turn — carries functionResponse with the matching name.
+      const responsePart = contents[2]!.parts[0] as {
+        functionResponse: { name: string; response: { result: string } };
+      };
+      expect(responsePart.functionResponse.name).toBe('metrics_query');
+      expect(responsePart.functionResponse.response.result).toBe('1 1 1');
+    });
+  });
+
   describe('message wiring', () => {
     it('separates system into systemInstruction and maps assistant -> model', async () => {
       const spy = mockFetch(async () =>

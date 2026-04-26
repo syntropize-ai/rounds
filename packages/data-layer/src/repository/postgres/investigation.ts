@@ -1,15 +1,20 @@
-import { eq, isNull, isNotNull, and, sql } from 'drizzle-orm';
+import { eq, isNull, isNotNull, and, asc, sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { Investigation } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
 import type { DbClient } from '../../db/client.js';
 import { toJsonColumn } from '../json-column.js';
-import { investigations } from '../../db/schema.js';
+import {
+  investigations,
+  investigationFollowUps,
+  investigationFeedback,
+  investigationConclusions,
+} from '../../db/schema.js';
 import type {
   IInvestigationRepository,
   InvestigationFindAllOptions,
 } from '../interfaces.js';
-import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../../stores/investigation-store.js';
+import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../types/investigation.js';
 
 type DbRow = typeof investigations.$inferSelect;
 
@@ -25,7 +30,8 @@ function rowToInvestigation(row: DbRow): Investigation {
     hypotheses: (row.hypotheses as Investigation['hypotheses']) ?? [],
     evidence: (row.evidence as Investigation['evidence']) ?? [],
     symptoms: (row.symptoms as Investigation['symptoms']) ?? [],
-    actions: [],
+    actions: (row.actions as Investigation['actions']) ?? [],
+    workspaceId: row.workspaceId ?? undefined,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -71,8 +77,10 @@ export class PostgresInvestigationRepository implements IInvestigationRepository
         plan: toJsonColumn(data.plan),
         status: data.status,
         hypotheses: data.hypotheses,
+        actions: data.actions ?? [],
         evidence: data.evidence,
         symptoms: data.symptoms,
+        workspaceId: data.workspaceId,
         createdAt: now,
         updatedAt: now,
       })
@@ -92,6 +100,8 @@ export class PostgresInvestigationRepository implements IInvestigationRepository
         ...(patch.hypotheses !== undefined ? { hypotheses: patch.hypotheses } : {}),
         ...(patch.evidence !== undefined ? { evidence: patch.evidence } : {}),
         ...(patch.symptoms !== undefined ? { symptoms: patch.symptoms } : {}),
+        ...(patch.actions !== undefined ? { actions: patch.actions } : {}),
+        ...(patch.intent !== undefined ? { intent: patch.intent } : {}),
         updatedAt: new Date(),
       })
       .where(eq(investigations.id, id))
@@ -159,40 +169,102 @@ export class PostgresInvestigationRepository implements IInvestigationRepository
     return rows.map(rowToInvestigation);
   }
 
-  async findByWorkspace(_workspaceId: string): Promise<Investigation[]> {
-    // Postgres schema does not have a workspaceId column — stub for interface compliance
-    return [];
+  async findByWorkspace(workspaceId: string): Promise<Investigation[]> {
+    const rows = await this.db
+      .select()
+      .from(investigations)
+      .where(
+        and(eq(investigations.workspaceId, workspaceId), isNull(investigations.archivedAt)),
+      );
+    return rows.map(rowToInvestigation);
   }
+
+  // — Follow-ups
 
   async addFollowUp(investigationId: string, question: string): Promise<FollowUpRecord> {
-    // Postgres does not have a follow-ups table yet — store in-memory for now
+    const id = `fu_${randomUUID().slice(0, 8)}`;
+    const [row] = await this.db
+      .insert(investigationFollowUps)
+      .values({ id, investigationId, question, createdAt: new Date() })
+      .returning();
     return {
-      id: `fu_${randomUUID().slice(0, 8)}`,
-      investigationId,
-      question,
-      createdAt: new Date().toISOString(),
+      id: row!.id,
+      investigationId: row!.investigationId,
+      question: row!.question,
+      createdAt: row!.createdAt.toISOString(),
     };
   }
 
-  async getFollowUps(_investigationId: string): Promise<FollowUpRecord[]> {
-    return [];
+  async getFollowUps(investigationId: string): Promise<FollowUpRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(investigationFollowUps)
+      .where(eq(investigationFollowUps.investigationId, investigationId))
+      .orderBy(asc(investigationFollowUps.createdAt));
+    return rows.map((r) => ({
+      id: r.id,
+      investigationId: r.investigationId,
+      question: r.question,
+      createdAt: r.createdAt.toISOString(),
+    }));
   }
+
+  // — Feedback
 
   async addFeedback(investigationId: string, body: FeedbackBody): Promise<StoredFeedback> {
-    return {
-      id: `fb_${randomUUID().slice(0, 8)}`,
-      investigationId,
-      ...body,
-      createdAt: new Date().toISOString(),
+    const id = `fb_${randomUUID().slice(0, 8)}`;
+    const [row] = await this.db
+      .insert(investigationFeedback)
+      .values({
+        id,
+        investigationId,
+        helpful: body.helpful,
+        comment: body.comment ?? null,
+        rootCauseVerdict: body.rootCauseVerdict ?? null,
+        hypothesisFeedbacks: body.hypothesisFeedbacks
+          ? toJsonColumn(body.hypothesisFeedbacks)
+          : null,
+        actionFeedbacks: body.actionFeedbacks ? toJsonColumn(body.actionFeedbacks) : null,
+        createdAt: new Date(),
+      })
+      .returning();
+    const saved: StoredFeedback = {
+      id: row!.id,
+      investigationId: row!.investigationId,
+      helpful: row!.helpful,
+      createdAt: row!.createdAt.toISOString(),
     };
+    if (row!.comment !== null) saved.comment = row!.comment;
+    if (row!.rootCauseVerdict !== null) {
+      saved.rootCauseVerdict = row!.rootCauseVerdict as StoredFeedback['rootCauseVerdict'];
+    }
+    if (row!.hypothesisFeedbacks !== null) {
+      saved.hypothesisFeedbacks = row!.hypothesisFeedbacks as StoredFeedback['hypothesisFeedbacks'];
+    }
+    if (row!.actionFeedbacks !== null) {
+      saved.actionFeedbacks = row!.actionFeedbacks as StoredFeedback['actionFeedbacks'];
+    }
+    return saved;
   }
 
-  async getConclusion(_id: string): Promise<ExplanationResult | undefined> {
-    return undefined;
+  // — Conclusions
+
+  async getConclusion(id: string): Promise<ExplanationResult | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(investigationConclusions)
+      .where(eq(investigationConclusions.investigationId, id));
+    return row ? (row.conclusion as ExplanationResult) : undefined;
   }
 
-  async setConclusion(_id: string, _conclusion: ExplanationResult): Promise<void> {
-    // no-op for Postgres stub
+  async setConclusion(id: string, conclusion: ExplanationResult): Promise<void> {
+    await this.db
+      .insert(investigationConclusions)
+      .values({ investigationId: id, conclusion: toJsonColumn(conclusion) })
+      .onConflictDoUpdate({
+        target: investigationConclusions.investigationId,
+        set: { conclusion: toJsonColumn(conclusion) },
+      });
   }
 
   async updateStatus(id: string, status: string): Promise<Investigation | undefined> {
@@ -208,9 +280,13 @@ export class PostgresInvestigationRepository implements IInvestigationRepository
     evidence: Investigation['evidence'];
     conclusion: ExplanationResult | null;
   }): Promise<Investigation | undefined> {
-    return this.update(id, {
+    const inv = await this.update(id, {
       hypotheses: result.hypotheses,
       evidence: result.evidence,
     } as Partial<Omit<Investigation, 'id'>>);
+    if (inv && result.conclusion) {
+      await this.setConclusion(id, result.conclusion);
+    }
+    return inv;
   }
 }

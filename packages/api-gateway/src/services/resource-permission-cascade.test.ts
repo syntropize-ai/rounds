@@ -227,8 +227,7 @@ describe('AccessControlService.evaluate — folder cascade', () => {
   });
 
   it('scenario 12: legacy dashboard_acl grant (team Edit) allows user via fallback', async () => {
-    const { access, folders, teams, teamMembers, users, orgUsers } =
-      await buildCtx(db);
+    const { access, teams, teamMembers, users, orgUsers } = await buildCtx(db);
     const team = await teams.create({ orgId: 'org_main', name: 'Legacy' });
     const u = await users.create({
       email: 'u12@t',

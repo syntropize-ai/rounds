@@ -18,14 +18,14 @@ const log = createLogger('react-loop')
  * (provider returning identical results, model unable to terminate, etc).
  * Under well-behaved operation the LLM emits `reply` / `ask_user` / `finish`
  * long before this is hit. The real budget is tokens (see
- * TOKEN_BUDGET_TOKENS below), matching the way Claude Code's loop terminates.
+ * TOKEN_BUDGET_TOKENS below); iteration count is just a backstop.
  */
 const MAX_ITERATIONS = 200
 
 /**
  * Soft token budget: when the messages about to be sent to the LLM would
  * exceed this, exit the loop with a graceful "reached context limit" reply
- * rather than letting the gateway reject the request. Set slightly under
+ * rather than letting the gateway reject the request. Set at 95% of
  * CONTEXT_WINDOW to leave headroom for the model's own completion tokens.
  */
 const TOKEN_BUDGET_TOKENS = Math.floor(CONTEXT_WINDOW * 0.95)
@@ -200,17 +200,30 @@ export class ReActLoop {
       const text = resp.content.trim()
       if (text) return text
     }
-    catch {
-      // Fall back to the execution summary below.
+    catch (err) {
+      // The summarizer LLM call failed. Fall through to a generic, voice-safe
+      // reply rather than echoing `observationText` — the observation often
+      // contains raw "Error: ..." strings that would surface to the user as
+      // the assistant's own voice.
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), action },
+        'composePostActionReply: summarizer LLM call failed; using generic reply',
+      )
     }
 
-    return draftReply?.trim() || observationText
+    // Prefer the model's own draft reply (it was crafted in the agent's voice).
+    // Otherwise return a neutral, generic acknowledgement — never the raw
+    // observation, which could include backend error strings.
+    const draft = draftReply?.trim()
+    if (draft) return draft
+    return "I ran the action, but couldn't summarize the result. Check the activity log above for the raw output."
   }
 
   async runLoop(
     systemPrompt: string,
     userMessage: string,
     executeAction: (step: ReActStep) => Promise<string | null>,
+    signal?: AbortSignal,
   ): Promise<string> {
     // D4 — no ambient identity. If the caller didn't bind one, refuse to run.
     // Undefined / null / empty userId all fail the same way: the agent is the
@@ -222,6 +235,14 @@ export class ReActLoop {
       )
     }
 
+    const checkAborted = () => {
+      if (signal?.aborted) {
+        const err = new Error('Agent loop aborted by caller')
+        err.name = 'AbortError'
+        throw err
+      }
+    }
+
     const tools = toolsForAgent(this.deps.allowedTools)
 
     const observations: ReActObservation[] = []
@@ -231,6 +252,7 @@ export class ReActLoop {
     let batchCounter = 0
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
+      checkAborted()
       const messages = this.buildMessages(systemPrompt, userMessage, observations)
 
       // Token-budget termination — the primary "we're done" signal once the
@@ -248,6 +270,8 @@ export class ReActLoop {
       let preToolProse: string | undefined
       let resp: LLMResponse
       try {
+        // Re-check just before the (potentially long-running) gateway call.
+        checkAborted()
         resp = await this.deps.gateway.complete(messages, {
           model: this.deps.model,
           maxTokens: 4096,
@@ -255,6 +279,7 @@ export class ReActLoop {
           tools,
           toolChoice: 'auto',
           thinking: { effort: thinkingEffort() },
+          ...(signal ? { signal } : {}),
         })
 
         toolCalls = resp.toolCalls
@@ -296,6 +321,14 @@ export class ReActLoop {
         }
       }
       catch (err) {
+        // AbortError is the caller (HTTP layer) signalling the client went
+        // away. Don't synthesize a user-facing reply or error event — there
+        // is no client to receive them. Bubble out so chat-service can mark
+        // the run as cancelled.
+        if (err instanceof Error && err.name === 'AbortError') {
+          log.info({ step: i }, 'ReAct loop aborted by caller')
+          throw err
+        }
         const msg = err instanceof Error ? err.message : String(err)
         const classification = classifyLlmError(msg)
         log.warn({ step: i, err: msg }, 'LLM gateway error — aborting loop')
@@ -491,6 +524,7 @@ export class ReActLoop {
         userBlocks.push({
           type: 'tool_result',
           tool_use_id: id,
+          tool_name: obs.action,
           content: resultText,
         })
       }

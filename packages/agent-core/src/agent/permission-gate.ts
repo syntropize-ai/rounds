@@ -15,11 +15,14 @@
  * §D3, never an exception.
  */
 
+import { createLogger } from '@agentic-obs/common/logging';
 import type { AgentDefinition } from './agent-definition.js';
 import type { AgentToolName } from './agent-types.js';
 import type { ActionContext } from './orchestrator-action-handlers.js';
 import type { PermissionGateResult } from './types-permissions.js';
 import { buildToolEvaluator } from './tool-permissions.js';
+
+const log = createLogger('permission-gate');
 
 /**
  * Actions that short-circuit the ReActLoop — they don't dispatch to
@@ -89,7 +92,26 @@ export async function checkPermission(
   }
 
   // -- Layer 3: RBAC --------------------------------------------------------
-  const evaluator = await buildToolEvaluator(tool, args, ctx);
+  // Async builders (e.g. modify_alert_rule) call into the data store to
+  // resolve scopes. A throw here used to be silently coerced into "scope
+  // unknown → wildcard `folders:uid:*`" (fail-OPEN). Now we treat any
+  // builder failure as deny — fail-closed is the only safe default for a
+  // security gate.
+  let evaluator: Awaited<ReturnType<typeof buildToolEvaluator>>;
+  try {
+    evaluator = await buildToolEvaluator(tool, args, ctx);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err), tool },
+      'permission-gate: evaluator builder threw — denying',
+    );
+    return {
+      ok: false,
+      reason: 'rbac',
+      action: tool,
+      scope: 'scope-resolution-failed',
+    };
+  }
   if (evaluator === null) {
     // Explicitly ungated tool (e.g. navigate) — let it through.
     return { ok: true };

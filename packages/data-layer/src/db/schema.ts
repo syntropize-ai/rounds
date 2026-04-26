@@ -1,7 +1,6 @@
 import {
   pgTable,
   text,
-  integer,
   boolean,
   timestamp,
   jsonb,
@@ -23,8 +22,10 @@ export const investigations = pgTable(
     plan: jsonb('plan'),
     status: text('status').notNull().default('pending'),
     hypotheses: jsonb('hypotheses').notNull().default([]),
+    actions: jsonb('actions').notNull().default([]),
     evidence: jsonb('evidence').notNull().default([]),
     symptoms: jsonb('symptoms').notNull().default([]),
+    workspaceId: text('workspace_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -33,8 +34,61 @@ export const investigations = pgTable(
     index('investigations_tenant_idx').on(t.tenantId),
     index('investigations_session_idx').on(t.sessionId),
     index('investigations_status_idx').on(t.status),
+    index('investigations_workspace_idx').on(t.workspaceId),
     index('investigations_created_at_idx').on(t.createdAt),
   ],
+);
+
+// — investigation follow-ups
+
+export const investigationFollowUps = pgTable(
+  'investigation_follow_ups',
+  {
+    id: text('id').primaryKey(),
+    investigationId: text('investigation_id')
+      .notNull()
+      .references(() => investigations.id, { onDelete: 'cascade' }),
+    question: text('question').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('investigation_follow_ups_investigation_idx').on(t.investigationId),
+    index('investigation_follow_ups_created_at_idx').on(t.createdAt),
+  ],
+);
+
+// — investigation feedback
+
+export const investigationFeedback = pgTable(
+  'investigation_feedback',
+  {
+    id: text('id').primaryKey(),
+    investigationId: text('investigation_id')
+      .notNull()
+      .references(() => investigations.id, { onDelete: 'cascade' }),
+    helpful: boolean('helpful').notNull(),
+    comment: text('comment'),
+    rootCauseVerdict: text('root_cause_verdict'),
+    hypothesisFeedbacks: jsonb('hypothesis_feedbacks'),
+    actionFeedbacks: jsonb('action_feedbacks'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('investigation_feedback_investigation_idx').on(t.investigationId),
+    index('investigation_feedback_created_at_idx').on(t.createdAt),
+  ],
+);
+
+// — investigation conclusions (one-to-one via PK = investigation_id)
+
+export const investigationConclusions = pgTable(
+  'investigation_conclusions',
+  {
+    investigationId: text('investigation_id')
+      .primaryKey()
+      .references(() => investigations.id, { onDelete: 'cascade' }),
+    conclusion: jsonb('conclusion').notNull(),
+  },
 );
 
 // — incidents

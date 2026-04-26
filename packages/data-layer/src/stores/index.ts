@@ -12,7 +12,6 @@ export * from './feed-store.js';
 export * from './investigation-store.js';
 export * from './share-store.js';
 export * from './dashboard-store.js';
-export * from './conversation-store.js';
 export * from './investigation-report-store.js';
 export * from './alert-rule-provider-adapter.js';
 export * from './folder-store.js';

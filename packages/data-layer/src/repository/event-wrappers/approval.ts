@@ -2,7 +2,7 @@ import { createLogger } from '@agentic-obs/common/logging';
 import type { MaybeAsync, IApprovalRequestRepository } from '../interfaces.js';
 
 const log = createLogger('approval-events');
-import type { ApprovalRequest, ApprovalAction, ApprovalContext } from '../../stores/approval-store.js';
+import type { ApprovalRequest } from '../../stores/approval-store.js';
 import type { IGatewayApprovalStore } from '../../stores/interfaces.js';
 
 type ResolvedCallback = (request: ApprovalRequest) => void;

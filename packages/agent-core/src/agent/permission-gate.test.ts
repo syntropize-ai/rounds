@@ -24,6 +24,7 @@ function makeCtx(allowAll = true): ActionContext {
     makeAgentEvent: ((type: string) => ({ type, agentType: 'orchestrator', timestamp: '' })) as ActionContext['makeAgentEvent'],
     pushConversationAction: () => {},
     setNavigateTo: () => {},
+    investigationSections: new Map(),
   } as ActionContext;
 }
 

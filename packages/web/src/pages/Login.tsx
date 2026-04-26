@@ -127,6 +127,23 @@ export default function Login() {
             Sign in to your account
           </h2>
 
+          {auth.logoutWarning && (
+            <div
+              role="status"
+              className="mb-4 px-4 py-3 rounded-lg bg-chart-yellow/10 border border-chart-yellow/30 text-chart-yellow text-sm flex items-start justify-between gap-3"
+            >
+              <span>{auth.logoutWarning}</span>
+              <button
+                type="button"
+                onClick={auth.dismissLogoutWarning}
+                className="shrink-0 px-2 text-xs hover:underline"
+                aria-label="Dismiss notice"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {error && (
             <div
               role="alert"

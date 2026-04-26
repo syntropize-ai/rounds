@@ -11,7 +11,6 @@ import type {
   IApprovalRequestRepository,
   IShareLinkRepository,
   IDashboardRepository,
-  IConversationRepository,
   IFolderRepository,
   IAlertRuleRepository,
   INotificationRepository,
@@ -22,6 +21,7 @@ import type {
   IChatMessageRepository,
   IChatSessionEventRepository,
 } from './interfaces.js';
+import type { IInvestigationRepository as SqliteInvestigationRepositoryInterface } from './sqlite/investigation.js';
 import type {
   IInstanceConfigRepository,
   IDatasourceRepository,
@@ -33,7 +33,6 @@ import type {
   IGatewayApprovalStore,
   IGatewayShareStore,
   IGatewayDashboardStore,
-  IConversationStore,
 } from '../stores/interfaces.js';
 
 import { PostgresInvestigationRepository } from './postgres/investigation.js';
@@ -43,13 +42,12 @@ import { PostgresCaseRepository } from './postgres/case.js';
 import { PostgresApprovalRepository } from './postgres/approval.js';
 import { PostgresShareRepository } from './postgres/share.js';
 
-import { SqliteInvestigationRepository } from './sqlite/investigation.js';
+import { InvestigationRepository } from './sqlite/investigation.js';
 import { SqliteIncidentRepository } from './sqlite/incident.js';
 import { SqliteFeedItemRepository } from './sqlite/feed.js';
 import { SqliteApprovalRequestRepository } from './sqlite/approval.js';
 import { SqliteShareLinkRepository } from './sqlite/share.js';
 import { SqliteDashboardRepository } from './sqlite/dashboard.js';
-import { SqliteConversationRepository } from './sqlite/conversation.js';
 import { SqliteFolderRepository } from './sqlite/folder.js';
 import { SqliteAlertRuleRepository } from './sqlite/alert-rule.js';
 import { SqliteNotificationRepository } from './sqlite/notification.js';
@@ -85,13 +83,12 @@ export interface Repositories {
  * only want the gateway surface can consume them directly without casts.
  */
 export interface SqliteRepositories {
-  investigations: IInvestigationRepository & IGatewayInvestigationStore;
+  investigations: SqliteInvestigationRepositoryInterface & IGatewayInvestigationStore;
   incidents: IIncidentRepository & IGatewayIncidentStore;
   feedItems: IFeedItemRepository;
   approvals: IApprovalRequestRepository & IGatewayApprovalStore;
   shares: IShareLinkRepository & IGatewayShareStore;
   dashboards: IDashboardRepository & IGatewayDashboardStore;
-  conversations: IConversationRepository & IConversationStore;
   folders: IFolderRepository;
   alertRules: IAlertRuleRepository;
   notifications: INotificationRepository;
@@ -120,13 +117,12 @@ export function createPostgresRepositories(db: DbClient): Repositories {
 
 export function createSqliteRepositories(db: SqliteClient): SqliteRepositories {
   return {
-    investigations: new SqliteInvestigationRepository(db),
+    investigations: new InvestigationRepository(db),
     incidents: new SqliteIncidentRepository(db),
     feedItems: new SqliteFeedItemRepository(db),
     approvals: new SqliteApprovalRequestRepository(db),
     shares: new SqliteShareLinkRepository(db),
     dashboards: new SqliteDashboardRepository(db),
-    conversations: new SqliteConversationRepository(db),
     folders: new SqliteFolderRepository(db),
     alertRules: new SqliteAlertRuleRepository(db),
     notifications: new SqliteNotificationRepository(db),

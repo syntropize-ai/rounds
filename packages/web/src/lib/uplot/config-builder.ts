@@ -436,25 +436,23 @@ export class UPlotConfigBuilder {
       axes: [xAxis, yAxis],
       scales,
       legend: { show: legendShow },
-      // Cursor marker config follows Grafana's UPlotConfigBuilder defaults
-      // (packages/grafana-ui/.../UPlotConfigBuilder.ts): one filled circle per
-      // series at the crosshair intersection. Size is 2x the series' resting
-      // point size; stroke is the series color at 80% alpha; fill is the
-      // series color solid. uPlot draws a marker for every series whose
-      // `series[i].show` is true — there is no "cap by series count" in
-      // Grafana either; with many series the markers naturally overlap on
-      // the same x and the eye sees fewer distinct dots.
+      // Cursor marker config: at the crosshair, draw one filled circle per
+      // series at twice the resting-point size, coloured the same as the
+      // series line. uPlot draws one marker per visible series — when a chart
+      // has many series their markers overlap on the same x, which is the
+      // expected behaviour and reads as a single dense dot rather than N
+      // separate hover artifacts.
       cursor: {
-        // Explicit x/y = true — both crosshair axes. uPlot defaults to true
-        // but we set them here to make the intent obvious and guard against
-        // a future partial-override in the TimeSeriesViz merge step.
+        // Explicit x/y = true — both crosshair axes. uPlot defaults to true,
+        // but stating it here keeps the intent obvious and shields against a
+        // future partial override during config merging in TimeSeriesViz.
         x: true,
         y: true,
-        // Snap the crosshair to the nearest data-point x. Without this, uPlot
-        // draws the vertical line at raw mouse x but the per-series markers
-        // sit at the snapped data x — they visibly drift apart whenever the
-        // pointer is between samples. Snap matches Grafana's feel and keeps
-        // line + dots vertically aligned.
+        // Snap the crosshair to the nearest data-point x. Without snapping,
+        // uPlot draws the vertical line at the raw mouse x while the
+        // per-series markers sit on the snapped data x — the two visibly
+        // drift apart whenever the pointer is between samples. Snapping keeps
+        // the line and the dots vertically aligned at all times.
         move: (u, left, top) => {
           const xs = u.data[0];
           if (!xs || xs.length === 0) return [left, top];
@@ -499,10 +497,11 @@ export class UPlotConfigBuilder {
           stroke: (_u, sIdx) => seriesColors[sIdx - 1] ?? '#888888',
           fill: (_u, sIdx) => seriesColors[sIdx - 1] ?? '#888888',
         },
-        // Grafana-style nearest-non-null snap with a 15px scan radius. Without
-        // this, uPlot's default `dataIdx` picks the strictly closest x even
-        // when that index is null — the marker then sits on a gap and visibly
-        // skips between real data points as the mouse moves.
+        // Nearest-non-null index snap with a 15px scan radius. uPlot's
+        // default `dataIdx` picks the strictly closest x even when that
+        // sample is null — the marker then lands on a gap and visibly skips
+        // between real data points as the mouse moves. Scanning outward to
+        // the first non-null neighbour avoids the skip.
         dataIdx: (u, sIdx, hoveredIdx, cursorXVal) => {
           if (sIdx === 0) return hoveredIdx;
           const xs = u.data[0];

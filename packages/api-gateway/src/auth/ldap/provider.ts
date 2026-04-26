@@ -13,9 +13,44 @@ import {
   type OrgRole,
   type User,
 } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import type { LdapConfig } from './config.js';
 import { authenticate, type LdapUserRecord } from './client.js';
 import { mapGroupsToRoles } from './group-mapping.js';
+
+const log = createLogger('ldap-provider');
+
+/**
+ * Distinguish "this looks like credentials are wrong / user not found" from
+ * "the LDAP server is unreachable or misconfigured". The former should fall
+ * through to the local provider; the latter should 503 with a clear admin
+ * message.
+ *
+ * Credential-shaped failures we recognize:
+ *   - InvalidCredentialsError (LDAP code 49) — bad password.
+ *   - NoSuchObjectError       (LDAP code 32) — DN doesn't exist.
+ *
+ * NOT credential-shaped:
+ *   - InsufficientAccessRightsError (LDAP code 50) — the *bind* DN we use
+ *     to search lacks read permission on the directory subtree. This is a
+ *     server/admin configuration problem, not "the user typed the wrong
+ *     password", so it should surface as LDAP_UNREACHABLE (503), not 401.
+ *   - ECONNREFUSED, ETIMEDOUT, etc. — infrastructure.
+ */
+function isCredentialError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { name?: string; code?: number | string; lde_message?: string };
+  // ldapjs error names
+  if (
+    e.name === 'InvalidCredentialsError' ||
+    e.name === 'NoSuchObjectError'
+  ) {
+    return true;
+  }
+  // numeric LDAP result codes (49 = invalidCredentials, 32 = noSuchObject)
+  if (e.code === 49 || e.code === 32 || e.code === '49' || e.code === '32') return true;
+  return false;
+}
 
 export interface LdapLoginInput {
   user: string;
@@ -45,11 +80,38 @@ export class LdapProvider {
     if (!input.user || !input.password) {
       throw AuthError.invalidCredentials();
     }
+    let lastInfrastructureError: unknown;
     for (const server of this.cfg.servers) {
-      const rec = await authenticate(server, {
-        login: input.user,
-        password: input.password,
-      }).catch(() => null);
+      let rec: LdapUserRecord | null;
+      try {
+        rec = await authenticate(server, {
+          login: input.user,
+          password: input.password,
+        });
+      } catch (err) {
+        if (isCredentialError(err)) {
+          // Credential-shaped failure → keep the original behavior (try next
+          // server, then fall through to invalidCredentials at the end).
+          log.debug(
+            { server: server.host, err: err instanceof Error ? err.message : String(err) },
+            'ldap auth failed with credential error',
+          );
+          continue;
+        }
+        // Infrastructure failure (connection refused, timeout, bad config…).
+        // Remember it; if no server in the list works we surface it as
+        // AuthError.internal so the route can map it to 503 instead of 401.
+        log.warn(
+          {
+            server: server.host,
+            errClass: err instanceof Error ? err.constructor.name : typeof err,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'ldap auth failed with infrastructure error',
+        );
+        lastInfrastructureError = err;
+        continue;
+      }
       if (!rec) continue;
       const mapping = mapGroupsToRoles(rec.groupDns, server.groupMappings);
       const user = await this.upsertUser(rec, mapping.isServerAdmin);
@@ -60,6 +122,14 @@ export class LdapProvider {
         orgRoles: mapping.orgRoles,
         isServerAdmin: mapping.isServerAdmin,
       };
+    }
+    // No server returned a record. Differentiate "couldn't reach any server"
+    // from "found you, password wrong" so the route can render the correct
+    // status code.
+    if (lastInfrastructureError) {
+      throw AuthError.internal(
+        `LDAP unreachable: ${lastInfrastructureError instanceof Error ? lastInfrastructureError.message : String(lastInfrastructureError)}`,
+      );
     }
     throw AuthError.invalidCredentials();
   }

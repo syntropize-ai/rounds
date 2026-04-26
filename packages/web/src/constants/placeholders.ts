@@ -19,6 +19,12 @@ export const DATASOURCE_URL_PLACEHOLDER: Record<string, string> = {
 export const LLM_BASE_URL_PLACEHOLDER: Record<string, string> = {
   ollama: 'http://localhost:11434',
   azure: 'https://your-resource.openai.azure.com',
+  // OpenAI itself defaults to the official API; left blank uses
+  // https://api.openai.com/v1. Set this to point at any OpenAI-compatible
+  // endpoint — OpenRouter (https://openrouter.ai/api/v1), Together AI,
+  // Groq (https://api.groq.com/openai/v1), DeepSeek, etc.
+  openai: 'https://api.openai.com/v1 (leave blank) or https://openrouter.ai/api/v1',
+  deepseek: 'https://api.deepseek.com/v1',
 };
 
 export function datasourceUrlPlaceholder(type: string): string {

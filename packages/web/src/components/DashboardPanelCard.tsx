@@ -20,6 +20,7 @@ import {
   rangeToHeatmapPoints,
   rangeToStatusSpans,
 } from './panel/query-transformers.js';
+import { RangeResponseSchema, InstantResponseSchema, parseOrThrow } from '../api/schemas.js';
 
 // Backward-compat re-exports so existing consumers don't break
 export type { PanelQuery, PanelThreshold, PanelSnapshotData, PanelConfig } from './panel/types.js';
@@ -155,6 +156,12 @@ export default function DashboardPanelCard({
   const [sparklineData, setSparklineData] = useState<{ timestamps: number[]; values: number[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isTransientError, setIsTransientError] = useState(false);
+  /** Set when a transient refresh failed but we already have data on screen.
+   *  We keep showing the stale data (good UX) but flag it visually so users
+   *  know what they see is no longer fresh. Cleared on next successful fetch. */
+  const [staleSinceMs, setStaleSinceMs] = useState<number | null>(null);
+  /** Forces re-render of the "Xs ago" label so the indicator's age updates. */
+  const [, setStaleNowTick] = useState(0);
 
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -176,17 +183,18 @@ export default function DashboardPanelCard({
   // time-invariant metrics (config counts, version strings) — but for the
   // 95% case where you do want a trend, omitting the field is enough.
   const wantsSparkline = panel.visualization === 'stat' && panel.sparkline !== false;
-  const activeQuery = effectiveQueries[0]?.expr ?? '';
+  const activePanelQuery = effectiveQueries[0];
+  const activeQuery = activePanelQuery?.expr ?? '';
   const resolvedTimeRange = useMemo(() => resolveTimeRange(timeRange), [timeRange]);
 
   // Build a stable dedup key from queries
   const queryKey = useMemo(
-    () => effectiveQueries.map((q) => q.expr).join('|') + `@${timeRange}`,
+    () => effectiveQueries.map((q) => `${q.datasourceId ?? 'default'}:${q.expr}`).join('|') + `@${timeRange}`,
     [effectiveQueries, timeRange]
   );
   const instantQueryKey = useMemo(
-    () => `${activeQuery}@${resolvedTimeRange.end}`,
-    [activeQuery, resolvedTimeRange.end]
+    () => `${activePanelQuery?.datasourceId ?? 'default'}:${activeQuery}@${resolvedTimeRange.end}`,
+    [activePanelQuery?.datasourceId, activeQuery, resolvedTimeRange.end]
   );
 
   const cacheMaxAgeMs = (panel.refreshIntervalSec ?? 30) * 1000;
@@ -212,9 +220,13 @@ export default function DashboardPanelCard({
 
       const handleError = (msg: string) => {
         const transient = isTransientMsg(msg);
-        // If we already have data, silently ignore transient errors - keep showing stale data.
+        // If we already have data, keep showing it (stale data > blank panel)
+        // but surface a visible "stale" indicator so the user knows the
+        // refresh failed. Log so the underlying transient is debuggable.
         if (transient && hasExistingData) {
+          console.warn(`[panel ${panel.id}] transient refresh failure, showing stale data:`, msg);
           retryCountRef.current = 0;
+          setStaleSinceMs((prev) => prev ?? Date.now());
           setLoading(false);
           return;
         }
@@ -239,7 +251,12 @@ export default function DashboardPanelCard({
             `batch:${queryKey}`,
             () =>
               apiClient.post('/query/batch', {
-                queries: effectiveQueries.map((q) => ({ refId: q.refId, expr: q.expr, instant: q.instant })),
+                queries: effectiveQueries.map((q) => ({
+                  refId: q.refId,
+                  expr: q.expr,
+                  instant: q.instant,
+                  datasourceId: q.datasourceId,
+                })),
                 ...resolveTimeRange(timeRange),
               }) as Promise<{
                 data: { results: Record<string, { status: string; data: RangeResponse; error?: string }> } | null;
@@ -268,9 +285,14 @@ export default function DashboardPanelCard({
                 error: rr?.error ?? 'Query failed',
               };
             }
-            return transformQueryResult(rr.data, pq);
+            // Boundary validation — fail loudly if the server drifts off the
+            // RangeResponse shape rather than feeding malformed data into the
+            // viz transform path.
+            const validated = parseOrThrow(RangeResponseSchema, 'RangeResponse', rr.data);
+            return transformQueryResult(validated, pq);
           });
           setMultiRangeData(results);
+          setStaleSinceMs(null);
         } catch (err) {
           handleError(err instanceof Error ? err.message : 'Query failed');
           return;
@@ -286,13 +308,16 @@ export default function DashboardPanelCard({
                   () =>
                     apiClient.post('/query/range', {
                       query: activeQuery,
+                      datasourceId: activePanelQuery?.datasourceId,
                       ...resolveTimeRange(timeRange),
                     }) as Promise<{ data: RangeResponse | null; error?: unknown }>,
                 )
                 .then((sparkRes) => {
                   if (sparkRes.error || !sparkRes.data) return;
+                  // Boundary validation; throws ApiResponseShapeError on drift.
+                  const validated = parseOrThrow(RangeResponseSchema, 'RangeResponse', sparkRes.data);
                   // Use only the first series — sparkline is a single trend.
-                  const first = sparkRes.data.data?.result?.[0];
+                  const first = validated.data.result[0];
                   if (!first || !first.values) return;
                   const timestamps: number[] = [];
                   const values: number[] = [];
@@ -305,16 +330,23 @@ export default function DashboardPanelCard({
                   }
                   setSparklineData({ timestamps, values });
                 })
-                .catch(() => {
+                .catch((err) => {
                   // Sparkline failure is non-fatal — keep the panel showing
-                  // the value without trend rather than erroring out.
+                  // the value without trend rather than erroring out — but
+                  // log so a permanently-broken sparkline is visible in the
+                  // console instead of silently absent.
+                  console.warn(`[panel ${panel.id}] sparkline query failed`, err);
                 })
             : Promise.resolve();
 
           const res = await queryScheduler.schedule<{ data: InstantResponse | null; error?: unknown }>(
             `instant:${instantQueryKey}`,
             () =>
-              apiClient.post('/query/instant', { query: activeQuery, time: resolvedTimeRange.end }) as Promise<{
+              apiClient.post('/query/instant', {
+                query: activeQuery,
+                time: resolvedTimeRange.end,
+                datasourceId: activePanelQuery?.datasourceId,
+              }) as Promise<{
                 data: InstantResponse | null;
                 error?: unknown;
               }>
@@ -324,7 +356,13 @@ export default function DashboardPanelCard({
             return;
           }
           retryCountRef.current = 0;
-          setInstantData(res.data);
+          if (res.data) {
+            const validated = parseOrThrow(InstantResponseSchema, 'InstantResponse', res.data);
+            setInstantData(validated);
+          } else {
+            setInstantData(null);
+          }
+          setStaleSinceMs(null);
           await sparklinePromise;
         } catch (err) {
           handleError(err instanceof Error ? err.message : 'Query failed');
@@ -334,7 +372,7 @@ export default function DashboardPanelCard({
 
       setLoading(false);
     },
-    [effectiveQueries, isRangeViz, activeQuery, instantQueryKey, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec, resolvedTimeRange.end]
+    [effectiveQueries, isRangeViz, activePanelQuery?.datasourceId, activeQuery, instantQueryKey, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec, panel.id, resolvedTimeRange.end, timeRange]
   );
 
   // Try to restore from cache without fetching
@@ -416,6 +454,7 @@ export default function DashboardPanelCard({
 
     setError(null);
     setIsTransientError(false);
+    setStaleSinceMs(null);
     setMultiRangeData([]);
     setInstantData(null);
     setSparklineData(null);
@@ -453,6 +492,37 @@ export default function DashboardPanelCard({
       window.removeEventListener('dashboard:refresh-panels', handleRefresh as EventListener);
     };
   }, [fetchData, restoreFromCache, panel.refreshIntervalSec, hasSnapshot, panel.snapshotData]);
+
+  // While the panel is showing stale data after a transient refresh failure,
+  // tick once a second so the "Xs ago" indicator stays accurate without us
+  // having to recompute on every render unconditionally.
+  useEffect(() => {
+    if (staleSinceMs === null) return undefined;
+    const t = setInterval(() => setStaleNowTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [staleSinceMs]);
+
+  /** Render the small overlay that appears on the panel when the most recent
+   *  refresh failed but we're still showing the previously-fetched values. */
+  function StaleIndicator() {
+    if (staleSinceMs === null) return null;
+    const ageSec = Math.max(0, Math.floor((Date.now() - staleSinceMs) / 1000));
+    const label =
+      ageSec < 60
+        ? `${ageSec}s ago`
+        : ageSec < 3600
+          ? `${Math.floor(ageSec / 60)}m ago`
+          : `${Math.floor(ageSec / 3600)}h ago`;
+    return (
+      <div
+        className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-chart-yellow/15 text-chart-yellow px-1.5 py-0.5 text-[10px] font-medium pointer-events-auto"
+        title="The most recent refresh failed; this panel is showing the last successful response."
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-chart-yellow" />
+        stale (last refreshed {label})
+      </div>
+    );
+  }
 
   // Visualization
 
@@ -680,6 +750,7 @@ export default function DashboardPanelCard({
           editMode ? 'ring-1 ring-dashed ring-outline-variant' : ''
         }`}
       >
+        <StaleIndicator />
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-2 h-4 bg-primary rounded-full shrink-0" />
@@ -703,6 +774,7 @@ export default function DashboardPanelCard({
         editMode ? 'ring-1 ring-dashed ring-outline-variant' : ''
       }`}
     >
+      <StaleIndicator />
       <div className="panel-drag-handle flex items-center justify-between px-3 pt-2 pb-1 cursor-grab active:cursor-grabbing">
         <div className="flex items-center gap-2 min-w-0">
           <div className="drag-handle w-2 h-4 bg-primary rounded-full shrink-0" />

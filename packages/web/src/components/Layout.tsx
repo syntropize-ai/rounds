@@ -8,7 +8,7 @@ import { ChatProvider, useGlobalChat } from '../contexts/ChatContext.js';
 function LayoutInner() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { events, isGenerating, sendMessage, stopGeneration, pendingNavigation, clearPendingNavigation } = useGlobalChat();
+  const { events, isGenerating, sendMessage, stopGeneration, pendingNavigation, clearPendingNavigation, loadError, retryLoadSession } = useGlobalChat();
 
   // Hide the global ChatPanel on Home, the top-level list pages
   // (Dashboards / Investigations / Alerts), and configuration surfaces
@@ -43,6 +43,8 @@ function LayoutInner() {
             void sendMessage(msg);
           }}
           onStop={stopGeneration}
+          loadError={loadError}
+          onRetryLoad={retryLoadSession}
         />
       )}
       <GlobalSearch />

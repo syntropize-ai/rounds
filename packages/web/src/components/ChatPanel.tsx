@@ -15,11 +15,20 @@ interface Props {
   isGenerating: boolean;
   onSendMessage: (content: string) => void;
   onStop?: () => void;
+  /**
+   * Result of the most recent loadSession call. When set, the panel renders
+   * a distinct empty state ("session not found" / "failed to load") instead
+   * of the default empty-chat hint, so the user can tell history-load
+   * problems apart from a never-used session.
+   */
+  loadError?: 'not-found' | 'network' | null;
+  /** Retry handler for the network-error banner. */
+  onRetryLoad?: () => void;
 }
 
 // Main component
 
-export default function ChatPanel({ events, isGenerating, onSendMessage, onStop }: Props) {
+export default function ChatPanel({ events, isGenerating, onSendMessage, onStop, loadError = null, onRetryLoad }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState('');
   const [unread, setUnread] = useState(0);
@@ -52,32 +61,33 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
     setUnread(0);
   };
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragRef.current = { startX: e.clientX, startWidth: chatWidth };
+  const chatWidthRef = useRef(chatWidth);
+  useEffect(() => {
+    chatWidthRef.current = chatWidth;
   }, [chatWidth]);
 
-  const handleDragMove = (e: MouseEvent) => {
-    if (!dragRef.current) return;
-    const delta = dragRef.current.startX - e.clientX;
-    const newWidth = Math.min(700, Math.max(280, dragRef.current.startWidth + delta));
-    setChatWidth(newWidth);
-  };
-
-  const handleDragEnd = () => {
-    dragRef.current = null;
-    document.removeEventListener('mousemove', handleDragMove);
-    document.removeEventListener('mouseup', handleDragEnd);
-  };
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startWidth: chatWidthRef.current };
+  }, []);
 
   useEffect(() => {
+    const handleDragMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = dragRef.current.startX - e.clientX;
+      const newWidth = Math.min(700, Math.max(280, dragRef.current.startWidth + delta));
+      setChatWidth(newWidth);
+    };
+    const handleDragEnd = () => {
+      dragRef.current = null;
+    };
     document.addEventListener('mousemove', handleDragMove);
     document.addEventListener('mouseup', handleDragEnd);
     return () => {
       document.removeEventListener('mousemove', handleDragMove);
       document.removeEventListener('mouseup', handleDragEnd);
     };
-  }, [chatWidth]);
+  }, []);
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
@@ -151,7 +161,63 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop 
       </div>
 
       <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 hide-scrollbar">
-        {events.length === 0 && (
+        {/* Inline banner for transient load failures: events may still be
+            present (e.g., a partially loaded session), so we show the
+            banner above them rather than as a full-screen empty state. */}
+        {loadError === 'network' && events.length > 0 && (
+          <div className="mb-3 rounded-lg bg-error/10 border border-error/30 px-3 py-2 text-xs text-error flex items-center justify-between gap-3">
+            <span>Failed to load conversation history.</span>
+            {onRetryLoad && (
+              <button
+                type="button"
+                onClick={onRetryLoad}
+                className="shrink-0 px-2 py-0.5 rounded border border-error/40 hover:bg-error/20 transition-colors text-error font-medium"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {events.length === 0 && loadError === 'not-found' && (
+          <div className="flex flex-col items-center justify-center gap-3 px-4 text-center h-full">
+            <div className="w-10 h-10 rounded-xl bg-error/10 flex items-center justify-center text-error">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm text-on-surface">Session not found</p>
+              <p className="text-xs text-on-surface-variant mt-1">
+                The conversation you opened doesn't exist on the server (it may have been deleted or expired).
+              </p>
+            </div>
+          </div>
+        )}
+
+        {events.length === 0 && loadError === 'network' && (
+          <div className="flex flex-col items-center justify-center gap-3 px-4 text-center h-full">
+            <div className="w-10 h-10 rounded-xl bg-error/10 flex items-center justify-center text-error">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376C1.83 17.755 2.821 19.5 4.43 19.5h15.14c1.61 0 2.6-1.745 1.733-3.374L13.732 4.125c-.802-1.5-2.662-1.5-3.464 0L2.697 16.126z" />
+              </svg>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-on-surface">Failed to load conversation history</p>
+              {onRetryLoad && (
+                <button
+                  type="button"
+                  onClick={onRetryLoad}
+                  className="px-3 py-1 rounded-md border border-outline-variant hover:bg-surface-high transition-colors text-xs text-on-surface"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {events.length === 0 && !loadError && (
           <div className="flex flex-col items-center justify-center gap-3 px-4 text-center h-full">
             <div className="w-10 h-10 rounded-xl bg-tertiary/10 flex items-center justify-center">
               <svg className="w-5 h-5 text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

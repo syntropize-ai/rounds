@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://openobs.com">Website</a> &middot;
+  <a href="https://www.openobs.com">Website</a> &middot;
   <a href="https://docs.openobs.com">Documentation</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#deploy-with-helm">Helm</a>

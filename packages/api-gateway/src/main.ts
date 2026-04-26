@@ -37,4 +37,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const port = parseInt(process.env['PORT'] ?? '3000', 10);
-startServer(port);
+startServer(port).catch((err) => {
+  log.fatal({ err: err instanceof Error ? err.message : err }, 'startServer failed');
+  process.exit(1);
+});

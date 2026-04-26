@@ -172,6 +172,11 @@ export function ensureSchema(db: SqliteClient): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )`,
+    // `dashboard_messages` was the legacy per-dashboard chat history table.
+    // It is created here only because earlier name-based migrations (e.g. 015
+    // adds org_id) ALTER it; migration 020 drops it right after the named
+    // migration phase runs. The canonical chat store is `chat_messages`
+    // (session-keyed, defined further below).
     `CREATE TABLE IF NOT EXISTS dashboard_messages (
       id TEXT PRIMARY KEY,
       dashboard_id TEXT NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,

@@ -16,7 +16,6 @@ export type {
   IShareRepository,
   IShareLinkRepository,
   IDashboardRepository,
-  IConversationRepository,
   IFolderRepository,
   IAlertRuleRepository,
   AlertRuleFindAllOptions,

@@ -16,39 +16,17 @@ function emptyPlan(entity = '', objective = ''): Investigation['plan'] {
 
 // -- Types re-exported for consumers
 
-export interface FollowUpRecord {
-  id: string;
-  investigationId: string;
-  question: string;
-  createdAt: string;
-}
+import type {
+  FollowUpRecord,
+  FeedbackBody,
+  StoredFeedback,
+} from '../repository/types/investigation.js';
 
-export interface FeedbackBody {
-  /** Whether the investigation result was useful */
-  helpful: boolean;
-  /** Optional free-text comment from the user */
-  comment?: string;
-  /** Explicit verdict on the identified root cause */
-  rootCauseVerdict?: 'correct' | 'wrong' | 'partially_correct';
-  /** Per-hypothesis verdicts (replaces single hypothesisId for multi-hypothesis feedback) */
-  hypothesisFeedbacks?: Array<{
-    hypothesisId: string;
-    verdict: 'correct' | 'wrong';
-    comment?: string;
-  }>;
-  /** Per-action verdicts */
-  actionFeedbacks?: Array<{
-    actionId: string;
-    helpful: boolean;
-    comment?: string;
-  }>;
-}
-
-export interface StoredFeedback extends FeedbackBody {
-  id: string;
-  investigationId: string;
-  createdAt: string;
-}
+export type {
+  FollowUpRecord,
+  FeedbackBody,
+  StoredFeedback,
+} from '../repository/types/investigation.js';
 
 export class InvestigationStore implements Persistable {
   private readonly investigations = new Map<string, Investigation>();

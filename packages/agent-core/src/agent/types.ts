@@ -1,102 +1,5 @@
 import type { PanelConfig, DashboardVariable } from '@agentic-obs/common'
 
-// -- Planner Output
-
-export interface DashboardPlan {
-  title: string
-  description: string
-  groups: PanelGroup[]
-  variables: VariableSuggestion[]
-}
-
-export interface PanelGroup {
-  id: string
-  label: string
-  purpose: string
-  panelSpecs: PanelSpec[]
-}
-
-export interface PanelSpec {
-  title: string
-  description: string
-  visualization: string
-  queryIntent: string
-}
-
-export interface VariableSuggestion {
-  name: string
-  label: string
-  purpose: string
-}
-
-// -- Critic Output
-
-export interface CriticFeedback {
-  approved: boolean
-  overallScore: number
-  issues: CriticIssue[]
-}
-
-export interface CriticIssue {
-  panelTitle: string
-  severity: 'error' | 'warning'
-  category: string
-  description: string
-  suggestedFix?: string
-}
-
-// -- Generator I/O
-
-export interface RawPanelSpec {
-  title: string
-  description: string
-  visualization: string
-  queries: Array<{
-    refId: string
-    expr: string
-    legendFormat?: string
-    instant?: boolean
-  }>
-  row: number
-  col: number
-  width: number
-  height: number
-  unit?: string
-  stackMode?: 'none' | 'normal' | 'percent'
-  fillOpacity?: number
-  decimals?: number
-  thresholds?: Array<{ value: number, color: string, label?: string }>
-}
-
-// -- Shared Deps
-
-export interface GeneratorDeps {
-  gateway: import('@agentic-obs/llm-gateway').LLMGateway
-  model: string
-  metrics?: import('../adapters/index.js').IMetricsAdapter
-  sendEvent: (event: import('@agentic-obs/common').DashboardSseEvent) => void
-}
-
-export interface GenerateInput {
-  goal: string
-  scope?: 'single' | 'group' | 'comprehensive'
-  existingPanels: PanelConfig[]
-  existingVariables: DashboardVariable[]
-}
-
-export interface GenerateOutput {
-  title: string
-  description: string
-  panels: PanelConfig[]
-  variables: DashboardVariable[]
-  /** Set when discovery found 0 relevant metrics — caller should ask the user for clarification */
-  needsClarification?: {
-    searchedFor: string
-    totalMetricsInPrometheus: number
-    candidateMetrics: string[]
-  }
-}
-
 // -- Injected dependency interfaces for stores consumed by dashboard agents.
 // Concrete implementations live in api-gateway (or data-layer); agents depend
 // only on these narrow interfaces.
@@ -121,11 +24,17 @@ export interface IDashboardAgentStore {
   updateVariables(id: string, variables: DashboardVariable[]): unknown
 }
 
+/**
+ * Conversation history surface consumed by the orchestrator. Always keyed on
+ * the chat sessionId — the legacy dashboardId-keyed shape was removed when
+ * dashboard_messages went away. Implementations are free to no-op writes if
+ * the host (e.g. chat-service) persists messages itself.
+ */
 export interface IConversationStore {
-  addMessage(dashboardId: string, msg: import('@agentic-obs/common').DashboardMessage): import('@agentic-obs/common').DashboardMessage | Promise<import('@agentic-obs/common').DashboardMessage>
-  getMessages(dashboardId: string): import('@agentic-obs/common').DashboardMessage[] | Promise<import('@agentic-obs/common').DashboardMessage[]>
-  clearMessages(dashboardId: string): void | Promise<void>
-  deleteConversation(dashboardId: string): void | Promise<void>
+  addMessage(sessionId: string, msg: import('@agentic-obs/common').DashboardMessage): import('@agentic-obs/common').DashboardMessage | Promise<import('@agentic-obs/common').DashboardMessage>
+  getMessages(sessionId: string): import('@agentic-obs/common').DashboardMessage[] | Promise<import('@agentic-obs/common').DashboardMessage[]>
+  clearMessages(sessionId: string): void | Promise<void>
+  deleteConversation(sessionId: string): void | Promise<void>
 }
 
 export interface IInvestigationReportStore {
@@ -156,8 +65,15 @@ export interface IAlertRuleStore {
   create(data: Record<string, unknown>): { name: string, severity: string, evaluationIntervalSec: number, condition: { query: string, operator: string, threshold: number, forDurationSec: number }, id?: string } | Promise<{ name: string, severity: string, evaluationIntervalSec: number, condition: { query: string, operator: string, threshold: number, forDurationSec: number }, id?: string }>
   update?(id: string, patch: Record<string, unknown>): unknown
   findAll?(): { id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[] | Promise<{ id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[]>
+  /** Workspace-scoped listing — used by handlers to scope upsert lookups
+   *  to the caller's workspace so a rule with a duplicate name in another
+   *  workspace doesn't get clobbered. Optional; falls back to findAll. */
+  findByWorkspace?(workspaceId: string): { id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[] | Promise<{ id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[]>
   findById?(id: string): unknown
   delete?(id: string): unknown
+  /** Resolve the folder UID for a rule within an org. Used by handlers
+   *  to build folder-scoped RBAC evaluators on modify/delete. */
+  getFolderUid?(orgId: string, ruleId: string): string | null | Promise<string | null>
   /** Recent state-change events (firings / resolutions) ordered newest first.
    *  Optional — implementations without persistent history may omit. */
   getHistory?(ruleId: string, limit?: number): unknown[] | Promise<unknown[]>

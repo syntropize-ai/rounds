@@ -347,12 +347,16 @@ export default function InvestigationDetail() {
     ]);
     setAgentGenerating(true);
 
-    // TODO: Investigation chat will be handled through the dashboard agent in the future.
-    // For now, investigation follow-up chat is disabled.
+    // Investigation follow-ups go through the canonical chat-service endpoint
+    // with `pageContext.kind = 'investigation'` so the orchestrator knows
+    // which investigation to scope tools against. The investigation's own
+    // sessionId is reused so subsequent turns share history.
     await apiClient.postStream(
-      `/dashboards/${id}/chat`,
+      `/chat`,
       {
         message: content,
+        ...(investigation?.sessionId ? { sessionId: investigation.sessionId } : {}),
+        pageContext: { kind: 'investigation', id },
       },
       (eventType: string, rawData: string) => {
         let parsed: Record<string, unknown> = {};

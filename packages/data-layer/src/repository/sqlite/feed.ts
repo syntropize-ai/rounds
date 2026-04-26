@@ -15,7 +15,7 @@ import type {
   HypothesisFeedback,
   ActionFeedback,
   FeedbackStats,
-} from '../../stores/feed-store.js';
+} from '../types/feed.js';
 
 type FeedRow = typeof feedItems.$inferSelect;
 

@@ -20,6 +20,7 @@ import {
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
+import { tokenIssueRateLimiter } from '../middleware/rate-limiter.js';
 import {
   ServiceAccountService,
   ServiceAccountServiceError,
@@ -353,8 +354,12 @@ export function createServiceAccountsRouter(
   );
 
   // -- POST /api/serviceaccounts/:id/tokens -------------------------------
+  // Strict per-user 5/min cap (token-issue limiter) — see
+  // `middleware/rate-limiter.ts`. Layered on top of the per-user 600/min
+  // bucket mounted in `server.ts`.
   router.post(
     '/:id/tokens',
+    tokenIssueRateLimiter,
     requirePermission((req) =>
       ac.eval(
         ACTIONS.ServiceAccountsWrite,

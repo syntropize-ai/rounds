@@ -40,6 +40,10 @@ export class EventEmittingAlertRuleRepository implements IAlertRuleRepository {
     return this.repo.findByWorkspace(workspaceId);
   }
 
+  getFolderUid(orgId: string, ruleId: string): MaybeAsync<string | null> {
+    return this.repo.getFolderUid(orgId, ruleId);
+  }
+
   async update(id: string, patch: Partial<Omit<AlertRule, 'id' | 'createdAt'>>): Promise<AlertRule | undefined> {
     const updated = await this.repo.update(id, patch);
     if (updated) this.notify('updated', updated);

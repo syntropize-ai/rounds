@@ -1,17 +1,6 @@
-import { randomUUID } from 'crypto';
-import { createLogger } from '@agentic-obs/common/logging';
-import type { DashboardSseEvent, Identity, InstanceDatasource } from '@agentic-obs/common';
-
-const log = createLogger('dashboard-service');
-import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
-import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore } from '@agentic-obs/data-layer';
-import { createLlmGateway } from '../routes/llm-factory.js';
-import { DashboardOrchestratorAgent as OrchestratorAgent, AdapterRegistry } from '@agentic-obs/agent-core';
-import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
+import type { InstanceDatasource } from '@agentic-obs/common';
+import { AdapterRegistry } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter, LokiLogsAdapter } from '@agentic-obs/adapters';
-import type { AccessControlSurface } from './accesscontrol-holder.js';
-import type { AuditWriter } from '../auth/audit-writer.js';
-import type { SetupConfigService } from './setup-config-service.js';
 
 /**
  * Convert InstanceDatasource[] to the narrower `DatasourceConfig[]`
@@ -38,22 +27,6 @@ export function toAgentDatasources(datasources: InstanceDatasource[]): Array<{
     ...(d.label ? { label: d.label } : {}),
     isDefault: d.isDefault,
   }));
-}
-
-/** Adapts data-layer IAlertRuleRepository to agent-core IAlertRuleStore. */
-function toAlertRuleStore(repo: IAlertRuleRepository): IAlertRuleStore {
-  return {
-    create: (data) => repo.create(data as Parameters<IAlertRuleRepository['create']>[0]),
-    update: repo.update ? (id, patch) => repo.update(id, patch as Parameters<IAlertRuleRepository['update']>[1]) : undefined,
-    findAll: repo.findAll
-      ? async () => {
-          const result = await repo.findAll();
-          return 'list' in result ? result.list : result;
-        }
-      : undefined,
-    findById: repo.findById ? (id) => repo.findById(id) : undefined,
-    delete: repo.delete ? (id) => repo.delete(id) : undefined,
-  };
 }
 
 // -- Prometheus resolution (shared across services)
@@ -138,134 +111,3 @@ export async function withDashboardLock<T>(dashboardId: string, fn: () => Promis
   }
 }
 
-// -- Dashboard Chat Service
-
-export interface ChatResult {
-  replyContent: string;
-  assistantMessageId: string;
-  navigate?: string;
-}
-
-export interface ChatTimeRange {
-  start?: string;
-  end?: string;
-  timezone?: string;
-}
-
-export interface DashboardServiceDeps {
-  store: IGatewayDashboardStore;
-  conversationStore: IConversationStore;
-  investigationReportStore: IInvestigationReportRepository;
-  alertRuleStore: IAlertRuleRepository;
-  investigationStore?: IGatewayInvestigationStore;
-  feedStore?: IGatewayFeedStore;
-  /** Wave 7 — RBAC surface for the agent permission gate. Required. */
-  accessControl: AccessControlSurface;
-  /** Audit-log writer. */
-  auditWriter?: AuditWriter;
-  /** Folder backend for agent folder.* tools; optional. */
-  folderRepository?: import('@agentic-obs/common').IFolderRepository;
-  /** W2 / T2.4 — LLM + datasource reads go through here, not the old flat-file config. */
-  setupConfig: SetupConfigService;
-}
-
-export class DashboardService {
-  private store: IGatewayDashboardStore;
-  private conversationStore: IConversationStore;
-  private investigationReportStore: IInvestigationReportRepository;
-  private alertRuleStore: IAlertRuleRepository;
-  private investigationStore?: IGatewayInvestigationStore;
-  private feedStore?: IGatewayFeedStore;
-  private accessControl: AccessControlSurface;
-  private auditWriter?: AuditWriter;
-  private folderRepository?: import('@agentic-obs/common').IFolderRepository;
-  private setupConfig: SetupConfigService;
-
-  constructor(deps: DashboardServiceDeps) {
-    this.store = deps.store;
-    this.conversationStore = deps.conversationStore;
-    this.investigationReportStore = deps.investigationReportStore;
-    this.investigationStore = deps.investigationStore;
-    this.feedStore = deps.feedStore;
-    this.alertRuleStore = deps.alertRuleStore;
-    this.accessControl = deps.accessControl;
-    this.auditWriter = deps.auditWriter;
-    this.folderRepository = deps.folderRepository;
-    this.setupConfig = deps.setupConfig;
-  }
-
-  /**
-   * Process a chat message for a dashboard.
-   * Business logic only — no HTTP/SSE concerns.
-   */
-  async handleChatMessage(
-    dashboardId: string,
-    message: string,
-    timeRange: ChatTimeRange | undefined,
-    sendEvent: (event: DashboardSseEvent) => void,
-    identity: Identity,
-  ): Promise<ChatResult> {
-    const llm = await this.setupConfig.getLlm();
-    if (!llm) {
-      throw new Error('LLM not configured - please complete the Setup Wizard first.');
-    }
-    const datasources = await this.setupConfig.listDatasources();
-
-    // Save user message
-    const userMessageId = randomUUID();
-    await this.conversationStore.addMessage(dashboardId, {
-      id: userMessageId,
-      role: 'user',
-      content: message,
-      timestamp: new Date().toISOString(),
-    });
-
-    const gateway = createLlmGateway(llm);
-    const model = llm.model;
-    const adapters = buildAdapterRegistry(datasources);
-
-    const orchestrator = new OrchestratorAgent({
-      gateway,
-      model,
-      store: this.store,
-      conversationStore: this.conversationStore,
-      investigationReportStore: this.investigationReportStore,
-      investigationStore: this.investigationStore as IInvestigationStore | undefined,
-      alertRuleStore: toAlertRuleStore(this.alertRuleStore),
-      ...(this.folderRepository ? { folderRepository: this.folderRepository } : {}),
-      adapters,
-      allDatasources: toAgentDatasources(datasources),
-      sendEvent,
-      timeRange: timeRange?.start && timeRange?.end
-        ? { start: timeRange.start, end: timeRange.end, timezone: timeRange.timezone }
-        : undefined,
-      identity,
-      accessControl: this.accessControl,
-      ...(this.auditWriter ? { auditWriter: this.auditWriter } : {}),
-      // Single full-capability agent for every chat surface — see the
-      // pickAgentTypeFromContext comment in chat-service.ts.
-      agentType: 'orchestrator',
-    });
-
-    log.info({ dashboardId, message: message.slice(0, 80) }, 'starting orchestrator');
-    const replyContent = await orchestrator.handleMessage(message, dashboardId);
-    const assistantActions = orchestrator.consumeConversationActions();
-    const navigate = orchestrator.consumeNavigate();
-    log.info({ dashboardId, reply: replyContent.slice(0, 100) }, 'orchestrator done');
-
-    // Mark dashboard as ready (stops frontend polling)
-    await this.store.updateStatus(dashboardId, 'ready');
-
-    // Save assistant message
-    const assistantMessageId = randomUUID();
-    await this.conversationStore.addMessage(dashboardId, {
-      id: assistantMessageId,
-      role: 'assistant',
-      content: replyContent,
-      ...(assistantActions.length > 0 ? { actions: assistantActions } : {}),
-      timestamp: new Date().toISOString(),
-    });
-
-    return { replyContent, assistantMessageId, navigate };
-  }
-}

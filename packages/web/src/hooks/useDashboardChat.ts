@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import type { PanelConfig } from '../components/DashboardPanelCard.js';
@@ -110,6 +110,7 @@ export function useDashboardChat(
   initialPanels: PanelConfig[],
   initialVariables: DashboardVariable[] = [],
   timeRange = '1h',
+  sessionId?: string,
 ): UseDashboardChatResult {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -119,7 +120,6 @@ export function useDashboardChat(
   const [panels, setPanels] = useState<PanelConfig[]>(initialPanels);
   const [variables, setVariables] = useState<DashboardVariable[]>(initialVariables);
   const abortRef = useRef<AbortController | null>(null);
-  const sessionIdRef = useRef(`ses_dash_${dashboardId || crypto.randomUUID()}`);
   const historyLoadedRef = useRef(false);
 
   // Track whether SSE has modified panels during this generation cycle
@@ -140,27 +140,34 @@ export function useDashboardChat(
     }
   }, [initialPanels, isGenerating]);
 
-  // Load chat history and saved investigation report on mount / dashboard change
+  // Load chat history (via the chat-service session messages endpoint) and the
+  // saved investigation report on mount / dashboard change. Chat history
+  // requires a `sessionId` — without one we skip history and just load the
+  // report (the dashboard may have been created before sessions existed).
   useEffect(() => {
     if (!dashboardId) return;
     historyLoadedRef.current = false;
     void (async () => {
+      const chatPromise = sessionId
+        ? apiClient.get<{ messages: ChatMessage[] }>(`/chat/sessions/${sessionId}/messages`)
+        : Promise.resolve({ data: { messages: [] }, error: null } as { data: { messages: ChatMessage[] } | null; error: null | { code: string; message?: string } });
       const [chatRes, reportRes] = await Promise.all([
-        apiClient.get<{ messages: ChatMessage[] }>(`/dashboards/${dashboardId}/chat`),
+        chatPromise,
         apiClient.get<InvestigationReport>(`/investigation-reports/by-dashboard/${dashboardId}`),
       ]);
-      if (chatRes.data?.messages?.length) {
-        setMessages(chatRes.data.messages);
+      const loadedMessages = chatRes.data?.messages ?? [];
+      if (loadedMessages.length) {
+        setMessages(loadedMessages);
         setEvents((prev) => {
           // If events were already added (e.g. initial prompt), prepend history before them
           if (prev.length > 0) {
             const existingIds = new Set(prev.map((e) => e.id));
-            const historyEvents = chatRes.data.messages
+            const historyEvents = loadedMessages
               .filter((m) => !existingIds.has(m.id))
               .map((m) => ({ id: m.id, kind: 'message' as const, message: m }));
             return [...historyEvents, ...prev];
           }
-          return chatRes.data.messages.map((m) => ({
+          return loadedMessages.map((m) => ({
             id: m.id,
             kind: 'message' as const,
             message: m,
@@ -175,7 +182,7 @@ export function useDashboardChat(
       }
       historyLoadedRef.current = true;
     })();
-  }, [dashboardId]);
+  }, [dashboardId, sessionId]);
 
   const appendEvent = useCallback((evt: ChatEvent) => {
     setEvents((prev) => [...prev, evt]);
@@ -341,11 +348,18 @@ export function useDashboardChat(
       setIsGenerating(true);
 
       try {
+        // Route through the canonical chat-service endpoint. The dashboard is
+        // identified through `pageContext` so the orchestrator scopes its
+        // dashboard.* tools to it; the legacy POST /api/dashboards/:id/chat
+        // path was removed.
+        const tr = resolveChatTimeRange(timeRange);
         await apiClient.postStream(
-          `/dashboards/${dashboardId}/chat`,
+          `/chat`,
           {
             message: content,
-            timeRange: resolveChatTimeRange(timeRange),
+            ...(sessionId ? { sessionId } : {}),
+            pageContext: { kind: 'dashboard', id: dashboardId, timeRange },
+            timeRange: tr,
           },
           handleSSEEvent,
           abortRef.current.signal,
@@ -359,7 +373,7 @@ export function useDashboardChat(
         setIsGenerating(false);
       }
     },
-    [dashboardId, isGenerating, handleSSEEvent, appendEvent, timeRange],
+    [dashboardId, sessionId, isGenerating, handleSSEEvent, appendEvent, timeRange],
   );
 
   const stopGeneration = useCallback(() => {
@@ -385,16 +399,30 @@ export function useDashboardChat(
     };
   }, []);
 
-  return {
-    messages,
-    events,
-    isGenerating,
-    sendMessage,
-    stopGeneration,
-    panels,
-    variables,
-    setPanels,
-    setVariables,
-    investigationReport,
-  };
+  return useMemo(
+    () => ({
+      messages,
+      events,
+      isGenerating,
+      sendMessage,
+      stopGeneration,
+      panels,
+      variables,
+      setPanels,
+      setVariables,
+      investigationReport,
+    }),
+    [
+      messages,
+      events,
+      isGenerating,
+      sendMessage,
+      stopGeneration,
+      panels,
+      variables,
+      setPanels,
+      setVariables,
+      investigationReport,
+    ],
+  );
 }

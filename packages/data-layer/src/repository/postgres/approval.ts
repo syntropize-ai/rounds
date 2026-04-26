@@ -106,19 +106,19 @@ export class PostgresApprovalRepository implements IApprovalRepository {
     return rows.map(rowToRecord).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
-  async approve(id: string, by: string, roles?: string[]): Promise<ApprovalRecord | undefined> {
+  async approve(id: string, by: string, _roles?: string[]): Promise<ApprovalRecord | undefined> {
     const existing = await this.findById(id);
     if (!existing || existing.status !== 'pending') return undefined;
     return this.update(id, { status: 'approved', resolvedBy: by, resolvedAt: new Date().toISOString() });
   }
 
-  async reject(id: string, by: string, roles?: string[]): Promise<ApprovalRecord | undefined> {
+  async reject(id: string, by: string, _roles?: string[]): Promise<ApprovalRecord | undefined> {
     const existing = await this.findById(id);
     if (!existing || existing.status !== 'pending') return undefined;
     return this.update(id, { status: 'rejected', resolvedBy: by, resolvedAt: new Date().toISOString() });
   }
 
-  async override(id: string, by: string, roles?: string[]): Promise<ApprovalRecord | undefined> {
+  async override(id: string, by: string, _roles?: string[]): Promise<ApprovalRecord | undefined> {
     return this.update(id, { status: 'approved', resolvedBy: by, resolvedAt: new Date().toISOString() });
   }
 }

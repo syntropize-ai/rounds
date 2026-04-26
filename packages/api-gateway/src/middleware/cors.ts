@@ -42,7 +42,7 @@ if (isProd) {
 const corsOptions: CorsOptions = {
   origin: corsOrigin,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'Accept', 'X-CSRF-Token', 'X-Openobs-Org-Id', 'Last-Event-ID'],
   credentials,
 }
 

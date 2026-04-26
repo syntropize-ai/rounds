@@ -9,11 +9,13 @@ export type {
   LLMProvider,
   MessageRole,
   ModelInfo,
+  ProviderErrorKind,
   ToolDefinition,
   ToolCall,
   JsonSchemaObject,
   JsonSchemaProperty,
 } from './types.js';
+export { ProviderError, classifyProviderHttpError } from './types.js';
 export type { ProviderCapabilities } from './providers/capabilities.js';
 export { getCapabilities, ProviderCapabilityError } from './providers/capabilities.js';
 export { LLMGateway } from './gateway.js';

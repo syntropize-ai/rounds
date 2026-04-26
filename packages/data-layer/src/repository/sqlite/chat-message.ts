@@ -1,4 +1,4 @@
-import { eq, desc, count } from 'drizzle-orm';
+import { eq, count } from 'drizzle-orm';
 import type { ChatMessage, DashboardAction } from '@agentic-obs/common';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { chatMessages } from '../../db/sqlite-schema.js';

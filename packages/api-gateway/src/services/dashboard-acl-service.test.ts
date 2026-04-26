@@ -15,7 +15,6 @@ import {
   TeamRepository,
   TeamMemberRepository,
   UserRepository,
-  OrgUserRepository,
 } from '@agentic-obs/data-layer';
 import type { SqliteClient } from '@agentic-obs/data-layer';
 import type { Identity } from '@agentic-obs/common';

@@ -18,7 +18,6 @@ import express, { type Application } from 'express';
 import request from 'supertest';
 import {
   AuditLogRepository,
-  OrgRepository,
   OrgUserRepository,
   QuotaRepository,
   UserAuthTokenRepository,
@@ -49,7 +48,6 @@ async function buildApp(env: NodeJS.ProcessEnv = {}): Promise<Ctx> {
 
   const users = new UserRepository(db);
   const orgUsers = new OrgUserRepository(db);
-  const orgs = new OrgRepository(db);
   const userAuthTokens = new UserAuthTokenRepository(db);
   const auditLog = new AuditLogRepository(db);
   const quotas = new QuotaRepository(db);

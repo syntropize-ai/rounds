@@ -93,10 +93,6 @@ export {
   DashboardStore,
   defaultDashboardStore,
 
-  // Conversation
-  ConversationStore,
-  defaultConversationStore,
-
   // Investigation Report
   InvestigationReportStore,
   defaultInvestigationReportStore,
@@ -123,6 +119,5 @@ export {
   type IGatewayApprovalStore,
   type IGatewayShareStore,
   type IGatewayDashboardStore,
-  type IConversationStore,
   type GatewayStores,
 } from './stores/index.js';

@@ -10,6 +10,5 @@ export type {
   IGatewayApprovalStore,
   IGatewayShareStore,
   IGatewayDashboardStore,
-  IConversationStore,
   GatewayStores,
 } from '@agentic-obs/data-layer'

@@ -16,7 +16,6 @@ import type {
   DashboardStatus,
   DashboardVariable,
   PanelConfig,
-  DashboardMessage,
 } from '@agentic-obs/common'
 import type { ExplanationResult } from '@agentic-obs/common'
 import type {
@@ -54,25 +53,25 @@ export interface IGatewayInvestigationStore {
     tenantId?: string
     workspaceId?: string
   }): MaybeAsync<Investigation>
-  findById(id: string): MaybeAsync<Investigation | undefined>
+  findById(id: string): MaybeAsync<Investigation | null | undefined>
   findAll(): MaybeAsync<Investigation[]>
   getArchived(): MaybeAsync<Investigation[]>
-  restoreFromArchive(id: string): MaybeAsync<Investigation | undefined>
+  restoreFromArchive(id: string): MaybeAsync<Investigation | null | undefined>
   addFollowUp(investigationId: string, question: string): MaybeAsync<FollowUpRecord>
   addFeedback(investigationId: string, body: FeedbackBody): MaybeAsync<StoredFeedback>
-  getConclusion(id: string): MaybeAsync<ExplanationResult | undefined>
+  getConclusion(id: string): MaybeAsync<ExplanationResult | null | undefined>
 
   // Delete
   delete(id: string): MaybeAsync<boolean>
 
   // Orchestrator write-back
-  updateStatus(id: string, status: InvestigationStatus): MaybeAsync<Investigation | undefined>
-  updatePlan(id: string, plan: Investigation['plan']): MaybeAsync<Investigation | undefined>
+  updateStatus(id: string, status: InvestigationStatus): MaybeAsync<Investigation | null | undefined>
+  updatePlan(id: string, plan: Investigation['plan']): MaybeAsync<Investigation | null | undefined>
   updateResult(id: string, result: {
     hypotheses: Hypothesis[]
     evidence: Evidence[]
     conclusion: ExplanationResult | null
-  }): MaybeAsync<Investigation | undefined>
+  }): MaybeAsync<Investigation | null | undefined>
 }
 
 // -- Incident
@@ -162,15 +161,6 @@ export interface IGatewayDashboardStore {
   delete(id: string): MaybeAsync<boolean>
 }
 
-// -- ConversationStore
-
-export interface IConversationStore {
-  addMessage(dashboardId: string, msg: DashboardMessage): MaybeAsync<DashboardMessage>
-  getMessages(dashboardId: string): MaybeAsync<DashboardMessage[]>
-  clearMessages(dashboardId: string): MaybeAsync<void>
-  deleteConversation(dashboardId: string): MaybeAsync<void>
-}
-
 // -- Aggregate
 
 export interface GatewayStores {
@@ -180,5 +170,4 @@ export interface GatewayStores {
   approvals: IGatewayApprovalStore
   shares: IGatewayShareStore
   dashboards: IGatewayDashboardStore
-  conversations: IConversationStore
 }

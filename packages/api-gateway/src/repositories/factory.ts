@@ -20,8 +20,6 @@ import {
   defaultShareStore,
   DashboardStore,
   defaultDashboardStore,
-  ConversationStore,
-  defaultConversationStore,
 } from '@agentic-obs/data-layer'
 import type { GatewayStores } from './types.js'
 
@@ -34,7 +32,6 @@ export function createInMemoryStores(): GatewayStores {
     approvals: new ApprovalStore(),
     shares: new ShareStore(),
     dashboards: new DashboardStore(),
-    conversations: new ConversationStore(),
   }
 }
 
@@ -51,6 +48,5 @@ export function createDefaultStores(): GatewayStores {
     approvals: approvalStore,
     shares: defaultShareStore,
     dashboards: defaultDashboardStore,
-    conversations: defaultConversationStore,
   }
 }

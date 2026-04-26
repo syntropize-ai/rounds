@@ -80,9 +80,10 @@ export const LLM_PROVIDERS: Array<{
   },
   {
     value: 'openai',
-    label: 'OpenAI',
+    label: 'OpenAI / OpenAI-compatible',
     fallbackModels: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
     needsKey: true,
+    needsUrl: true,
     supportsModelFetch: true,
   },
   {
@@ -97,6 +98,7 @@ export const LLM_PROVIDERS: Array<{
     label: 'DeepSeek',
     fallbackModels: ['deepseek-chat', 'deepseek-reasoner'],
     needsKey: true,
+    needsUrl: true,
     supportsModelFetch: true,
   },
   {

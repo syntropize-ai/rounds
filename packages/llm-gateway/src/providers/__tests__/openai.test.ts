@@ -298,7 +298,7 @@ describe('OpenAIProvider — response parsing', () => {
     expect(result.toolCalls[1]!.input).toEqual({ sourceId: 'p', query: 'rate(x[1m])' });
   });
 
-  it('handles malformed arguments JSON gracefully (no crash, empty input)', async () => {
+  it('tags malformed arguments JSON with _malformed_args so the agent loop can detect it', async () => {
     const m = installFetchMock({
       response: defaultResponse(null, [
         {
@@ -319,12 +319,12 @@ describe('OpenAIProvider — response parsing', () => {
       {
         id: 'call_bad',
         name: 'metrics.query',
-        input: {},
+        input: { _malformed_args: '{not valid json' },
       },
     ]);
   });
 
-  it('handles arguments JSON that does not parse to an object (e.g. array) without crashing', async () => {
+  it('tags non-object arguments JSON (e.g. array) with _malformed_args', async () => {
     const m = installFetchMock({
       response: defaultResponse(null, [
         {
@@ -341,7 +341,7 @@ describe('OpenAIProvider — response parsing', () => {
     const provider = new OpenAIProvider({ apiKey: 'sk-test' });
 
     const result = await provider.complete(messages, { model: 'gpt-4o' });
-    expect(result.toolCalls[0]!.input).toEqual({});
+    expect(result.toolCalls[0]!.input).toEqual({ _malformed_args: '[1,2,3]' });
   });
 
   it('handles empty arguments string as empty object', async () => {
@@ -413,6 +413,56 @@ describe('OpenAIProvider — name normalization round-trip', () => {
       model: 'gpt-4o',
     });
     expect(result.toolCalls[0]!.name).toBe('dashboard.add_panels');
+  });
+});
+
+describe('OpenAIProvider — tool_result wiring', () => {
+  let restore: () => void;
+  afterEach(() => restore?.());
+
+  it('emits role:tool messages with tool_call_id and normalized name from tool_name', async () => {
+    const m = installFetchMock();
+    restore = m.restore;
+    const provider = new OpenAIProvider({ apiKey: 'sk-test' });
+
+    await provider.complete(
+      [
+        { role: 'user', content: 'check' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'call_abc',
+              name: 'metrics.query',
+              input: { sourceId: 'prom', query: 'up' },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'call_abc',
+              tool_name: 'metrics.query',
+              content: '1 1 1',
+            },
+          ],
+        },
+      ],
+      { model: 'gpt-4o' },
+    );
+
+    const sent = m.capture[0]!.body as {
+      messages: Array<{ role: string; tool_call_id?: string; name?: string; content?: string | null }>;
+    };
+    const toolMsg = sent.messages.find((mm) => mm.role === 'tool');
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg!.tool_call_id).toBe('call_abc');
+    // dotted canonical name is encoded with the double-underscore wire form.
+    expect(toolMsg!.name).toBe('metrics__query');
+    expect(toolMsg!.content).toBe('1 1 1');
   });
 });
 

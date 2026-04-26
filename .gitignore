@@ -23,6 +23,7 @@ pictures/
 .claude/
 .vscode/
 .idea/
+.codex
 
 # packages/cli is a generated distribution — build with `npm run dist`
 packages/cli/dist/

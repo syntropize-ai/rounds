@@ -229,7 +229,7 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
   // POST /api/query/batch
   router.post('/batch', authMiddleware, async (req: Request, res: Response) => {
     const { queries, start, end, step = '30s', datasourceId, environment, cluster } = req.body as {
-      queries?: Array<{ refId: string, expr: string, instant?: boolean }>
+      queries?: Array<{ refId: string, expr: string, instant?: boolean, datasourceId?: string }>
       start?: string
       end?: string
       step?: string
@@ -255,22 +255,20 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       }
     }
 
-    const ds = await resolvePrometheusDatasource(setupConfig, datasourceId, environment, cluster)
-    if (!ds) {
-      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
-      return
-    }
-
-    const client = new PrometheusHttpClient(buildClientConfig(ds))
     const endDate = end ? new Date(end) : new Date()
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 60 * 1000)
 
     const settled = await Promise.allSettled(
-      queries.map((q) =>
-        q.instant
+      queries.map(async (q) => {
+        const ds = await resolvePrometheusDatasource(setupConfig, q.datasourceId ?? datasourceId, environment, cluster)
+        if (!ds) {
+          throw new Error(q.datasourceId ? `Datasource ${q.datasourceId} is not a configured Prometheus datasource` : 'No Prometheus datasource configured')
+        }
+        const client = new PrometheusHttpClient(buildClientConfig(ds))
+        return q.instant
           ? client.instantQuery(q.expr)
-          : client.rangeQuery(q.expr, startDate, endDate, step),
-      ),
+          : client.rangeQuery(q.expr, startDate, endDate, step)
+      }),
     )
 
     const results: Record<string, { status: string, data: unknown, error?: string }> = {}

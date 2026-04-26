@@ -177,6 +177,18 @@ export class DashboardRepository implements IDashboardRepository {
     return rowToDashboard(rows[0]!);
   }
 
+  /**
+   * Folder-uid lookup used by the RBAC dashboards resolver to cascade a
+   * grant on a folder's scope to any dashboard it contains. Org-scoped so
+   * one org can't reach into another's row.
+   */
+  async getFolderUid(orgId: string, dashboardId: string): Promise<string | null> {
+    const rows = this.db.all<{ folder_uid: string | null }>(
+      sql`SELECT folder_uid FROM dashboards WHERE org_id = ${orgId} AND id = ${dashboardId} LIMIT 1`,
+    );
+    return rows[0]?.folder_uid ?? null;
+  }
+
   async findAll(userId?: string): Promise<Dashboard[]> {
     const rows =
       userId === undefined
@@ -416,5 +428,11 @@ export class SqliteDashboardRepository implements ILegacyDashboardRepository {
 
   async delete(id: string): Promise<boolean> {
     return this.inner.delete(id);
+  }
+
+  /** Pass-through to the W2 impl so RBAC resolver wiring can call it
+   * without reaching for the underlying SQLite client. */
+  async getFolderUid(orgId: string, dashboardId: string): Promise<string | null> {
+    return this.inner.getFolderUid(orgId, dashboardId);
   }
 }

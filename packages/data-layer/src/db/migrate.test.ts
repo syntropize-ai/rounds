@@ -79,6 +79,7 @@ describe('migrate()', () => {
       '017_dashboard_folder_uid.sql',
       '018_runtime_settings.sql',
       '019_instance_settings.sql',
+      '020_drop_dashboard_messages.sql',
     ]);
   });
 

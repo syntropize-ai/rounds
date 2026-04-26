@@ -17,6 +17,7 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
     investigationReportStore: {} as ActionContext['investigationReportStore'],
     alertRuleStore: {
       findById: async () => null,
+      getFolderUid: async () => null,
     } as unknown as ActionContext['alertRuleStore'],
     adapters: new AdapterRegistry(),
     allDatasources: [{ id: 'ds-prom', type: 'prometheus', name: 'Prom', url: 'http://x', isDefault: true }],
@@ -114,7 +115,7 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
   it('modify_alert_rule looks up the rule to derive folderUid', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
-        findById: async () => ({ id: 'rule-1', folderUid: 'ops' }),
+        getFolderUid: async () => 'ops',
       } as unknown as ActionContext['alertRuleStore'],
     });
     const builder = TOOL_PERMS['modify_alert_rule']!;
@@ -127,7 +128,7 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
   it('modify_alert_rule falls back to wildcard when rule has no folderUid', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
-        findById: async () => ({ id: 'rule-1' }),
+        getFolderUid: async () => null,
       } as unknown as ActionContext['alertRuleStore'],
     });
     const result = await TOOL_PERMS['modify_alert_rule']!({ ruleId: 'rule-1' }, ctx);
@@ -139,7 +140,7 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
   it('delete_alert_rule uses the delete action with folder scope', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
-        findById: async () => ({ id: 'rule-1', folderUid: 'ops' }),
+        getFolderUid: async () => 'ops',
       } as unknown as ActionContext['alertRuleStore'],
     });
     const result = await TOOL_PERMS['delete_alert_rule']!({ ruleId: 'rule-1' }, ctx);

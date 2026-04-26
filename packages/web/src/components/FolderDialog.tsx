@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { apiClient } from '../api/client.js';
+import { DashboardSchema } from '../api/schemas.js';
 import { PermissionsDialog } from './permissions/index.js';
 
 interface Dashboard {
@@ -42,7 +43,7 @@ export default function FolderDialog({ dashboardId, currentFolder, onSaved, open
   }, [creatingNew]);
 
   const save = async () => {
-    const res = await apiClient.put<Dashboard>(`/dashboards/${dashboardId}`, { folder: selected || undefined });
+    const res = await apiClient.putValidated<Dashboard>(`/dashboards/${dashboardId}`, { folder: selected || undefined }, DashboardSchema, 'Dashboard');
     if (!res.error) onSaved(selected);
     onClose();
   };

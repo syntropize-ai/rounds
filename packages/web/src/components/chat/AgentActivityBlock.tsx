@@ -19,16 +19,6 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
   );
 }
 
-function AnimatedDots() {
-  return (
-    <span className="inline-flex gap-0.5 ml-0.5 translate-y-[-1px]">
-      <span className="w-1 h-1 rounded-full bg-primary animate-bounce [animation-delay:0ms]" />
-      <span className="w-1 h-1 rounded-full bg-primary animate-bounce [animation-delay:150ms]" />
-      <span className="w-1 h-1 rounded-full bg-primary animate-bounce [animation-delay:300ms]" />
-    </span>
-  );
-}
-
 // Step row component
 
 function StepRowView({
@@ -59,7 +49,6 @@ function StepRowView({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-medium text-on-surface">{step.label}</span>
-          {isActive && <AnimatedDots />}
         </div>
         <div className="text-[11px] text-on-surface-variant truncate mt-0.5 leading-tight">
           {step.result?.text || step.status}
@@ -78,18 +67,26 @@ export default function AgentActivityBlock({
   events: ChatEvent[];
   isLive: boolean;
 }) {
-  // Default collapsed — natural language messages are the primary content.
-  // Users can click to expand and see tool call details.
-  const [expanded, setExpanded] = useState(false);
-
-  // Ensure collapsed once work completes
+  // While the agent is running, auto-expand so the user sees live progress.
+  // After completion, collapse to keep the chat compact — tool details are
+  // still one click away. Reflects whether user manually toggled either way:
+  // once the user clicks the chevron, we stop forcing the auto behavior so
+  // their preference is honored for the remainder of the session.
+  const [expanded, setExpanded] = useState(isLive);
+  const userToggledRef = useRef(false);
   const wasLive = useRef(isLive);
   useEffect(() => {
-    if (wasLive.current && !isLive) {
-      setExpanded(false);
+    if (wasLive.current !== isLive) {
+      if (!userToggledRef.current) {
+        setExpanded(isLive);
+      }
+      wasLive.current = isLive;
     }
-    wasLive.current = isLive;
   }, [isLive]);
+  const handleToggle = () => {
+    userToggledRef.current = true;
+    setExpanded((v) => !v);
+  };
 
   const { steps, preStatus } = useMemo(() => buildSteps(events), [events]);
 
@@ -98,17 +95,25 @@ export default function AgentActivityBlock({
   const failCount = steps.filter((s) => s.result && !s.result.success).length;
   const lastActive = [...steps].reverse().find((s) => !s.done);
 
+  // When the only events so far are model thinking (no tool calls yet),
+  // surface "Thinking" instead of "Working" / "0 steps" so the user knows
+  // the model is reasoning rather than stalled.
+  const onlyThinking = steps.length === 0 && Boolean(preStatus);
   const summaryText = isLive
     ? lastActive
       ? lastActive.label
-      : 'Working'
-    : `${doneCount} step${doneCount === 1 ? '' : 's'}${failCount > 0 ? ` (${failCount} failed)` : ''}`;
+      : onlyThinking
+        ? 'Thinking'
+        : 'Working'
+    : onlyThinking
+      ? 'Thinking'
+      : `${doneCount} step${doneCount === 1 ? '' : 's'}${failCount > 0 ? ` (${failCount} failed)` : ''}`;
 
   return (
     <div className="my-2">
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
+        onClick={handleToggle}
         className="flex items-center gap-2 text-left py-1 px-2 -mx-2 rounded hover:bg-surface-high/50 transition-colors group"
       >
         <ChevronIcon expanded={expanded} />
@@ -116,7 +121,6 @@ export default function AgentActivityBlock({
           <>
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
             <span className="text-xs text-on-surface-variant truncate">{summaryText}</span>
-            <AnimatedDots />
           </>
         ) : (
           <>
@@ -142,7 +146,6 @@ export default function AgentActivityBlock({
                 <div className="flex items-center gap-2 py-1.5">
                   <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
                   <span className="text-xs text-on-surface-variant">{preStatus}</span>
-                  <AnimatedDots />
                 </div>
               )}
               {steps.map((step) => {

@@ -79,12 +79,16 @@ function hashApiKey(plaintext: string): string {
 // — Module-level middleware singleton ——————————————————————————
 //
 // Several existing route files import a default `authMiddleware` function.
-// Rather than rewriting every one of them (outside T2 scope), we expose a
-// lazy wrapper that delegates to the middleware built by `createAuthMiddleware`.
-// `server.ts` registers the real implementation at boot via `setAuthMiddleware`.
+// Rather than rewriting every one of them, we expose a wrapper that
+// delegates to the middleware built by `createAuthMiddleware`.
+// `createApp()` (via `app/auth-routes.ts::buildAuthSubsystem`) registers
+// the real implementation at boot via `setAuthMiddleware` BEFORE any
+// route files are mounted, so the wrapper has always been bound by the
+// time a request arrives.
 //
-// When no implementation has been registered yet, the wrapper 503s — never
-// fall through to a permissive default.
+// If something tries to invoke the middleware before binding, that is a
+// programming error in the boot sequence — fail loudly rather than
+// silently 503'ing a request that should never have happened.
 
 type MW = (
   req: AuthenticatedRequest,
@@ -104,10 +108,9 @@ export function authMiddleware(
   next: NextFunction,
 ): void {
   if (!resolvedMiddleware) {
-    res.status(503).json({
-      error: { code: 'SERVICE_UNAVAILABLE', message: 'auth subsystem not initialised' },
-    });
-    return;
+    throw new Error(
+      'authMiddleware invoked before setAuthMiddleware — boot sequence is broken',
+    );
   }
   void resolvedMiddleware(req, res, next);
 }
@@ -150,12 +153,19 @@ export function createAuthMiddleware(deps: AuthMiddlewareDeps) {
           authenticatedBy: 'session',
           sessionId: row.id,
         };
-        // Best-effort markSeen — swallow errors so we never 500 on a
-        // transient write failure.
+        // Best-effort markSeen — never 500 on a transient write failure,
+        // BUT log at warn level (not debug) so a failing markSeen surfaces in
+        // standard log streams. A silently un-touched session is a real UX
+        // bug: idle expiry ticks down even while the user is active.
         deps.sessions.markSeen(row.id).catch((err) => {
-          log.debug(
-            { err: err instanceof Error ? err.message : err },
-            'markSeen failed',
+          log.warn(
+            {
+              err: err instanceof Error ? err.message : err,
+              errClass: err instanceof Error ? err.constructor.name : typeof err,
+              sessionId: row.id,
+              metric: 'session.markSeen.failed',
+            },
+            'markSeen failed — session idle timer will not be refreshed',
           );
         });
         next();

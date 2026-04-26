@@ -6,7 +6,7 @@
  * and returns a canned Response (or throws to simulate AbortSignal timeout).
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { LokiLogsAdapter } from './logs-adapter.js';
 
 type FetchArgs = [url: string, init?: RequestInit];

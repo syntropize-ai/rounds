@@ -108,6 +108,35 @@ body {
   font-family: Inter, "apple-system", BlinkMacSystemFont, sans-serif;
   background: var(--color-surface);
   color: var(--color-on-surface);
+  cursor: default;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+[role="textbox"],
+pre,
+code,
+.select-text {
+  cursor: text;
+  user-select: text;
+}
+
+button,
+a,
+select,
+summary,
+[role="button"],
+[role="link"],
+[role="menuitem"],
+[role="option"],
+[role="tab"],
+[role="switch"],
+[role="checkbox"],
+[role="radio"],
+label {
+  cursor: pointer;
 }
 
 #root {

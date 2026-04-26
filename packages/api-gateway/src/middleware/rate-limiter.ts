@@ -22,11 +22,33 @@ export type RateLimiterMiddleware = (
 
 interface WindowEntry {
   timestamps: number[]
+  /** Last activity ms — used by the periodic janitor to evict idle keys. */
+  lastSeen: number
 }
+
+/**
+ * Cleanup interval used by every limiter: periodically drops entries whose
+ * `lastSeen` is older than `windowMs * 2`. Without this the Map grows
+ * unbounded as new IPs / userIds keep arriving.
+ *
+ * The interval is `unref()`'d so it never holds the process alive in tests.
+ */
+const CLEANUP_INTERVAL_MS = 60_000
 
 export function createRateLimiter(options: RateLimiterOptions) {
   const { windowMs, max, keyFn } = options
   const store = new Map<string, WindowEntry>()
+
+  // Periodic janitor — evict any key whose last hit is older than 2*windowMs.
+  // After that gap the bucket is fully empty (sliding window discards
+  // anything older than `windowMs`), so dropping the key is lossless.
+  const cleanupInterval = setInterval(() => {
+    const cutoff = Date.now() - windowMs * 2
+    for (const [k, v] of store) {
+      if (v.lastSeen < cutoff) store.delete(k)
+    }
+  }, CLEANUP_INTERVAL_MS)
+  if (typeof cleanupInterval.unref === 'function') cleanupInterval.unref()
 
   function getKey(req: Request): string | null {
     if (keyFn)
@@ -51,9 +73,10 @@ export function createRateLimiter(options: RateLimiterOptions) {
 
     let entry = store.get(key)
     if (!entry) {
-      entry = { timestamps: [] }
+      entry = { timestamps: [], lastSeen: now }
       store.set(key, entry)
     }
+    entry.lastSeen = now
 
     // Sliding window: remove timestamps outside the window
     entry.timestamps = entry.timestamps.filter((t) => t > windowStart)
@@ -153,3 +176,54 @@ export function createUserRateLimiter() {
     },
   })
 }
+
+/**
+ * Strict per-user limiter for endpoints that mint long-lived credentials
+ * (`POST /api/serviceaccounts/:id/tokens`, `POST /api/auth/keys`).
+ *
+ * 5 issuances per minute per authenticated user — orders of magnitude lower
+ * than the default 600/min user bucket because each successful call returns a
+ * full bearer token. Leaks one of these is an account compromise; throttling
+ * stops a stolen session from minting hundreds of persistent keys before the
+ * legitimate owner can react.
+ *
+ * Mount AFTER `authMw` so `req.auth.userId` is populated. If the request
+ * arrives without auth (a routing bug — these routes are already auth-gated)
+ * we reject 401 rather than fall through, since per-IP keying would let an
+ * attacker share quota across stolen IPs.
+ */
+export const TOKEN_ISSUE_RATE_LIMIT_MAX = 5
+
+export function createTokenIssueRateLimiter() {
+  return createRateLimiter({
+    windowMs: 60_000,
+    max: TOKEN_ISSUE_RATE_LIMIT_MAX,
+    keyFn: (req) => {
+      const auth = (req as AuthenticatedRequest).auth
+      // No-auth callers are rejected by the wrapper below; returning a
+      // sentinel here keeps the rate-limiter's contract clean (the wrapper
+      // intercepts before this is ever reached, but defence-in-depth).
+      return auth?.userId ?? '__unauth__'
+    },
+  })
+}
+
+/**
+ * Wraps `createTokenIssueRateLimiter` with a defensive 401 for unauthed
+ * requests. Real production traffic should never hit this path because the
+ * routes are already auth-gated, but if a future refactor reorders middleware
+ * we'd rather fail closed than let an unauth caller share an unbounded bucket.
+ */
+export const tokenIssueRateLimiter: RateLimiterMiddleware = (() => {
+  const inner = createTokenIssueRateLimiter()
+  return (req, res, next) => {
+    const auth = (req as AuthenticatedRequest).auth
+    if (!auth?.userId) {
+      res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: 'authentication required' },
+      })
+      return
+    }
+    inner(req, res, next)
+  }
+})()

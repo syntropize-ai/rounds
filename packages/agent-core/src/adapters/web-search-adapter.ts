@@ -1,9 +1,4 @@
-export interface WebSearchResult {
-  title?: string;
-  snippet: string;
-  url?: string;
-}
+// Re-export the canonical web-search adapter interface from @agentic-obs/adapters.
+// Kept here for backwards-compat with code that still imports from agent-core.
 
-export interface IWebSearchAdapter {
-  search(query: string, maxResults?: number): Promise<WebSearchResult[]>;
-}
+export type { IWebSearchAdapter, WebSearchResult } from '@agentic-obs/adapters';

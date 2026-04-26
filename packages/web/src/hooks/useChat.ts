@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { apiClient } from '../api/client.js';
 import type { ChatMessage, ChatEvent } from './useDashboardChat.js';
 
@@ -29,6 +29,17 @@ export interface UseChatResult {
   startNewSession: () => void;
   /** Load a session's messages from the backend. Handles 404 gracefully. */
   loadSession: (sessionId: string) => Promise<void>;
+  /**
+   * Result of the most recent `loadSession` call.
+   *  - `'not-found'` — backend returned 404; the session ID is gone.
+   *  - `'network'`   — any other failure (5xx, network drop, parse error).
+   *  - `null`        — no error (last load succeeded, or loadSession not called).
+   * Consumers (ChatPanel) render distinct UI per case instead of an
+   * indistinguishable empty chat.
+   */
+  loadError: 'not-found' | 'network' | null;
+  /** Retry the most recent loadSession call (only meaningful when `loadError === 'network'`). */
+  retryLoadSession: () => void;
 }
 
 /**
@@ -89,6 +100,13 @@ export function useChat(): UseChatResult {
   const [events, setEvents] = useState<ChatEvent[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<'not-found' | 'network' | null>(null);
+  const lastLoadSessionIdRef = useRef<string | null>(null);
+  // Monotonic token bumped on every loadSession() call. A stale completion
+  // (slow network) checks this against its captured token and bails if a
+  // newer load has started — otherwise it would clobber the fresher session's
+  // messages with whatever the older request returned.
+  const loadTokenRef = useRef(0);
   const pageContextRef = useRef<PageContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string>(
@@ -245,6 +263,9 @@ export function useChat(): UseChatResult {
           handleSSEEvent,
           abortRef.current.signal,
         );
+        // A successful round-trip means the session is reachable — drop any
+        // stale loadError banner so it doesn't linger after a transient blip.
+        setLoadError(null);
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           const id = crypto.randomUUID();
@@ -292,17 +313,28 @@ export function useChat(): UseChatResult {
     setEvents([]);
     setIsGenerating(false);
     setPendingNavigation(null);
+    // A previous session's load error must not leak into the new one — the
+    // banner would otherwise sit on top of a fresh empty chat.
+    setLoadError(null);
+    lastLoadSessionIdRef.current = null;
     const newId = `ses_${crypto.randomUUID()}`;
     setCurrentSessionId(newId);
   }, []);
 
   const loadSession = useCallback(async (sessionId: string) => {
+    // Bump the token before any await — every subsequent stale completion
+    // sees a higher token and bails. Capture the token for THIS call so we
+    // can compare it against the latest after the request resolves.
+    const token = ++loadTokenRef.current;
+
     // Switch to the requested session
     setCurrentSessionId(sessionId);
     setMessages([]);
     setEvents([]);
     setIsGenerating(false);
     setPendingNavigation(null);
+    setLoadError(null);
+    lastLoadSessionIdRef.current = sessionId;
 
     try {
       const res = await apiClient.get<{
@@ -310,7 +342,35 @@ export function useChat(): UseChatResult {
         messages: ChatMessage[];
         events?: Array<{ id: string; seq: number; kind: string; payload: Record<string, unknown>; timestamp: string }>;
       }>(`/chat/sessions/${sessionId}/messages`);
-      if (res.error || !res.data?.messages) return;
+
+      if (token !== loadTokenRef.current) {
+        // A newer loadSession() started while this request was in flight.
+        // Drop the result silently — committing it would overwrite the
+        // newer session's freshly loaded state with stale data.
+        return;
+      }
+
+      if (res.error) {
+        // apiClient surfaces backend errors via the `{ data, error }` envelope.
+        // Distinguish 404 (the session genuinely doesn't exist on the server)
+        // from any other failure (5xx, transport, etc.) so the UI can render
+        // the right empty-state instead of a blank chat with no signal.
+        const errStatus = Number((res.error as unknown as Record<string, unknown>).status);
+        const code = res.error.code ?? '';
+        const msg = res.error.message ?? '';
+        const is404 =
+          errStatus === 404 ||
+          code === 'NOT_FOUND' ||
+          /not\s*found/i.test(msg);
+        console.error('[useChat] loadSession failed', { sessionId, error: res.error });
+        setLoadError(is404 ? 'not-found' : 'network');
+        return;
+      }
+
+      if (!res.data?.messages) {
+        // Empty success — treat as a successful load of an empty session.
+        return;
+      }
 
       const loaded = res.data.messages;
       setMessages(loaded);
@@ -348,10 +408,24 @@ export function useChat(): UseChatResult {
           : e.evt,
       );
       setEvents(rebuilt);
-    } catch {
-      // Backend may not exist yet (Phase 1) — silently ignore 404s and network errors
+    } catch (err) {
+      if (token !== loadTokenRef.current) {
+        // Same race guard for thrown errors — a stale failure must not
+        // surface a banner over the newer in-flight load.
+        return;
+      }
+      // Network drop or unexpected exception (e.g. JSON parse failure on a
+      // non-JSON response). Treat as a generic transport error so the UI
+      // renders the retryable banner.
+      console.error('[useChat] loadSession threw', { sessionId, error: err });
+      setLoadError('network');
     }
   }, []);
+
+  const retryLoadSession = useCallback(() => {
+    const sid = lastLoadSessionIdRef.current;
+    if (sid) void loadSession(sid);
+  }, [loadSession]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -360,17 +434,36 @@ export function useChat(): UseChatResult {
     };
   }, []);
 
-  return {
-    messages,
-    events,
-    isGenerating,
-    sendMessage,
-    stopGeneration,
-    pendingNavigation,
-    clearPendingNavigation,
-    setPageContext,
-    currentSessionId,
-    startNewSession,
-    loadSession,
-  };
+  return useMemo(
+    () => ({
+      messages,
+      events,
+      isGenerating,
+      sendMessage,
+      stopGeneration,
+      pendingNavigation,
+      clearPendingNavigation,
+      setPageContext,
+      currentSessionId,
+      startNewSession,
+      loadSession,
+      loadError,
+      retryLoadSession,
+    }),
+    [
+      messages,
+      events,
+      isGenerating,
+      sendMessage,
+      stopGeneration,
+      pendingNavigation,
+      clearPendingNavigation,
+      setPageContext,
+      currentSessionId,
+      startNewSession,
+      loadSession,
+      loadError,
+      retryLoadSession,
+    ],
+  );
 }

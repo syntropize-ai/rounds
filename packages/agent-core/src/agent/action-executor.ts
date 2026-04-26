@@ -1,4 +1,4 @@
-import type { DashboardAction, DashboardSseEvent, PanelConfig } from '@agentic-obs/common'
+import type { DashboardAction, DashboardSseEvent } from '@agentic-obs/common'
 import type { IDashboardAgentStore } from './types.js'
 
 export class ActionExecutor {

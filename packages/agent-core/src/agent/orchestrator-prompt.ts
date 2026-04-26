@@ -20,7 +20,13 @@ function getSystemSection(): string {
 - After each tool action, you receive an Observation with the result. Use it to decide your next step.
 - If a tool returns an error, do NOT blindly retry the same call. Read the error, diagnose the issue, and try a different approach.
 - Tool results may include data from external sources (metrics backends, web search). If you suspect the data is corrupted or nonsensical, flag it to the user.
-- Prior conversation history may be summarized to manage context. If you see a [Conversation Summary] block, treat it as authoritative — it contains the essential context from earlier turns including artifact IDs and discoveries.`
+- Prior conversation history may be summarized to manage context. If you see a [Conversation Summary] block, treat it as authoritative — it contains the essential context from earlier turns including artifact IDs and discoveries.
+
+# Tool invocation protocol
+- Every action — including \`reply\`, \`finish\`, and \`ask_user\` — MUST be invoked through the native function-calling channel. The runtime executes only structured tool calls; it does NOT parse JSON, code blocks, or pseudo-JSON written into prose.
+- Do NOT write tool calls as text. Strings like \`{"finish": "..."}\`, \`reply({...})\`, or fenced JSON blocks in your prose are user-visible noise that the runtime ignores. They will be shown to the user verbatim and look broken.
+- Free-text in the assistant message is shown to the user as your spoken voice. Use it for prose narration only. Put the structured outcome (e.g. the summary that closes the turn) inside the \`finish\` tool call's \`message\` argument, not in your prose.
+- One terminal tool per turn ends the loop. Do not narrate the same content in both prose and the terminal tool — the user will see it twice.`
 }
 
 function getDoingTasksSection(): string {
@@ -270,8 +276,10 @@ function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: s
     ? dashboard.variables.map((v) => `- $${v.name}: ${v.query ?? v.options?.join(', ') ?? 'join'}`).join('\n')
     : '(none)'
 
+  // Tool-call defaults (which start/end/time to pass) are taught in each
+  // tool's schema description, not here. The prompt just supplies the data.
   const timeRangeText = timeRange
-    ? `\nTime Range: ${timeRange.start} to ${timeRange.end} (user's current selection — use this for range queries)`
+    ? `\nTime Range: ${timeRange.start} to ${timeRange.end} (user's current panel selection)`
     : ''
 
   return `# Current Dashboard Context

@@ -118,12 +118,17 @@ function DatasourceForm({ value, onChange, onSave, onCancel, onDelete, saving, i
 
   const handleTest = async () => {
     setTesting(true); setTestResult(null);
-    const body: Record<string, unknown> = { url: value.url, type: value.type };
-    if (value.authType === 'bearer' && value.apiKey) body.apiKey = value.apiKey;
-    if (value.authType === 'basic') { body.username = value.username; body.password = value.password; }
-    const res = await apiClient.post<TestResult>('/datasources/test', body);
-    setTesting(false);
-    setTestResult(res.error ? { ok: false, message: res.error.message ?? 'Connection failed' } : res.data);
+    try {
+      const body: Record<string, unknown> = { url: value.url, type: value.type };
+      if (value.authType === 'bearer' && value.apiKey) body.apiKey = value.apiKey;
+      if (value.authType === 'basic') { body.username = value.username; body.password = value.password; }
+      const res = await apiClient.post<TestResult>('/datasources/test', body);
+      setTestResult(res.error ? { ok: false, message: res.error.message ?? 'Connection failed' } : res.data);
+    } catch (err) {
+      setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (
@@ -397,11 +402,14 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
 
   const handleFetchModels = async () => {
     setFetchingModels(true); setRemoteModels([]); setModelsFetched(false);
-    const res = await apiClient.post<{ models: ModelInfo[] }>('/setup/llm/models', { provider: config.provider, apiKey: config.apiKey || undefined, baseUrl: config.baseUrl || undefined });
-    setFetchingModels(false); setModelsFetched(true);
-    if (res.data?.models?.length) {
-      setRemoteModels(res.data.models);
-      if (!res.data.models.map((m) => m.id).includes(config.model)) setConfig((prev) => ({ ...prev, model: res.data!.models[0]!.id }));
+    try {
+      const res = await apiClient.post<{ models: ModelInfo[] }>('/setup/llm/models', { provider: config.provider, apiKey: config.apiKey || undefined, baseUrl: config.baseUrl || undefined });
+      if (res.data?.models?.length) {
+        setRemoteModels(res.data.models);
+        if (!res.data.models.map((m) => m.id).includes(config.model)) setConfig((prev) => ({ ...prev, model: res.data!.models[0]!.id }));
+      }
+    } finally {
+      setFetchingModels(false); setModelsFetched(true);
     }
   };
 
@@ -421,16 +429,21 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
 
   const handleTest = async () => {
     setTesting(true); setTestResult(null);
-    const res = await apiClient.post<{ ok: boolean; message: string }>('/setup/llm/test', {
-      provider: config.provider,
-      apiKey: config.apiKey,
-      model: config.model,
-      baseUrl: config.baseUrl,
-      region: config.region,
-      authType: config.authType,
-    });
-    setTesting(false);
-    setTestResult(res.error ? { ok: false, message: res.error.message } : res.data);
+    try {
+      const res = await apiClient.post<{ ok: boolean; message: string }>('/setup/llm/test', {
+        provider: config.provider,
+        apiKey: config.apiKey,
+        model: config.model,
+        baseUrl: config.baseUrl,
+        region: config.region,
+        authType: config.authType,
+      });
+      setTestResult(res.error ? { ok: false, message: res.error.message } : res.data);
+    } catch (err) {
+      setTestResult({ ok: false, message: err instanceof Error ? err.message : 'Connection failed' });
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (

@@ -104,4 +104,52 @@ describe('OpsCommandRunnerService', () => {
       }),
     }));
   });
+
+  it('requires an approved existing approval record before execution', async () => {
+    approvals.findById = vi.fn(async () => ({
+      id: 'approval-1',
+      action: {
+        type: 'ops.run_command',
+        targetService: 'Production',
+        params: {
+          connectorId: 'k8s-prod',
+          command: 'kubectl rollout restart deployment/api -n default',
+        },
+      },
+      context: { requestedBy: 'u_1', reason: 'restart api' },
+      status: 'pending' as const,
+      createdAt: 'now',
+      expiresAt: 'later',
+    }));
+    const service = new OpsCommandRunnerService({ connectors, approvals }, 'org_a');
+
+    const result = await service.executeApprovedApproval('approval-1', identity());
+
+    expect(result.decision).toBe('denied');
+    expect(result.observation).toContain('is pending');
+  });
+
+  it('requires connector execute_approved capability for approved execution', async () => {
+    approvals.findById = vi.fn(async () => ({
+      id: 'approval-1',
+      action: {
+        type: 'ops.run_command',
+        targetService: 'Production',
+        params: {
+          connectorId: 'k8s-prod',
+          command: 'kubectl rollout restart deployment/api -n default',
+        },
+      },
+      context: { requestedBy: 'u_1', reason: 'restart api' },
+      status: 'approved' as const,
+      createdAt: 'now',
+      expiresAt: 'later',
+    }));
+    const service = new OpsCommandRunnerService({ connectors, approvals }, 'org_a');
+
+    const result = await service.executeApprovedApproval('approval-1', identity());
+
+    expect(result.decision).toBe('denied');
+    expect(result.observation).toContain('does not allow execute_approved');
+  });
 });

@@ -153,6 +153,8 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   }));
   app.use('/api/approvals', createApprovalRouter({
     approvals: eventApprovalStore,
+    approvalRequests: repos.approvals,
+    opsConnectors: repos.opsConnectors,
     ac: accessControl,
   }));
   app.use('/api/notifications', createNotificationsRouter({

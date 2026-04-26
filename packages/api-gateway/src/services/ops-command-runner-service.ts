@@ -9,7 +9,7 @@ import type {
   OpsConnector,
 } from '@agentic-obs/data-layer';
 
-export type OpsCommandDecision = 'read' | 'approval_required' | 'denied';
+export type OpsCommandDecision = 'read' | 'approval_required' | 'executed' | 'denied';
 
 export interface OpsCommandRunnerServiceDeps {
   connectors: IOpsConnectorRepository;
@@ -97,14 +97,88 @@ export class OpsCommandRunnerService {
       return {
         decision: 'approval_required',
         observation:
-          'Approved Ops command execution is not wired to a kubectl runner yet. Use the existing approval record as the control point; do not execute this command directly.',
+          'Use the existing approval request execute endpoint to run approved Ops commands. Do not execute directly from chat.',
       };
     }
 
-    return this.runReadCommand(connector, params.command);
+    return this.runKubectlCommand(connector, params.command);
   }
 
-  private async runReadCommand(
+  async executeApprovedApproval(
+    approvalId: string,
+    identity: Identity,
+  ): Promise<{ observation: string; decision: OpsCommandDecision; approvalId: string }> {
+    const approval = await this.deps.approvals.findById(approvalId);
+    if (!approval) {
+      return {
+        approvalId,
+        decision: 'denied',
+        observation: `Approval request "${approvalId}" was not found.`,
+      };
+    }
+    if (approval.status !== 'approved') {
+      return {
+        approvalId,
+        decision: 'denied',
+        observation: `Approval request "${approvalId}" is ${approval.status}; only approved Ops command requests can execute.`,
+      };
+    }
+    if (approval.action.type !== 'ops.run_command') {
+      return {
+        approvalId,
+        decision: 'denied',
+        observation: `Approval request "${approvalId}" is for "${approval.action.type}", not ops.run_command.`,
+      };
+    }
+
+    const connectorId = typeof approval.action.params['connectorId'] === 'string'
+      ? approval.action.params['connectorId']
+      : '';
+    const command = typeof approval.action.params['command'] === 'string'
+      ? approval.action.params['command']
+      : '';
+    if (!connectorId || !command) {
+      return {
+        approvalId,
+        decision: 'denied',
+        observation: `Approval request "${approvalId}" is missing connectorId or command.`,
+      };
+    }
+
+    const connector = await this.deps.connectors.findByIdInOrg(this.orgId, connectorId);
+    if (!connector) {
+      return {
+        approvalId,
+        decision: 'denied',
+        observation: `Ops connector "${connectorId}" is not configured for this org.`,
+      };
+    }
+    if (!connector.capabilities.includes('execute_approved')) {
+      return {
+        approvalId,
+        decision: 'denied',
+        observation: `Ops connector "${connector.name}" does not allow execute_approved commands.`,
+      };
+    }
+
+    const policy = classifyOpsCommand(command);
+    if (policy.decision === 'denied') {
+      return {
+        approvalId,
+        decision: 'denied',
+        observation: `Denied by Ops command policy: ${policy.reason}.`,
+      };
+    }
+
+    const result = await this.runKubectlCommand(connector, command);
+    return {
+      approvalId,
+      decision: result.decision === 'denied' ? 'denied' : 'executed',
+      observation: `Approved by ${identity.userId}; ${result.observation}`,
+    };
+  }
+
+  private async runKubectlCommand(
     connector: OpsConnector,
     command: string,
   ): Promise<{ observation: string; decision: OpsCommandDecision }> {
@@ -112,14 +186,14 @@ export class OpsCommandRunnerService {
       return {
         decision: 'denied',
         observation:
-          `Read command is allowed by policy for connector "${connector.name}", but this server cannot resolve secretRef credentials yet.`,
+          `Command is allowed by policy for connector "${connector.name}", but this server cannot resolve secretRef credentials yet.`,
       };
     }
     if (!looksLikeKubeconfig(connector.secret)) {
       return {
         decision: 'denied',
         observation:
-          'Read command was not executed because only kubeconfig credentials are supported for live kubectl execution in this build.',
+          'Command was not executed because only kubeconfig credentials are supported for live kubectl execution in this build.',
       };
     }
 

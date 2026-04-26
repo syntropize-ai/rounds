@@ -2,11 +2,12 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { ApiError } from '@agentic-obs/common';
 import { ac, ACTIONS } from '@agentic-obs/common';
-import type { IGatewayApprovalStore } from '@agentic-obs/data-layer';
+import type { IApprovalRequestRepository, IGatewayApprovalStore, IOpsConnectorRepository } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
+import { OpsCommandRunnerService } from '../services/ops-command-runner-service.js';
 
 /**
  * Stamp the caller's org role onto the approval record for audit. We keep the
@@ -22,6 +23,8 @@ function legacyOrgRole(role: string | undefined): string {
 
 export interface ApprovalRouterDeps {
   approvals: IGatewayApprovalStore;
+  approvalRequests?: IApprovalRequestRepository;
+  opsConnectors?: IOpsConnectorRepository;
   /**
    * RBAC surface. `AccessControlSurface` is used (not the concrete service)
    * because this router is mounted outside the async auth IIFE in server.ts
@@ -178,6 +181,43 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         }
 
         res.json(updated);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // POST /api/approvals/:id/execute - execute an already-approved operation.
+  // This is intentionally narrow today: only `ops.run_command` approval
+  // records are executable here, so Kubernetes fixes reuse the existing
+  // approvals table instead of inventing a parallel Ops approval system.
+  router.post(
+    '/:id/execute',
+    authMiddleware,
+    requirePermission((req) =>
+      ac.eval(ACTIONS.ApprovalsApprove, `approvals:uid:${req.params['id'] ?? ''}`),
+    ),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const auth = authReq.auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        if (!deps.approvalRequests || !deps.opsConnectors) {
+          res.status(503).json({
+            error: { code: 'NOT_CONFIGURED', message: 'approval execution is not configured' },
+          });
+          return;
+        }
+        const runner = new OpsCommandRunnerService({
+          connectors: deps.opsConnectors,
+          approvals: deps.approvalRequests,
+        }, auth.orgId);
+        const result = await runner.executeApprovedApproval(req.params['id'] ?? '', auth);
+        const status = result.decision === 'executed' ? 200 : 400;
+        res.status(status).json(result);
       } catch (err) {
         next(err);
       }

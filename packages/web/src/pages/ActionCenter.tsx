@@ -15,7 +15,7 @@ interface ApprovalAction {
 }
 
 interface ApprovalContext {
-  investigationId: string;
+  investigationId?: string;
   requestedBy: string;
   reason: string;
 }
@@ -69,7 +69,7 @@ const STATUS_STYLES: Record<ApprovalStatus, string> = {
 interface ActionCardProps {
   request: ApprovalRequest;
   processing: boolean;
-  onApprove: (id: string) => void;
+  onApprove: (request: ApprovalRequest) => void;
   onReject: (id: string) => void;
   canApprove: boolean;
 }
@@ -115,7 +115,9 @@ function ActionCard({ request, processing, onApprove, onReject, canApprove }: Ac
       {/* Footer row - stacks vertically on mobile */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-1">
         <div className="text-xs text-[var(--color-outline)] space-x-3">
-          <span>Context: {request.context.investigationId.slice(0, 8)}…</span>
+          {request.context.investigationId && (
+            <span>Context: {request.context.investigationId.slice(0, 8)}…</span>
+          )}
           {request.expiresAt && <span>expires in {expiresIn(request.expiresAt)}</span>}
           {request.resolvedBy && <span>resolved by {request.resolvedBy}</span>}
         </div>
@@ -133,10 +135,10 @@ function ActionCard({ request, processing, onApprove, onReject, canApprove }: Ac
             <button
               type="button"
               disabled={processing}
-              onClick={() => onApprove(request.id)}
+              onClick={() => onApprove(request)}
               className="flex-1 sm:flex-none px-4 py-2.5 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium bg-[var(--color-primary)] text-[var(--color-on-primary-fixed)] hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
-              {processing ? 'Processing…' : 'Approve'}
+              {processing ? 'Processing…' : request.action.type === 'ops.run_command' ? 'Approve & Execute' : 'Approve'}
             </button>
           </div>
         )}
@@ -161,6 +163,7 @@ export default function ActionCenter() {
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [tab, setTab] = useState<'pending' | 'resolved'>('pending');
 
   const loadApprovals = useCallback(async () => {
@@ -181,20 +184,32 @@ export default function ActionCenter() {
     return () => clearInterval(timer);
   }, [loadApprovals]);
 
-  const handleApprove = useCallback(async (id: string) => {
+  const handleApprove = useCallback(async (request: ApprovalRequest) => {
+    const { id } = request;
     setActionError(null);
+    setActionInfo(null);
     setProcessing((prev) => new Set(prev).add(id));
     const res = await apiClient.post<ApprovalRequest>(`/approvals/${id}/approve`, {});
-    setProcessing((prev) => { const s = new Set(prev); s.delete(id); return s; });
     if (res.error) {
       setActionError(`Approve failed: ${res.error.message}`);
+      setProcessing((prev) => { const s = new Set(prev); s.delete(id); return s; });
     } else {
+      if (request.action.type === 'ops.run_command') {
+        const exec = await apiClient.post<{ observation?: string; decision?: string }>(`/approvals/${id}/execute`, {});
+        if (exec.error) {
+          setActionError(`Execute failed: ${exec.error.message}`);
+        } else {
+          setActionInfo(exec.data.observation ?? 'Approved command executed.');
+        }
+      }
+      setProcessing((prev) => { const s = new Set(prev); s.delete(id); return s; });
       await loadApprovals();
     }
   }, [loadApprovals]);
 
   const handleReject = useCallback(async (id: string) => {
     setActionError(null);
+    setActionInfo(null);
     setProcessing((prev) => new Set(prev).add(id));
     const res = await apiClient.post<ApprovalRequest>(`/approvals/${id}/reject`, {});
     setProcessing((prev) => { const s = new Set(prev); s.delete(id); return s; });
@@ -283,6 +298,19 @@ export default function ActionCenter() {
         </div>
       )}
 
+      {actionInfo && (
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-[#22C55E]/10 border border-[#22C55E]/20 text-sm text-[#22C55E]">
+          <span>{actionInfo}</span>
+          <button
+            type="button"
+            onClick={() => setActionInfo(null)}
+            className="ml-3 text-[#22C55E]/70 hover:text-[#22C55E] font-semibold"
+          >
+            x
+          </button>
+        </div>
+      )}
+
       {/* Content */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -303,7 +331,7 @@ export default function ActionCenter() {
               key={req.id}
               request={req}
               processing={processing.has(req.id)}
-              onApprove={(id) => { void handleApprove(id); }}
+              onApprove={(request) => { void handleApprove(request); }}
               onReject={(id) => { void handleReject(id); }}
               canApprove={canApprove}
             />

@@ -16,7 +16,6 @@ import type {
   DashboardStatus,
   DashboardVariable,
   PanelConfig,
-  DashboardMessage,
 } from '@agentic-obs/common'
 import type { ExplanationResult } from '@agentic-obs/common'
 import type {
@@ -162,15 +161,6 @@ export interface IGatewayDashboardStore {
   delete(id: string): MaybeAsync<boolean>
 }
 
-// -- ConversationStore
-
-export interface IConversationStore {
-  addMessage(dashboardId: string, msg: DashboardMessage): MaybeAsync<DashboardMessage>
-  getMessages(dashboardId: string): MaybeAsync<DashboardMessage[]>
-  clearMessages(dashboardId: string): MaybeAsync<void>
-  deleteConversation(dashboardId: string): MaybeAsync<void>
-}
-
 // -- Aggregate
 
 export interface GatewayStores {
@@ -180,5 +170,4 @@ export interface GatewayStores {
   approvals: IGatewayApprovalStore
   shares: IGatewayShareStore
   dashboards: IGatewayDashboardStore
-  conversations: IConversationStore
 }

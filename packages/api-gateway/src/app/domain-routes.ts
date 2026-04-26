@@ -166,19 +166,11 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   }));
   app.use('/api/dashboards', createDashboardRouter({
     store: repos.dashboards,
-    conversationStore: repos.conversations,
-    investigationReportStore: repos.investigationReports,
-    alertRuleStore: eventAlertRuleStore,
-    investigationStore: repos.investigations,
-    feedStore: eventFeedStore,
     accessControl,
-    auditWriter: authSub.audit,
-    folderRepository: sharedFolderRepo,
     setupConfig,
   }));
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,
-    conversationStore: repos.conversations,
     investigationReportStore: repos.investigationReports,
     alertRuleStore: eventAlertRuleStore,
     investigationStore: repos.investigations,

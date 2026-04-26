@@ -116,7 +116,8 @@ function resolveQuotaDefault(
 /** Resource tables that gained `org_id` via migration 015. */
 const ORG_SCOPED_TABLES = [
   'dashboards',
-  'dashboard_messages',
+  // `dashboard_messages` was dropped by migration 020 — chat history now
+  // lives in `chat_messages` (already org-scoped below).
   'investigations',
   'investigation_reports',
   'incidents',

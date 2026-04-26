@@ -225,24 +225,8 @@ export const dashboards = sqliteTable(
   ],
 );
 
-// — dashboard conversations (messages)
-
-export const dashboardMessages = sqliteTable(
-  'dashboard_messages',
-  {
-    id: text('id').primaryKey(),
-    dashboardId: text('dashboard_id').notNull().references(() => dashboards.id, { onDelete: 'cascade' }),
-    role: text('role').notNull(),
-    content: text('content').notNull(),
-    actions: text('actions', { mode: 'json' }),
-    orgId: text('org_id').notNull().default('org_main'),
-    timestamp: text('timestamp').notNull(),
-  },
-  (t) => [
-    index('dashboard_messages_dashboard_idx').on(t.dashboardId),
-    index('dashboard_messages_org_idx').on(t.orgId),
-  ],
-);
+// `dashboard_messages` removed — see migration 020. Chat history now lives in
+// `chat_messages` (defined further below) keyed by sessionId.
 
 // — alert rules
 

@@ -6,7 +6,6 @@ import type {
   Dashboard,
   DashboardStatus,
   DashboardVariable,
-  DashboardMessage,
   PanelConfig,
   AlertRule,
   AlertRuleState,
@@ -243,15 +242,6 @@ export interface IDashboardRepository {
    * resolvers to enforce folder-scoped permissions.
    */
   getFolderUid(orgId: string, dashboardId: string): MaybeAsync<string | null>;
-}
-
-// — Conversation
-
-export interface IConversationRepository {
-  addMessage(dashboardId: string, msg: DashboardMessage): MaybeAsync<DashboardMessage>;
-  getMessages(dashboardId: string): MaybeAsync<DashboardMessage[]>;
-  clearMessages(dashboardId: string): MaybeAsync<void>;
-  deleteConversation(dashboardId: string): MaybeAsync<void>;
 }
 
 // — Folder

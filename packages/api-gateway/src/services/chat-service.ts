@@ -1,14 +1,14 @@
 import { randomUUID } from 'crypto';
 import { createLogger } from '@agentic-obs/common/logging';
-import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
+import type { DashboardMessage, DashboardSseEvent, Identity } from '@agentic-obs/common';
 import { createLlmGateway } from '../routes/llm-factory.js';
 import { DashboardOrchestratorAgent as OrchestratorAgent, shouldCompact, compactMessages } from '@agentic-obs/agent-core';
-import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
+import type { IConversationStore as IAgentConversationStore, IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
 import { buildAdapterRegistry, toAgentDatasources } from './dashboard-service.js';
 import type { AccessControlSurface } from './accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import type { SetupConfigService } from './setup-config-service.js';
-import type { IGatewayDashboardStore, IConversationStore } from '../repositories/types.js';
+import type { IGatewayDashboardStore } from '../repositories/types.js';
 import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IChatSessionRepository, IChatMessageRepository, IChatSessionEventRepository } from '@agentic-obs/data-layer';
 
 const log = createLogger('chat-service');
@@ -31,7 +31,6 @@ function toAlertRuleStore(repo: IAlertRuleRepository): IAlertRuleStore {
 
 export interface ChatServiceDeps {
   dashboardStore: IGatewayDashboardStore;
-  conversationStore: IConversationStore;
   investigationReportStore: IInvestigationReportRepository;
   alertRuleStore: IAlertRuleRepository;
   investigationStore?: IGatewayInvestigationStore;
@@ -165,9 +164,9 @@ export class ChatService {
       }
     }
 
-    // Chat history is stored in chat_messages (independent of dashboards).
-    // The orchestrator reads from conversationStore keyed by sessionId when
-    // no dashboardId is scoped, so we pass chatMessageStore-backed adapter below.
+    // Chat history lives in chat_messages keyed by sessionId. The orchestrator
+    // reads its history through `conversationStore.getMessages(sessionId)`;
+    // we adapt chatMessageStore to that shape below.
 
     // --- Context compaction ---
     // Load existing summary from session, then check if we need to compact further
@@ -199,33 +198,22 @@ export class ChatService {
       }
     }
 
-    // Route conversation history reads: if the key is a dashboardId, use
-    // dashboard_messages (legacy). Otherwise use chat_messages (session mode).
-    // Writes are no-ops here — chat-service persists messages directly.
+    // Adapt chatMessageStore (sessionId → ChatMessage[]) to the orchestrator's
+    // conversationStore shape. Writes are no-ops because chat-service persists
+    // user / assistant turns directly to chat_messages above and below.
     const chatMsgStore = this.deps.chatMessageStore;
-    const dashboardStore = this.deps.dashboardStore;
-    const baseConvStore = this.deps.conversationStore;
-    const conversationStoreAdapter = chatMsgStore
-      ? {
-          getMessages: async (key: string) => {
-            // Check if this is a dashboard ID (exists in dashboards table)
-            const dash = await dashboardStore.findById(key);
-            if (dash) {
-              return baseConvStore.getMessages(key);
-            }
-            // Otherwise treat as sessionId — read from chat_messages
-            return chatMsgStore.getMessages(key) as ReturnType<typeof baseConvStore.getMessages>;
-          },
-          addMessage: async () => { /* writes handled directly by chat-service */ },
-          clearMessages: async () => { /* handled externally */ },
-        }
-      : baseConvStore;
+    const conversationStoreAdapter = {
+      getMessages: async (key: string) => (chatMsgStore ? await chatMsgStore.getMessages(key) : []),
+      addMessage: async (_key: string, msg: DashboardMessage) => msg,
+      clearMessages: async () => { /* handled externally */ },
+      deleteConversation: async () => { /* handled externally */ },
+    } as IAgentConversationStore;
 
     const orchestrator = new OrchestratorAgent({
       gateway,
       model,
       store: this.deps.dashboardStore,
-      conversationStore: conversationStoreAdapter as typeof baseConvStore,
+      conversationStore: conversationStoreAdapter,
       investigationReportStore: this.deps.investigationReportStore,
       investigationStore: this.deps.investigationStore as IInvestigationStore | undefined,
       alertRuleStore: toAlertRuleStore(this.deps.alertRuleStore),

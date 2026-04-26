@@ -5,8 +5,7 @@ import { randomUUID } from 'crypto'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { createRequirePermission } from '../../middleware/require-permission.js'
-import type { IGatewayDashboardStore, IConversationStore, IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore } from '@agentic-obs/data-layer'
-import { handleChatMessage } from './chat-handler.js'
+import type { IGatewayDashboardStore } from '@agentic-obs/data-layer'
 import { VariableResolver } from './variable-resolver.js'
 import { ac, ACTIONS } from '@agentic-obs/common'
 import type { PanelConfig } from '@agentic-obs/common'
@@ -23,40 +22,19 @@ function resolveOrgId(req: Request): string {
   if (authed?.orgId) return authed.orgId;
   return getOrgId(req);
 }
-import { DashboardService, withDashboardLock } from '../../services/dashboard-service.js'
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
-import type { AuditWriter } from '../../auth/audit-writer.js'
-import { createLogger } from '@agentic-obs/common/logging'
-
-const log = createLogger('dashboard-router')
 
 export interface DashboardRouterDeps {
   store: IGatewayDashboardStore
-  conversationStore: IConversationStore
-  investigationReportStore: IInvestigationReportRepository
-  alertRuleStore: IAlertRuleRepository
-  investigationStore?: IGatewayInvestigationStore
-  feedStore?: IGatewayFeedStore
   /** Wave 7 — for the agent permission gate. Required. */
   accessControl: AccessControlSurface
-  /** Audit writer for agent tool calls. */
-  auditWriter?: AuditWriter
-  /** Folder backend — enables agent folder.* tools. Optional. */
-  folderRepository?: import('@agentic-obs/common').IFolderRepository
   /** W2 / T2.4 — LLM + datasource config source. */
   setupConfig: SetupConfigService
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
   const store = deps.store
-  const conversationStore = deps.conversationStore
-  const investigationReportStore = deps.investigationReportStore
-  const alertRuleStore = deps.alertRuleStore
-  const investigationStore = deps.investigationStore
-  const feedStore = deps.feedStore
   const accessControl = deps.accessControl
-  const auditWriter = deps.auditWriter
-  const folderRepository = deps.folderRepository
   const setupConfig = deps.setupConfig
 
   const router = Router()
@@ -66,9 +44,15 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.use(authMiddleware)
 
   // POST /dashboards
+  // Creates an empty dashboard shell. Population happens through the chat
+  // agent (POST /api/chat with `pageContext: { kind: 'dashboard', id }`) —
+  // the orchestrator's `dashboard.*` tools mutate panels/variables and the
+  // SSE stream pushes updates to the UI. There is no longer a background
+  // auto-generation path; callers that want generation should drive it via
+  // /api/chat after creation.
   router.post('/', requirePermission(() => ac.eval(ACTIONS.DashboardsCreate, 'folders:*')), async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const body = req.body as { prompt?: string, title?: string, datasourceIds?: string[], useExistingMetrics?: boolean, folder?: string, stream?: boolean }
+      const body = req.body as { prompt?: string, title?: string, datasourceIds?: string[], useExistingMetrics?: boolean, folder?: string }
       if (!body.prompt || typeof body.prompt !== 'string' || !body.prompt.trim()) {
         res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'prompt is required and must be a non-empty string' } })
         return
@@ -88,37 +72,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       })
 
       res.status(201).json(dashboard)
-
-      // Trigger generation in background via the orchestrator agent (same path as chat)
-      if (!body.stream) {
-        const callerAuth = (req as AuthenticatedRequest).auth
-        if (!callerAuth) {
-          // Should never happen — authMiddleware is registered above. Bail
-          // rather than starting the agent with an ambient identity.
-          log.warn({ dashboardId: dashboard.id }, 'background generation skipped — no req.auth')
-        } else {
-          const service = new DashboardService({
-            store, conversationStore, investigationReportStore, alertRuleStore,
-            investigationStore, feedStore, accessControl, setupConfig,
-            ...(auditWriter ? { auditWriter } : {}),
-            ...(folderRepository ? { folderRepository } : {}),
-          })
-          void withDashboardLock(dashboard.id, async () => {
-            try {
-              await service.handleChatMessage(
-                dashboard.id,
-                dashboard.prompt,
-                undefined,
-                () => {},  // no SSE sink for background generation
-                callerAuth,
-              )
-            } catch (err) {
-              log.error({ err, dashboardId: dashboard.id }, 'background generation failed')
-              await store.updateStatus(dashboard.id, 'failed')
-            }
-          })
-        }
-      }
     }
     catch (err) {
       next(err)
@@ -212,8 +165,9 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
         return
       }
-      // Cascade: remove associated conversation messages
-      await conversationStore.deleteConversation(id)
+      // Chat history lives in chat_messages keyed by sessionId and is
+      // intentionally not cascaded — sessions can outlive any single
+      // dashboard (the chat that created it is still useful context).
       res.status(204).send()
     }
     catch (err) {
@@ -299,23 +253,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     }
   })
 
-  // POST /dashboards/:id/chat
-  router.post('/:id/chat', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params['id'] ?? ''
-      const body = req.body as { message?: string; timeRange?: { start?: string; end?: string; timezone?: string } }
-      if (typeof body.message !== 'string' || body.message.trim() === '') {
-        res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'message is required and must be a non-empty string' } })
-        return
-      }
-
-      await handleChatMessage(req as AuthenticatedRequest, res, id, body.message.trim(), body.timeRange, store, conversationStore, investigationReportStore, alertRuleStore, accessControl, setupConfig, investigationStore, feedStore, auditWriter, folderRepository)
-    }
-    catch (err) {
-      next(err)
-    }
-  })
-
   // POST /dashboards/:id/variables/resolve
   router.post('/:id/variables/resolve', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -356,23 +293,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       )
 
       res.json({ variables: resolved })
-    }
-    catch (err) {
-      next(err)
-    }
-  })
-
-  // GET /dashboards/:id/chat
-  router.get('/:id/chat', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const id = req.params['id'] ?? ''
-      const dashboard = await store.findById(id)
-      if (!dashboard) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
-        return
-      }
-
-      res.json({ messages: await conversationStore.getMessages(id) })
     }
     catch (err) {
       next(err)

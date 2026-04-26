@@ -145,7 +145,7 @@ export default function DashboardWorkspace() {
     setPanels,
     setVariables,
     investigationReport,
-  } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange);
+  } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange, dashboard?.sessionId);
   const [showReport, setShowReport] = useState(false);
   const globalChat = useGlobalChat();
 

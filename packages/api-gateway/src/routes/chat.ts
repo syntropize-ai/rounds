@@ -24,7 +24,7 @@ async function handleChatStream(
   res: Response,
   message: string,
   sessionId: string | undefined,
-  pageContext: { kind: string; id?: string } | undefined,
+  pageContext: { kind: string; id?: string; timeRange?: string } | undefined,
   deps: ChatServiceDeps,
 ): Promise<void> {
   // req.auth is guaranteed by authMiddleware above — if it's missing, the
@@ -102,7 +102,7 @@ export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
   // POST /chat — unified session-based chat endpoint (SSE streaming)
   router.post('/', requirePermission(() => ac.eval(ACTIONS.ChatUse)), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const body = req.body as { message?: string; sessionId?: string; pageContext?: { kind: string; id?: string } };
+      const body = req.body as { message?: string; sessionId?: string; pageContext?: { kind: string; id?: string; timeRange?: string } };
       if (typeof body.message !== 'string' || body.message.trim() === '') {
         res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'message is required and must be a non-empty string' } });
         return;
@@ -148,9 +148,7 @@ export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
       }
 
       const [messages, events] = await Promise.all([
-        deps.chatMessageStore
-          ? deps.chatMessageStore.getMessages(sessionId)
-          : deps.conversationStore.getMessages(sessionId),
+        deps.chatMessageStore ? deps.chatMessageStore.getMessages(sessionId) : Promise.resolve([]),
         deps.chatEventStore ? deps.chatEventStore.listBySession(sessionId) : Promise.resolve([]),
       ]);
       res.json({ sessionId, messages, events });
@@ -168,13 +166,10 @@ export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
         return;
       }
 
-      if (deps.chatMessageStore) {
-        const messages = await deps.chatMessageStore.getMessages(sessionId);
-        res.json({ sessionId, messages });
-      } else {
-        const messages = await deps.conversationStore.getMessages(sessionId);
-        res.json({ sessionId, messages });
-      }
+      const messages = deps.chatMessageStore
+        ? await deps.chatMessageStore.getMessages(sessionId)
+        : [];
+      res.json({ sessionId, messages });
     } catch (err) {
       next(err);
     }

@@ -160,11 +160,25 @@ export class LokiLogsAdapter {
   async isHealthy(): Promise<boolean> {
     try {
       const res = await this.fetch(`${this.base}/ready`, 5_000);
-      if (res.status !== 200) return false;
+      if (res.status !== 200) {
+        log.warn(
+          { baseUrl: this.base, status: res.status },
+          'loki health check returned non-200',
+        );
+        return false;
+      }
       const text = await res.text();
       return text.toLowerCase().includes('ready');
     } catch (err) {
-      log.debug({ err, baseUrl: this.base }, 'loki health check failed');
+      // isHealthy is documented to return a bool, so we don't throw here —
+      // but we DO log the error class so operators can distinguish "Loki down"
+      // (ECONNREFUSED) from "DNS broken" (ENOTFOUND) from "TLS misconfig" etc.
+      const errClass = err instanceof Error ? err.constructor.name : typeof err;
+      const errCode = err instanceof Error ? (err as Error & { code?: string }).code : undefined;
+      log.warn(
+        { err, errClass, errCode, baseUrl: this.base },
+        'loki health check failed',
+      );
       return false;
     }
   }

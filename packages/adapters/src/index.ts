@@ -19,7 +19,8 @@ export type {
   AdapterHealth,
 } from './types.js';
 
-export type { DataAdapter } from './adapter.js';
+export type { DataAdapter, AdapterErrorKind } from './adapter.js';
+export { AdapterError, classifyAdapterHttpError } from './adapter.js';
 export { AdapterRegistry } from './registry.js';
 export type { AdapterRegistration } from './registry.js';
 

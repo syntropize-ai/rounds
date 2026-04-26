@@ -75,7 +75,11 @@ export async function handleInvestigationAddSection(
   const investigationId = String(args.investigationId ?? '');
   if (!investigationId) return 'Error: "investigationId" is required.';
 
-  const sectionType = String(args.type ?? 'text') as 'text' | 'evidence';
+  const rawType = args.type ?? 'text';
+  if (rawType !== 'text' && rawType !== 'evidence') {
+    return `Error: "type" must be "text" or "evidence" (got ${JSON.stringify(rawType)}).`;
+  }
+  const sectionType: 'text' | 'evidence' = rawType;
   const content = String(args.content ?? '');
   if (!content) return 'Error: "content" is required.';
 

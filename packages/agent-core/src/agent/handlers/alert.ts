@@ -3,6 +3,29 @@ import { createLogger } from '@agentic-obs/common/logging';
 import type { ActionContext } from './_context.js';
 import { withWorkspaceScope } from './_shared.js';
 
+/**
+ * Resolve the folder-scoped RBAC evaluator for a single alert rule.
+ * Falls back to the wildcard scope only when the store can't tell us where
+ * the rule lives — callers still gate the call, so an unknown folder means
+ * "require an org-wide grant" rather than silently widening.
+ */
+async function evalAlertRuleWrite(
+  ctx: ActionContext,
+  action: 'alert.rules:write' | 'alert.rules:delete',
+  ruleId: string,
+): Promise<boolean> {
+  let folderUid: string | null | undefined;
+  if (ctx.alertRuleStore.getFolderUid) {
+    try {
+      folderUid = await ctx.alertRuleStore.getFolderUid(ctx.identity.orgId, ruleId);
+    } catch {
+      folderUid = null;
+    }
+  }
+  const scope = `folders:uid:${folderUid ?? '*'}`;
+  return ctx.accessControl.evaluate(ctx.identity, ac.eval(action, scope));
+}
+
 const log = createLogger('handlers/alert');
 
 // ---------------------------------------------------------------------------
@@ -43,25 +66,43 @@ export async function handleCreateAlertRule(
   });
   const generated = result.rule;
 
-  // Upsert: if a rule with the same name exists, update it. We do NOT
-  // swallow store errors here — silently falling through to `create` when
-  // findAll/update fails produces duplicate rules with identical names,
-  // which is worse UX than a visible error.
+  // Upsert: if a rule with the same name exists IN THE CALLER'S WORKSPACE,
+  // update it. The lookup MUST be workspace-scoped — a global findAll() +
+  // name match can return a row from another workspace, and the subsequent
+  // update would silently overwrite that other workspace's rule (data leak).
+  // We do NOT swallow store errors here — silently falling through to
+  // `create` when findByWorkspace/update fails produces duplicate rules
+  // with identical names, which is worse UX than a visible error.
   let rule: Record<string, unknown> | undefined;
   let isUpdate = false;
-  if (ctx.alertRuleStore.findAll && ctx.alertRuleStore.update) {
-    let existing: unknown = undefined;
+  if (ctx.alertRuleStore.update) {
+    let scopedList: Array<{ id: string; name: string }> | undefined;
     try {
-      existing = await ctx.alertRuleStore.findAll();
+      if (ctx.alertRuleStore.findByWorkspace) {
+        scopedList = (await ctx.alertRuleStore.findByWorkspace(
+          ctx.identity.orgId,
+        )) as Array<{ id: string; name: string }>;
+      } else if (ctx.alertRuleStore.findAll) {
+        // Fallback for stores without findByWorkspace — narrow client-side
+        // by workspaceId so we don't cross-tenant.
+        const existing = await ctx.alertRuleStore.findAll();
+        const all = (Array.isArray(existing)
+          ? existing
+          : (existing as { list: unknown[] }).list ?? []) as Array<{
+            id: string;
+            name: string;
+            workspaceId?: string;
+          }>;
+        scopedList = all.filter((r) => r.workspaceId === ctx.identity.orgId);
+      }
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err), tool: 'create_alert_rule' },
-        'alertRuleStore.findAll failed during upsert — re-throwing to avoid silent duplicate creation',
+        'alertRuleStore lookup failed during upsert — re-throwing to avoid silent duplicate creation',
       );
       throw err;
     }
-    const list = (Array.isArray(existing) ? existing : (existing as { list: unknown[] }).list ?? []) as Array<{ id: string; name: string }>;
-    const match = list.find((r) => r.name === generated.name);
+    const match = scopedList?.find((r) => r.name === generated.name);
     if (match) {
       rule = await ctx.alertRuleStore.update(match.id, {
         description: generated.description,
@@ -126,6 +167,16 @@ export async function handleModifyAlertRule(
   const existingRule = await ctx.alertRuleStore.findById(ruleId) as Record<string, unknown> | undefined;
   if (!existingRule) return `Error: alert rule ${ruleId} not found.`;
 
+  // RBAC: derive the rule's folder UID and require alert.rules:write on it.
+  // The pre-dispatch tool gate already runs, but defense-in-depth here keeps
+  // the handler safe if the gate is ever bypassed (e.g. internal callers).
+  const allowed = await evalAlertRuleWrite(ctx, 'alert.rules:write', ruleId);
+  if (!allowed) {
+    const msg = `Error: not authorized to modify alert rule ${ruleId}.`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'modify_alert_rule', summary: msg, success: false });
+    return msg;
+  }
+
   const updatePatch: Record<string, unknown> = {};
   if (patch.severity) updatePatch.severity = patch.severity;
   if (patch.evaluationIntervalSec) updatePatch.evaluationIntervalSec = patch.evaluationIntervalSec;
@@ -179,13 +230,26 @@ export async function handleDeleteAlertRule(
 
   ctx.sendEvent({ type: 'tool_call', tool: 'delete_alert_rule', args: { ruleId }, displayText: `Deleting alert rule ${ruleId}...` });
 
+  if (!ctx.alertRuleStore.delete) {
+    const msg = 'Error: alert rule store does not support delete.';
+    ctx.sendEvent({ type: 'tool_result', tool: 'delete_alert_rule', summary: msg, success: false });
+    return msg;
+  }
+
   const existingRule = ctx.alertRuleStore.findById
     ? await ctx.alertRuleStore.findById(ruleId) as Record<string, unknown> | undefined
     : undefined;
 
-  if (ctx.alertRuleStore.delete) {
-    await ctx.alertRuleStore.delete(ruleId);
+  // RBAC: same guard as modify — defense-in-depth in case the pre-dispatch
+  // tool gate is bypassed by an internal caller.
+  const allowed = await evalAlertRuleWrite(ctx, 'alert.rules:delete', ruleId);
+  if (!allowed) {
+    const msg = `Error: not authorized to delete alert rule ${ruleId}.`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'delete_alert_rule', summary: msg, success: false });
+    return msg;
   }
+
+  await ctx.alertRuleStore.delete(ruleId);
 
   ctx.pushConversationAction({ type: 'delete_alert_rule', ruleId });
 

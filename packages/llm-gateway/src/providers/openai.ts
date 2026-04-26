@@ -226,7 +226,10 @@ function parseToolCalls(raw: OpenAIToolCall[] | undefined): ToolCall[] {
       // with empty args. The agent can detect `_malformed_args` and treat the
       // call as a parse error rather than executing with garbage.
       log.warn(
-        { err, provider: 'openai', toolCallId: tc.id, args: argsStr.slice(0, 200) },
+        // Metadata only — never log the raw argument string. It can carry
+        // PII (user prompts, secrets) that the LLM hallucinated into the
+        // tool call.
+        { err, provider: 'openai', toolCallId: tc.id, argsLength: argsStr.length },
         'tool_call.arguments was not valid JSON; tagging _malformed_args',
       );
       return {

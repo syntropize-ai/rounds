@@ -233,19 +233,24 @@ async function lookupAlertRuleFolderUid(
   ctx: ActionContext,
   ruleId: string,
 ): Promise<string | undefined> {
-  if (!ruleId || !ctx.alertRuleStore.findById) return undefined;
+  if (!ruleId) return undefined;
+  // Prefer the dedicated repo API — `findById()` no longer surfaces
+  // `folder_uid` on the AlertRule shape, so inspecting the row contents
+  // would always miss the column even when it's populated. The `getFolderUid`
+  // method goes straight to the SQLite column.
   // Intentionally NOT wrapped in try/catch — a lookup failure here used to
   // return undefined, which then scoped RBAC to the wildcard `folders:uid:*`.
   // That meant a transient DB blip silently widened the gate to "any folder",
   // which is fail-open. Now we let the throw propagate; the gate code in
   // permission-gate.ts treats the throw as deny-by-default.
-  const rule = (await ctx.alertRuleStore.findById(ruleId)) as
-    | Record<string, unknown>
-    | undefined;
-  if (!rule) return undefined;
-  const folderUid =
-    (rule.folderUid as string | undefined) ??
-    (rule.folder_uid as string | undefined) ??
-    ((rule.labels as Record<string, string> | undefined)?.folderUid);
-  return folderUid;
+  if (ctx.alertRuleStore.getFolderUid) {
+    const folderUid = await ctx.alertRuleStore.getFolderUid(
+      ctx.identity.orgId,
+      ruleId,
+    );
+    return folderUid ?? undefined;
+  }
+  // Fallback for stores that don't implement getFolderUid: return undefined
+  // so the gate scopes to the wildcard. This is the legacy in-memory path.
+  return undefined;
 }

@@ -26,9 +26,16 @@ const log = createLogger('ldap-provider');
  * through to the local provider; the latter should 503 with a clear admin
  * message.
  *
- * ldapjs throws InvalidCredentialsError (49) and a couple of related codes
- * for credential-shaped failures. Anything else (ECONNREFUSED, timeouts,
- * config errors) signals infrastructure failure.
+ * Credential-shaped failures we recognize:
+ *   - InvalidCredentialsError (LDAP code 49) — bad password.
+ *   - NoSuchObjectError       (LDAP code 32) — DN doesn't exist.
+ *
+ * NOT credential-shaped:
+ *   - InsufficientAccessRightsError (LDAP code 50) — the *bind* DN we use
+ *     to search lacks read permission on the directory subtree. This is a
+ *     server/admin configuration problem, not "the user typed the wrong
+ *     password", so it should surface as LDAP_UNREACHABLE (503), not 401.
+ *   - ECONNREFUSED, ETIMEDOUT, etc. — infrastructure.
  */
 function isCredentialError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
@@ -36,12 +43,11 @@ function isCredentialError(err: unknown): boolean {
   // ldapjs error names
   if (
     e.name === 'InvalidCredentialsError' ||
-    e.name === 'NoSuchObjectError' ||
-    e.name === 'InsufficientAccessRightsError'
+    e.name === 'NoSuchObjectError'
   ) {
     return true;
   }
-  // numeric LDAP result codes
+  // numeric LDAP result codes (49 = invalidCredentials, 32 = noSuchObject)
   if (e.code === 49 || e.code === 32 || e.code === '49' || e.code === '32') return true;
   return false;
 }

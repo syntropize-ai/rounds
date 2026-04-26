@@ -24,8 +24,14 @@ function toAlertRuleStore(repo: IAlertRuleRepository): IAlertRuleStore {
           return 'list' in result ? result.list : result;
         }
       : undefined,
+    findByWorkspace: repo.findByWorkspace
+      ? (workspaceId) => repo.findByWorkspace(workspaceId)
+      : undefined,
     findById: repo.findById ? (id) => repo.findById(id) : undefined,
     delete: repo.delete ? (id) => repo.delete(id) : undefined,
+    getFolderUid: repo.getFolderUid
+      ? (orgId, ruleId) => repo.getFolderUid(orgId, ruleId)
+      : undefined,
   };
 }
 

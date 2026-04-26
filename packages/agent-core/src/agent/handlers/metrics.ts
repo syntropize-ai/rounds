@@ -192,8 +192,20 @@ export async function handleMetricsMetricNames(ctx: ActionContext, args: Record<
     const totalCount = allNames.length;
 
     let names: string[];
+    let matchCount = 0;
+    let truncated = false;
     if (filter) {
-      names = allNames.filter((n) => n.toLowerCase().includes(filter));
+      const matched = allNames.filter((n) => n.toLowerCase().includes(filter));
+      matchCount = matched.length;
+      // Broad filters like "http" can return thousands of names; cap the
+      // returned slice the same way the unfiltered branch does so we don't
+      // dump a multi-megabyte observation back into the LLM context.
+      if (matched.length > 500) {
+        names = matched.slice(0, 500);
+        truncated = true;
+      } else {
+        names = matched;
+      }
     } else if (totalCount <= 500) {
       names = allNames;
     } else {
@@ -203,9 +215,12 @@ export async function handleMetricsMetricNames(ctx: ActionContext, args: Record<
       return summary;
     }
 
+    const truncationNote = truncated
+      ? ` (showing first 500 of ${matchCount} matches; refine the filter for more)`
+      : '';
     const summary = names.length === 0
       ? filter ? `No metrics matching "${filter}" (${totalCount} total metrics in cluster).` : 'No metrics found.'
-      : `${names.length} metrics${filter ? ` matching "${filter}"` : ''} (${totalCount} total).\n` + names.join('\n');
+      : `${names.length} metrics${filter ? ` matching "${filter}"` : ''}${truncationNote} (${totalCount} total).\n` + names.join('\n');
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics.metric_names', summary: `${names.length} metrics`, success: true });
     return summary;
   } catch (err) {

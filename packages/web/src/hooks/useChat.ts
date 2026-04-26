@@ -102,6 +102,11 @@ export function useChat(): UseChatResult {
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<'not-found' | 'network' | null>(null);
   const lastLoadSessionIdRef = useRef<string | null>(null);
+  // Monotonic token bumped on every loadSession() call. A stale completion
+  // (slow network) checks this against its captured token and bails if a
+  // newer load has started — otherwise it would clobber the fresher session's
+  // messages with whatever the older request returned.
+  const loadTokenRef = useRef(0);
   const pageContextRef = useRef<PageContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string>(
@@ -258,6 +263,9 @@ export function useChat(): UseChatResult {
           handleSSEEvent,
           abortRef.current.signal,
         );
+        // A successful round-trip means the session is reachable — drop any
+        // stale loadError banner so it doesn't linger after a transient blip.
+        setLoadError(null);
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           const id = crypto.randomUUID();
@@ -305,11 +313,20 @@ export function useChat(): UseChatResult {
     setEvents([]);
     setIsGenerating(false);
     setPendingNavigation(null);
+    // A previous session's load error must not leak into the new one — the
+    // banner would otherwise sit on top of a fresh empty chat.
+    setLoadError(null);
+    lastLoadSessionIdRef.current = null;
     const newId = `ses_${crypto.randomUUID()}`;
     setCurrentSessionId(newId);
   }, []);
 
   const loadSession = useCallback(async (sessionId: string) => {
+    // Bump the token before any await — every subsequent stale completion
+    // sees a higher token and bails. Capture the token for THIS call so we
+    // can compare it against the latest after the request resolves.
+    const token = ++loadTokenRef.current;
+
     // Switch to the requested session
     setCurrentSessionId(sessionId);
     setMessages([]);
@@ -325,6 +342,13 @@ export function useChat(): UseChatResult {
         messages: ChatMessage[];
         events?: Array<{ id: string; seq: number; kind: string; payload: Record<string, unknown>; timestamp: string }>;
       }>(`/chat/sessions/${sessionId}/messages`);
+
+      if (token !== loadTokenRef.current) {
+        // A newer loadSession() started while this request was in flight.
+        // Drop the result silently — committing it would overwrite the
+        // newer session's freshly loaded state with stale data.
+        return;
+      }
 
       if (res.error) {
         // apiClient surfaces backend errors via the `{ data, error }` envelope.
@@ -385,6 +409,11 @@ export function useChat(): UseChatResult {
       );
       setEvents(rebuilt);
     } catch (err) {
+      if (token !== loadTokenRef.current) {
+        // Same race guard for thrown errors — a stale failure must not
+        // surface a banner over the newer in-flight load.
+        return;
+      }
       // Network drop or unexpected exception (e.g. JSON parse failure on a
       // non-JSON response). Treat as a generic transport error so the UI
       // renders the retryable banner.

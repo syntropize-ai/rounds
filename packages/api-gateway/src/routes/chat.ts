@@ -79,7 +79,15 @@ async function handleChatStream(
     // AbortError is the expected outcome of client-disconnect — log at info,
     // not error, so it doesn't pollute alerting.
     if (err instanceof Error && err.name === 'AbortError') {
-      log.info({ message: message.slice(0, 80) }, 'chat handler aborted by client disconnect');
+      // Metadata only — never log the prompt body.
+      log.info(
+        {
+          sessionId,
+          userId: req.auth?.userId,
+          messageLength: message.length,
+        },
+        'chat handler aborted by client disconnect',
+      );
     } else {
       log.error({ err }, 'chat handler error');
       const errMsg = err instanceof Error ? err.message : 'Internal error';

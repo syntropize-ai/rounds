@@ -19,11 +19,16 @@ export class AlertRuleStore implements Persistable {
   private listeners: Array<(event: 'created' | 'updated' | 'deleted', rule: AlertRule) => void> = [];
 
   /**
-   * Legacy in-memory store doesn't track folder placement.
-   * Always returns null so RBAC resolvers fall back to org-scoped checks.
+   * The in-memory `AlertRule` model has no dedicated folder column, but rules
+   * created by the agent stash a `folderUid` label so folder-scoped RBAC
+   * still works for in-memory deployments. Returning null when the rule has
+   * no such label means RBAC falls back to wildcard-folder checks (which
+   * require an org-wide grant) — fail-closed for narrow grants.
    */
-  getFolderUid(_orgId: string, _ruleId: string): string | null {
-    return null;
+  getFolderUid(_orgId: string, ruleId: string): string | null {
+    const rule = this.rules.get(ruleId);
+    if (!rule) return null;
+    return rule.labels?.['folderUid'] ?? null;
   }
 
   create(data: Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>): AlertRule {

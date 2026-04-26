@@ -183,6 +183,25 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
         } catch (ldapErr) {
           if (ldapErr instanceof AuthError && ldapErr.kind === 'invalid_credentials') {
             // Genuine "not in LDAP" / "wrong LDAP password" — fall through.
+          } else if (ldapErr instanceof AuthError && ldapErr.kind === 'rate_limited') {
+            // LDAP-side lockout (per-user / per-IP). Returning 429 directly
+            // keeps the lockout meaningful — falling through to local would
+            // let the caller burn local-attempt budget on the same login,
+            // and a successful local match would silently bypass the LDAP
+            // lockout the operator put in place.
+            const retryAfterSeconds =
+              typeof ldapErr.details?.['retryAfterSeconds'] === 'number'
+                ? (ldapErr.details['retryAfterSeconds'] as number)
+                : 60;
+            res.setHeader('Retry-After', String(retryAfterSeconds));
+            res.status(429).json({
+              error: {
+                code: 'ACCOUNT_LOCKED',
+                message: 'too many failed login attempts; try again later',
+                retryAfterSeconds,
+              },
+            });
+            return;
           } else if (ldapErr instanceof AuthError && ldapErr.kind === 'internal') {
             // LDAP unreachable / config bad. Don't silently fall back —
             // operators need to know the LDAP integration is down.

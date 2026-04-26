@@ -65,8 +65,15 @@ export interface IAlertRuleStore {
   create(data: Record<string, unknown>): { name: string, severity: string, evaluationIntervalSec: number, condition: { query: string, operator: string, threshold: number, forDurationSec: number }, id?: string } | Promise<{ name: string, severity: string, evaluationIntervalSec: number, condition: { query: string, operator: string, threshold: number, forDurationSec: number }, id?: string }>
   update?(id: string, patch: Record<string, unknown>): unknown
   findAll?(): { id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[] | Promise<{ id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[]>
+  /** Workspace-scoped listing — used by handlers to scope upsert lookups
+   *  to the caller's workspace so a rule with a duplicate name in another
+   *  workspace doesn't get clobbered. Optional; falls back to findAll. */
+  findByWorkspace?(workspaceId: string): { id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[] | Promise<{ id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[]>
   findById?(id: string): unknown
   delete?(id: string): unknown
+  /** Resolve the folder UID for a rule within an org. Used by handlers
+   *  to build folder-scoped RBAC evaluators on modify/delete. */
+  getFolderUid?(orgId: string, ruleId: string): string | null | Promise<string | null>
   /** Recent state-change events (firings / resolutions) ordered newest first.
    *  Optional — implementations without persistent history may omit. */
   getHistory?(ruleId: string, limit?: number): unknown[] | Promise<unknown[]>

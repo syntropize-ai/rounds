@@ -18,6 +18,14 @@ export class AlertRuleStore implements Persistable {
   private readonly workspaces = new Map<string, string>();
   private listeners: Array<(event: 'created' | 'updated' | 'deleted', rule: AlertRule) => void> = [];
 
+  /**
+   * Legacy in-memory store doesn't track folder placement.
+   * Always returns null so RBAC resolvers fall back to org-scoped checks.
+   */
+  getFolderUid(_orgId: string, _ruleId: string): string | null {
+    return null;
+  }
+
   create(data: Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>): AlertRule {
     const now = new Date().toISOString();
     const rule: AlertRule = {

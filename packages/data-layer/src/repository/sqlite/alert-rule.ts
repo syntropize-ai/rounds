@@ -271,6 +271,18 @@ export class AlertRuleRepository implements IAlertRuleRepository {
     return rows[0] ? rowToRule(rows[0]) : undefined;
   }
 
+  /**
+   * Folder-uid lookup used by the RBAC alert-rules resolver to cascade a
+   * grant on a folder's scope to any alert rule it contains. Org-scoped so
+   * one org can't reach into another's row.
+   */
+  async getFolderUid(orgId: string, ruleId: string): Promise<string | null> {
+    const rows = this.db.all<{ folder_uid: string | null }>(
+      sql`SELECT folder_uid FROM alert_rules WHERE org_id = ${orgId} AND id = ${ruleId} LIMIT 1`,
+    );
+    return rows[0]?.folder_uid ?? null;
+  }
+
   async findAll(filter: AlertRuleFindAllOptions = {}): Promise<{ list: AlertRule[]; total: number }> {
     const wheres: SQL[] = [];
     if (filter.state) wheres.push(sql`state = ${filter.state}`);

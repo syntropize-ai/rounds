@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { DbClient } from '../../db/client.js';
 import { shareLinks } from '../../db/schema.js';

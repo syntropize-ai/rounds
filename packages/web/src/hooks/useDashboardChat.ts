@@ -119,7 +119,6 @@ export function useDashboardChat(
   const [panels, setPanels] = useState<PanelConfig[]>(initialPanels);
   const [variables, setVariables] = useState<DashboardVariable[]>(initialVariables);
   const abortRef = useRef<AbortController | null>(null);
-  const sessionIdRef = useRef(`ses_dash_${dashboardId || crypto.randomUUID()}`);
   const historyLoadedRef = useRef(false);
 
   // Track whether SSE has modified panels during this generation cycle

@@ -1,4 +1,4 @@
-import { eq, and, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { toJsonColumn } from '../json-column.js';

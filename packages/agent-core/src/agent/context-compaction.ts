@@ -1,5 +1,5 @@
 import type { LLMGateway, CompletionMessage } from '@agentic-obs/llm-gateway'
-import { estimateTokens, estimateMessagesTokens, COMPACTION_THRESHOLD, KEEP_RECENT_MESSAGES, SUMMARY_MAX_TOKENS } from './token-utils.js'
+import { estimateMessagesTokens, COMPACTION_THRESHOLD, KEEP_RECENT_MESSAGES, SUMMARY_MAX_TOKENS } from './token-utils.js'
 
 export interface CompactedContext {
   summary: string           // LLM-generated summary of old messages

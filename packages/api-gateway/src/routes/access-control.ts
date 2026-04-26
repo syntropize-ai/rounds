@@ -15,9 +15,9 @@ import type { NextFunction, Response } from 'express';
 import { ac, ACTIONS } from '@agentic-obs/common';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
-import { RoleService, RoleServiceError } from '../services/role-service.js';
+import { RoleServiceError } from '../services/role-service.js';
+import { AccessControlRoleService, AccessControlSeedUnavailableError } from '../services/access-control-role-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
-import { seedRbacForOrg } from '@agentic-obs/data-layer';
 import type { SqliteClient } from '@agentic-obs/data-layer';
 import type {
   IRoleRepository,
@@ -32,7 +32,7 @@ export interface AccessControlRouterDeps {
   permissionRepo: IPermissionRepository;
   userRoles: IUserRoleRepository;
   teamRoles: ITeamRoleRepository;
-  /** Raw DB handle — only used by POST /seed to call seedRbacForOrg. */
+  /** Raw DB handle — optional seed support for deployments that expose it. */
   db?: SqliteClient;
 }
 
@@ -84,12 +84,8 @@ export function createAccessControlRouter(
   deps: AccessControlRouterDeps,
 ): Router {
   const router = Router();
-  const service = new RoleService(
-    deps.roleRepo,
-    deps.permissionRepo,
-    deps.userRoles,
-    deps.teamRoles,
-  );
+  const roleFacade = new AccessControlRoleService(deps);
+  const service = roleFacade.roles;
   const requirePermission = createRequirePermission(deps.ac);
 
   // Helper: handle RoleServiceError with the service's status code.
@@ -128,19 +124,19 @@ export function createAccessControlRouter(
       return ac.eval(ACTIONS.RolesWrite, 'roles:*');
     }),
     async (req: AuthenticatedRequest, res: Response) => {
-      if (!deps.db) {
-        res.status(501).json({
-          error: {
-            code: 'NOT_IMPLEMENTED',
-            message: 'seed not available in this deployment',
-          },
-        });
-        return;
-      }
       try {
-        const result = await seedRbacForOrg(deps.db, req.auth!.orgId);
+        const result = await roleFacade.seed(req.auth!.orgId);
         res.json(result);
       } catch (err) {
+        if (err instanceof AccessControlSeedUnavailableError) {
+          res.status(501).json({
+            error: {
+              code: 'NOT_IMPLEMENTED',
+              message: err.message,
+            },
+          });
+          return;
+        }
         handleServiceError(err, res);
       }
     },

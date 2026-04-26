@@ -55,7 +55,7 @@ function def(
 ): FixedRoleDefinition {
   return {
     name,
-    uid: name.replace(/[:\.]/g, '_'),
+    uid: name.replace(/[:.]/g, '_'),
     displayName,
     description,
     groupName,

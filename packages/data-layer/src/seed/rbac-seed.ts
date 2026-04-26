@@ -31,7 +31,6 @@ import {
   resolveBasicRolePermissions,
   parseScope,
   type BasicRoleDefinition,
-  type FixedRoleDefinition,
   type BuiltinPermission,
   type FixedPermission,
 } from '@agentic-obs/common';

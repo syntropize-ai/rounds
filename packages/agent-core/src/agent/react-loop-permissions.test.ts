@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { ac, type Evaluator, type Identity } from '@agentic-obs/common';
+import { type Evaluator, type Identity } from '@agentic-obs/common';
 import { OrchestratorAgent } from './orchestrator-agent.js';
 import type { IAuditWriter } from './types-permissions.js';
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js';

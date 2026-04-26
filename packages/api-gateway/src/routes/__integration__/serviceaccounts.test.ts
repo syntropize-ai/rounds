@@ -14,7 +14,6 @@ import {
   AuditLogRepository,
   ApiKeyRepository,
   OrgUserRepository,
-  OrgRepository,
   PermissionRepository,
   QuotaRepository,
   RoleRepository,
@@ -363,8 +362,6 @@ describe('/api/user/access-tokens — PATs', () => {
       .send({ name: 'viewer-pat' });
     // Another non-admin user shouldn't be able to delete it. We use an
     // arbitrary userId via the test identity injector.
-    const ident = require('express');
-    void ident;
     // Emulate a different non-admin by hacking the identity header path:
     // we build a throwaway request as 'admin' then validate cannot cross as
     // viewer would not see admin's tokens — instead here we test the guard

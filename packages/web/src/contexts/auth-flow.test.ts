@@ -8,7 +8,7 @@
  * compose correctly for every documented scenario in 09-frontend.md.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   authApi,
   type CurrentUser,

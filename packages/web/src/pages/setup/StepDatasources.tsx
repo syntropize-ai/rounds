@@ -80,15 +80,23 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
 
   const handleTest = async (idx: number) => {
     const ds = entries[idx];
+    if (!ds) return;
     // /api/datasources/test is the test-only endpoint — no persistence.
-    const res = await apiClient.post<{ ok: boolean; message: string }>(
-      '/datasources/test',
-      ds,
-    );
-    setTestResults((prev) => ({
-      ...prev,
-      [idx]: res.error ? { ok: false, message: res.error.message } : res.data,
-    }));
+    try {
+      const res = await apiClient.post<{ ok: boolean; message: string }>(
+        '/datasources/test',
+        ds,
+      );
+      setTestResults((prev) => ({
+        ...prev,
+        [idx]: res.error ? { ok: false, message: res.error.message } : res.data,
+      }));
+    } catch (err) {
+      setTestResults((prev) => ({
+        ...prev,
+        [idx]: { ok: false, message: err instanceof Error ? err.message : 'Connection failed' },
+      }));
+    }
   };
 
   const categories = ['Logs', 'Traces', 'Metrics'];

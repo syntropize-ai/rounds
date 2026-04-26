@@ -9,7 +9,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   AuditLogRepository,
   ApiKeyRepository,
-  OrgRepository,
   OrgUserRepository,
   QuotaRepository,
   TeamMemberRepository,

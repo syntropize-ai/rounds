@@ -157,7 +157,7 @@ describe('syncTeams', () => {
     await ctx.svc.addMember('org_main', manual.id, u.id);
 
     // External team under sync.
-    const extTeam = await ctx.teams.create({
+    await ctx.teams.create({
       orgId: 'org_main',
       name: 'Ext',
       external: true,

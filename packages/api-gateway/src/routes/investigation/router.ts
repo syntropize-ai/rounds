@@ -2,17 +2,17 @@
 
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
 
 import { ac, ACTIONS } from '@agentic-obs/common';
 import type { AuthenticatedRequest } from '../../middleware/auth.js';
 import { authMiddleware } from '../../middleware/auth.js';
 import { createRequirePermission } from '../../middleware/require-permission.js';
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js';
+import { InvestigationStreamService } from '../../services/investigation-stream-service.js';
+import { InvestigationWorkspaceService } from '../../services/investigation-workspace-service.js';
 import { investigationOpenApiSpec } from './openapi.js';
 import type { SharePermission, IGatewayInvestigationStore, IGatewayFeedStore, IGatewayShareStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
 import type { CreateInvestigationBody, FollowUpBody, FeedbackBody } from './types.js';
-import { initSse, sendSseEvent, sendSseKeepAlive, closeSse } from './sse.js';
 import { getOrgId } from '../../middleware/workspace-context.js';
 
 /**
@@ -43,9 +43,10 @@ export function createInvestigationRouter(
   deps: InvestigationRouterDeps,
 ): Router {
   const store: IGatewayInvestigationStore = deps.store;
-  const feed: IGatewayFeedStore = deps.feed;
   const reportStore: IInvestigationReportRepository = deps.reportStore;
   const shareRepo: IGatewayShareStore = deps.shareRepo;
+  const workspaceService = new InvestigationWorkspaceService(store, reportStore);
+  const streamService = new InvestigationStreamService(store);
 
   const router = Router();
   const requirePermission = createRequirePermission(deps.ac);
@@ -130,16 +131,7 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const workspaceId = resolveOrgId(req);
-        const all = (await store.findAll()).filter((inv) => (inv.workspaceId ?? 'default') === workspaceId).map((inv) => ({
-          id: inv.id,
-          status: inv.status,
-          intent: inv.intent,
-          sessionId: inv.sessionId,
-          userId: inv.userId,
-          createdAt: inv.createdAt,
-          updatedAt: inv.updatedAt,
-        }));
-        res.json(all);
+        res.json(await workspaceService.listSummaries(workspaceId));
       } catch (err) {
         next(err);
       }
@@ -155,13 +147,9 @@ export function createInvestigationRouter(
     ),
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const inv = await store.findById(req.params['id'] ?? '');
-        if (!inv) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
-          return;
-        }
         const workspaceId = resolveOrgId(req);
-        if ((inv.workspaceId ?? 'default') !== workspaceId) {
+        const inv = await workspaceService.findByIdInWorkspace(req.params['id'] ?? '', workspaceId);
+        if (!inv) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
         }
@@ -182,21 +170,11 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
-        if (!inv) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
-          return;
-        }
         const workspaceId = resolveOrgId(req);
-        if ((inv.workspaceId ?? 'default') !== workspaceId) {
+        const deleted = await workspaceService.deleteWithReports(id, workspaceId);
+        if (!deleted) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
-        }
-        await store.delete(id);
-        // Cascade: remove associated investigation reports
-        const reports = await reportStore.findByDashboard(id);
-        for (const r of reports) {
-          await reportStore.delete(r.id);
         }
         res.status(204).end();
       } catch (err) {
@@ -414,49 +392,11 @@ export function createInvestigationRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
-        const inv = await store.findById(id);
-        if (!inv) {
+        const streaming = await streamService.stream(id, req, res);
+        if (!streaming) {
           res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Investigation not found' } });
           return;
         }
-
-        initSse(res);
-
-        // Emit current state immediately
-        sendSseEvent(res, { type: 'investigation:status', data: { id: inv.id, status: inv.status } });
-
-        // If investigation already completed/failed, emit final event and close
-        if (inv.status === 'completed' || inv.status === 'failed') {
-          sendSseEvent(res, { type: 'investigation:complete', data: inv });
-          closeSse(res);
-          return;
-        }
-
-        // Keep connection alive until client disconnects or investigation completes
-        const keepalive = setInterval(() => {
-          void Promise.resolve(store.findById(id)).then((latest) => {
-            if (!latest) {
-              clearInterval(keepalive);
-              closeSse(res);
-              return;
-            }
-
-            sendSseKeepAlive(res);
-
-            if (latest.status === 'completed' || latest.status === 'failed') {
-              clearInterval(keepalive);
-              sendSseEvent(res, { type: 'investigation:complete', data: latest });
-              closeSse(res);
-            }
-          }).catch(() => {
-            clearInterval(keepalive);
-            closeSse(res);
-          });
-        }, 5000);
-
-        req.on('close', () => {
-          clearInterval(keepalive);
-        });
       } catch (err) {
         next(err);
       }

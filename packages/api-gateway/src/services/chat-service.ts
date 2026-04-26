@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common';
 import { createLlmGateway } from '../routes/llm-factory.js';
-import { DashboardOrchestratorAgent as OrchestratorAgent, shouldCompact, compactMessages, estimateTokens } from '@agentic-obs/agent-core';
+import { DashboardOrchestratorAgent as OrchestratorAgent, shouldCompact, compactMessages } from '@agentic-obs/agent-core';
 import type { IDashboardAlertRuleStore as IAlertRuleStore, IDashboardInvestigationStore as IInvestigationStore } from '@agentic-obs/agent-core';
 import { buildAdapterRegistry, toAgentDatasources } from './dashboard-service.js';
 import type { AccessControlSurface } from './accesscontrol-holder.js';

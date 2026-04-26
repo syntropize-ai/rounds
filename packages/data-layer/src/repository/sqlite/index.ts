@@ -1,4 +1,4 @@
-export { SqliteInvestigationRepository } from './investigation.js';
+export { InvestigationRepository } from './investigation.js';
 export { SqliteIncidentRepository } from './incident.js';
 export { SqliteFeedItemRepository } from './feed.js';
 export { SqliteApprovalRequestRepository } from './approval.js';

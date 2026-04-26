@@ -183,17 +183,18 @@ export default function DashboardPanelCard({
   // time-invariant metrics (config counts, version strings) — but for the
   // 95% case where you do want a trend, omitting the field is enough.
   const wantsSparkline = panel.visualization === 'stat' && panel.sparkline !== false;
-  const activeQuery = effectiveQueries[0]?.expr ?? '';
+  const activePanelQuery = effectiveQueries[0];
+  const activeQuery = activePanelQuery?.expr ?? '';
   const resolvedTimeRange = useMemo(() => resolveTimeRange(timeRange), [timeRange]);
 
   // Build a stable dedup key from queries
   const queryKey = useMemo(
-    () => effectiveQueries.map((q) => q.expr).join('|') + `@${timeRange}`,
+    () => effectiveQueries.map((q) => `${q.datasourceId ?? 'default'}:${q.expr}`).join('|') + `@${timeRange}`,
     [effectiveQueries, timeRange]
   );
   const instantQueryKey = useMemo(
-    () => `${activeQuery}@${resolvedTimeRange.end}`,
-    [activeQuery, resolvedTimeRange.end]
+    () => `${activePanelQuery?.datasourceId ?? 'default'}:${activeQuery}@${resolvedTimeRange.end}`,
+    [activePanelQuery?.datasourceId, activeQuery, resolvedTimeRange.end]
   );
 
   const cacheMaxAgeMs = (panel.refreshIntervalSec ?? 30) * 1000;
@@ -250,7 +251,12 @@ export default function DashboardPanelCard({
             `batch:${queryKey}`,
             () =>
               apiClient.post('/query/batch', {
-                queries: effectiveQueries.map((q) => ({ refId: q.refId, expr: q.expr, instant: q.instant })),
+                queries: effectiveQueries.map((q) => ({
+                  refId: q.refId,
+                  expr: q.expr,
+                  instant: q.instant,
+                  datasourceId: q.datasourceId,
+                })),
                 ...resolveTimeRange(timeRange),
               }) as Promise<{
                 data: { results: Record<string, { status: string; data: RangeResponse; error?: string }> } | null;
@@ -302,6 +308,7 @@ export default function DashboardPanelCard({
                   () =>
                     apiClient.post('/query/range', {
                       query: activeQuery,
+                      datasourceId: activePanelQuery?.datasourceId,
                       ...resolveTimeRange(timeRange),
                     }) as Promise<{ data: RangeResponse | null; error?: unknown }>,
                 )
@@ -335,7 +342,11 @@ export default function DashboardPanelCard({
           const res = await queryScheduler.schedule<{ data: InstantResponse | null; error?: unknown }>(
             `instant:${instantQueryKey}`,
             () =>
-              apiClient.post('/query/instant', { query: activeQuery, time: resolvedTimeRange.end }) as Promise<{
+              apiClient.post('/query/instant', {
+                query: activeQuery,
+                time: resolvedTimeRange.end,
+                datasourceId: activePanelQuery?.datasourceId,
+              }) as Promise<{
                 data: InstantResponse | null;
                 error?: unknown;
               }>
@@ -361,7 +372,7 @@ export default function DashboardPanelCard({
 
       setLoading(false);
     },
-    [effectiveQueries, isRangeViz, activeQuery, instantQueryKey, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec, panel.id, resolvedTimeRange.end]
+    [effectiveQueries, isRangeViz, activePanelQuery?.datasourceId, activeQuery, instantQueryKey, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec, panel.id, resolvedTimeRange.end, timeRange]
   );
 
   // Try to restore from cache without fetching

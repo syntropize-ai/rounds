@@ -7,9 +7,9 @@
  *     compare-strings operation is overkill.
  *
  * How it works:
- *   1. On every request that has a session cookie, ensure an `openobs_csrf`
- *     cookie is present. If missing, mint 32 random bytes hex and set it
- *     non-HttpOnly so the SPA's JS can read it.
+ *   1. On every safe-method request that has a session cookie, ensure an
+ *     `openobs_csrf` cookie is present. If missing, mint 32 random bytes hex
+ *     and set it non-HttpOnly so the SPA's JS can read it.
  *   2. On state-changing requests (POST/PUT/PATCH/DELETE) we require the
  *     header `X-CSRF-Token` to match the cookie value byte-for-byte
  *     (constant-time compare).
@@ -126,7 +126,7 @@ function isExempt(path: string, exempt: Array<string | RegExp>): boolean {
  * Express middleware that:
  *   - Issues an `openobs_csrf` cookie when the caller has a session cookie
  *     but no CSRF cookie yet (so the SPA gets one on first authenticated
- *     pageload).
+ *     pageload). Safe methods pass through; non-safe methods fail closed.
  *   - On non-safe methods (POST/PUT/PATCH/DELETE), if the request is
  *     cookie-authed, requires the `X-CSRF-Token` header to match the cookie.
  *   - Skips entirely for bearer-token requests (no cookie => no CSRF risk)
@@ -169,14 +169,17 @@ export function createCsrfMiddleware(opts: CsrfMiddlewareOptions = {}) {
         res,
         buildCsrfCookie(token, { secure: !shouldDropSecure(process.env) }),
       );
-      // The cookie we just minted isn't visible to THIS request — verification
-      // below would always fail. For non-safe methods on this first request we
-      // accept the request and rely on the next request having the cookie.
-      // This is the standard trade-off when a user lands on a SPA and
-      // immediately POSTs (rare for first contact since the SPA fetches /api/user
-      // via GET first, which mints the cookie). Document the gap in
-      // `docs/security.md` rather than pretending we plug it.
-      next();
+      // The cookie we just minted isn't visible to THIS request. Safe methods
+      // can prime the browser for the next request, but state-changing
+      // cookie-auth requests must fail closed instead of using first-request
+      // token issuance as a bypass.
+      if (SAFE_METHODS.has(req.method)) {
+        next();
+        return;
+      }
+      res.status(403).json({
+        error: { code: 'CSRF_FAILED', message: 'invalid or missing CSRF token' },
+      });
       return;
     }
 

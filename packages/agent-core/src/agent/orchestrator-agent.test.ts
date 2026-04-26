@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Dashboard, DashboardMessage, DashboardSseEvent } from '@agentic-obs/common'
+import type { Dashboard, DashboardMessage } from '@agentic-obs/common'
 import { OrchestratorAgent } from './orchestrator-agent.js'
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
 import { AdapterRegistry, type IMetricsAdapter } from '../adapters/index.js'

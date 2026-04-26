@@ -9,6 +9,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from '../types.js';
+import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { effortToBudgetTokens, getCapabilities } from './capabilities.js';
 
 const log = createLogger('gemini-provider');
@@ -203,13 +204,15 @@ export class GeminiProvider implements LLMProvider {
       body['toolConfig'] = toolConfig;
     }
 
+    const fetchInit: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    };
+    if (options.signal) fetchInit.signal = options.signal;
     const response = await fetch(
       `${this.baseUrl}/v1beta/models/${model}:generateContent?key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
+      fetchInit,
     );
 
     if (!response.ok) {
@@ -273,32 +276,41 @@ export class GeminiProvider implements LLMProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    let response: Response;
     try {
-      const response = await fetch(
+      response = await fetch(
         `${this.baseUrl}/v1beta/models?key=${this.apiKey}`,
       );
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        log.warn(
-          { provider: 'gemini', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl },
-          'listModels failed',
-        );
-        return [];
-      }
-
-      const data = (await response.json()) as GeminiModelsResponse;
-      return data.models
-        .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
-        .map((m) => ({
-          id: m.name.replace('models/', ''),
-          name: m.displayName,
-          provider: 'gemini',
-          contextWindow: m.inputTokenLimit,
-          description: m.description,
-        }));
     } catch (err) {
-      log.warn({ err, provider: 'gemini', baseUrl: this.baseUrl }, 'listModels failed');
-      return [];
+      const kind = classifyProviderHttpError({ cause: err });
+      log.warn({ err, provider: 'gemini', baseUrl: this.baseUrl, kind }, 'listModels transport failure');
+      throw new ProviderError(
+        `Gemini listModels transport failure: ${err instanceof Error ? err.message : String(err)}`,
+        { kind, provider: 'gemini', cause: err },
+      );
     }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      const kind = classifyProviderHttpError({ status: response.status });
+      log.warn(
+        { provider: 'gemini', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl, kind },
+        'listModels failed',
+      );
+      throw new ProviderError(
+        `Gemini listModels failed: HTTP ${response.status} ${body.slice(0, 200)}`,
+        { kind, provider: 'gemini', status: response.status },
+      );
+    }
+
+    const data = (await response.json()) as GeminiModelsResponse;
+    return data.models
+      .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+      .map((m) => ({
+        id: m.name.replace('models/', ''),
+        name: m.displayName,
+        provider: 'gemini',
+        contextWindow: m.inputTokenLimit,
+        description: m.description,
+      }));
   }
 }

@@ -1,10 +1,17 @@
 import type { LLMProvider, LLMOptions, LLMResponse, CompletionMessage } from '../types.js';
+import { ProviderError, type ProviderErrorKind } from '../types.js';
 
 export interface MockProviderConfig {
   name?: string;
   response?: Partial<LLMResponse>;
   shouldFail?: boolean;
   failMessage?: string;
+  /**
+   * If set, the mock throws a `ProviderError` with this `kind` instead of a
+   * plain `Error`. Lets tests exercise the gateway's retry classification
+   * (e.g. `'network'` to trigger retry, `'auth'` to fail fast).
+   */
+  failKind?: ProviderErrorKind;
   latencyMs?: number;
 }
 
@@ -13,6 +20,7 @@ export class MockProvider implements LLMProvider {
   private mockResponse: Partial<LLMResponse>;
   private shouldFail: boolean;
   private failMessage: string;
+  private failKind?: ProviderErrorKind;
   private mockLatencyMs: number;
   callCount = 0;
 
@@ -21,6 +29,7 @@ export class MockProvider implements LLMProvider {
     this.mockResponse = config.response ?? {};
     this.shouldFail = config.shouldFail ?? false;
     this.failMessage = config.failMessage ?? 'Mock provider error';
+    if (config.failKind) this.failKind = config.failKind;
     this.mockLatencyMs = config.latencyMs ?? 0;
   }
 
@@ -32,6 +41,12 @@ export class MockProvider implements LLMProvider {
     }
 
     if (this.shouldFail) {
+      if (this.failKind) {
+        throw new ProviderError(this.failMessage, {
+          kind: this.failKind,
+          provider: this.name,
+        });
+      }
       throw new Error(this.failMessage);
     }
 

@@ -41,6 +41,13 @@ export interface LLMOptions {
    * provider/model doesn't support thinking — capability is the gatekeeper.
    */
   thinking?: { effort: 'low' | 'medium' | 'high' };
+  /**
+   * Abort signal — when the client disconnects mid-stream, the chat router
+   * triggers this so the in-flight provider fetch aborts immediately and the
+   * agent loop unwinds with an AbortError instead of running expensive LLM
+   * calls to completion against a closed socket.
+   */
+  signal?: AbortSignal;
 }
 
 export interface LLMUsage {
@@ -94,6 +101,86 @@ export interface ToolCall {
   id: string;
   name: string;
   input: Record<string, unknown>;
+}
+
+// -- Provider errors -----------------------------------------------------
+//
+// Typed error raised by provider methods (listModels, complete) when an
+// integration boundary fails. Callers branch on `kind` to decide whether
+// to retry, surface a setup error, or bubble.
+//
+//   - 'auth'        : credentials rejected (401, missing API key, etc).
+//                     Don't retry; surface as setup error.
+//   - 'network'     : transport-level (DNS, connection refused, timeout)
+//                     or 5xx server errors. Retryable.
+//   - 'unsupported' : operation isn't available for this provider/model
+//                     (404 on listModels, capability missing). Don't retry.
+//   - 'unknown'     : unclassified — caller decides. Default to don't retry
+//                     so we fail fast on novel errors instead of hammering.
+
+export type ProviderErrorKind = 'auth' | 'network' | 'unsupported' | 'unknown';
+
+export class ProviderError extends Error {
+  public readonly kind: ProviderErrorKind;
+  public readonly provider: string;
+  public readonly status?: number;
+  public override readonly cause?: unknown;
+  /** Seconds the upstream asked us to wait (Retry-After header). */
+  public readonly retryAfterSec?: number;
+
+  constructor(
+    message: string,
+    opts: {
+      kind: ProviderErrorKind;
+      provider: string;
+      status?: number;
+      cause?: unknown;
+      retryAfterSec?: number;
+    },
+  ) {
+    super(message);
+    this.name = 'ProviderError';
+    this.kind = opts.kind;
+    this.provider = opts.provider;
+    if (opts.status !== undefined) this.status = opts.status;
+    if (opts.cause !== undefined) this.cause = opts.cause;
+    if (opts.retryAfterSec !== undefined) this.retryAfterSec = opts.retryAfterSec;
+  }
+}
+
+/**
+ * Classify a fetch / Response failure into a ProviderErrorKind. Covers the
+ * common shapes: HTTP status (401 → auth, 5xx → network, 404 → unsupported),
+ * Node fetch error codes (ENOTFOUND/ECONNREFUSED/ETIMEDOUT → network), and
+ * 429 rate-limit (network — retryable, the gateway honors Retry-After).
+ */
+export function classifyProviderHttpError(opts: {
+  status?: number;
+  cause?: unknown;
+}): ProviderErrorKind {
+  const { status, cause } = opts;
+  if (typeof status === 'number') {
+    if (status === 401 || status === 403) return 'auth';
+    if (status === 404) return 'unsupported';
+    if (status === 429) return 'network';
+    if (status >= 500) return 'network';
+    if (status >= 400) return 'unknown';
+  }
+  // Inspect Node fetch error code / nested cause
+  const codes: string[] = [];
+  const collect = (e: unknown) => {
+    if (!e || typeof e !== 'object') return;
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === 'string') codes.push(code);
+    const inner = (e as { cause?: unknown }).cause;
+    if (inner) collect(inner);
+  };
+  collect(cause);
+  if (codes.some((c) => /^(ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|EAI_AGAIN|UND_ERR_(?:CONNECT_TIMEOUT|SOCKET))$/i.test(c))) {
+    return 'network';
+  }
+  if (cause instanceof Error && cause.name === 'AbortError') return 'network';
+  return 'unknown';
 }
 
 // -- Minimal subset of JSON Schema we care about --

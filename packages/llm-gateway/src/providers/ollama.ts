@@ -9,6 +9,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from '../types.js';
+import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { ProviderCapabilityError } from './capabilities.js';
 
 const log = createLogger('ollama-provider');
@@ -202,11 +203,13 @@ export class OllamaProvider implements LLMProvider {
     const tools = translateTools(options.tools);
     if (tools) body.tools = tools;
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
+    const fetchInit: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    };
+    if (options.signal) fetchInit.signal = options.signal;
+    const response = await fetch(`${this.baseUrl}/api/chat`, fetchInit);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -295,27 +298,36 @@ export class OllamaProvider implements LLMProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    let response: Response;
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        log.warn(
-          { provider: 'ollama', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl },
-          'listModels failed',
-        );
-        return [];
-      }
-
-      const data = (await response.json()) as OllamaTagsResponse;
-      return data.models.map((m) => ({
-        id: m.name,
-        name: m.name,
-        provider: 'ollama',
-        description: [m.details.family, m.details.parameter_size].filter(Boolean).join(' · '),
-      }));
+      response = await fetch(`${this.baseUrl}/api/tags`);
     } catch (err) {
-      log.warn({ err, provider: 'ollama', baseUrl: this.baseUrl }, 'listModels failed');
-      return [];
+      const kind = classifyProviderHttpError({ cause: err });
+      log.warn({ err, provider: 'ollama', baseUrl: this.baseUrl, kind }, 'listModels transport failure');
+      throw new ProviderError(
+        `Ollama listModels transport failure: ${err instanceof Error ? err.message : String(err)}`,
+        { kind, provider: 'ollama', cause: err },
+      );
     }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      const kind = classifyProviderHttpError({ status: response.status });
+      log.warn(
+        { provider: 'ollama', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl, kind },
+        'listModels failed',
+      );
+      throw new ProviderError(
+        `Ollama listModels failed: HTTP ${response.status} ${body.slice(0, 200)}`,
+        { kind, provider: 'ollama', status: response.status },
+      );
+    }
+
+    const data = (await response.json()) as OllamaTagsResponse;
+    return data.models.map((m) => ({
+      id: m.name,
+      name: m.name,
+      provider: 'ollama',
+      description: [m.details.family, m.details.parameter_size].filter(Boolean).join(' · '),
+    }));
   }
 }

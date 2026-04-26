@@ -298,7 +298,7 @@ describe('OpenAIProvider — response parsing', () => {
     expect(result.toolCalls[1]!.input).toEqual({ sourceId: 'p', query: 'rate(x[1m])' });
   });
 
-  it('handles malformed arguments JSON gracefully (no crash, empty input)', async () => {
+  it('tags malformed arguments JSON with _malformed_args so the agent loop can detect it', async () => {
     const m = installFetchMock({
       response: defaultResponse(null, [
         {
@@ -319,12 +319,12 @@ describe('OpenAIProvider — response parsing', () => {
       {
         id: 'call_bad',
         name: 'metrics.query',
-        input: {},
+        input: { _malformed_args: '{not valid json' },
       },
     ]);
   });
 
-  it('handles arguments JSON that does not parse to an object (e.g. array) without crashing', async () => {
+  it('tags non-object arguments JSON (e.g. array) with _malformed_args', async () => {
     const m = installFetchMock({
       response: defaultResponse(null, [
         {
@@ -341,7 +341,7 @@ describe('OpenAIProvider — response parsing', () => {
     const provider = new OpenAIProvider({ apiKey: 'sk-test' });
 
     const result = await provider.complete(messages, { model: 'gpt-4o' });
-    expect(result.toolCalls[0]!.input).toEqual({});
+    expect(result.toolCalls[0]!.input).toEqual({ _malformed_args: '[1,2,3]' });
   });
 
   it('handles empty arguments string as empty object', async () => {

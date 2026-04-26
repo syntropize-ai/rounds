@@ -7,6 +7,7 @@ import type {
   ModelInfo,
   ToolCall,
 } from '../types.js';
+import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { effortToBudgetTokens, getCapabilities } from './capabilities.js';
 
 const log = createLogger('anthropic-provider');
@@ -150,7 +151,7 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/messages`, {
+    const fetchInit: RequestInit = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -158,7 +159,9 @@ export class AnthropicProvider implements LLMProvider {
         'anthropic-version': this.apiVersion,
       },
       body: JSON.stringify(requestBody),
-    });
+    };
+    if (options.signal) fetchInit.signal = options.signal;
+    const response = await fetch(`${this.baseUrl}/v1/messages`, fetchInit);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -206,27 +209,36 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    let response: Response;
     try {
-      const response = await fetch(`${this.baseUrl}/v1/models`, {
+      response = await fetch(`${this.baseUrl}/v1/models`, {
         headers: { 'x-api-key': this.apiKey, 'anthropic-version': this.apiVersion },
       });
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        log.warn(
-          { provider: 'anthropic', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl },
-          'listModels failed',
-        );
-        return [];
-      }
-      const data = (await response.json()) as { data: Array<{ id: string; display_name?: string }> };
-      return data.data.map((m) => ({
-        id: m.id,
-        name: m.display_name ?? m.id,
-        provider: 'anthropic',
-      }));
     } catch (err) {
-      log.warn({ err, provider: 'anthropic', baseUrl: this.baseUrl }, 'listModels failed');
-      return [];
+      const kind = classifyProviderHttpError({ cause: err });
+      log.warn({ err, provider: 'anthropic', baseUrl: this.baseUrl, kind }, 'listModels transport failure');
+      throw new ProviderError(
+        `Anthropic listModels transport failure: ${err instanceof Error ? err.message : String(err)}`,
+        { kind, provider: 'anthropic', cause: err },
+      );
     }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      const kind = classifyProviderHttpError({ status: response.status });
+      log.warn(
+        { provider: 'anthropic', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl, kind },
+        'listModels failed',
+      );
+      throw new ProviderError(
+        `Anthropic listModels failed: HTTP ${response.status} ${body.slice(0, 200)}`,
+        { kind, provider: 'anthropic', status: response.status },
+      );
+    }
+    const data = (await response.json()) as { data: Array<{ id: string; display_name?: string }> };
+    return data.data.map((m) => ({
+      id: m.id,
+      name: m.display_name ?? m.id,
+      provider: 'anthropic',
+    }));
   }
 }

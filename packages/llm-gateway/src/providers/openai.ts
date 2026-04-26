@@ -9,6 +9,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from '../types.js';
+import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { getCapabilities } from './capabilities.js';
 
 const log = createLogger('openai-provider');
@@ -179,29 +180,43 @@ function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
 function parseToolCalls(raw: OpenAIToolCall[] | undefined): ToolCall[] {
   if (!raw || raw.length === 0) return [];
   return raw.map((tc) => {
-    let input: Record<string, unknown> = {};
-    try {
-      const parsed: unknown = tc.function.arguments
-        ? JSON.parse(tc.function.arguments)
-        : {};
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        input = parsed as Record<string, unknown>;
-      } else {
-        log.warn(
-          { provider: 'openai', toolCallId: tc.id, parsedType: typeof parsed },
-          'tool_call.arguments JSON did not parse to an object; using empty input',
-        );
-      }
-    } catch (err) {
-      log.warn(
-        { err, provider: 'openai', toolCallId: tc.id, args: tc.function.arguments?.slice(0, 200) },
-        'tool_call.arguments was not valid JSON; using empty input',
-      );
+    // Empty / missing arguments → legitimate empty input (some tools take none).
+    const argsStr = tc.function.arguments ?? '';
+    if (argsStr === '') {
+      return { id: tc.id, name: nameFromOpenAi(tc.function.name), input: {} };
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(argsStr);
+    } catch (err) {
+      // Surface the failure to the agent loop instead of silently dispatching
+      // with empty args. The agent can detect `_malformed_args` and treat the
+      // call as a parse error rather than executing with garbage.
+      log.warn(
+        { err, provider: 'openai', toolCallId: tc.id, args: argsStr.slice(0, 200) },
+        'tool_call.arguments was not valid JSON; tagging _malformed_args',
+      );
+      return {
+        id: tc.id,
+        name: nameFromOpenAi(tc.function.name),
+        input: { _malformed_args: argsStr },
+      };
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return {
+        id: tc.id,
+        name: nameFromOpenAi(tc.function.name),
+        input: parsed as Record<string, unknown>,
+      };
+    }
+    log.warn(
+      { provider: 'openai', toolCallId: tc.id, parsedType: Array.isArray(parsed) ? 'array' : typeof parsed },
+      'tool_call.arguments JSON did not parse to an object; tagging _malformed_args',
+    );
     return {
       id: tc.id,
       name: nameFromOpenAi(tc.function.name),
-      input,
+      input: { _malformed_args: argsStr },
     };
   });
 }
@@ -237,14 +252,16 @@ export class OpenAIProvider implements LLMProvider {
       body.reasoning_effort = options.thinking.effort;
     }
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    const fetchInit: RequestInit = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
-    });
+    };
+    if (options.signal) fetchInit.signal = options.signal;
+    const response = await fetch(`${this.baseUrl}/chat/completions`, fetchInit);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -271,30 +288,39 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async listModels(): Promise<ModelInfo[]> {
+    let response: Response;
     try {
-      const response = await fetch(`${this.baseUrl}/models`, {
+      response = await fetch(`${this.baseUrl}/models`, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        log.warn(
-          { provider: 'openai', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl },
-          'listModels failed',
-        );
-        return [];
-      }
-      const data = (await response.json()) as { data: Array<{ id: string; owned_by?: string }> };
-      return data.data
-        .filter((m) => m.id.startsWith('gpt'))
-        .sort((a, b) => a.id.localeCompare(b.id))
-        .map((m) => ({
-          id: m.id,
-          name: m.id,
-          provider: 'openai',
-        }));
     } catch (err) {
-      log.warn({ err, provider: 'openai', baseUrl: this.baseUrl }, 'listModels failed');
-      return [];
+      const kind = classifyProviderHttpError({ cause: err });
+      log.warn({ err, provider: 'openai', baseUrl: this.baseUrl, kind }, 'listModels transport failure');
+      throw new ProviderError(
+        `OpenAI listModels transport failure: ${err instanceof Error ? err.message : String(err)}`,
+        { kind, provider: 'openai', cause: err },
+      );
     }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      const kind = classifyProviderHttpError({ status: response.status });
+      log.warn(
+        { provider: 'openai', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl, kind },
+        'listModels failed',
+      );
+      throw new ProviderError(
+        `OpenAI listModels failed: HTTP ${response.status} ${body.slice(0, 200)}`,
+        { kind, provider: 'openai', status: response.status },
+      );
+    }
+    const data = (await response.json()) as { data: Array<{ id: string; owned_by?: string }> };
+    return data.data
+      .filter((m) => m.id.startsWith('gpt'))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((m) => ({
+        id: m.id,
+        name: m.id,
+        provider: 'openai',
+      }));
   }
 }

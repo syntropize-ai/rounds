@@ -34,6 +34,7 @@ export interface OpsConnectorInput {
     credentialType?: 'kubeconfig' | 'token';
   };
   allowedNamespaces: string[];
+  secretRef?: string | null;
   secret?: string | null;
   capabilities: OpsCapability[];
 }
@@ -54,9 +55,11 @@ export function buildOpsConnectorInput(value: {
   namespaces: string;
   kubeconfig: string;
   token: string;
+  secretRef: string;
   capabilities: Record<OpsCapability, boolean>;
 }): OpsConnectorInput {
   const secret = value.kubeconfig.trim() || value.token.trim() || null;
+  const secretRef = value.secretRef.trim() || null;
   return {
     name: value.name.trim(),
     environment: value.environment.trim() || null,
@@ -67,7 +70,8 @@ export function buildOpsConnectorInput(value: {
       credentialType: value.kubeconfig.trim() ? 'kubeconfig' : (value.token.trim() ? 'token' : undefined),
     },
     allowedNamespaces: parseNamespaceList(value.namespaces),
-    secret,
+    secretRef,
+    secret: secretRef ? null : secret,
     capabilities: (Object.keys(value.capabilities) as OpsCapability[])
       .filter((capability) => value.capabilities[capability]),
   };

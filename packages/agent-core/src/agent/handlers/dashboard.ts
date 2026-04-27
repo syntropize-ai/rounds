@@ -174,6 +174,24 @@ export async function handleDashboardAddPanels(
     return 'Error: "panels" array is required with at least one panel config.';
   }
 
+  // Strict per-query datasourceId contract: every query on every panel must
+  // carry an explicit datasourceId before we'll persist. No silent inheritance,
+  // no fallback to the dashboard primary, no resolver guessing — if the agent
+  // forgot, we error out and tell it which query was incomplete so the next
+  // tool turn fixes it. Saved panels are guaranteed self-describing; the
+  // renderer never sees `datasourceId: undefined`.
+  const missing: string[] = [];
+  panels.forEach((p, i) => {
+    const qs = Array.isArray(p.queries) ? p.queries as Array<Record<string, unknown>> : [];
+    qs.forEach((q, j) => {
+      const ds = typeof q.datasourceId === 'string' ? q.datasourceId.trim() : '';
+      if (!ds) missing.push(`panels[${i}].queries[${j}] (refId=${q.refId ?? '?'})`);
+    });
+  });
+  if (missing.length > 0) {
+    return `Error: every query needs a datasourceId. Missing on: ${missing.join(', ')}. Pass datasourceId per query — the dashboard primary is NOT inherited automatically. For a single-source dashboard, set every query to the dashboard's primary; for compare panels, set per query.`;
+  }
+
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard.add_panels', args: { count: panels.length }, displayText: `Adding ${panels.length} panel(s)` });
 
   type CommonPanel = import('@agentic-obs/common').PanelConfig;
@@ -193,14 +211,8 @@ export async function handleDashboardAddPanels(
       expr: String(q.expr ?? ''),
       legendFormat: typeof q.legendFormat === 'string' ? q.legendFormat : undefined,
       instant: q.instant === true,
-      // Per-query datasourceId is preserved verbatim. The runtime falls back
-      // to the dashboard's primary datasource (datasourceIds[0]) when this
-      // is absent, so this field is what makes cross-source compare panels
-      // possible. Don't strip even if empty — empty string still signals
-      // "use dashboard primary" which differs from "I forgot to set it".
-      datasourceId: typeof q.datasourceId === 'string' && q.datasourceId.trim()
-        ? q.datasourceId.trim()
-        : undefined,
+      // Already validated above — every query carries a non-empty datasourceId.
+      datasourceId: (q.datasourceId as string).trim(),
     })) : [],
     row: 0,
     col: 0,
@@ -332,6 +344,20 @@ export async function handleDashboardModifyPanel(
   if (!panelId) return 'Error: "panelId" is required.';
   const patch = { ...args } as Record<string, unknown>;
   delete patch.panelId;
+
+  // If the patch replaces the queries list, every replacement query must
+  // carry datasourceId — same strict contract as add_panels. Patches that
+  // don't touch queries pass through untouched.
+  if (Array.isArray(patch.queries)) {
+    const missing: string[] = [];
+    (patch.queries as Array<Record<string, unknown>>).forEach((q, j) => {
+      const ds = typeof q.datasourceId === 'string' ? q.datasourceId.trim() : '';
+      if (!ds) missing.push(`queries[${j}] (refId=${q.refId ?? '?'})`);
+    });
+    if (missing.length > 0) {
+      return `Error: every query needs a datasourceId. Missing on: ${missing.join(', ')}. Pass datasourceId per query — not inherited.`;
+    }
+  }
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard.modify_panel', args: { panelId, patch }, displayText: `Modifying panel ${panelId}` });
   await ctx.actionExecutor.execute(dashboardId, [{ type: 'modify_panel', panelId, patch }]);

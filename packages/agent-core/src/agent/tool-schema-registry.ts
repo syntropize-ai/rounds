@@ -329,14 +329,14 @@ export const TOOL_SCHEMAS: Record<string, ToolDefinition> = {
   'dashboard.add_panels': {
     name: 'dashboard.add_panels',
     description:
-      'Add one or more panels to a dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Validate complex queries with metrics.validate first. Panel sizing and layout are auto-applied. Each query may carry its own datasourceId; omit to inherit the dashboard primary. For cross-source compare panels, set datasourceId per query (one per source) — the legend gets a {{__datasource}} prefix automatically.',
+      'Add one or more panels to a dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Validate complex queries with metrics.validate first. Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.',
     input_schema: {
       type: 'object',
       properties: {
         dashboardId: { type: 'string', description: 'Target dashboard id (from dashboard.create or dashboard.list)' },
         panels: {
           type: 'array',
-          description: 'Panel configs. Each: { title, visualization, queries: [{refId, expr, datasourceId?, legendFormat?, instant?}], unit?, ... }. See Panel Schema Reference.',
+          description: 'Panel configs. Each: { title, visualization, queries: [{refId, expr, datasourceId, legendFormat?, instant?}], unit?, ... }. datasourceId is REQUIRED per query.',
           items: { type: 'object' },
         },
       },

@@ -19,46 +19,26 @@ export interface QueryRouterDeps {
 
 // -- Helpers
 
+/**
+ * Strict id-based lookup. Caller must supply the exact datasource — there's
+ * no fallback to "the default", "the only one", or env/cluster narrowing.
+ * Panel queries always have a datasourceId by the time they reach here
+ * (enforced by the dashboard.add_panels / dashboard.modify_panel handlers
+ * at write time); $datasource template substitution happens before this
+ * call. If a caller hits this without a datasourceId, that's a contract
+ * violation — surface it as a clear NO_DATASOURCE so the bug is visible.
+ */
 async function resolvePrometheusDatasource(
   setupConfig: SetupConfigService,
   orgId: string | null | undefined,
-  datasourceId?: string,
-  environment?: string,
-  cluster?: string,
+  datasourceId: string,
 ): Promise<InstanceDatasource | null> {
-  const isPrometheus = (d: InstanceDatasource) =>
-    d.type === 'prometheus' || d.type === 'victoria-metrics'
-  const belongsToOrg = (d: InstanceDatasource) =>
-    d.orgId === orgId
-
-  // Explicit id wins. Caller (panel query, agent tool call) supplied the exact
-  // datasource — never silently substitute even if isPrometheus is false.
-  if (datasourceId) {
-    const ds = await setupConfig.getDatasource(datasourceId)
-    return ds && isPrometheus(ds) && belongsToOrg(ds) ? ds : null
-  }
-
-  const all = await setupConfig.listDatasources()
-  const candidates = all.filter((d) => isPrometheus(d) && belongsToOrg(d))
-
-  // Environment/cluster hint narrows before fallback. Useful for panel query
-  // params like `?environment=prod` from a $datasource template variable.
-  const narrowed = (environment || cluster)
-    ? candidates.filter((d) => {
-        if (environment && d.environment !== environment) return false
-        if (cluster && d.cluster !== cluster) return false
-        return true
-      })
-    : candidates
-
-  if (narrowed.length === 0) return null
-  if (narrowed.length === 1) return narrowed[0]!
-
-  // Multiple candidates: prefer the one explicitly marked default. Falling
-  // back to alphabetical (the previous behavior) hid silent breakage when
-  // operators added a second datasource — see PR #22 incident report.
-  const explicitDefault = narrowed.find((d) => d.isDefault)
-  return explicitDefault ?? narrowed[0]!
+  if (!datasourceId) return null
+  const ds = await setupConfig.getDatasource(datasourceId)
+  if (!ds) return null
+  const isPrometheus = ds.type === 'prometheus' || ds.type === 'victoria-metrics'
+  const belongsToOrg = ds.orgId === orgId
+  return isPrometheus && belongsToOrg ? ds : null
 }
 
 function buildClientConfig(ds: InstanceDatasource): ConstructorParameters<typeof PrometheusHttpClient>[0] {
@@ -161,9 +141,13 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     }
 
     const resolvedDatasourceId = substituteVariableTokens(datasourceId, variableValues)
-    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), resolvedDatasourceId, environment, cluster)
+    if (!resolvedDatasourceId) {
+      res.status(400).json({ error: { code: 'VALIDATION', message: 'datasourceId is required' } })
+      return
+    }
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), resolvedDatasourceId)
     if (!ds) {
-      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
+      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${resolvedDatasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
     if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
@@ -197,9 +181,13 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     }
 
     const resolvedDatasourceId = substituteVariableTokens(datasourceId, variableValues)
-    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), resolvedDatasourceId, environment, cluster)
+    if (!resolvedDatasourceId) {
+      res.status(400).json({ error: { code: 'VALIDATION', message: 'datasourceId is required' } })
+      return
+    }
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), resolvedDatasourceId)
     if (!ds) {
-      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
+      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${resolvedDatasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
     if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
@@ -213,18 +201,20 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     }
   })
 
-  // GET /api/query/metadata?match={pattern}&datasourceId=xxx&environment=prod&cluster=my-cluster-a
+  // GET /api/query/metadata?match={pattern}&datasourceId=xxx
   router.get('/metadata', authMiddleware, async (req: Request, res: Response) => {
-    const { match, datasourceId, environment, cluster } = req.query as {
+    const { match, datasourceId } = req.query as {
       match?: string
       datasourceId?: string
-      environment?: string
-      cluster?: string
     }
 
-    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId, environment, cluster)
+    if (!datasourceId) {
+      res.status(400).json({ error: { code: 'VALIDATION', message: 'datasourceId is required' } })
+      return
+    }
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId)
     if (!ds) {
-      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
+      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${datasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
     if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesRead, ds.id))) return
@@ -265,18 +255,20 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     }
   })
 
-  // GET /api/query/labels?metric={name}&datasourceId=xxx&environment=prod&cluster=my-cluster-a
+  // GET /api/query/labels?metric={name}&datasourceId=xxx
   router.get('/labels', authMiddleware, async (req: Request, res: Response) => {
-    const { metric, datasourceId, environment, cluster } = req.query as {
+    const { metric, datasourceId } = req.query as {
       metric?: string
       datasourceId?: string
-      environment?: string
-      cluster?: string
     }
 
-    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId, environment, cluster)
+    if (!datasourceId) {
+      res.status(400).json({ error: { code: 'VALIDATION', message: 'datasourceId is required' } })
+      return
+    }
+    const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), datasourceId)
     if (!ds) {
-      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: 'No Prometheus datasource configured' } })
+      res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${datasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
     if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesRead, ds.id))) return
@@ -306,14 +298,11 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
 
   // POST /api/query/batch
   router.post('/batch', authMiddleware, async (req: Request, res: Response) => {
-    const { queries, start, end, step = '30s', datasourceId, environment, cluster, variableValues } = req.body as {
+    const { queries, start, end, step = '30s', variableValues } = req.body as {
       queries?: Array<{ refId: string, expr: string, instant?: boolean, datasourceId?: string }>
       start?: string
       end?: string
       step?: string
-      datasourceId?: string
-      environment?: string
-      cluster?: string
       variableValues?: Record<string, string>
     }
 
@@ -332,22 +321,27 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
         res.status(400).json({ error: { code: 'VALIDATION', message: 'each query must have refId and expr' } })
         return
       }
+      if (!q.datasourceId) {
+        res.status(400).json({ error: { code: 'VALIDATION', message: `query ${q.refId} is missing datasourceId — every batched query must carry its own (no batch-level fallback)` } })
+        return
+      }
     }
 
     const endDate = end ? new Date(end) : new Date()
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 60 * 1000)
     const resolved: InstanceDatasource[] = []
     for (const q of queries) {
-      const perQueryDsId = substituteVariableTokens(q.datasourceId, variableValues)
-      const fallbackDsId = substituteVariableTokens(datasourceId, variableValues)
-      const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), perQueryDsId ?? fallbackDsId, environment, cluster)
+      const dsId = substituteVariableTokens(q.datasourceId, variableValues)
+      if (!dsId) {
+        res.status(400).json({ error: { code: 'VALIDATION', message: `query ${q.refId} datasourceId resolved empty after variable substitution` } })
+        return
+      }
+      const ds = await resolvePrometheusDatasource(setupConfig, getRequestOrgId(req), dsId)
       if (!ds) {
         res.status(400).json({
           error: {
             code: 'NO_DATASOURCE',
-            message: q.datasourceId
-              ? `Datasource ${q.datasourceId} is not a configured Prometheus datasource`
-              : 'No Prometheus datasource configured',
+            message: `Datasource ${dsId} (query ${q.refId}) not found, not Prometheus, or not in your org`,
           },
         })
         return

@@ -296,13 +296,16 @@ export default function DashboardPanelCard({
   const activeQuery = activePanelQuery?.expr ?? '';
   const resolvedTimeRange = useMemo(() => resolveTimeRange(timeRange), [timeRange]);
 
-  // Build a stable dedup key from queries
+  // Build a stable dedup key from queries. Every query is required to carry
+  // an explicit datasourceId (enforced at write time by the dashboard
+  // handlers); a missing one is a contract violation that should fail
+  // loudly downstream, not get papered over with a 'default' sentinel.
   const queryKey = useMemo(
-    () => effectiveQueries.map((q) => `${q.datasourceId ?? 'default'}:${q.expr}`).join('|') + `@${timeRange}`,
+    () => effectiveQueries.map((q) => `${q.datasourceId ?? ''}:${q.expr}`).join('|') + `@${timeRange}`,
     [effectiveQueries, timeRange]
   );
   const instantQueryKey = useMemo(
-    () => `${activePanelQuery?.datasourceId ?? 'default'}:${activeQuery}@${resolvedTimeRange.end}`,
+    () => `${activePanelQuery?.datasourceId ?? ''}:${activeQuery}@${resolvedTimeRange.end}`,
     [activePanelQuery?.datasourceId, activeQuery, resolvedTimeRange.end]
   );
 

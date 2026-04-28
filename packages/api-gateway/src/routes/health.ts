@@ -23,20 +23,9 @@ interface ReadyResponse {
   checks: {
     db: CheckResult;
     redis: CheckResult;
-    llm: CheckResult;
     proactive: CheckResult;
   };
   timestamp: string;
-}
-
-function checkLlm(): CheckResult {
-  const apiKey
-    = process.env['ANTHROPIC_API_KEY']
-      ?? process.env['OPENAI_API_KEY']
-      ?? process.env['LLM_API_KEY'];
-  if (!apiKey)
-    return { status: 'fail', message: 'No LLM API key configured' };
-  return { status: 'ok', message: 'API key present' };
 }
 
 function checkProactive(): CheckResult {
@@ -67,25 +56,14 @@ healthRouter.get('/ready', (_req: Request, res: Response) => {
   // DB and Redis are not configured in this deployment (in-memory stores)
   const db: CheckResult = { status: 'skip', message: 'No DB configured' };
   const redis: CheckResult = { status: 'skip', message: 'No Redis configured' };
-  const llm = checkLlm();
   const proactive = checkProactive();
 
-  const checks = { db, redis, llm, proactive };
+  const checks = { db, redis, proactive };
 
-  // K8s readiness should answer "can this pod receive traffic?", not whether
-  // the setup wizard has completed. Missing LLM config makes investigations
-  // unavailable, but a fresh install must still become reachable so operators
-  // can configure it.
-  let status: ReadyResponse['status'];
-  if (llm.status === 'fail') {
-    status = 'degraded';
-  }
-  else if (proactive.status === 'fail') {
-    status = 'degraded';
-  }
-  else {
-    status = 'healthy';
-  }
+  // K8s readiness should answer "can this pod receive traffic?". LLM setup is
+  // handled by the login/setup flow, not by health checks.
+  const status: ReadyResponse['status']
+    = proactive.status === 'fail' ? 'degraded' : 'healthy';
 
   res.status(200).json({
     status,

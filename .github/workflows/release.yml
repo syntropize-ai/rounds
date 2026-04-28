@@ -153,11 +153,27 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - name: Publish `openobs` to npm
+      - name: Check npm version
+        id: npm_version
         if: env.HAS_NPM_TOKEN == 'yes'
+        run: |
+          VERSION="${{ needs.package.outputs.version }}"
+          if npm view "openobs@$VERSION" version --silent >/dev/null 2>&1; then
+            echo "exists=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish `openobs` to npm
+        if: env.HAS_NPM_TOKEN == 'yes' && steps.npm_version.outputs.exists == 'no'
         run: npm publish out/npm/openobs-*.tgz --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Note — npm version already exists
+        if: env.HAS_NPM_TOKEN == 'yes' && steps.npm_version.outputs.exists == 'yes'
+        run: |
+          echo "::warning title=npm publish skipped::openobs@${{ needs.package.outputs.version }} already exists on npm; npm versions are immutable."
 
       - name: Note — NPM_TOKEN not configured
         if: env.HAS_NPM_TOKEN == 'no'

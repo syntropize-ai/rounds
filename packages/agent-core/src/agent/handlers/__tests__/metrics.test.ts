@@ -2,11 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   handleMetricsQuery,
   handleMetricsRangeQuery,
-  handleMetricsLabels,
-  handleMetricsLabelValues,
-  handleMetricsSeries,
-  handleMetricsMetadata,
-  handleMetricsMetricNames,
+  handleMetricsDiscover,
   handleMetricsValidate,
 } from '../metrics.js';
 import { makeFakeActionContext } from '../_test-helpers.js';
@@ -120,63 +116,94 @@ describe('metrics handlers', () => {
     });
   });
 
-  describe('handleMetricsLabels', () => {
-    it('returns the comma-joined label list', async () => {
+  describe('handleMetricsDiscover', () => {
+    it('rejects missing sourceId with a helpful observation', async () => {
+      const ctx = makeFakeActionContext();
+      const observation = await handleMetricsDiscover(ctx, { kind: 'names' });
+      expect(observation).toMatch(/requires "sourceId"/);
+    });
+
+    it('rejects missing kind by name', async () => {
+      const ctx = makeFakeActionContext();
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom' });
+      expect(observation).toMatch(/requires "kind"/);
+    });
+
+    it('rejects an unknown kind value', async () => {
+      const ctx = makeFakeActionContext();
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'bogus' });
+      expect(observation).toMatch(/unknown kind "bogus"/);
+    });
+
+    it('kind=labels returns a comma-joined label list', async () => {
       const adapter = makeAdapter({ listLabels: vi.fn().mockResolvedValue(['job', 'instance']) });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
-      const observation = await handleMetricsLabels(ctx, { sourceId: 'prom' });
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'labels' });
       expect(observation).toBe('job, instance');
     });
-  });
 
-  describe('handleMetricsLabelValues', () => {
-    it('requires a label argument', async () => {
+    it('kind=values requires `label` and surfaces the missing-arg in the error', async () => {
       const adapter = makeAdapter();
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
-      const observation = await handleMetricsLabelValues(ctx, { sourceId: 'prom' });
-      expect(observation).toMatch(/"label" is required/);
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'values' });
+      expect(observation).toMatch(/kind="values" requires "label"/);
       expect(adapter.listLabelValues).not.toHaveBeenCalled();
     });
-  });
 
-  describe('handleMetricsSeries', () => {
-    it('passes through array selectors verbatim', async () => {
+    it('kind=series passes an array selector verbatim', async () => {
       const adapter = makeAdapter({
         findSeries: vi.fn().mockResolvedValue(['up{job="a"}']),
       });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
-      const observation = await handleMetricsSeries(ctx, {
+      const observation = await handleMetricsDiscover(ctx, {
         sourceId: 'prom',
+        kind: 'series',
         match: ['up{job="a"}'],
       });
       expect(adapter.findSeries).toHaveBeenCalledWith(['up{job="a"}']);
       expect(observation).toContain('up{job="a"}');
     });
-  });
 
-  describe('handleMetricsMetadata', () => {
-    it('formats metadata entries as `name (type): help`', async () => {
+    it('kind=series rejects an empty match array', async () => {
+      const adapter = makeAdapter();
+      const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'series', match: [] });
+      expect(observation).toMatch(/kind="series" requires "match"/);
+      expect(adapter.findSeries).not.toHaveBeenCalled();
+    });
+
+    it('kind=metadata formats entries as `name (type): help`', async () => {
       const adapter = makeAdapter({
         fetchMetadata: vi.fn().mockResolvedValue({
           up: { type: 'gauge', help: 'Was the last scrape successful' },
         }),
       });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
-      const observation = await handleMetricsMetadata(ctx, { sourceId: 'prom', metric: 'up' });
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'metadata', metric: 'up' });
       expect(observation).toBe('up (gauge): Was the last scrape successful');
     });
-  });
 
-  describe('handleMetricsMetricNames', () => {
-    it('filters by `match` substring (case-insensitive)', async () => {
+    it('kind=names filters by `match` substring (case-insensitive)', async () => {
       const adapter = makeAdapter({
         listMetricNames: vi.fn().mockResolvedValue(['http_requests_total', 'cpu_seconds', 'http_errors']),
       });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
-      const observation = await handleMetricsMetricNames(ctx, { sourceId: 'prom', match: 'HTTP' });
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'names', match: 'HTTP' });
       expect(observation).toContain('http_requests_total');
       expect(observation).toContain('http_errors');
       expect(observation).not.toContain('cpu_seconds');
+    });
+
+    it('returns success=false in the tool_result on adapter error', async () => {
+      const adapter = makeAdapter({
+        listLabels: vi.fn().mockRejectedValue(new Error('backend down')),
+      });
+      const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
+      const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'labels' });
+      expect(observation).toMatch(/metrics\.discover \(labels\) failed: backend down/);
+      expect(ctx.sendEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics.discover', success: false }),
+      );
     });
   });
 

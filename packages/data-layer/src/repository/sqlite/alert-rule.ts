@@ -234,7 +234,7 @@ export class AlertRuleRepository implements IAlertRuleRepository {
         id, name, description, original_prompt, condition,
         evaluation_interval_sec, severity, labels, state,
         state_changed_at, pending_since, notification_policy_id,
-        investigation_id, workspace_id, org_id, created_by,
+        investigation_id, workspace_id, folder_uid, org_id, created_by,
         last_evaluated_at, last_fired_at, fire_count,
         created_at, updated_at
       ) VALUES (
@@ -252,6 +252,7 @@ export class AlertRuleRepository implements IAlertRuleRepository {
         ${data.notificationPolicyId ?? null},
         ${data.investigationId ?? null},
         ${data.workspaceId ?? null},
+        ${data.folderUid ?? null},
         ${'org_main'},
         ${data.createdBy},
         ${data.lastEvaluatedAt ?? null},

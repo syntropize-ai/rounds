@@ -3,25 +3,19 @@ import { ReActLoop } from './react-loop.js'
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
 
 const ALLOWED_TOOLS = [
-  'reply',
-  'finish',
   'ask_user',
+  'tool_search',
   'dashboard.modify_panel',
+  'metrics.query',
 ] as const
 
 describe('ReActLoop', () => {
-  it('emits a reply event when the model returns a final reply via the reply tool', async () => {
+  it('emits a reply event when the model returns a final reply as plain text (no tool call)', async () => {
     const sendEvent = vi.fn()
     const gateway = {
       complete: vi.fn().mockResolvedValue({
-        content: '',
-        toolCalls: [
-          {
-            id: 'call_1',
-            name: 'reply',
-            input: { message: 'I updated the p95 panel to use a stat visualization.' },
-          },
-        ],
+        content: 'I updated the p95 panel to use a stat visualization.',
+        toolCalls: [],
       }),
     } as any
 
@@ -200,5 +194,52 @@ describe('ReActLoop', () => {
       type: 'error',
       message: expect.stringMatching(/no content and no tool call/i),
     })
+  })
+
+  it('intercepts tool_search inline and exposes the loaded deferred tool on the next turn', async () => {
+    const sendEvent = vi.fn()
+    const gateway = {
+      complete: vi.fn()
+        // Turn 1: model asks tool_search to load metrics.query.
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_1',
+              name: 'tool_search',
+              input: { query: 'select:metrics.query' },
+            },
+          ],
+        })
+        // Turn 2: ends with plain text.
+        .mockResolvedValueOnce({
+          content: 'Loaded the query tool, no further action needed.',
+          toolCalls: [],
+        }),
+    } as any
+
+    const loop = new ReActLoop({
+      gateway,
+      model: 'test-model',
+      sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+    })
+
+    const result = await loop.runLoop('system', 'load metrics.query', vi.fn())
+
+    expect(result).toBe('Loaded the query tool, no further action needed.')
+
+    // First gateway call should NOT have metrics.query in tools (it's deferred).
+    const firstToolNames = (gateway.complete.mock.calls[0]![1].tools as Array<{ name: string }>)
+      .map((t) => t.name)
+    expect(firstToolNames).toContain('tool_search')
+    expect(firstToolNames).not.toContain('metrics.query')
+
+    // Second gateway call should now include metrics.query (newly loaded).
+    const secondToolNames = (gateway.complete.mock.calls[1]![1].tools as Array<{ name: string }>)
+      .map((t) => t.name)
+    expect(secondToolNames).toContain('metrics.query')
   })
 })

@@ -42,18 +42,27 @@ function asStep(_thought: string, action: string, args: Record<string, unknown>,
   };
 }
 
+/**
+ * Final-turn helper: model emits plain text with no tool_use blocks. The
+ * loop interprets this as "end of turn" (claude-code style), replacing the
+ * legacy `asStep('finish', ...)` pattern.
+ */
+function asReply(message: string): LLMResponse {
+  return {
+    content: message,
+    toolCalls: [],
+  };
+}
+
 function makeGateway(responses: LLMResponse[]) {
   const queue = [...responses];
   return {
     complete: vi.fn().mockImplementation(() => {
       const next = queue.shift();
       if (!next) {
-        return Promise.resolve({
-          content: 'done',
-          toolCalls: [
-            { id: 'call_finish_default', name: 'finish', input: { message: 'done' } },
-          ],
-        });
+        // Default fallback: end the turn with plain text so the loop exits
+        // gracefully rather than spinning past the queued responses.
+        return Promise.resolve(asReply('done'));
       }
       return Promise.resolve(next);
     }),
@@ -140,7 +149,7 @@ describe('Scenario 1 — Viewer → dashboard.create → permission denied', () 
       llmResponses: [
         asStep('try to create', 'dashboard.create', { folderUid: 'prod', title: 'X' }),
         // Second turn after seeing the denial — finish politely.
-        asStep('explain', 'finish', {}, 'I cannot create a dashboard in prod.'),
+        asReply('I cannot create a dashboard in prod.'),
       ],
       accessControl: deny,
       identity: makeTestIdentity({ orgRole: 'Viewer' }),
@@ -158,7 +167,7 @@ describe('Scenario 2 — Editor → dashboard.create → allowed', () => {
     const { agent, audit, store } = build({
       llmResponses: [
         asStep('create', 'dashboard.create', { folderUid: 'prod', title: 'My Dash', datasourceId: 'prom-test' }),
-        asStep('done', 'finish', {}, 'Created.'),
+        asReply('Created.'),
       ],
       identity: makeTestIdentity({ orgRole: 'Editor' }),
     });
@@ -176,7 +185,7 @@ describe('Scenario 3 — mixed: query allowed, create denied', () => {
       llmResponses: [
         asStep('query first', 'metrics.query', { query: 'up', sourceId: 'ds-prom' }),
         asStep('try to create', 'dashboard.create', { folderUid: 'prod', title: 'x' }),
-        asStep('explain', 'finish', {}, 'Queried but cannot create.'),
+        asReply('Queried but cannot create.'),
       ],
       accessControl: mixed,
     });
@@ -213,7 +222,7 @@ describe('Scenario 4 — dashboard.list filters per-row', () => {
     const { agent, sendEvent } = build({
       llmResponses: [
         asStep('list', 'dashboard.list', {}),
-        asStep('report', 'finish', {}, 'Listed dashboards.'),
+        asReply('Listed dashboards.'),
       ],
       accessControl: filtered,
       dashboards,
@@ -234,8 +243,8 @@ describe('Scenario 7 — propose_only agent + dashboard.create', () => {
   it('denies at Layer 2 (permissionMode)', async () => {
     const { agent, audit } = build({
       llmResponses: [
-        asStep('attempt', 'create_alert_rule', { folderUid: 'rules', prompt: 'x' }),
-        asStep('explain', 'finish', {}, 'Proposal only.'),
+        asStep('attempt', 'alert_rule.write', { op: 'create', folderUid: 'rules', prompt: 'x' }),
+        asReply('Proposal only.'),
       ],
       agentType: 'alert-rule-builder',
     });
@@ -261,7 +270,7 @@ describe('Scenario 5 / 16 — cross-org / datasource isolation', () => {
       llmResponses: [
         asStep('ok', 'metrics.query', { sourceId: 'prom-app', query: 'up' }),
         asStep('denied', 'metrics.query', { sourceId: 'prom-infra', query: 'up' }),
-        asStep('explain', 'finish', {}, 'Mixed result.'),
+        asReply('Mixed result.'),
       ],
       accessControl: deny,
     });
@@ -287,7 +296,7 @@ describe('Scenario 6 — no identity → loop refuses to start', () => {
       sendEvent: vi.fn(),
       identity: { userId: '' } as unknown as Identity,
       accessControl: new AccessControlStub(),
-      allowedTools: ['reply', 'finish'],
+      allowedTools: ['ask_user'],
     });
     await expect(loop.runLoop('', 'hi', vi.fn())).rejects.toThrow('identity is required');
   });
@@ -295,7 +304,7 @@ describe('Scenario 6 — no identity → loop refuses to start', () => {
 
 describe('Prompt template population (Scenario 11)', () => {
   it('identity template variables appear in the system prompt snapshot', async () => {
-    const responses: LLMResponse[] = [asStep('done', 'finish', {}, 'ok')];
+    const responses: LLMResponse[] = [asReply('ok')];
     const gateway = makeGateway(responses);
     const sendEvent = vi.fn();
     const audit = collectingAudit();

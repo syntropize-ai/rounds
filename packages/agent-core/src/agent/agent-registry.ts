@@ -45,8 +45,7 @@ agentRegistry.register({
     'datasources.list',
     'datasources.suggest', 'datasources.pin', 'datasources.unpin',
     // Source-agnostic metrics primitives (each requires sourceId)
-    'metrics.query', 'metrics.range_query', 'metrics.labels', 'metrics.label_values',
-    'metrics.series', 'metrics.metadata', 'metrics.metric_names', 'metrics.validate',
+    'metrics.query', 'metrics.range_query', 'metrics.discover', 'metrics.validate',
     // Source-agnostic logs primitives (each requires sourceId)
     'logs.query', 'logs.labels', 'logs.label_values',
     // Recent change events
@@ -56,10 +55,11 @@ agentRegistry.register({
     // Knowledge
     'web.search',
     // Alert rules
-    'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule',
-    'alert_rule.list', 'alert_rule.history',
+    'alert_rule.write', 'alert_rule.list', 'alert_rule.history',
     // Navigation
     'navigate',
+    // Lazy tool loading — fetches deferred schemas on demand
+    'tool_search',
   ],
   inputKinds: ['dashboard'],
   outputKinds: ['dashboard', 'panel', 'dashboard_variable', 'investigation_report', 'alert_rule'],
@@ -70,7 +70,11 @@ agentRegistry.register({
 agentRegistry.register({
   type: 'alert-rule-builder',
   description: 'Generates alert rules from natural language, using dashboard context and metric discovery',
-  allowedTools: ['create_alert_rule', 'metrics.query', 'metrics.labels', 'llm.complete'],
+  // tool_search is required so this narrow agent can load any tool that's
+  // marked deferred in the registry. Without it the deferred tools listed
+  // here (metrics.discover) would be unloadable on a fresh turn — the
+  // schema is only surfaced after a tool_search call.
+  allowedTools: ['alert_rule.write', 'metrics.query', 'metrics.discover', 'llm.complete', 'tool_search'],
   inputKinds: ['dashboard', 'panel'],
   outputKinds: ['alert_rule'],
   permissionMode: 'propose_only',

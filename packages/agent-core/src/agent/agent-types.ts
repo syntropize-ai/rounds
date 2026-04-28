@@ -15,14 +15,13 @@ export type AgentToolName =
   | 'investigation.create' | 'investigation.list'
   | 'investigation.add_section'
   | 'investigation.complete'
-  // Alert rule management
-  | 'create_alert_rule' | 'modify_alert_rule' | 'delete_alert_rule'
+  // Alert rule management — write is the unified create/update/delete tool
+  | 'alert_rule.write'
   | 'alert_rule.list' | 'alert_rule.history'
   // Navigation
   | 'navigate'
   // Source-agnostic metrics primitives (each requires `sourceId`)
-  | 'metrics.query' | 'metrics.range_query' | 'metrics.labels' | 'metrics.label_values'
-  | 'metrics.series' | 'metrics.metadata' | 'metrics.metric_names' | 'metrics.validate'
+  | 'metrics.query' | 'metrics.range_query' | 'metrics.discover' | 'metrics.validate'
   // Source-agnostic logs primitives (each requires `sourceId`)
   | 'logs.query' | 'logs.labels' | 'logs.label_values'
   // Recent change events (deploys, config rollouts, incidents)
@@ -33,7 +32,9 @@ export type AgentToolName =
   | 'datasources.list' | 'datasources.suggest' | 'datasources.pin' | 'datasources.unpin'
   // Knowledge & utility
   | 'web.search' | 'llm.complete'
-  | 'verifier.run';
+  | 'verifier.run'
+  // Lazy tool loading (fetches deferred-tool schemas on demand)
+  | 'tool_search';
 
 export type ArtifactKind =
   | 'dashboard' | 'panel' | 'dashboard_variable'

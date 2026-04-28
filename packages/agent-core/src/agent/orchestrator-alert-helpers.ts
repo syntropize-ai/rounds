@@ -70,8 +70,8 @@ export function parseAlertFollowUpAction(
   if (/(^|\b)(delete|remove|drop|get rid of)\b/.test(trimmed)) {
     return {
       thought: 'Structured alert follow-up delete',
-      action: 'delete_alert_rule',
-      args: { ruleId: activeAlertRule.id },
+      action: 'alert_rule.write',
+      args: { op: 'delete', ruleId: activeAlertRule.id },
     }
   }
 
@@ -101,8 +101,9 @@ export function parseAlertFollowUpAction(
 
   return {
     thought: 'Structured alert follow-up modify',
-    action: 'modify_alert_rule',
+    action: 'alert_rule.write',
     args: {
+      op: 'update',
       ruleId: activeAlertRule.id,
       patch,
     },

@@ -29,22 +29,31 @@ async function evalAlertRuleWrite(
 const log = createLogger('handlers/alert');
 
 // ---------------------------------------------------------------------------
-// Alert rules (still uses AlertRuleAgent for PromQL generation)
+// Alert rule write — single tool with an `op` discriminator that replaces the
+// previous trio (create_alert_rule, modify_alert_rule, delete_alert_rule).
+//
+// The model now picks the verb by argument instead of guessing among three
+// sibling tool names; per-op required-arg validation lives in handleAlertRuleWrite.
 // ---------------------------------------------------------------------------
 
-// TODO: migrate to withToolEventBoundary
-export async function handleCreateAlertRule(
+type AlertRuleWriteOp = 'create' | 'update' | 'delete';
+
+const ALERT_RULE_WRITE_OPS: ReadonlySet<AlertRuleWriteOp> = new Set(['create', 'update', 'delete']);
+
+async function createAlertRule(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
   const prompt = String(args.prompt ?? args.goal ?? '');
   const dashboardId = String(args.dashboardId ?? '');
-  ctx.sendEvent({
-    type: 'tool_call',
-    tool: 'create_alert_rule',
-    args: { prompt },
-    displayText: `Creating alert rule: ${prompt.slice(0, 60)}`,
-  });
+  // folderUid is REQUIRED (matches the RBAC gate scope so authorization
+  // happens against the actual destination, not caller-supplied metadata
+  // that gets dropped). Without it the gate would be a no-op security
+  // theater. See tool-permissions.ts 'alert_rule.write' op=create branch.
+  const folderUid = typeof args.folderUid === 'string' ? args.folderUid.trim() : '';
+  if (!folderUid) {
+    return 'Error: alert_rule.write with op="create" requires "folderUid" — the folder that owns the rule. Without it the RBAC check would authorize against a value the rule never persists.';
+  }
 
   const currentDash = dashboardId ? await ctx.store.findById(dashboardId) : undefined;
   const existingQueries = (currentDash?.panels ?? [])
@@ -97,7 +106,7 @@ export async function handleCreateAlertRule(
       }
     } catch (err) {
       log.warn(
-        { err: err instanceof Error ? err.message : String(err), tool: 'create_alert_rule' },
+        { err: err instanceof Error ? err.message : String(err), tool: 'alert_rule.write', op: 'create' },
         'alertRuleStore lookup failed during upsert — re-throwing to avoid silent duplicate creation',
       );
       throw err;
@@ -127,6 +136,7 @@ export async function handleCreateAlertRule(
         evaluationIntervalSec: generated.evaluationIntervalSec,
         severity: generated.severity,
         labels: { ...generated.labels, ...(dashboardId ? { dashboardId } : {}) },
+        folderUid,
         createdBy: 'llm',
       }),
     ) as Record<string, unknown>;
@@ -145,24 +155,17 @@ export async function handleCreateAlertRule(
     forDurationSec: Number(rc.forDurationSec ?? 0),
     evaluationIntervalSec: Number(rule.evaluationIntervalSec ?? generated.evaluationIntervalSec),
   });
-  const observationText = `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'create_alert_rule', summary: `Alert rule "${rule.name}" ${verb.toLowerCase()}`, success: true });
-  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'create_alert_rule', summary: observationText }));
-  return observationText;
+  return `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.`;
 }
 
-// TODO: migrate to withToolEventBoundary
-export async function handleModifyAlertRule(
+async function updateAlertRule(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
   const ruleId = String(args.ruleId ?? '');
   const patch = (args.patch ?? args) as Record<string, unknown>;
-  if (!ruleId) return 'Error: ruleId is required for modify_alert_rule.';
   if (!ctx.alertRuleStore.update) return 'Error: alert rule store does not support updates.';
   if (!ctx.alertRuleStore.findById) return 'Error: alert rule store does not support findById.';
-
-  ctx.sendEvent({ type: 'tool_call', tool: 'modify_alert_rule', args: { ruleId, patch }, displayText: `Updating alert rule ${ruleId}...` });
 
   const existingRule = await ctx.alertRuleStore.findById(ruleId) as Record<string, unknown> | undefined;
   if (!existingRule) return `Error: alert rule ${ruleId} not found.`;
@@ -172,9 +175,7 @@ export async function handleModifyAlertRule(
   // the handler safe if the gate is ever bypassed (e.g. internal callers).
   const allowed = await evalAlertRuleWrite(ctx, 'alert.rules:write', ruleId);
   if (!allowed) {
-    const msg = `Error: not authorized to modify alert rule ${ruleId}.`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'modify_alert_rule', summary: msg, success: false });
-    return msg;
+    return `Error: not authorized to modify alert rule ${ruleId}.`;
   }
 
   const updatePatch: Record<string, unknown> = {};
@@ -214,39 +215,28 @@ export async function handleModifyAlertRule(
   const updatedCondition = ((updatedRule?.condition ?? updatePatch.condition ?? existingCondition) as Record<string, unknown>);
   const thresholdText = updatedCondition.threshold !== undefined ? ` to ${updatedCondition.threshold}` : '';
   const operatorText = typeof updatedCondition.operator === 'string' ? ` (${updatedCondition.operator})` : '';
-  const observationText = `Updated "${updatedRuleName}"${thresholdText}${operatorText}.`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'modify_alert_rule', summary: observationText, success: true });
-  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'modify_alert_rule', summary: observationText }));
-  return observationText;
+  return `Updated "${updatedRuleName}"${thresholdText}${operatorText}.`;
 }
 
-// TODO: migrate to withToolEventBoundary
-export async function handleDeleteAlertRule(
+async function deleteAlertRule(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
   const ruleId = String(args.ruleId ?? '');
-  if (!ruleId) return 'Error: ruleId is required for delete_alert_rule.';
-
-  ctx.sendEvent({ type: 'tool_call', tool: 'delete_alert_rule', args: { ruleId }, displayText: `Deleting alert rule ${ruleId}...` });
 
   if (!ctx.alertRuleStore.delete) {
-    const msg = 'Error: alert rule store does not support delete.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'delete_alert_rule', summary: msg, success: false });
-    return msg;
+    return 'Error: alert rule store does not support delete.';
   }
 
   const existingRule = ctx.alertRuleStore.findById
     ? await ctx.alertRuleStore.findById(ruleId) as Record<string, unknown> | undefined
     : undefined;
 
-  // RBAC: same guard as modify — defense-in-depth in case the pre-dispatch
+  // RBAC: same guard as update — defense-in-depth in case the pre-dispatch
   // tool gate is bypassed by an internal caller.
   const allowed = await evalAlertRuleWrite(ctx, 'alert.rules:delete', ruleId);
   if (!allowed) {
-    const msg = `Error: not authorized to delete alert rule ${ruleId}.`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'delete_alert_rule', summary: msg, success: false });
-    return msg;
+    return `Error: not authorized to delete alert rule ${ruleId}.`;
   }
 
   await ctx.alertRuleStore.delete(ruleId);
@@ -254,10 +244,75 @@ export async function handleDeleteAlertRule(
   ctx.pushConversationAction({ type: 'delete_alert_rule', ruleId });
 
   const deletedRuleName = String(existingRule?.name ?? 'the alert rule');
-  const observationText = `Deleted "${deletedRuleName}".`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'delete_alert_rule', summary: observationText, success: true });
-  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'delete_alert_rule', summary: observationText }));
-  return observationText;
+  return `Deleted "${deletedRuleName}".`;
+}
+
+export async function handleAlertRuleWrite(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const opRaw = typeof args.op === 'string' ? args.op : '';
+  if (!opRaw) {
+    return 'Error: alert_rule.write requires "op" (one of: create, update, delete).';
+  }
+  if (!ALERT_RULE_WRITE_OPS.has(opRaw as AlertRuleWriteOp)) {
+    return `Error: alert_rule.write received unknown op "${opRaw}". Expected one of: create, update, delete.`;
+  }
+  const op = opRaw as AlertRuleWriteOp;
+
+  // Per-op required-arg validation. Error messages name the missing arg so
+  // the LLM can retry without guessing.
+  if (op === 'create') {
+    const prompt = typeof args.prompt === 'string' ? args.prompt : (typeof args.goal === 'string' ? args.goal : '');
+    if (!prompt) {
+      return 'Error: alert_rule.write with op="create" requires "prompt" (natural-language description of the alert condition).';
+    }
+  }
+  if (op === 'update' || op === 'delete') {
+    if (!args.ruleId || typeof args.ruleId !== 'string') {
+      return `Error: alert_rule.write with op="${op}" requires "ruleId".`;
+    }
+  }
+
+  const displayText = op === 'create'
+    ? `Creating alert rule: ${String(args.prompt ?? args.goal ?? '').slice(0, 60)}`
+    : op === 'update'
+      ? `Updating alert rule ${String(args.ruleId ?? '')}...`
+      : `Deleting alert rule ${String(args.ruleId ?? '')}...`;
+
+  ctx.sendEvent({
+    type: 'tool_call',
+    tool: 'alert_rule.write',
+    args: { op, ...(args.ruleId ? { ruleId: args.ruleId } : {}) },
+    displayText,
+  });
+
+  try {
+    let observation: string;
+    switch (op) {
+      case 'create':
+        observation = await createAlertRule(ctx, args);
+        break;
+      case 'update':
+        observation = await updateAlertRule(ctx, args);
+        break;
+      case 'delete':
+        observation = await deleteAlertRule(ctx, args);
+        break;
+      default: {
+        const _exhaustive: never = op;
+        throw new Error(`alert_rule.write: unhandled op ${String(_exhaustive)}`);
+      }
+    }
+    const success = !observation.startsWith('Error:');
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.write', summary: observation, success });
+    ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'alert_rule.write', summary: observation }));
+    return observation;
+  } catch (err) {
+    const msg = `alert_rule.write (${op}) failed: ${err instanceof Error ? err.message : String(err)}`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.write', summary: msg, success: false });
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

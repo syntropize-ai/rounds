@@ -122,45 +122,56 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('create_alert_rule is folder-scoped', () => {
-    const e = TOOL_PERMS['create_alert_rule']!({ folderUid: 'rules' }, makeCtx());
-    expect((e as { string: () => string }).string()).toBe(
+  it('alert_rule.write op=create is folder-scoped', async () => {
+    const result = await TOOL_PERMS['alert_rule.write']!(
+      { op: 'create', folderUid: 'rules' },
+      makeCtx(),
+    );
+    expect((result as { string: () => string }).string()).toBe(
       'alert.rules:create on folders:uid:rules',
     );
   });
 
-  it('modify_alert_rule looks up the rule to derive folderUid', async () => {
+  it('alert_rule.write op=update looks up the rule to derive folderUid', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
         getFolderUid: async () => 'ops',
       } as unknown as ActionContext['alertRuleStore'],
     });
-    const builder = TOOL_PERMS['modify_alert_rule']!;
-    const result = await builder({ ruleId: 'rule-1' }, ctx);
+    const result = await TOOL_PERMS['alert_rule.write']!(
+      { op: 'update', ruleId: 'rule-1' },
+      ctx,
+    );
     expect((result as { string: () => string }).string()).toBe(
       'alert.rules:write on folders:uid:ops',
     );
   });
 
-  it('modify_alert_rule falls back to wildcard when rule has no folderUid', async () => {
+  it('alert_rule.write op=update falls back to wildcard when rule has no folderUid', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
         getFolderUid: async () => null,
       } as unknown as ActionContext['alertRuleStore'],
     });
-    const result = await TOOL_PERMS['modify_alert_rule']!({ ruleId: 'rule-1' }, ctx);
+    const result = await TOOL_PERMS['alert_rule.write']!(
+      { op: 'update', ruleId: 'rule-1' },
+      ctx,
+    );
     expect((result as { string: () => string }).string()).toBe(
       'alert.rules:write on folders:uid:*',
     );
   });
 
-  it('delete_alert_rule uses the delete action with folder scope', async () => {
+  it('alert_rule.write op=delete uses the delete action with folder scope', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
         getFolderUid: async () => 'ops',
       } as unknown as ActionContext['alertRuleStore'],
     });
-    const result = await TOOL_PERMS['delete_alert_rule']!({ ruleId: 'rule-1' }, ctx);
+    const result = await TOOL_PERMS['alert_rule.write']!(
+      { op: 'delete', ruleId: 'rule-1' },
+      ctx,
+    );
     expect((result as { string: () => string }).string()).toBe(
       'alert.rules:delete on folders:uid:ops',
     );

@@ -30,9 +30,7 @@ export {
 } from './investigation.js';
 
 export {
-  handleCreateAlertRule,
-  handleModifyAlertRule,
-  handleDeleteAlertRule,
+  handleAlertRuleWrite,
   handleAlertRuleList,
   handleAlertRuleHistory,
 } from './alert.js';
@@ -40,11 +38,7 @@ export {
 export {
   handleMetricsQuery,
   handleMetricsRangeQuery,
-  handleMetricsLabels,
-  handleMetricsLabelValues,
-  handleMetricsSeries,
-  handleMetricsMetadata,
-  handleMetricsMetricNames,
+  handleMetricsDiscover,
   handleMetricsValidate,
 } from './metrics.js';
 

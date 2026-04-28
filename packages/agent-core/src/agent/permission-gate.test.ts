@@ -112,9 +112,7 @@ describe('checkPermission — three-layer evaluation', () => {
     expect(out.ok).toBe(true);
   });
 
-  it('terminal actions are always allowed (never reach the gate in practice)', async () => {
-    expect((await checkPermission(writeAgent, 'reply', {}, makeCtx(false))).ok).toBe(true);
-    expect((await checkPermission(writeAgent, 'finish', {}, makeCtx(false))).ok).toBe(true);
+  it('terminal action ask_user is always allowed (never reaches the gate in practice)', async () => {
     expect((await checkPermission(writeAgent, 'ask_user', {}, makeCtx(false))).ok).toBe(true);
   });
 });

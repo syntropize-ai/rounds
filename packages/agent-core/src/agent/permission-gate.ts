@@ -29,7 +29,7 @@ const log = createLogger('permission-gate');
  * executeAction and therefore never hit the gate. Listed here for
  * documentation; the loop already handles them before calling us.
  */
-const TERMINAL = new Set(['reply', 'finish', 'ask_user']);
+const TERMINAL = new Set(['ask_user']);
 
 /**
  * Actions that are mutations in the artifact sense. `permissionMode` only
@@ -42,7 +42,8 @@ const MUTATION_ACTIONS: ReadonlySet<string> = new Set([
   'dashboard.set_title',
   'folder.create',
   'investigation.create', 'investigation.add_section', 'investigation.complete',
-  'create_alert_rule', 'modify_alert_rule', 'delete_alert_rule',
+  // alert_rule.write covers create / update / delete via the `op` discriminator
+  'alert_rule.write',
 ]);
 
 /**
@@ -92,7 +93,7 @@ export async function checkPermission(
   }
 
   // -- Layer 3: RBAC --------------------------------------------------------
-  // Async builders (e.g. modify_alert_rule) call into the data store to
+  // Async builders (e.g. alert_rule.write op=update) call into the data store to
   // resolve scopes. A throw here used to be silently coerced into "scope
   // unknown → wildcard `folders:uid:*`" (fail-OPEN). Now we treat any
   // builder failure as deny — fail-closed is the only safe default for a

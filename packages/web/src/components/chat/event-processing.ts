@@ -65,9 +65,6 @@ export const USER_VISIBLE_TOOLS = new Set([
   'add_variable',
   'set_title',
   'investigate',
-  'create_alert_rule',
-  'modify_alert_rule',
-  'delete_alert_rule',
   // Dashboard generation sub-phases (legacy composite pipeline)
   'research',
   'web_search',
@@ -93,11 +90,7 @@ export const USER_VISIBLE_TOOLS = new Set([
   // Metrics primitives (runtime-first toolized access, source-agnostic)
   'metrics.query',
   'metrics.range_query',
-  'metrics.labels',
-  'metrics.label_values',
-  'metrics.series',
-  'metrics.metadata',
-  'metrics.metric_names',
+  'metrics.discover',
   'metrics.validate',
   // Logs primitives
   'logs.query',
@@ -120,7 +113,8 @@ export const USER_VISIBLE_TOOLS = new Set([
   'investigation.list',
   'investigation.add_section',
   'investigation.complete',
-  // Alert rule primitives
+  // Alert rule primitives — write covers create/update/delete via `op`
+  'alert_rule.write',
   'alert_rule.list',
   'alert_rule.history',
   // Web search primitive (both name styles)
@@ -128,6 +122,8 @@ export const USER_VISIBLE_TOOLS = new Set([
   'web.search',
   // Ops connector — single entrypoint for kubectl/cluster commands
   'ops.run_command',
+  // Lazy tool loading — surfaces deferred tool schemas on demand
+  'tool_search',
 ]);
 
 /**
@@ -144,9 +140,9 @@ export function phaseOf(tool: string): string {
     tool === 'datasources.unpin'
   ) return 'discover';
 
-  // Metrics primitives — group by activity type (mirrors old prometheus mapping 1:1)
-  if (tool === 'metrics.metric_names' || tool === 'metrics.series' || tool === 'metrics.metadata') return 'discover';
-  if (tool === 'metrics.labels' || tool === 'metrics.label_values') return 'discover';
+  // Metrics primitives — discover (kind=labels/values/series/metadata/names)
+  // collapses into one phase; query / validate stay distinct.
+  if (tool === 'metrics.discover') return 'discover';
   if (tool === 'metrics.query' || tool === 'metrics.range_query') return 'query';
   if (tool === 'metrics.validate') return 'validate';
 
@@ -165,14 +161,18 @@ export function phaseOf(tool: string): string {
   if (tool === 'investigation.list') return 'discover';
   if (tool.startsWith('investigation.')) return 'investigate';
 
-  // Alert rule primitives — read-only listing groups under discover
+  // Alert rule primitives — read-only listing groups under discover; write is its own phase
   if (tool === 'alert_rule.list' || tool === 'alert_rule.history') return 'discover';
+  if (tool === 'alert_rule.write') return 'alert_rule';
 
   // Web search
   if (tool === 'web_search' || tool === 'web.search') return 'research';
 
   // Ops / cluster commands
   if (tool === 'ops.run_command') return 'ops';
+
+  // Lazy tool loading
+  if (tool === 'tool_search') return 'discover';
 
   // Legacy composite pipeline phases
   if (tool === 'sample_metrics') return 'discover';
@@ -207,11 +207,7 @@ export const TOOL_LABELS: Record<string, string> = {
   // Metrics primitives (source-agnostic)
   'metrics.query': 'Querying metrics',
   'metrics.range_query': 'Range-querying metrics',
-  'metrics.labels': 'Listing metric labels',
-  'metrics.label_values': 'Listing label values',
-  'metrics.series': 'Finding metric series',
-  'metrics.metadata': 'Fetching metric metadata',
-  'metrics.metric_names': 'Listing metric names',
+  'metrics.discover': 'Discovering metrics',
   'metrics.validate': 'Validating query',
   // Logs primitives
   'logs.query': 'Searching logs',
@@ -234,13 +230,16 @@ export const TOOL_LABELS: Record<string, string> = {
   'investigation.list': 'Listing investigations',
   'investigation.add_section': 'Adding investigation section',
   'investigation.complete': 'Completing investigation',
-  // Alert rule primitives
+  // Alert rule primitives — write covers create/update/delete via `op`
+  'alert_rule.write': 'Writing alert rule',
   'alert_rule.list': 'Listing alerts',
   'alert_rule.history': 'Checking alert history',
   // Web search (dotted variant)
   'web.search': 'Researching',
   // Ops connector (kubectl etc.)
   'ops.run_command': 'Running ops command',
+  // Lazy tool loading
+  'tool_search': 'Loading tool',
   // Panel operations
   add_panels: 'Adding panels',
   remove_panels: 'Removing panels',

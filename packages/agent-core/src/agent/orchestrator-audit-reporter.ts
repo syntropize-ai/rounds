@@ -88,7 +88,7 @@ function inferTargetType(tool: string): string | null {
   }
   if (tool === 'changes.list_recent') return 'changes';
   if (tool.startsWith('ops.')) return 'ops_connector';
-  if (tool.startsWith('alert_rule.') || tool === 'create_alert_rule' || tool === 'modify_alert_rule' || tool === 'delete_alert_rule') {
+  if (tool.startsWith('alert_rule.')) {
     return 'alert_rule';
   }
   if (tool === 'web.search') return 'web_search';
@@ -103,8 +103,15 @@ function inferTargetId(tool: string, args: Record<string, unknown>): string | nu
     return pickString(args.sourceId ?? args.datasourceId ?? args.datasourceUid);
   }
   if (tool.startsWith('ops.')) return pickString(args.connectorId);
-  if (tool === 'create_alert_rule') return pickString(args.folderUid);
-  if (tool === 'modify_alert_rule' || tool === 'delete_alert_rule' || tool === 'alert_rule.history') {
+  // alert_rule.write derives target id from `op`: create writes into a folder
+  // (folderUid), update/delete operate on a specific rule (ruleId).
+  if (tool === 'alert_rule.write') {
+    const op = typeof args.op === 'string' ? args.op : '';
+    if (op === 'create') return pickString(args.folderUid);
+    if (op === 'update' || op === 'delete') return pickString(args.ruleId);
+    return null;
+  }
+  if (tool === 'alert_rule.history') {
     return pickString(args.ruleId);
   }
   return null;

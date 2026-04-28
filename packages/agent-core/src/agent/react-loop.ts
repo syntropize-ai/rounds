@@ -4,21 +4,28 @@ import type {
   CompletionMessage,
   ContentBlock,
   ToolCall,
+  ToolDefinition,
 } from '@agentic-obs/llm-gateway'
 import { createLogger } from '@agentic-obs/common/logging'
 import type { DashboardSseEvent, Identity } from '@agentic-obs/common'
 import type { IAccessControlService } from './types-permissions.js'
 import { estimateMessagesTokens, CONTEXT_WINDOW } from './token-utils.js'
-import { toolsForAgent } from './tool-schema-registry.js'
+import {
+  alwaysOnToolsForAgent,
+  deferredSchemasByName,
+  deferredToolNamesForAgent,
+} from './tool-schema-registry.js'
+import { resolveToolSearch } from './handlers/tool-search.js'
 
 const log = createLogger('react-loop')
 
 /**
  * Safety ceiling on iterations to prevent pathological infinite loops
  * (provider returning identical results, model unable to terminate, etc).
- * Under well-behaved operation the LLM emits `reply` / `ask_user` / `finish`
- * long before this is hit. The real budget is tokens (see
- * TOKEN_BUDGET_TOKENS below); iteration count is just a backstop.
+ * Under well-behaved operation the model exits by emitting plain text with
+ * no tool call (claude-code style) or by calling `ask_user`. The real budget
+ * is tokens (see TOKEN_BUDGET_TOKENS below); iteration count is just a
+ * backstop.
  */
 const MAX_ITERATIONS = 200
 
@@ -55,8 +62,21 @@ export interface ReActStep {
   args: Record<string, unknown>
 }
 
-/** Actions that commit a final result and exit the loop. */
-const TERMINAL_ACTIONS = new Set(['reply', 'ask_user', 'finish'])
+/**
+ * Actions that commit a final result and exit the loop. With `reply` /
+ * `finish` removed (claude-code style: a turn ends when the model emits
+ * text with no tool_use blocks), `ask_user` is the only remaining tool
+ * that closes the conversation — it surfaces a question that must be
+ * answered before the next turn.
+ */
+const TERMINAL_ACTIONS = new Set(['ask_user'])
+
+/**
+ * Lazy-loaded tools intercepted by the loop itself: `tool_search` resolves
+ * deferred schemas and feeds them back to the model as an observation,
+ * without going through the per-tool dispatcher.
+ */
+const TOOL_SEARCH_ACTION = 'tool_search'
 
 /**
  * Classify gateway HTTP failures so the loop can bail out with a user-facing
@@ -251,7 +271,17 @@ export class ReActLoop {
       }
     }
 
-    const tools = toolsForAgent(this.deps.allowedTools)
+    // Always-on tools ship on every gateway call. Deferred tools are
+    // surfaced by name in a system reminder; the model loads their schemas
+    // on demand via `tool_search`, and the loaded set persists for the rest
+    // of this loop instance so subsequent gateway calls expose them too.
+    const alwaysOn = alwaysOnToolsForAgent(this.deps.allowedTools)
+    const allDeferredNames = deferredToolNamesForAgent(this.deps.allowedTools)
+    const loadedDeferredTools = new Set<string>()
+    const toolsForCurrentTurn = (): ToolDefinition[] => [
+      ...alwaysOn,
+      ...deferredSchemasByName(loadedDeferredTools),
+    ]
 
     const observations: ReActObservation[] = []
     let lastAction: string | null = null
@@ -284,7 +314,7 @@ export class ReActLoop {
           model: this.deps.model,
           maxTokens: 4096,
           temperature: 0,
-          tools,
+          tools: toolsForCurrentTurn(),
           toolChoice: 'auto',
           thinking: { effort: thinkingEffort() },
           ...(signal ? { signal } : {}),
@@ -357,9 +387,8 @@ export class ReActLoop {
       // (e.g. metrics.metric_names + metrics.metadata in one shot).
       // Dropping the extras left the model expecting results it never got
       // and confused subsequent turns; iterating honors the protocol.
-      // A terminal action (reply/finish/ask_user) inside the batch ends
-      // the loop immediately — anything queued after it is discarded
-      // because the conversation is over.
+      // `ask_user` inside the batch ends the loop immediately — anything
+      // queued after it is discarded because the conversation is over.
       const batchId = batchCounter++
       for (const tc of toolCalls) {
         const step: ReActStep = {
@@ -389,15 +418,23 @@ export class ReActLoop {
         if (TERMINAL_ACTIONS.has(action)) {
           const pickString = (v: unknown): string | undefined =>
             typeof v === 'string' && v.trim() ? v : undefined
-          const text = action === 'ask_user'
-            ? (step.message ?? pickString(args.question) ?? pickString(args.message) ?? pickString(args.text) ?? '')
-            : (step.message ?? pickString(args.message) ?? pickString(args.text) ?? pickString(args.content) ?? '')
+          // Prefer the actual ask_user payload (args.question / message /
+          // text) over the batch's pre-tool narration in step.message —
+          // step.message is whatever the model said BEFORE the tool call,
+          // often a generic "I need one detail" that has nothing to do with
+          // the structured options. Use it only as a final fallback.
+          const text =
+            pickString(args.question) ??
+            pickString(args.message) ??
+            pickString(args.text) ??
+            step.message ??
+            ''
 
           // Structured ask_user: when the LLM passed `options`, surface them
           // to the chat UI as clickable buttons via a dedicated SSE event.
           // Free-text ask_user falls through to the legacy `reply` path so the
           // existing chat-message rendering keeps working unchanged.
-          if (action === 'ask_user' && Array.isArray(args.options) && args.options.length > 0) {
+          if (Array.isArray(args.options) && args.options.length > 0) {
             const options = (args.options as unknown[])
               .map((o) => {
                 if (!o || typeof o !== 'object') return null
@@ -421,8 +458,40 @@ export class ReActLoop {
           return text
         }
 
-        // --- Non-terminal: execute and record observation ---
-        const observationText = await executeAction(step)
+        // --- tool_search: resolve deferred-tool schemas inline ---
+        // The loop owns this rather than the action runner so the loaded
+        // names can flow straight back into `loadedDeferredTools` without
+        // round-tripping through ActionContext.
+        let observationText: string | null
+        if (action === TOOL_SEARCH_ACTION) {
+          const query = typeof args.query === 'string' ? args.query : ''
+          this.deps.sendEvent({
+            type: 'tool_call',
+            tool: TOOL_SEARCH_ACTION,
+            args: { query },
+            displayText: 'Loading tool',
+          })
+          const result = resolveToolSearch(query, allDeferredNames)
+          for (const name of result.loaded) loadedDeferredTools.add(name)
+          // Distinguish "malformed query" (success=false, e.g. blank input)
+          // from "valid query, no matches" (success=true, just empty). The
+          // chat UI bases its visual state on the success flag — masking a
+          // user-correctable input error as a successful no-op hides the bug.
+          const summary = result.error
+            ? result.error
+            : result.loaded.length > 0
+              ? `Loaded ${result.loaded.length} tool${result.loaded.length === 1 ? '' : 's'}: ${result.loaded.join(', ')}`
+              : 'No tools matched'
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: TOOL_SEARCH_ACTION,
+            summary,
+            success: !result.error,
+          })
+          observationText = result.observation
+        } else {
+          observationText = await executeAction(step)
+        }
         if (observationText === null)
           return ''
 

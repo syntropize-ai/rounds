@@ -46,6 +46,14 @@ async function createAlertRule(
 ): Promise<string> {
   const prompt = String(args.prompt ?? args.goal ?? '');
   const dashboardId = String(args.dashboardId ?? '');
+  // folderUid is REQUIRED (matches the RBAC gate scope so authorization
+  // happens against the actual destination, not caller-supplied metadata
+  // that gets dropped). Without it the gate would be a no-op security
+  // theater. See tool-permissions.ts 'alert_rule.write' op=create branch.
+  const folderUid = typeof args.folderUid === 'string' ? args.folderUid.trim() : '';
+  if (!folderUid) {
+    return 'Error: alert_rule.write with op="create" requires "folderUid" — the folder that owns the rule. Without it the RBAC check would authorize against a value the rule never persists.';
+  }
 
   const currentDash = dashboardId ? await ctx.store.findById(dashboardId) : undefined;
   const existingQueries = (currentDash?.panels ?? [])
@@ -128,6 +136,7 @@ async function createAlertRule(
         evaluationIntervalSec: generated.evaluationIntervalSec,
         severity: generated.severity,
         labels: { ...generated.labels, ...(dashboardId ? { dashboardId } : {}) },
+        folderUid,
         createdBy: 'llm',
       }),
     ) as Record<string, unknown>;

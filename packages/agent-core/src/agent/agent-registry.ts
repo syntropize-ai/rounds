@@ -70,7 +70,11 @@ agentRegistry.register({
 agentRegistry.register({
   type: 'alert-rule-builder',
   description: 'Generates alert rules from natural language, using dashboard context and metric discovery',
-  allowedTools: ['alert_rule.write', 'metrics.query', 'metrics.discover', 'llm.complete'],
+  // tool_search is required so this narrow agent can load any tool that's
+  // marked deferred in the registry. Without it the deferred tools listed
+  // here (metrics.discover) would be unloadable on a fresh turn — the
+  // schema is only surfaced after a tool_search call.
+  allowedTools: ['alert_rule.write', 'metrics.query', 'metrics.discover', 'llm.complete', 'tool_search'],
   inputKinds: ['dashboard', 'panel'],
   outputKinds: ['alert_rule'],
   permissionMode: 'propose_only',

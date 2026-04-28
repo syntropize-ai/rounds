@@ -418,11 +418,16 @@ export class ReActLoop {
         if (TERMINAL_ACTIONS.has(action)) {
           const pickString = (v: unknown): string | undefined =>
             typeof v === 'string' && v.trim() ? v : undefined
+          // Prefer the actual ask_user payload (args.question / message /
+          // text) over the batch's pre-tool narration in step.message —
+          // step.message is whatever the model said BEFORE the tool call,
+          // often a generic "I need one detail" that has nothing to do with
+          // the structured options. Use it only as a final fallback.
           const text =
-            step.message ??
             pickString(args.question) ??
             pickString(args.message) ??
             pickString(args.text) ??
+            step.message ??
             ''
 
           // Structured ask_user: when the LLM passed `options`, surface them
@@ -468,13 +473,20 @@ export class ReActLoop {
           })
           const result = resolveToolSearch(query, allDeferredNames)
           for (const name of result.loaded) loadedDeferredTools.add(name)
+          // Distinguish "malformed query" (success=false, e.g. blank input)
+          // from "valid query, no matches" (success=true, just empty). The
+          // chat UI bases its visual state on the success flag — masking a
+          // user-correctable input error as a successful no-op hides the bug.
+          const summary = result.error
+            ? result.error
+            : result.loaded.length > 0
+              ? `Loaded ${result.loaded.length} tool${result.loaded.length === 1 ? '' : 's'}: ${result.loaded.join(', ')}`
+              : 'No tools matched'
           this.deps.sendEvent({
             type: 'tool_result',
             tool: TOOL_SEARCH_ACTION,
-            summary: result.loaded.length > 0
-              ? `Loaded ${result.loaded.length} tool${result.loaded.length === 1 ? '' : 's'}: ${result.loaded.join(', ')}`
-              : 'No tools matched',
-            success: true,
+            summary,
+            success: !result.error,
           })
           observationText = result.observation
         } else {

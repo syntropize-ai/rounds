@@ -25,17 +25,25 @@ const SELECT_PREFIX = 'select:';
  * returns the matching ToolDefinitions in the order requested. Unknown names
  * are silently skipped — the handler narrates them in the observation so the
  * model can correct itself.
+ *
+ * Same MAX_RESULTS cap and dedupe as the keyword search so the model can't
+ * accidentally inflate one observation by passing a giant or duplicated list.
  */
 export function selectTools(
   names: readonly string[],
   registry: Record<string, ToolDefinition>,
 ): ToolDefinition[] {
   const out: ToolDefinition[] = [];
+  const seen = new Set<string>();
   for (const raw of names) {
     const name = raw.trim();
-    if (!name) continue;
+    if (!name || seen.has(name)) continue;
     const def = registry[name];
-    if (def) out.push(def);
+    if (def) {
+      out.push(def);
+      seen.add(name);
+      if (out.length >= MAX_RESULTS) break;
+    }
   }
   return out;
 }

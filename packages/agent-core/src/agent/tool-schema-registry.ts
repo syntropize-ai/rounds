@@ -137,7 +137,12 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     },
   },
   'metrics.discover': {
-    category: 'deferred',
+    // always-on: it's the entry point for nearly every metrics workflow
+    // (panel build, alert rule, investigation, ad-hoc query). Forcing a
+    // tool_search round-trip before each one would add a useless turn to
+    // the most common path. Lower-frequency cousins (metrics.validate,
+    // metrics.range_query) stay deferred.
+    category: 'always-on',
     schema: {
       name: 'metrics.discover',
       description:
@@ -159,14 +164,19 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
           metric: { type: 'string', description: 'For kind=labels (optional, scopes labels to one metric) and kind=metadata (optional, single metric lookup).' },
           label: { type: 'string', description: 'Required for kind=values: the label whose values to enumerate.' },
-          // `match` carries two shapes depending on `kind` — JsonSchemaProperty
-          // doesn't model unions (no oneOf), so we declare the array shape and
-          // call out the string fallback in the description. The handler
-          // accepts both regardless of what the schema says.
           match: {
             type: 'array',
-            description: 'For kind=series: array of selectors, e.g. ["{__name__=~\\"http.*\\"}"]. For kind=names: pass a single string (the substring filter) — the handler accepts that shape too.',
+            description: 'For kind=series: array of selectors, e.g. ["{__name__=~\\"http.*\\"}"].',
             items: { type: 'string' },
+          },
+          // Separate property (not match-as-union) so the JSON schema is honest:
+          // kind=names takes a substring filter, kind=series takes selectors.
+          // Two distinct shapes, two distinct fields. The handler accepts the
+          // legacy `match` string for kind=names too, but the schema-honest
+          // path is `filter`.
+          filter: {
+            type: 'string',
+            description: 'For kind=names: substring filter (case-insensitive) applied to metric names. Without it large clusters return a sampled list.',
           },
         },
         required: ['sourceId', 'kind'],
@@ -545,6 +555,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
           ruleId: { type: 'string', description: 'Required for op=update / op=delete: id of the rule.' },
           prompt: { type: 'string', description: 'Required for op=create: natural-language description of the alert condition.' },
+          folderUid: { type: 'string', description: 'Required for op=create: the folder uid that owns the rule. Drives both RBAC scoping and where the rule lands. Use folder.list / folder.create first if unsure.' },
           dashboardId: { type: 'string', description: 'Optional for op=create: when set, the generator reuses dashboard queries/variables for consistency.' },
           threshold: { type: 'number', description: 'For op=update: new trigger threshold.' },
           operator: {
@@ -726,12 +737,23 @@ export function toolsForAgent(allowedTools: readonly string[]): ToolDefinition[]
     .map(lookupSchema);
 }
 
+/** Look up an entry, throwing the same drift error as `lookupSchema` for
+ *  consistency. Used by the partition selectors so a typo in `agent-registry`
+ *  fails at startup rather than silently dropping the tool from the model's
+ *  surface. */
+function lookupEntry(name: string): ToolRegistryEntry {
+  const entry = TOOL_REGISTRY[name];
+  if (!entry) throw new Error(`Tool schema missing for "${name}" — add an entry in tool-schema-registry.ts`);
+  return entry;
+}
+
 /** ToolDefinitions for the agent's `always-on` tools — sent on every gateway call. */
 export function alwaysOnToolsForAgent(allowedTools: readonly string[]): ToolDefinition[] {
   return allowedTools
     .filter((name) => !NON_LLM_TOOLS.has(name))
-    .filter((name) => TOOL_REGISTRY[name]?.category === 'always-on')
-    .map(lookupSchema);
+    .map(lookupEntry)
+    .filter((entry) => entry.category === 'always-on')
+    .map((entry) => entry.schema);
 }
 
 /** Names of the agent's `deferred` tools — surfaced as bare names in a
@@ -739,7 +761,7 @@ export function alwaysOnToolsForAgent(allowedTools: readonly string[]): ToolDefi
 export function deferredToolNamesForAgent(allowedTools: readonly string[]): string[] {
   return allowedTools
     .filter((name) => !NON_LLM_TOOLS.has(name))
-    .filter((name) => TOOL_REGISTRY[name]?.category === 'deferred');
+    .filter((name) => lookupEntry(name).category === 'deferred');
 }
 
 /** ToolDefinitions for a specific subset of deferred tools — used by the

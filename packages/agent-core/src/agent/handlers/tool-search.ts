@@ -47,6 +47,11 @@ export interface ToolSearchResult {
   /** Names the loop should add to its `loadedDeferredTools` set so the next
    *  gateway call exposes their full schema. */
   loaded: string[];
+  /** Set when the call itself was malformed (blank query, etc.) — distinct
+   *  from "valid query, no matches". The loop uses this to emit success=false
+   *  on the SSE event so the chat UI shows a real error rather than a green
+   *  "Loaded 0 tools" trace. */
+  error?: string;
 }
 
 /**
@@ -60,10 +65,12 @@ export function resolveToolSearch(
 ): ToolSearchResult {
   const trimmed = (query ?? '').trim();
   if (!trimmed) {
+    const message =
+      'Error: "query" is required. Use "select:<name>[,<name>...]" to load known tools by name, or whitespace-separated keywords to search.';
     return {
-      observation:
-        'Error: "query" is required. Use "select:<name>[,<name>...]" to load known tools by name, or whitespace-separated keywords to search.',
+      observation: message,
       loaded: [],
+      error: message,
     };
   }
   const catalog = deferredCatalog(allowedTools);

@@ -35,6 +35,12 @@ export interface AlertRule {
   // Workspace
   workspaceId?: string;
 
+  // Folder — owns the rule for RBAC scoping. The permission gate authorizes
+  // alert.rules:create against folders:uid:<folderUid>; this field MUST be
+  // persisted on create or the gate would be authorizing against a value
+  // the rule never actually carries (RBAC bypass).
+  folderUid?: string;
+
   // Metadata
   createdBy: string;
   createdAt: string;

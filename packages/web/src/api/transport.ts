@@ -21,6 +21,7 @@ export class ApiClient {
   private async request<T>(
     path: string,
     options: RequestInit = {},
+    retryOnCsrfFailure = true,
   ): Promise<ApiResponse<T>> {
     const method = options.method ?? 'GET';
     const controller = new AbortController();
@@ -97,6 +98,9 @@ export class ApiClient {
           ? { details: inner.details }
           : {}),
       } as import('@agentic-obs/common').ApiError;
+      if (retryOnCsrfFailure && res.status === 403 && error.code === 'CSRF_FAILED') {
+        return this.request<T>(path, options, false);
+      }
       return { data: null as T, error };
     }
 

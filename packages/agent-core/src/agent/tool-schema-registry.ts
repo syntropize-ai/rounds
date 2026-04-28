@@ -188,7 +188,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'metrics.validate',
       description:
-        'Test whether a query is syntactically valid and returns data. Use as the validation gate before dashboard.add_panels — catches bad PromQL before it lands in a panel.',
+        'Test whether a query is syntactically valid and executes through both instant and dashboard range-query paths. Use as the validation gate before dashboard.add_panels — catches bad PromQL before it lands in a panel.',
       input_schema: {
         type: 'object',
         properties: {

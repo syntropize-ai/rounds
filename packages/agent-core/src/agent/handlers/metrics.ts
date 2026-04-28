@@ -294,11 +294,21 @@ export async function handleMetricsValidate(ctx: ActionContext, args: Record<str
   ctx.sendEvent({ type: 'tool_call', tool: 'metrics.validate', args: { sourceId, query: expr }, displayText: `Validating: ${expr.slice(0, 60)}` });
   try {
     const result = await adapter.testQuery(expr);
-    const summary = result.ok ? `Valid query: ${expr}` : `Invalid query: ${result.error ?? 'unknown error'}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary, success: result.ok });
+    if (!result.ok) {
+      const summary = `Invalid query: ${result.error ?? 'unknown error'}`;
+      ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary, success: false });
+      return summary;
+    }
+
+    const end = new Date();
+    const start = new Date(end.getTime() - 5 * 60_000);
+    await adapter.rangeQuery(expr, start, end, '60s');
+
+    const summary = `Valid query: ${expr}`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary, success: true });
     return summary;
   } catch (err) {
-    const msg = `Validation failed: ${err instanceof Error ? err.message : String(err)}`;
+    const msg = `Invalid query: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary: msg, success: false });
     return msg;
   }

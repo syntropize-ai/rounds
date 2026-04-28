@@ -39,8 +39,7 @@ function installFetchMock(opts: FetchMockOptions = {}): {
       status,
       statusText: opts.statusText ?? 'OK',
       json: async () => responseBody,
-      text: async () =>
-        typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody),
+      text: async () => (typeof responseBody === 'string' ? responseBody : JSON.stringify(responseBody)),
     } as Response;
   });
 
@@ -121,7 +120,10 @@ describe('OpenAIProvider — request translation', () => {
 
     expect(m.capture).toHaveLength(1);
     const body = m.capture[0]!.body as {
-      tools: Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>;
+      tools: Array<{
+        type: string;
+        function: { name: string; description: string; parameters: unknown };
+      }>;
       tool_choice: unknown;
     };
     expect(body.tools).toHaveLength(2);
@@ -295,7 +297,10 @@ describe('OpenAIProvider — response parsing', () => {
     expect(result.toolCalls[0]!.name).toBe('dashboard.add_panels');
     expect(result.toolCalls[0]!.input).toEqual({ dashboardId: 'd1' });
     expect(result.toolCalls[1]!.name).toBe('metrics.query');
-    expect(result.toolCalls[1]!.input).toEqual({ sourceId: 'p', query: 'rate(x[1m])' });
+    expect(result.toolCalls[1]!.input).toEqual({
+      sourceId: 'p',
+      query: 'rate(x[1m])',
+    });
   });
 
   it('tags malformed arguments JSON with _malformed_args so the agent loop can detect it', async () => {
@@ -364,6 +369,48 @@ describe('OpenAIProvider — response parsing', () => {
     expect(result.toolCalls[0]!.input).toEqual({});
   });
 
+  it('preserves reasoning_content on tool calls for replay', async () => {
+    const m = installFetchMock({
+      response: {
+        model: 'deepseek-reasoner',
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'Let me check.',
+              reasoning_content: 'Need metrics before creating panels.',
+              tool_calls: [
+                {
+                  id: 'call_reasoning',
+                  type: 'function',
+                  function: {
+                    name: 'metrics__query',
+                    arguments: JSON.stringify({
+                      sourceId: 'prom',
+                      query: 'up',
+                    }),
+                  },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      },
+    });
+    restore = m.restore;
+    const provider = new OpenAIProvider({ apiKey: 'sk-test' });
+
+    const result = await provider.complete(messages, {
+      model: 'deepseek-reasoner',
+    });
+    expect(result.thinkingBlocks).toEqual(['Need metrics before creating panels.']);
+    expect(result.toolCalls[0]!.providerMetadata).toEqual({
+      reasoningContent: 'Need metrics before creating panels.',
+    });
+  });
+
   it('throws on non-2xx', async () => {
     const m = installFetchMock({
       status: 500,
@@ -373,9 +420,7 @@ describe('OpenAIProvider — response parsing', () => {
     restore = m.restore;
     const provider = new OpenAIProvider({ apiKey: 'sk-test' });
 
-    await expect(provider.complete(messages, { model: 'gpt-4o' })).rejects.toThrow(
-      /OpenAI API error 500/,
-    );
+    await expect(provider.complete(messages, { model: 'gpt-4o' })).rejects.toThrow(/OpenAI API error 500/);
   });
 });
 
@@ -403,9 +448,11 @@ describe('OpenAIProvider — name normalization round-trip', () => {
       tools: [dashboardAddPanelsTool],
     });
 
-    const sentName = (m.capture[0]!.body as {
-      tools: Array<{ function: { name: string } }>;
-    }).tools[0]!.function.name;
+    const sentName = (
+      m.capture[0]!.body as {
+        tools: Array<{ function: { name: string } }>;
+      }
+    ).tools[0]!.function.name;
     expect(sentName).toBe('dashboard__add_panels');
 
     // and reverse keeps the inner underscore
@@ -455,7 +502,12 @@ describe('OpenAIProvider — tool_result wiring', () => {
     );
 
     const sent = m.capture[0]!.body as {
-      messages: Array<{ role: string; tool_call_id?: string; name?: string; content?: string | null }>;
+      messages: Array<{
+        role: string;
+        tool_call_id?: string;
+        name?: string;
+        content?: string | null;
+      }>;
     };
     const toolMsg = sent.messages.find((mm) => mm.role === 'tool');
     expect(toolMsg).toBeDefined();
@@ -463,6 +515,50 @@ describe('OpenAIProvider — tool_result wiring', () => {
     // dotted canonical name is encoded with the double-underscore wire form.
     expect(toolMsg!.name).toBe('metrics__query');
     expect(toolMsg!.content).toBe('1 1 1');
+  });
+
+  it('replays reasoning_content on assistant messages with tool calls', async () => {
+    const m = installFetchMock();
+    restore = m.restore;
+    const provider = new OpenAIProvider({ apiKey: 'sk-test' });
+
+    await provider.complete(
+      [
+        { role: 'user', content: 'check' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'call_abc',
+              name: 'metrics.query',
+              input: { sourceId: 'prom', query: 'up' },
+              providerMetadata: {
+                reasoningContent: 'Need to query Prometheus first.',
+              },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'call_abc',
+              tool_name: 'metrics.query',
+              content: '1 1 1',
+            },
+          ],
+        },
+      ],
+      { model: 'deepseek-reasoner' },
+    );
+
+    const sent = m.capture[0]!.body as {
+      messages: Array<{ role: string; reasoning_content?: string }>;
+    };
+    const assistantMsg = sent.messages.find((mm) => mm.role === 'assistant');
+    expect(assistantMsg!.reasoning_content).toBe('Need to query Prometheus first.');
   });
 });
 
@@ -479,6 +575,36 @@ describe('OpenAIProvider — config', () => {
     });
     await provider.complete(messages, { model: 'gpt-4o' });
     expect(m.capture[0]!.url).toBe('https://example.test/openai/chat/completions');
+  });
+});
+
+describe('OpenAIProvider — listModels', () => {
+  let restore: () => void;
+  afterEach(() => restore?.());
+
+  it('keeps every model id returned by OpenAI-compatible endpoints', async () => {
+    const m = installFetchMock({
+      response: {
+        data: [
+          { id: 'deepseek-reasoner', owned_by: 'deepseek' },
+          { id: 'claude-sonnet-4-5', owned_by: 'gateway' },
+          { id: 'qwen3-coder', owned_by: 'gateway' },
+          { id: 'deepseek-chat', owned_by: 'deepseek' },
+        ],
+      },
+    });
+    restore = m.restore;
+    const provider = new OpenAIProvider({
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.deepseek.com/v1',
+    });
+
+    await expect(provider.listModels()).resolves.toEqual([
+      { id: 'claude-sonnet-4-5', name: 'claude-sonnet-4-5', provider: 'openai' },
+      { id: 'deepseek-chat', name: 'deepseek-chat', provider: 'openai' },
+      { id: 'deepseek-reasoner', name: 'deepseek-reasoner', provider: 'openai' },
+      { id: 'qwen3-coder', name: 'qwen3-coder', provider: 'openai' },
+    ]);
   });
 });
 

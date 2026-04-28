@@ -4,7 +4,6 @@ WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json vitest.config.ts ./
 COPY bin ./bin
-COPY config ./config
 COPY packages ./packages
 
 RUN npm ci
@@ -23,7 +22,6 @@ ENV NODE_ENV=production \
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/config ./config
 COPY --from=builder /app/packages ./packages
 
 VOLUME ["/var/lib/openobs"]

@@ -47,7 +47,7 @@ export function createLlmProvider(cfg: LlmFactoryConfig): LLMProvider {
     case 'deepseek':
       return new OpenAIProvider({
         apiKey,
-        baseUrl: cfg.baseUrl || 'https://api.deepseek.com',
+        baseUrl: cfg.baseUrl || 'https://api.deepseek.com/v1',
       });
 
     case 'gemini':

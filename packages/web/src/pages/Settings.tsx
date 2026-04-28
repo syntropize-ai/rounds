@@ -722,6 +722,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
   const [remoteModels, setRemoteModels] = useState<ModelInfo[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [modelsFetched, setModelsFetched] = useState(false);
+  const [modelsWarning, setModelsWarning] = useState<string | null>(null);
 
   useEffect(() => {
     void apiClient.get<{ llm?: LlmConfig }>('/setup/config').then((res) => {
@@ -748,7 +749,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
   }));
 
   const handleFetchModels = async () => {
-    setFetchingModels(true); setRemoteModels([]); setModelsFetched(false);
+    setFetchingModels(true); setRemoteModels([]); setModelsFetched(false); setModelsWarning(null);
     try {
       const res = await apiClient.post<{ models: ModelInfo[] }>('/setup/llm/models', {
         provider: config.provider,
@@ -761,6 +762,10 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
         setRemoteModels(res.data.models);
         if (!res.data.models.map((m) => m.id).includes(config.model)) setConfig((prev) => ({ ...prev, model: res.data!.models[0]!.id }));
       }
+      if (res.error) setModelsWarning(res.error.message);
+      else if (!res.data?.models?.length) setModelsWarning('Provider returned no models.');
+    } catch (err) {
+      setModelsWarning(err instanceof Error ? err.message : 'Failed to fetch models');
     } finally {
       setFetchingModels(false); setModelsFetched(true);
     }
@@ -822,6 +827,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
             apiFormat: 'anthropic',
           }));
           setTestResult(null); setRemoteModels([]); setModelsFetched(false);
+          setModelsWarning(null);
         }} className={selectCls}>{LLM_PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
       </div>
 
@@ -832,7 +838,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
             value={config.apiFormat}
             onChange={(e) => {
               setConfig((prev) => ({ ...prev, apiFormat: e.target.value as LlmConfig['apiFormat'] }));
-              setRemoteModels([]); setModelsFetched(false); setTestResult(null);
+              setRemoteModels([]); setModelsFetched(false); setModelsWarning(null); setTestResult(null);
             }}
             className={selectCls}
           >
@@ -847,7 +853,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
       {provider.needsKey && (
         <div>
           <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">API Key (optional if helper or upstream auth is used)</label>
-          <input type="password" value={config.apiKey} onChange={(e) => { setConfig((prev) => ({ ...prev, apiKey: e.target.value })); setTestResult(null); }} placeholder="sk-... (leave blank for helper / unauth gateway)" className={inputCls} />
+          <input type="password" value={config.apiKey} onChange={(e) => { setConfig((prev) => ({ ...prev, apiKey: e.target.value })); setTestResult(null); setModelsWarning(null); }} placeholder="sk-... (leave blank for helper / unauth gateway)" className={inputCls} />
         </div>
       )}
 
@@ -856,7 +862,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
         <input
           type="text"
           value={config.apiKeyHelper}
-          onChange={(e) => { setConfig((prev) => ({ ...prev, apiKeyHelper: e.target.value })); setTestResult(null); }}
+          onChange={(e) => { setConfig((prev) => ({ ...prev, apiKeyHelper: e.target.value })); setTestResult(null); setModelsWarning(null); }}
           placeholder='e.g. aws-vault exec my-profile -- printenv ANTHROPIC_API_KEY'
           className={inputCls + ' font-mono'}
         />
@@ -868,7 +874,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
       {provider.needsUrl && (
         <div>
           <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">{config.provider === 'ollama' ? 'Ollama URL' : 'Endpoint URL'}</label>
-          <input type="text" value={config.baseUrl} onChange={(e) => setConfig((prev) => ({ ...prev, baseUrl: e.target.value }))} placeholder={llmBaseUrlPlaceholder(config.provider)} className={inputCls} />
+          <input type="text" value={config.baseUrl} onChange={(e) => { setConfig((prev) => ({ ...prev, baseUrl: e.target.value })); setModelsWarning(null); }} placeholder={llmBaseUrlPlaceholder(config.provider)} className={inputCls} />
         </div>
       )}
 
@@ -891,7 +897,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
             </button>
           )}
         </div>
-        {modelsFetched && remoteModels.length === 0 && <p className="text-xs text-tertiary mt-1">Could not fetch models. Check your API key / URL.</p>}
+        {modelsFetched && remoteModels.length === 0 && <p className="text-xs text-tertiary mt-1">{modelsWarning ?? 'Could not fetch models. Check your API key / URL.'}</p>}
         {remoteModels.length > 0 && <p className="text-xs text-secondary mt-1">Found {remoteModels.length} models</p>}
       </div>
 

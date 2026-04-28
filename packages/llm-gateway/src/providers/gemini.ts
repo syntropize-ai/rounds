@@ -319,7 +319,10 @@ export class GeminiProvider implements LLMProvider {
     }
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      const kind = classifyProviderHttpError({ status: response.status });
+      const kind =
+        response.status === 400 && /API key|INVALID_ARGUMENT/i.test(body)
+          ? 'auth'
+          : classifyProviderHttpError({ status: response.status });
       log.warn(
         { provider: 'gemini', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl, kind },
         'listModels failed',

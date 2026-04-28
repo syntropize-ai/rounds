@@ -49,11 +49,7 @@ interface OpenAIToolDef {
   };
 }
 
-type OpenAIToolChoice =
-  | 'auto'
-  | 'required'
-  | { type: 'function'; function: { name: string } }
-  | undefined;
+type OpenAIToolChoice = 'auto' | 'required' | { type: 'function'; function: { name: string } } | undefined;
 
 interface OpenAIToolCall {
   id: string;
@@ -124,6 +120,7 @@ interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   tool_calls?: OpenAIToolCall[];
+  reasoning_content?: string;
   tool_call_id?: string;
   /** Optional on `role: 'tool'` messages — echoes the function name the call resolved. */
   name?: string;
@@ -142,13 +139,21 @@ function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
       // Assistant: text blocks join into content; tool_use blocks become tool_calls.
       const textParts: string[] = [];
       const toolCalls: OpenAIToolCall[] = [];
+      let reasoningContent: string | undefined;
       for (const b of blocks as ContentBlock[]) {
         if (b.type === 'text') textParts.push(b.text);
         else if (b.type === 'tool_use') {
+          const meta = b.providerMetadata ?? {};
+          if (!reasoningContent && typeof meta['reasoningContent'] === 'string') {
+            reasoningContent = meta['reasoningContent'] as string;
+          }
           toolCalls.push({
             id: b.id,
             type: 'function',
-            function: { name: nameToOpenAi(b.name), arguments: JSON.stringify(b.input) },
+            function: {
+              name: nameToOpenAi(b.name),
+              arguments: JSON.stringify(b.input),
+            },
           });
         }
       }
@@ -157,6 +162,7 @@ function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
         content: textParts.length > 0 ? textParts.join('\n') : null,
       };
       if (toolCalls.length > 0) msg.tool_calls = toolCalls;
+      if (reasoningContent) msg.reasoning_content = reasoningContent;
       out.push(msg);
     } else if (m.role === 'user') {
       // User content blocks: text → user message; tool_result → role:"tool" message.
@@ -210,13 +216,19 @@ function extractReasoning(message: OpenAIResponseBody['choices'][number]['messag
   return out;
 }
 
-function parseToolCalls(raw: OpenAIToolCall[] | undefined): ToolCall[] {
+function parseToolCalls(raw: OpenAIToolCall[] | undefined, reasoningContent?: string): ToolCall[] {
   if (!raw || raw.length === 0) return [];
   return raw.map((tc) => {
+    const providerMetadata = reasoningContent ? { reasoningContent } : undefined;
     // Empty / missing arguments → legitimate empty input (some tools take none).
     const argsStr = tc.function.arguments ?? '';
     if (argsStr === '') {
-      return { id: tc.id, name: nameFromOpenAi(tc.function.name), input: {} };
+      return {
+        id: tc.id,
+        name: nameFromOpenAi(tc.function.name),
+        input: {},
+        ...(providerMetadata ? { providerMetadata } : {}),
+      };
     }
     let parsed: unknown;
     try {
@@ -229,13 +241,19 @@ function parseToolCalls(raw: OpenAIToolCall[] | undefined): ToolCall[] {
         // Metadata only — never log the raw argument string. It can carry
         // PII (user prompts, secrets) that the LLM hallucinated into the
         // tool call.
-        { err, provider: 'openai', toolCallId: tc.id, argsLength: argsStr.length },
+        {
+          err,
+          provider: 'openai',
+          toolCallId: tc.id,
+          argsLength: argsStr.length,
+        },
         'tool_call.arguments was not valid JSON; tagging _malformed_args',
       );
       return {
         id: tc.id,
         name: nameFromOpenAi(tc.function.name),
         input: { _malformed_args: argsStr },
+        ...(providerMetadata ? { providerMetadata } : {}),
       };
     }
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -243,16 +261,22 @@ function parseToolCalls(raw: OpenAIToolCall[] | undefined): ToolCall[] {
         id: tc.id,
         name: nameFromOpenAi(tc.function.name),
         input: parsed as Record<string, unknown>,
+        ...(providerMetadata ? { providerMetadata } : {}),
       };
     }
     log.warn(
-      { provider: 'openai', toolCallId: tc.id, parsedType: Array.isArray(parsed) ? 'array' : typeof parsed },
+      {
+        provider: 'openai',
+        toolCallId: tc.id,
+        parsedType: Array.isArray(parsed) ? 'array' : typeof parsed,
+      },
       'tool_call.arguments JSON did not parse to an object; tagging _malformed_args',
     );
     return {
       id: tc.id,
       name: nameFromOpenAi(tc.function.name),
       input: { _malformed_args: argsStr },
+      ...(providerMetadata ? { providerMetadata } : {}),
     };
   });
 }
@@ -313,7 +337,10 @@ export class OpenAIProvider implements LLMProvider {
 
     return {
       content: message.content ?? '',
-      toolCalls: parseToolCalls(message.tool_calls),
+      toolCalls: parseToolCalls(
+        message.tool_calls,
+        typeof message.reasoning_content === 'string' ? message.reasoning_content : undefined,
+      ),
       thinkingBlocks: thinkingBlocks.length > 0 ? thinkingBlocks : undefined,
       usage: {
         promptTokens: data.usage.prompt_tokens,
@@ -343,28 +370,25 @@ export class OpenAIProvider implements LLMProvider {
       const body = await response.text().catch(() => '');
       const kind = classifyProviderHttpError({ status: response.status });
       log.warn(
-        { provider: 'openai', status: response.status, body: body.slice(0, 200), baseUrl: this.baseUrl, kind },
+        {
+          provider: 'openai',
+          status: response.status,
+          body: body.slice(0, 200),
+          baseUrl: this.baseUrl,
+          kind,
+        },
         'listModels failed',
       );
-      throw new ProviderError(
-        `OpenAI listModels failed: HTTP ${response.status} ${body.slice(0, 200)}`,
-        { kind, provider: 'openai', status: response.status },
-      );
+      throw new ProviderError(`OpenAI listModels failed: HTTP ${response.status} ${body.slice(0, 200)}`, {
+        kind,
+        provider: 'openai',
+        status: response.status,
+      });
     }
-    const data = (await response.json()) as { data: Array<{ id: string; owned_by?: string }> };
-    const isOpenRouter = (() => {
-      try {
-        return new URL(this.baseUrl).hostname.endsWith('openrouter.ai');
-      } catch {
-        // If the base URL isn't parseable, fall back to the previous behavior.
-        return false;
-      }
-    })();
-
+    const data = (await response.json()) as {
+      data: Array<{ id: string; owned_by?: string }>;
+    };
     const models = data.data
-      // OpenRouter model IDs are namespaced (e.g. `openai/gpt-4o`, `anthropic/claude-...`);
-      // filtering to `gpt*` would incorrectly drop the entire list.
-      .filter((m) => (isOpenRouter ? true : m.id.startsWith('gpt')))
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((m) => ({
         id: m.id,

@@ -219,5 +219,19 @@ describe('metrics handlers', () => {
         expect.objectContaining({ type: 'tool_result', tool: 'metrics.validate', success: false }),
       );
     });
+
+    it('fails validation when the dashboard range query path rejects the expression', async () => {
+      const adapter = makeAdapter({
+        testQuery: vi.fn().mockResolvedValue({ ok: true }),
+        rangeQuery: vi.fn().mockRejectedValue(new Error('Prometheus returned HTTP 422 for range query')),
+      });
+      const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
+      const observation = await handleMetricsValidate(ctx, { sourceId: 'prom', query: 'bad_range_query' });
+      expect(observation).toContain('Invalid query');
+      expect(observation).toContain('Prometheus returned HTTP 422 for range query');
+      expect(ctx.sendEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics.validate', success: false }),
+      );
+    });
   });
 });

@@ -437,4 +437,27 @@ describe('GeminiProvider', () => {
       ]);
     });
   });
+
+  describe('listModels', () => {
+    it('classifies Gemini invalid API key responses as auth errors', async () => {
+      mockFetch(async () =>
+        makeJsonResponse(
+          {
+            error: {
+              code: 400,
+              message: 'API key not valid. Please pass a valid API key.',
+              status: 'INVALID_ARGUMENT',
+            },
+          },
+          400,
+        ),
+      );
+
+      await expect(provider.listModels()).rejects.toMatchObject({
+        kind: 'auth',
+        provider: 'gemini',
+        status: 400,
+      });
+    });
+  });
 });

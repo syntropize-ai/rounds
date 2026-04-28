@@ -111,7 +111,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
       <button
         type="button"
         onClick={handleOpen}
-        className="h-12 w-12 rounded-full bg-primary hover:bg-primary-container text-white shadow-lg shadow-primary/30 flex items-center justify-center relative transition-all duration-200 shrink-0 self-end m-3"
+        className="h-11 w-11 bg-primary hover:bg-primary-container text-white flex items-center justify-center relative transition-colors shrink-0 self-end m-3"
       >
         <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
           <path d="M18 10c0 3.866-3.582 7-8 7a8.84 8.84 0 01-3.641-.737L2 17l1.026-3.077A6.71 6.71 0 012 10c0-3.866 3.582-7 8-7s8 3.134 8 7z" />
@@ -141,11 +141,11 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
       <div className="flex items-center justify-between px-4 py-4 border-b border-outline-variant shrink-0">
         <div className="flex items-center gap-3 flex-1">
           <OpenObsLogo
-            className={`w-7 h-7 text-tertiary${isGenerating ? ' animate-spin-slow' : ''}`}
+            className={`w-7 h-7 text-on-surface${isGenerating ? ' animate-spin-slow' : ''}`}
             size={28}
           />
           <div>
-            <p className="text-xs font-bold text-tertiary uppercase tracking-tight">OpenObs</p>
+            <p className="text-xs font-semibold text-on-surface">OpenObs</p>
             <p className="text-[10px] text-on-surface-variant">
               {isGenerating ? 'Working' : 'Ready'}
             </p>
@@ -295,7 +295,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
             placeholder="Ask anything..."
             rows={1}
             disabled={isGenerating}
-            className="w-full bg-surface-bright ring-1 ring-outline-variant focus:ring-tertiary/50 rounded-xl py-4 pl-5 pr-14 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-all disabled:opacity-50"
+            className="w-full bg-surface-container border border-outline-variant focus:border-primary py-3.5 pl-4 pr-14 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-colors disabled:opacity-50"
             style={{ minHeight: '52px', maxHeight: '120px' }}
             onInput={(e) => {
               const el = e.target as HTMLTextAreaElement;
@@ -307,7 +307,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-12 bottom-3 w-8 h-8 rounded-lg bg-surface-highest hover:bg-error/20 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors"
+              className="absolute right-12 bottom-3 w-8 h-8 bg-surface-highest hover:bg-error/20 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors"
               title="Stop"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -319,7 +319,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
             type="button"
             onClick={handleSend}
             disabled={!input.trim()}
-            className="absolute right-3 bottom-3 w-8 h-8 bg-tertiary rounded-lg flex items-center justify-center text-white shadow-lg shadow-tertiary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-30"
+            className="absolute right-3 bottom-3 w-8 h-8 bg-primary hover:bg-primary-container flex items-center justify-center text-on-primary-fixed transition-colors disabled:opacity-30"
             title="Send"
           >
             <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">

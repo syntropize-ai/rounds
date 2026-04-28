@@ -356,7 +356,7 @@ export default function DashboardWorkspace() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-surface-lowest">
-      <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 bg-surface-lowest/80 backdrop-blur-xl">
+      <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 bg-surface-lowest border-b border-outline-variant">
         <button
           type="button"
           onClick={() => navigate(dashboard?.type === 'investigation' ? '/investigations' : '/dashboards')}

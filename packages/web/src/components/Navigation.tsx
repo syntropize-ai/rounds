@@ -119,7 +119,7 @@ function SidebarItem({ to, label, icon, end, expanded }: SidebarItemProps) {
           expanded ? 'px-3 w-full' : 'justify-center w-10'
         } ${
           isActive
-            ? 'text-primary bg-primary/10'
+            ? 'text-on-surface bg-surface-high'
             : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high/60'
         }`
       }
@@ -267,7 +267,7 @@ export default function Navigation() {
         {/* Logo — collapsed: hover to show toggle; expanded: always show logo */}
         {expanded ? (
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 text-primary shrink-0">
+            <div className="flex items-center justify-center w-10 h-10 text-on-surface shrink-0">
               <OpenObsLogo className="w-6 h-6" />
             </div>
             <span className="text-sm font-bold text-on-surface truncate">OpenObs</span>
@@ -279,7 +279,7 @@ export default function Navigation() {
             title="Open sidebar"
             className="group"
           >
-            <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 text-primary shrink-0 group-hover:bg-surface-high transition-colors">
+            <div className="relative flex items-center justify-center w-10 h-10 text-on-surface shrink-0 group-hover:bg-surface-high/60 transition-colors">
               <span className="transition-opacity duration-150 group-hover:opacity-0">
                 <OpenObsLogo className="w-6 h-6" />
               </span>

@@ -1,40 +1,41 @@
 @import "tailwindcss";
 
 @theme {
-  /* Surface hierarchy — cool blue-gray observatory palette */
-  --color-surface-lowest: #0d1117;
-  --color-surface: #131a2b;
-  --color-surface-low: #151929;
-  --color-surface-container: #1a1e2e;
-  --color-surface-high: #232838;
-  --color-surface-highest: #2a3042;
-  --color-surface-bright: #323848;
-  --color-surface-variant: #2a3042;
+  /* Surface hierarchy — restrained dark infra palette */
+  --color-surface-lowest: #0f1216;
+  --color-surface: #14181d;
+  --color-surface-low: #181d23;
+  --color-surface-container: #1c2229;
+  --color-surface-high: #242b33;
+  --color-surface-highest: #2b333c;
+  --color-surface-bright: #303942;
+  --color-surface-variant: #29313a;
 
   /* Text / on-surface */
-  --color-on-surface: #e2e8f0;
-  --color-on-surface-variant: #8b92a8;
+  --color-on-surface: #e5e7eb;
+  --color-on-surface-variant: #9aa3ad;
 
   /* Primary */
-  --color-primary: #a3a6ff;
-  --color-primary-container: #9396ff;
-  --color-on-primary-fixed: #000000;
+  --color-primary: #e5e7eb;
+  --color-primary-container: #cbd5e1;
+  --color-on-primary-fixed: #ffffff;
 
   /* Secondary */
-  --color-secondary: #62fae3;
+  --color-secondary: #60a5fa;
 
   /* Tertiary */
-  --color-tertiary: #c180ff;
+  --color-tertiary: #94a3b8;
 
   /* Error */
   --color-error: #ff6e84;
 
   /* Outline */
-  --color-outline: #3d4558;
-  --color-outline-variant: #2e3547;
+  --color-outline: #3b4652;
+  --color-outline-variant: #29333d;
+  --color-viz-grid: rgba(139, 146, 168, 0.2);
 
   /* Surface tint (for tinted shadows) */
-  --color-surface-tint: #a3a6ff;
+  --color-surface-tint: #e5e7eb;
 
   /* Chart series colors */
   --color-chart-green: #22c55e;
@@ -47,11 +48,11 @@
   --color-cursor: rgba(226, 232, 240, 0.55);
 
   /* Translucent primary tint used for overlays (drag placeholder, etc.). */
-  --color-primary-overlay: rgba(163, 166, 255, 0.1);
-  --color-primary-overlay-strong: rgba(163, 166, 255, 0.4);
+  --color-primary-overlay: rgba(229, 231, 235, 0.08);
+  --color-primary-overlay-strong: rgba(229, 231, 235, 0.35);
 
-  /* Glassmorphism background — translucent variant of surface-bright. */
-  --color-glass: rgba(50, 56, 72, 0.6);
+  /* Raised translucent surface. Avoid blur-heavy glass effects. */
+  --color-glass: rgba(36, 43, 51, 0.92);
 }
 
 /* ---------------------------------------------------------------------------
@@ -74,26 +75,26 @@
   --color-on-surface: #24292f;
   --color-on-surface-variant: #6b7280;
 
-  /* Primary — Grafana blue */
-  --color-primary: #3871dc;
-  --color-primary-container: #5794f2;
+  /* Primary — restrained product ink */
+  --color-primary: #1f2937;
+  --color-primary-container: #111827;
   --color-on-primary-fixed: #ffffff;
 
-  --color-secondary: #27aeae;
-  --color-tertiary: #8f3bbf;
+  --color-secondary: #1d4ed8;
+  --color-tertiary: #64748b;
   --color-error: #e02f44;
 
   --color-outline: #d0d1d3;
   --color-outline-variant: #e9edf2;
+  --color-viz-grid: rgba(36, 41, 47, 0.12);
 
-  --color-surface-tint: #3871dc;
+  --color-surface-tint: #1f2937;
 
   /* Cursor must read on white — dark neutral with opacity */
   --color-cursor: rgba(36, 41, 47, 0.35);
 
-  /* Primary overlay retuned to Grafana blue */
-  --color-primary-overlay: rgba(56, 113, 220, 0.1);
-  --color-primary-overlay-strong: rgba(56, 113, 220, 0.4);
+  --color-primary-overlay: rgba(31, 41, 55, 0.08);
+  --color-primary-overlay-strong: rgba(31, 41, 55, 0.35);
 
   /* Glass on light — barely-tinted white */
   --color-glass: rgba(255, 255, 255, 0.75);
@@ -148,15 +149,12 @@ label {
 /* Glassmorphism utility */
 .glass {
   background: var(--color-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 
 /* Customize grid layout appearance */
 .react-grid-item.react-grid-placeholder {
   background: var(--color-primary-overlay);
   border: 2px dashed var(--color-primary-overlay-strong);
-  border-radius: 12px;
   opacity: 1 !important;
 }
 

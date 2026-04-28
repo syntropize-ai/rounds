@@ -10,7 +10,7 @@ interface ThemeContextValue {
 }
 
 const STORAGE_KEY = 'openobs_theme'
-const DEFAULT_THEME: Theme = 'dark'
+const DEFAULT_THEME: Theme = 'light'
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 

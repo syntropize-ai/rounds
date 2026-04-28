@@ -24,12 +24,27 @@ interface Folder {
   id: string;
   name: string;
   parentId?: string;
+  uid?: string;
+  title?: string;
+  parentUid?: string | null;
   createdAt: string;
 }
 
 type SortKey = 'date' | 'name';
 
 // Helpers
+
+function normalizeFolder(folder: Folder): Folder {
+  const id = folder.id ?? folder.uid ?? '';
+  const name = folder.name ?? folder.title ?? id;
+  const parentId = folder.parentId ?? folder.parentUid ?? undefined;
+  return {
+    ...folder,
+    id,
+    name,
+    parentId,
+  };
+}
 
 function StatusBadge({ status }: { status: Dashboard['status'] }) {
   if (status === 'ready') {
@@ -63,159 +78,6 @@ const PAGE_CONFIG = {
   navTarget: '/dashboards',
 };
 
-// Recursive folder tree node
-
-interface FolderNode { folder: Folder | null; id: string; dashboards: Dashboard[]; children: FolderNode[] }
-
-function FolderTreeNode({ node, depth, expandedFolders, toggleFolder, navigate, itemLink, onDeleteDash, onMoveDash, folders, onCreateSubFolder, creatingInFolder, subFolderName, setSubFolderName, onSubmitSubFolder, onCancelSubFolder, onDeleteFolder, canCreateFolder, canDeleteFolder, canDeleteDashboard }: {
-  node: FolderNode; depth: number;
-  expandedFolders: Set<string>; toggleFolder: (id: string) => void;
-  navigate: (path: string) => void; itemLink: (id: string) => string;
-  onDeleteDash: (id: string) => void;
-  onMoveDash: (dashId: string, folderId: string) => void;
-  folders: Folder[];
-  onCreateSubFolder: (parentId: string) => void;
-  creatingInFolder: string | null;
-  subFolderName: string; setSubFolderName: (v: string) => void;
-  onSubmitSubFolder: (parentId: string, name: string) => void;
-  onCancelSubFolder: () => void;
-  onDeleteFolder: (id: string) => void;
-  canCreateFolder: boolean;
-  canDeleteFolder: boolean;
-  canDeleteDashboard: boolean;
-}) {
-  const isExpanded = expandedFolders.has(node.id);
-  const totalItems = node.dashboards.length + node.children.length;
-  const pl = depth * 20;
-
-  return (
-    <div className={depth === 0 ? 'bg-surface-high rounded-xl overflow-hidden' : ''}>
-      {/* Folder header */}
-      <div className="flex items-center group" style={{ paddingLeft: depth > 0 ? pl : undefined }}>
-        <button
-          type="button"
-          onClick={() => toggleFolder(node.id)}
-          className={`flex-1 flex items-center gap-2.5 py-2.5 hover:bg-surface-bright/50 transition-colors ${depth === 0 ? 'px-4' : 'px-3'}`}
-        >
-          <svg className={`w-3.5 h-3.5 text-on-surface-variant transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-          {node.id === '__none__' ? (
-            <span className="text-sm font-semibold text-on-surface">General</span>
-          ) : (
-            <>
-              <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-              <span className="text-sm font-medium text-on-surface">{node.folder?.name}</span>
-            </>
-          )}
-          <span className="text-[10px] text-on-surface-variant ml-1">{totalItems > 0 ? totalItems : ''}</span>
-        </button>
-        {/* Folder actions (visible on hover) — hidden entirely when the user
-            lacks the backing permission so Viewers never see mutating chrome. */}
-        {(canCreateFolder || (canDeleteFolder && node.id !== '__none__')) && (
-          <div className="flex items-center gap-0.5 pr-3 opacity-0 group-hover:opacity-100 transition-opacity">
-            {canCreateFolder && (
-              <button type="button" onClick={() => onCreateSubFolder(node.id)}
-                className="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-colors" title="New sub-folder">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-              </button>
-            )}
-            {canDeleteFolder && node.id !== '__none__' && (
-              <button type="button" onClick={() => onDeleteFolder(node.id)}
-                className="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors" title="Delete folder">
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Expanded content */}
-      {isExpanded && (
-        <div>
-          {/* Sub-folder creation input */}
-          {creatingInFolder === node.id && (
-            <div className="flex items-center gap-2 px-4 py-2" style={{ paddingLeft: (depth + 1) * 20 + 16 }}>
-              <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-              <input
-                autoFocus type="text" value={subFolderName}
-                onChange={(e) => setSubFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && subFolderName.trim()) onSubmitSubFolder(node.id, subFolderName.trim());
-                  if (e.key === 'Escape') onCancelSubFolder();
-                }}
-                placeholder="Folder name"
-                className="flex-1 bg-surface-highest text-on-surface text-sm rounded-lg px-2.5 py-1 border-none focus:ring-1 focus:ring-primary outline-none"
-              />
-              <button type="button" onClick={onCancelSubFolder} className="text-xs text-on-surface-variant hover:text-on-surface">Cancel</button>
-            </div>
-          )}
-
-          {/* Child folders */}
-          {node.children.map((child) => (
-            <FolderTreeNode key={child.id} node={child} depth={depth + 1}
-              expandedFolders={expandedFolders} toggleFolder={toggleFolder}
-              navigate={navigate} itemLink={itemLink}
-              onDeleteDash={onDeleteDash} onMoveDash={onMoveDash} folders={folders}
-              onCreateSubFolder={onCreateSubFolder}
-              creatingInFolder={creatingInFolder} subFolderName={subFolderName}
-              setSubFolderName={setSubFolderName} onSubmitSubFolder={onSubmitSubFolder}
-              onCancelSubFolder={onCancelSubFolder} onDeleteFolder={onDeleteFolder}
-              canCreateFolder={canCreateFolder}
-              canDeleteFolder={canDeleteFolder}
-              canDeleteDashboard={canDeleteDashboard}            />
-          ))}
-
-          {/* Dashboards in this folder */}
-          {node.dashboards.map((dash) => (
-            <div key={dash.id} onClick={() => navigate(itemLink(dash.id))}
-              className="flex items-center gap-3 py-2.5 hover:bg-surface-high/40 transition-colors cursor-pointer group border-t border-outline-variant/10"
-              style={{ paddingLeft: (depth + 1) * 20 + 16, paddingRight: 16 }}>
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-primary/10">
-                <svg className="w-3.5 h-3.5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-on-surface truncate">{dash.title}</span>
-                  <StatusBadge status={dash.status} />
-                </div>
-                <span className="text-xs text-on-surface-variant">{dash.panels.length} panels · {relativeTime(dash.updatedAt ?? dash.createdAt)}</span>
-              </div>
-              {canDeleteDashboard && (
-                <button type="button" onClick={(e) => { e.stopPropagation(); onDeleteDash(dash.id); }}
-                  className="shrink-0 p-1 rounded text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors opacity-0 group-hover:opacity-100"
-                  title="Delete">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              )}
-            </div>
-          ))}
-
-          {/* Empty folder message */}
-          {node.dashboards.length === 0 && node.children.length === 0 && creatingInFolder !== node.id && (
-            <div className="text-xs text-on-surface-variant/50 py-2 italic" style={{ paddingLeft: (depth + 1) * 20 + 16 }}>
-              Empty folder
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Main
 
 export default function Dashboards() {
@@ -234,37 +96,42 @@ export default function Dashboards() {
   const canDeleteFolder = !!user
     && (user.isServerAdmin || hasPermission('folders:delete'));
   const [searchParams, setSearchParams] = useSearchParams();
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(() => searchParams.get('folder'));
   const config = PAGE_CONFIG;
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('date');
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['__none__']));
 
   // Auto-expand folders from URL query param (e.g., ?expand=id1,id2,id3)
   useEffect(() => {
+    setCurrentFolderId(searchParams.get('folder'));
     const expandParam = searchParams.get('expand');
     if (expandParam) {
       const ids = expandParam.split(',').filter(Boolean);
-      setExpandedFolders((prev) => {
-        const next = new Set(prev);
-        for (const id of ids) next.add(id);
-        return next;
-      });
+      const lastFolder = ids.at(-1);
+      if (lastFolder) setCurrentFolderId(lastFolder);
       // Clean up the URL
       searchParams.delete('expand');
+      if (lastFolder) searchParams.set('folder', lastFolder);
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
   const [deletingDashId, setDeletingDashId] = useState<string | null>(null);
-  const [movingDashId, setMovingDashId] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [showNewFolder, setShowNewFolder] = useState(false);
-  const [creatingInFolder, setCreatingInFolder] = useState<string | null>(null);
-  const [subFolderName, setSubFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const [folders, setFolders] = useState<Folder[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const newFolderRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!showNewFolder) return;
+    window.setTimeout(() => {
+      newFolderRef.current?.focus();
+      newFolderRef.current?.select();
+    }, 0);
+  }, [showNewFolder]);
 
   // Keyboard shortcut: / to focus search
   useEffect(() => {
@@ -280,9 +147,18 @@ export default function Dashboards() {
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const loadList = useCallback(async () => {
-    const [dashRes, folderRes] = await Promise.all([
+    const loadFolders = async (parentUid?: string): Promise<Folder[]> => {
+      const query = parentUid === undefined ? '' : `?parentUid=${encodeURIComponent(parentUid)}`;
+      const res = await apiClient.get<Folder[]>(`/folders${query}`);
+      if (res.error || !Array.isArray(res.data)) return [];
+      const current = res.data.map(normalizeFolder);
+      const children = await Promise.all(current.map((folder) => loadFolders(folder.id)));
+      return [...current, ...children.flat()];
+    };
+
+    const [dashRes, folderItems] = await Promise.all([
       apiClient.get<Dashboard[]>('/dashboards'),
-      apiClient.get<Folder[]>('/folders'),
+      loadFolders(),
     ]);
     // Treat a missing/non-array body the same as an explicit error — otherwise
     // a 204 / null response would silently set state to a non-array and the
@@ -296,9 +172,7 @@ export default function Dashboards() {
       setDashboards(dashRes.data);
       setLoadError(null);
     }
-    if (!folderRes.error && Array.isArray(folderRes.data)) {
-      setFolders(folderRes.data);
-    }
+    setFolders(folderItems);
     setLoadingList(false);
   }, []);
 
@@ -311,24 +185,10 @@ export default function Dashboards() {
     if (!res.error) setDashboards((prev) => prev.filter((d) => d.id !== id));
   }, []);
 
-  const handleMoveToFolder = useCallback(async (id: string, folder: string) => {
-    const res = await apiClient.put(`/dashboards/${id}`, { folder: folder || undefined });
-    if (!res.error) {
-      setDashboards((prev) => prev.map((d) => d.id === id ? { ...d, folder: folder || undefined } : d));
-      setExpandedFolders((prev) => { const n = new Set(prev); n.add(folder || '__none__'); return n; });
-    }
-    setMovingDashId(null);
+  const cancelNewFolder = useCallback(() => {
+    setShowNewFolder(false);
+    setNewFolderName('');
   }, []);
-
-
-  const toggleFolder = (folder: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(folder)) next.delete(folder);
-      else next.add(folder);
-      return next;
-    });
-  };
 
   // Sort
   const sortFn = useCallback((a: Dashboard, b: Dashboard) => {
@@ -359,59 +219,71 @@ export default function Dashboards() {
 
   const isSearching = search.trim().length > 0;
 
-  // Build folder tree
+  // Current directory state
   const folderMap = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
   const folderName = (id: string) => folderMap.get(id)?.name ?? id;
+  const openFolder = useCallback((id: string | null) => {
+    setCurrentFolderId(id);
+    const next = new URLSearchParams(searchParams);
+    if (id) next.set('folder', id);
+    else next.delete('folder');
+    next.delete('expand');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
-  const folderTree = useMemo((): FolderNode[] => {
-    // Group dashboards by folder
-    const dashByFolder = new Map<string, Dashboard[]>();
-    for (const d of filtered) {
-      const fid = d.folder || '__none__';
-      if (!dashByFolder.has(fid)) dashByFolder.set(fid, []);
-      dashByFolder.get(fid)!.push(d);
+  const submitNewFolder = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name || creatingFolder) return;
+    setCreatingFolder(true);
+    const res = await apiClient.post<Folder>('/folders', { title: name, parentUid: currentFolderId ?? undefined });
+    setCreatingFolder(false);
+    if (!res.error) {
+      const folder = normalizeFolder(res.data);
+      setFolders((prev) => [...prev, folder]);
+      setShowNewFolder(false);
+      setNewFolderName('');
+      openFolder(folder.id);
     }
+  }, [creatingFolder, currentFolderId, newFolderName, openFolder]);
 
-    // Build tree from flat folder list
-    const nodeMap = new Map<string, FolderNode>();
-    // Root (General)
-    const rootNode: FolderNode = { folder: null, id: '__none__', dashboards: dashByFolder.get('__none__') ?? [], children: [] };
-    nodeMap.set('__none__', rootNode);
-
-    // Create nodes for all folders
-    for (const f of folders) {
-      nodeMap.set(f.id, { folder: f, id: f.id, dashboards: dashByFolder.get(f.id) ?? [], children: [] });
+  const folderPath = useMemo(() => {
+    const path: Folder[] = [];
+    const seen = new Set<string>();
+    let cursor = currentFolderId ? folderMap.get(currentFolderId) : undefined;
+    while (cursor && !seen.has(cursor.id)) {
+      path.unshift(cursor);
+      seen.add(cursor.id);
+      cursor = cursor.parentId ? folderMap.get(cursor.parentId) : undefined;
     }
+    return path;
+  }, [currentFolderId, folderMap]);
 
-    // Link children to parents
-    const roots: FolderNode[] = [rootNode];
-    for (const f of folders) {
-      const node = nodeMap.get(f.id)!;
-      if (f.parentId && nodeMap.has(f.parentId)) {
-        nodeMap.get(f.parentId)!.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    }
+  const currentFolder = currentFolderId ? folderMap.get(currentFolderId) : null;
+  const visibleFolders = useMemo(() => {
+    const parentId = currentFolderId ?? undefined;
+    return folders
+      .filter((folder) => (folder.parentId ?? undefined) === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [currentFolderId, folders]);
 
-    // Sort children alphabetically
-    const sortNodes = (nodes: FolderNode[]) => {
-      nodes.sort((a, b) => {
-        if (a.id === '__none__') return -1;
-        if (b.id === '__none__') return 1;
-        return (a.folder?.name ?? '').localeCompare(b.folder?.name ?? '');
-      });
-      for (const n of nodes) sortNodes(n.children);
-    };
-    sortNodes(roots);
-    return roots;
-  }, [filtered, folders]);
+  const visibleDashboards = useMemo(() => {
+    const folderId = currentFolderId ?? undefined;
+    return filtered.filter((dashboard) => (dashboard.folder ?? undefined) === folderId);
+  }, [currentFolderId, filtered]);
+
+  const nextNewFolderName = useCallback(() => {
+    const names = new Set(visibleFolders.map((folder) => folder.name.toLowerCase()));
+    if (!names.has('new folder')) return 'New folder';
+    let index = 2;
+    while (names.has(`new folder ${index}`)) index += 1;
+    return `New folder ${index}`;
+  }, [visibleFolders]);
 
   const itemLink = (id: string) => `/dashboards/${id}`;
 
   return (
     <div className="flex-1 overflow-y-auto bg-surface-lowest">
-      <div className="p-8 max-w-5xl mx-auto">
+      <div className="p-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-end mb-8">
           <div>
@@ -422,8 +294,8 @@ export default function Dashboards() {
             {canCreateFolder && (
               <button
                 type="button"
-                onClick={() => { setShowNewFolder(true); setTimeout(() => newFolderRef.current?.focus(), 50); }}
-                className="bg-surface-high text-on-surface-variant hover:text-on-surface px-4 py-2 rounded-lg font-semibold text-sm transition-colors"
+                onClick={() => { setNewFolderName(nextNewFolderName()); setShowNewFolder(true); }}
+                className="bg-surface-container border border-outline-variant text-on-surface-variant hover:text-on-surface hover:border-outline px-4 py-2 font-semibold text-sm transition-colors"
               >
                 + Folder
               </button>
@@ -432,7 +304,7 @@ export default function Dashboards() {
               <button
                 type="button"
                 onClick={() => navigate('/')}
-                className="bg-primary text-on-primary-fixed px-4 py-2 rounded-lg font-semibold text-sm transition-transform active:scale-95"
+                className="bg-primary text-on-primary-fixed px-4 py-2 font-semibold text-sm transition-transform active:scale-95"
               >
                 {config.newLabel}
               </button>
@@ -452,13 +324,13 @@ export default function Dashboards() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={`Search ${config.title.toLowerCase()}...`}
-              className="w-full bg-surface-high rounded-lg pl-10 pr-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:ring-1 focus:ring-primary border-none"
+              className="w-full bg-surface-container border border-outline-variant pl-10 pr-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/60 focus:outline-none focus:border-outline"
             />
           </div>
           <button
             type="button"
             onClick={() => setSortKey(sortKey === 'date' ? 'name' : 'date')}
-            className="bg-surface-high px-4 py-2.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-colors flex items-center gap-2"
+            className="bg-surface-container border border-outline-variant px-4 py-2.5 text-xs font-medium text-on-surface-variant hover:text-on-surface hover:border-outline transition-colors flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
@@ -466,44 +338,6 @@ export default function Dashboards() {
             {sortKey === 'date' ? 'Latest' : 'Name'}
           </button>
         </div>
-
-        {/* New folder input */}
-        {showNewFolder && (
-          <div className="flex items-center gap-2 mb-4 bg-surface-high rounded-xl px-4 py-3">
-            <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
-            <input
-              ref={newFolderRef}
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newFolderName.trim()) {
-                  const name = newFolderName.trim();
-                  void apiClient.post<Folder>('/folders', { name }).then((res) => {
-                    if (!res.error) {
-                      setFolders((prev) => [...prev, res.data]);
-                      setExpandedFolders((prev) => { const n = new Set(prev); n.add(res.data.id); return n; });
-                    }
-                  });
-                  setShowNewFolder(false);
-                  setNewFolderName('');
-                }
-                if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName(''); }
-              }}
-              placeholder="Folder name, then Enter"
-              className="flex-1 bg-transparent text-sm text-on-surface placeholder:text-on-surface-variant/60 outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => { setShowNewFolder(false); setNewFolderName(''); }}
-              className="text-on-surface-variant hover:text-on-surface text-xs"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
 
         {/* Loading */}
         {loadingList && (
@@ -521,7 +355,7 @@ export default function Dashboards() {
             <button
               type="button"
               onClick={() => { setLoadingList(true); void loadList(); }}
-              className="bg-primary text-on-primary-fixed px-4 py-2 rounded-lg font-semibold text-sm"
+              className="bg-primary text-on-primary-fixed px-4 py-2 font-semibold text-sm"
             >
               Retry
             </button>
@@ -531,9 +365,9 @@ export default function Dashboards() {
         {/* Empty state — only when there are no folders either, otherwise the
             folder tree below shows the actual structure and a redundant CTA
             here just clutters the layout (header already has + New Dashboard). */}
-        {!loadingList && !loadError && dashboards.length === 0 && folders.length === 0 && (
+        {!loadingList && !loadError && dashboards.length === 0 && folders.length === 0 && !showNewFolder && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-14 h-14 rounded-xl bg-surface-high flex items-center justify-center mb-4">
+            <div className="w-14 h-14 bg-surface-container border border-outline-variant flex items-center justify-center mb-4">
               <svg className="w-7 h-7 text-on-surface-variant" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
               </svg>
@@ -545,7 +379,7 @@ export default function Dashboards() {
 
         {/* Search results */}
         {!loadingList && isSearching && (
-          <div className="bg-surface-high rounded-xl overflow-hidden">
+          <div className="border border-outline-variant bg-surface-container overflow-hidden">
             {searching && (
               <div className="flex justify-center py-8">
                 <span className="inline-block w-5 h-5 border-2 border-outline border-t-primary rounded-full animate-spin" />
@@ -559,15 +393,16 @@ export default function Dashboards() {
             {!searching && searchResults.map((r) => (
               <div key={r.id} onClick={() => {
                 if (r.type === 'folder') {
-                  // Expand the folder path in-place instead of navigating
+                  // Open the folder in-place instead of navigating away.
                   const expandIds = new URL(r.navigateTo, window.location.origin).searchParams.get('expand')?.split(',').filter(Boolean) ?? [];
-                  setExpandedFolders((prev) => { const n = new Set(prev); for (const id of expandIds) n.add(id); return n; });
+                  const targetFolder = expandIds.at(-1) ?? r.id;
+                  openFolder(targetFolder);
                   setSearch('');
                 } else {
                   navigate(r.navigateTo);
                 }
               }}
-                className="px-5 py-3 flex items-center gap-3 hover:bg-surface-high/40 transition-colors cursor-pointer border-t border-outline-variant/10 first:border-t-0">
+                className="px-5 py-3 flex items-center gap-3 hover:bg-surface-high/45 transition-colors cursor-pointer border-t border-outline-variant first:border-t-0">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
                   r.type === 'alert' ? 'bg-error/10 text-error'
                     : r.type === 'folder' ? 'bg-primary/10 text-primary'
@@ -597,42 +432,179 @@ export default function Dashboards() {
           </div>
         )}
 
-        {/* Folder tree list (shown when not searching) */}
-        {!loadingList && !isSearching && (dashboards.length > 0 || folders.length > 0) && (
-          <div className="space-y-1">
-            {folderTree.map((node) => (
-              <FolderTreeNode key={node.id} node={node} depth={0}
-                expandedFolders={expandedFolders} toggleFolder={toggleFolder}
-                navigate={navigate} itemLink={itemLink}
-                onDeleteDash={setDeletingDashId}
-                onMoveDash={(id, folderId) => void handleMoveToFolder(id, folderId)}
-                folders={folders}
-                onCreateSubFolder={(parentId) => {
-                  setCreatingInFolder(parentId);
-                  setSubFolderName('');
-                  setExpandedFolders((prev) => { const n = new Set(prev); n.add(parentId); return n; });
-                }}
-                creatingInFolder={creatingInFolder}
-                subFolderName={subFolderName}
-                setSubFolderName={setSubFolderName}
-                onSubmitSubFolder={async (parentId, name) => {
-                  const res = await apiClient.post<Folder>('/folders', { name, parentId: parentId === '__none__' ? undefined : parentId });
-                  if (!res.error) {
-                    setFolders((prev) => [...prev, res.data]);
-                    setExpandedFolders((prev) => { const n = new Set(prev); n.add(parentId); n.add(res.data.id); return n; });
-                  }
-                  setCreatingInFolder(null);
-                }}
-                onCancelSubFolder={() => setCreatingInFolder(null)}
-                onDeleteFolder={async (id) => {
-                  await apiClient.delete(`/folders/${id}`);
-                  setFolders((prev) => prev.filter((f) => f.id !== id));
-                }}
-                canCreateFolder={canCreateFolder}
-                canDeleteFolder={canDeleteFolder}
-                canDeleteDashboard={canDeleteDashboard}
-                             />
+        {/* Current folder browser (shown when not searching) */}
+        {!loadingList && !isSearching && (dashboards.length > 0 || folders.length > 0 || showNewFolder) && (
+          <div className="border border-outline-variant bg-surface-container">
+            <div className="flex items-center gap-1 border-b border-outline-variant px-3 py-2 text-sm">
+              <button
+                type="button"
+                onClick={() => openFolder(null)}
+                className={`px-2 py-1 hover:bg-surface-high transition-colors ${currentFolderId === null ? 'text-on-surface font-medium' : 'text-on-surface-variant hover:text-on-surface'}`}
+              >
+                Dashboards
+              </button>
+              {folderPath.map((folder) => (
+                <React.Fragment key={folder.id}>
+                  <span className="text-on-surface-variant/50">/</span>
+                  <button
+                    type="button"
+                    onClick={() => openFolder(folder.id)}
+                    className={`min-w-0 px-2 py-1 hover:bg-surface-high transition-colors ${folder.id === currentFolderId ? 'text-on-surface font-medium' : 'text-on-surface-variant hover:text-on-surface'}`}
+                  >
+                    <span className="block max-w-52 truncate">{folder.name}</span>
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+
+            {currentFolderId && (
+              <button
+                type="button"
+                onClick={() => openFolder(currentFolder?.parentId ?? null)}
+                className="flex w-full items-center gap-3 border-b border-outline-variant px-4 py-2.5 text-left text-sm text-on-surface-variant transition-colors hover:bg-surface-high/45 hover:text-on-surface"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 18l-6-6 6-6" />
+                </svg>
+                <span>Back to {currentFolder?.parentId ? folderName(currentFolder.parentId) : 'Dashboards'}</span>
+              </button>
+            )}
+
+            {showNewFolder && (
+              <div className="flex items-center gap-3 border-b border-outline-variant bg-surface-high/35 px-4 py-2.5">
+                <div className="w-6 h-6 flex items-center justify-center shrink-0 text-on-surface">
+                  <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                </div>
+                <input
+                  ref={newFolderRef}
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void submitNewFolder();
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelNewFolder();
+                    }
+                  }}
+                  onBlur={() => {
+                    if (!newFolderName.trim()) cancelNewFolder();
+                  }}
+                  placeholder="Folder name"
+                  disabled={creatingFolder}
+                  className="min-w-0 flex-1 bg-surface-container border border-outline-variant px-2.5 py-1 text-sm text-on-surface outline-none focus:border-outline disabled:opacity-60"
+                />
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void submitNewFolder()}
+                  disabled={!newFolderName.trim() || creatingFolder}
+                  className="px-2 py-1 text-xs font-medium text-on-surface disabled:opacity-40"
+                >
+                  {creatingFolder ? 'Creating...' : 'Create'}
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={cancelNewFolder}
+                  className="px-2 py-1 text-xs text-on-surface-variant hover:text-on-surface"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {visibleFolders.map((folder) => {
+              const childCount = folders.filter((child) => child.parentId === folder.id).length;
+              const dashboardCount = dashboards.filter((dashboard) => dashboard.folder === folder.id).length;
+              return (
+                <div
+                  key={folder.id}
+                  role="button"
+                  tabIndex={0}
+                  onDoubleClick={() => openFolder(folder.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') openFolder(folder.id);
+                  }}
+                  className="group flex items-center gap-3 border-b border-outline-variant px-4 py-2.5 transition-colors hover:bg-surface-high/45 focus:bg-surface-high/45 focus:outline-none"
+                  title="Double-click to open"
+                >
+                  <div className="w-6 h-6 flex items-center justify-center shrink-0 text-on-surface-variant">
+                    <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-on-surface">{folder.name}</div>
+                    <div className="text-xs text-on-surface-variant">
+                      {dashboardCount} dashboards{childCount > 0 ? ` · ${childCount} folders` : ''}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openFolder(folder.id)}
+                    className="px-2 py-1 text-xs text-on-surface-variant opacity-0 transition-opacity hover:text-on-surface group-hover:opacity-100"
+                  >
+                    Open
+                  </button>
+                  {canDeleteFolder && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        await apiClient.delete(`/folders/${folder.id}`);
+                        setFolders((prev) => prev.filter((f) => f.id !== folder.id));
+                      }}
+                      className="p-1 text-on-surface-variant hover:text-error hover:bg-error/10"
+                      title="Delete folder"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+            {visibleDashboards.map((dash) => (
+              <div
+                key={dash.id}
+                onClick={() => navigate(itemLink(dash.id))}
+                className="flex items-center gap-3 border-b border-outline-variant px-4 py-2.5 transition-colors last:border-b-0 hover:bg-surface-high/45 cursor-pointer group"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium text-on-surface">{dash.title}</span>
+                    <StatusBadge status={dash.status} />
+                  </div>
+                  <span className="text-xs text-on-surface-variant">{dash.panels.length} panels · {relativeTime(dash.updatedAt ?? dash.createdAt)}</span>
+                </div>
+                {canDeleteDashboard && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setDeletingDashId(dash.id); }}
+                    className="shrink-0 p-1 text-on-surface-variant hover:text-error hover:bg-error/10 transition-colors opacity-0 group-hover:opacity-100"
+                    title="Delete dashboard"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
+
+            {visibleFolders.length === 0 && visibleDashboards.length === 0 && !showNewFolder && (
+              <div className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                This folder is empty.
+              </div>
+            )}
           </div>
         )}
 

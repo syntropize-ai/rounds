@@ -69,9 +69,9 @@ export const INVESTIGATION_STATUS_STYLES: Record<string, InvestigationStatusStyl
     description: 'Verifying results...',
   },
   completed: {
-    bg: 'bg-emerald-500/15',
-    text: 'text-emerald-400',
-    dot: 'bg-emerald-500',
+    bg: 'bg-slate-500/15',
+    text: 'text-slate-500',
+    dot: 'bg-slate-500',
     label: 'Completed',
     description: 'Investigation complete',
   },

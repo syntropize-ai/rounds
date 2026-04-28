@@ -13,11 +13,10 @@ export const VIZ_TOKENS = {
     color: 'var(--color-on-surface-variant)',
   },
   grid: {
-    // `--color-outline-variant` is tuned per-theme to be faintly visible against
-    // the panel background (a translucent bluish-gray on dark, a pale neutral
-    // on light). `resolveCssVar` is used at read time so canvas/uPlot code
-    // gets a real color string even though this value is a CSS var reference.
-    color: 'var(--color-outline-variant)',
+    // Keep chart gridlines independent from app chrome borders. Dashboard
+    // panels need faint scaffolding; global outline tokens are often tuned
+    // for cards, inputs, and dividers and can make charts look heavy.
+    color: 'var(--color-viz-grid)',
     lineWidth: 1,
     dashed: false,
   },

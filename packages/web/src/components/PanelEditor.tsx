@@ -90,7 +90,7 @@ export default function PanelEditor({ panel, onSave, onCancel }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
 
       <div className="relative z-10 bg-[var(--color-surface-container)] rounded-2xl border border-[var(--color-outline-variant)] shadow-xl w-full max-w-2xl mx-4 overflow-hidden flex flex-col max-h-[85vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-outline-variant)]">

@@ -33,37 +33,37 @@ interface ChatSession {
 
 const QUICK_ACTIONS = [
   {
-    category: 'Performance',
+    category: 'Investigate',
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
       </svg>
     ),
-    colorClass: 'text-primary',
-    prompt: 'Analyze CPU spike in checkout-service',
-    label: '"Analyze CPU spike in checkout-service"',
+    colorClass: 'text-on-surface',
+    prompt: 'Why is checkout latency high right now?',
+    label: 'Investigate checkout latency',
   },
   {
-    category: 'Dashboards',
+    category: 'Build',
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18M7 16l4-4 4 4 4-4" />
       </svg>
     ),
-    colorClass: 'text-tertiary',
+    colorClass: 'text-secondary',
     prompt: 'Create a dashboard for http latency',
-    label: '"Create a dashboard for http latency"',
+    label: 'Create HTTP latency dashboard',
   },
   {
-    category: 'Incident',
+    category: 'Alert',
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
       </svg>
     ),
     colorClass: 'text-error',
-    prompt: 'Explain the recent 5xx error surge',
-    label: '"Explain the recent 5xx error surge"',
+    prompt: 'Alert me when p95 latency is above 500ms',
+    label: 'Alert on p95 > 500ms',
   },
 ];
 
@@ -144,8 +144,6 @@ export default function Home() {
   // Reusable input component (used in both modes)
   const inputArea = (
     <div className="relative group">
-      {/* Ambient glow ring on focus */}
-      <div className="absolute -inset-1 bg-gradient-to-r from-tertiary/20 via-primary/15 to-tertiary/20 rounded-[1.75rem] blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity duration-700 pointer-events-none" />
       <div className="relative">
         <textarea
           value={input}
@@ -154,8 +152,8 @@ export default function Home() {
           placeholder="Ask anything about your systems..."
           rows={1}
           disabled={isGenerating}
-          className="w-full bg-surface-bright/95 backdrop-blur-xl ring-1 ring-outline focus:ring-tertiary/50 rounded-3xl py-5 pl-6 pr-16 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-all disabled:opacity-50 shadow-2xl shadow-outline/40"
-          style={{ minHeight: '64px', maxHeight: '220px' }}
+          className="w-full bg-surface-container border border-outline focus:border-on-surface/30 py-4 pl-5 pr-16 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-[border-color,box-shadow,background-color] disabled:opacity-50 rounded-[26px] shadow-[0_18px_60px_rgba(15,18,22,0.10),0_1px_2px_rgba(15,18,22,0.08)] focus:shadow-[0_22px_70px_rgba(15,18,22,0.14),0_1px_2px_rgba(15,18,22,0.08)]"
+          style={{ minHeight: '58px', maxHeight: '220px' }}
           onInput={(e) => {
             const el = e.target as HTMLTextAreaElement;
             el.style.height = 'auto';
@@ -166,7 +164,7 @@ export default function Home() {
           <button
             type="button"
             onClick={stopGeneration}
-            className="absolute right-14 bottom-4 w-9 h-9 rounded-xl bg-surface-highest hover:bg-error/20 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors"
+            className="absolute right-14 bottom-3 w-8 h-8 bg-surface-highest hover:bg-error/15 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors rounded-full"
             title="Stop"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -178,7 +176,7 @@ export default function Home() {
           type="button"
           onClick={handleSend}
           disabled={!input.trim() || isGenerating}
-          className="absolute right-3 bottom-3.5 w-10 h-10 bg-gradient-to-br from-tertiary to-tertiary/80 rounded-2xl flex items-center justify-center text-on-primary-fixed shadow-lg shadow-tertiary/40 hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:hover:scale-100 disabled:shadow-none"
+          className="absolute right-3 bottom-3 w-9 h-9 bg-on-surface hover:bg-primary-container flex items-center justify-center text-surface-lowest transition-colors disabled:opacity-25 rounded-full"
           title="Send"
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
@@ -195,40 +193,23 @@ export default function Home() {
   if (!hasMessages) {
     return (
       <div className="relative h-full bg-surface-lowest overflow-y-auto">
-        {/* Ambient background gradients */}
-        <div className="pointer-events-none fixed inset-0 overflow-hidden">
-          <div className="absolute -top-1/2 left-1/2 -translate-x-1/2 w-[1200px] h-[800px] bg-gradient-to-br from-tertiary/10 via-primary/5 to-transparent rounded-full blur-3xl opacity-60" />
-          <div className="absolute top-1/3 -right-1/4 w-[600px] h-[600px] bg-gradient-to-bl from-primary/8 to-transparent rounded-full blur-3xl opacity-50" />
-          <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-tertiary/8 to-transparent rounded-full blur-3xl opacity-40" />
-        </div>
-
         <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-16">
-          <div className="w-full max-w-3xl">
+          <div className="w-full max-w-4xl">
             {/* Hero */}
             <motion.div
-              className="text-center mb-12"
+              className="text-center mb-9"
               variants={fadeIn}
               initial="hidden"
               animate="visible"
             >
-              <div className="relative inline-flex items-center justify-center mb-8">
-                <div className="absolute inset-0 bg-tertiary/30 blur-2xl rounded-full scale-150" />
-                <OpenObsLogo className="relative w-14 h-14 text-tertiary" size={56} />
+              <div className="inline-flex items-center justify-center mb-5">
+                <OpenObsLogo className="w-12 h-12 text-on-surface" size={48} />
               </div>
-              <h1 className="font-[Manrope] text-5xl md:text-6xl font-extrabold tracking-tight mb-4 leading-[1.1] text-on-surface">
-                <span>
-                  What are we
-                </span>
-                <br />
-                <span className="bg-gradient-to-r from-tertiary via-primary to-tertiary bg-clip-text text-transparent italic">
-                  investigating
-                </span>
-                <span>
-                  {' '}today?
-                </span>
+              <h1 className="text-[32px] md:text-[42px] font-medium tracking-normal mb-3 leading-tight text-on-surface">
+                How can OpenObs help?
               </h1>
-              <p className="text-on-surface-variant text-base md:text-lg max-w-xl mx-auto">
-                Build dashboards, investigate issues, and create alerts — all through natural conversation.
+              <p className="text-on-surface-variant text-sm md:text-base max-w-xl mx-auto leading-relaxed">
+                Ask it to build, explain, investigate, or prepare an approved fix.
               </p>
             </motion.div>
 
@@ -244,7 +225,7 @@ export default function Home() {
 
             {/* Quick action suggestions */}
             <motion.div
-              className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-3"
+              className="mt-5 grid w-full grid-cols-3 gap-2.5"
               variants={fadeIn}
               initial="hidden"
               animate="visible"
@@ -255,17 +236,12 @@ export default function Home() {
                   key={action.category}
                   type="button"
                   onClick={() => handleQuickAction(action.prompt)}
-                  className="group/action relative p-4 bg-surface-low/60 backdrop-blur-sm hover:bg-surface-high/80 border border-outline-variant hover:border-outline rounded-2xl text-left transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-outline/20"
+                  className="group/action inline-flex min-w-0 items-center justify-center gap-2 rounded-full border border-outline-variant bg-surface-container/70 px-3.5 py-2 text-[13px] text-on-surface-variant shadow-[0_1px_2px_rgba(15,18,22,0.04)] transition-[background-color,border-color,color] hover:border-outline hover:bg-surface-container hover:text-on-surface"
                 >
-                  <div className={`inline-flex items-center justify-center w-8 h-8 rounded-lg bg-surface-high/80 ${action.colorClass} mb-2.5 group-hover/action:scale-110 transition-transform`}>
+                  <span className={`${action.colorClass} shrink-0`}>
                     {action.icon}
-                  </div>
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60 mb-1">
-                    {action.category}
-                  </div>
-                  <div className="text-sm text-on-surface leading-snug line-clamp-2">
-                    {action.prompt}
-                  </div>
+                  </span>
+                  <span className="truncate">{action.label}</span>
                 </button>
               ))}
             </motion.div>

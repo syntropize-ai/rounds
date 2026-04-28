@@ -117,7 +117,7 @@ export default function GlobalSearch() {
 
   return ReactDOM.createPortal(
     <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh]" onClick={() => setOpen(false)}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/50" />
       <div className="relative bg-surface-highest rounded-2xl shadow-2xl w-[560px] max-h-[60vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         {/* Input */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-outline-variant/20">

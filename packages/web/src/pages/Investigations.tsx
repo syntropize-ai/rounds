@@ -165,7 +165,7 @@ export default function Investigations() {
         )}
 
         {!loading && investigations.length > 0 && filtered.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-outline-variant bg-surface-highest py-16 text-center">
+          <div className="flex flex-col items-center justify-center border border-outline-variant bg-surface-highest py-16 text-center">
             <p className="mb-1 text-sm text-on-surface-variant">No investigations match "{search}"</p>
             <button
               type="button"
@@ -181,32 +181,16 @@ export default function Investigations() {
           <div className="space-y-2.5">
             {filtered.map((inv) => {
               const style = getInvestigationStatusStyle(inv.status);
-              const active = isActive(inv.status);
               return (
                 <div
                   key={inv.id}
-                  className="group relative overflow-hidden rounded-xl border border-outline-variant bg-surface-highest transition-colors hover:border-surface-bright"
+                  className="group relative overflow-hidden border border-outline-variant bg-surface-highest transition-colors hover:border-outline"
                 >
-                  <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/35 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                   <button
                     type="button"
                     onClick={() => navigate(`/investigations/${inv.id}`)}
                     className="flex w-full items-center gap-3 px-4 py-3.5 pr-14 text-left"
                   >
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/5 ${style.bg}`}>
-                      {active ? (
-                        <span className={`h-2.5 w-2.5 rounded-full ${style.dot} ${active ? 'animate-pulse' : ''}`} />
-                      ) : inv.status === 'completed' ? (
-                        <svg className={`h-4 w-4 ${style.text}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className={`h-4 w-4 ${style.text}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )}
-                    </div>
-
                     <div className="flex-1 min-w-0">
                       <p className="truncate text-sm font-medium text-on-surface">{inv.intent}</p>
                       <div className="mt-1 flex items-center gap-2">

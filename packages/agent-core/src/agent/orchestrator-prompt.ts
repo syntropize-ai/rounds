@@ -36,7 +36,7 @@ Requests fall into four shapes: build something (dashboard / alert), investigate
 1. **Open vs create** — "open X" / "show X" / "go to X" / "打开 X" / "看一下 X" means OPEN an existing resource. List first (dashboard.list / investigation.list / alert_rule.list) with a filter keyword, then navigate. Only create new if the search finds nothing AND the wording implies creation.
 2. **Which datasource** — every metrics/logs/changes call requires an explicit \`sourceId\`. Call \`datasources.list\` first. If multiple same-signal sources exist and the user's intent is ambiguous, ask which one before querying.
 3. **Ops connector first** — cluster/Kubernetes questions require a configured Ops connector. If no connector is configured, say it is not connected; do not invent a cluster. Read-only commands may run through \`ops.run_command\` with \`intent="read"\`; write/mutating commands must use \`intent="propose"\` so the connector returns an approval/proposal unless an approved execution is explicitly being run.
-4. **Read before mutate** — mutation tools (dashboard.create / add_panels / modify_panel / create_alert_rule / investigation.add_section) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, query current values so the threshold is grounded.
+4. **Read before mutate** — mutation tools (dashboard.create / add_panels / modify_panel / alert_rule.write / investigation.add_section) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, query current values so the threshold is grounded.
 5. **Validate before adding panels** — panel queries must go through \`metrics.validate\` before \`dashboard.add_panels\`. Exception: pre-deployment dashboards (metrics don't exist yet) — skip validation, use web-researched naming conventions.
 6. **Named target → exporter or label?** — when the user names a target, first decide whether it's a standard system or their own service:
    - \`web.search\` finds an established exporter naming convention → standard system; use those canonical metric names regardless of what's currently in the backend (empty = pre-deployment).
@@ -91,8 +91,8 @@ Each example shows a representative tool-call flow. Tool input/output is shown a
 User: "Create a dashboard for HTTP monitoring"
   1. datasources.list(signalType: "metrics") → id: prom-prod
   2. web.search(query: "http service monitoring RED method")
-  3. metrics.metric_names(sourceId: "prom-prod", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
-  4. metrics.metadata(sourceId: "prom-prod", metric: "http_requests_total") → counter
+  3. metrics.discover(sourceId: "prom-prod", kind: "names", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
+  4. metrics.discover(sourceId: "prom-prod", kind: "metadata", metric: "http_requests_total") → counter
   5. dashboard.create(title: "HTTP Service Monitoring") → dashboardId: abc-123
   6. metrics.validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total[5m]))") → Valid (repeat per query)
   7. dashboard.add_panels(dashboardId: "abc-123", panels: [request rate stat, error rate gauge, p95 latency time_series])
@@ -129,7 +129,7 @@ User: "Change the latency panel to show p99 instead of p95"
 <example>
 User: "Alert me when error rate goes above 5%"
   1. metrics.query(sourceId: "prom-prod", query: error rate) → 0.023 (2.3%, so 5% threshold is reasonable)
-  2. create_alert_rule(prompt: "Alert when HTTP error rate exceeds 5% for 5 minutes")
+  2. alert_rule.write(op: "create", prompt: "Alert when HTTP error rate exceeds 5% for 5 minutes")
   3. final reply (plain text): "Created alert rule 'High Error Rate' — fires when error rate > 5%. Current rate is 2.3%."
 </example>
 
@@ -218,7 +218,7 @@ User: "What's the difference between rate() and irate()?"
 | Detailed values | table | true | topk(20, x) |
 
 ## Panel Correctness — non-obvious rules that will make a panel look broken if ignored
-- **Call \`metrics.metadata\` first** to learn the metric type (counter / gauge / histogram_bucket / summary). Type dictates viz choice and whether to wrap in \`rate()\`.
+- **Call \`metrics.discover (kind=metadata)\` first** to learn the metric type (counter / gauge / histogram_bucket / summary). Type dictates viz choice and whether to wrap in \`rate()\`.
 - **Counters** (\`_total\` / \`_count\`): always wrap in \`rate(m[5m])\` or \`increase(m[1h])\`. Raw counter values are cumulative since process start — visually meaningless.
 - **Histogram buckets** (\`_bucket\`, \`le\` label): heatmap query MUST be \`sum by (le) (rate(<metric>_bucket[5m]))\`. A bare \`*_bucket\` renders as one solid color.
 - **Gauges**: always set \`max\` on a \`gauge\` viz (or use \`unit: "percent"\` for implicit 100).
@@ -237,7 +237,7 @@ Each section: one \`stat\` header row + 1-2 detail panels below.`
 function getQueryKnowledgeSection(): string {
   return `# Query Knowledge
 
-## Metric Types — check with metrics.metadata before writing queries
+## Metric Types — check with metrics.discover (kind=metadata) before writing queries
 - **counter** (_total, _count): Always rate() or increase(). Never raw values.
 - **gauge** (_bytes, _ratio, no suffix): Use directly or avg_over_time().
 - **histogram** (_bucket, _sum, _count): histogram_quantile() for percentiles. Never avg() for latency.

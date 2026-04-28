@@ -69,11 +69,26 @@ Install with Helm:
 
 ```bash
 helm install openobs oci://ghcr.io/openobs/charts/openobs \
-  --namespace observability --create-namespace \
-  --set secretEnv.LLM_API_KEY='your-provider-key'
+  --namespace observability --create-namespace
 ```
 
-See the [Kubernetes install guide](https://docs.openobs.com/install/kubernetes) for ingress, Postgres, Redis, and persistence options.
+The default Helm install creates a private `ClusterIP` service. For a local
+kind/minikube-style cluster, access it with:
+
+```bash
+kubectl -n observability port-forward svc/openobs 3000:80
+```
+
+Then open **http://127.0.0.1:3000** and complete the setup wizard. For shared
+access, expose OpenObs with Ingress or `service.type=LoadBalancer`.
+
+By default, npm and Helm both use a local SQLite database file. The npm package
+stores it under `~/.openobs/openobs.db`; the Helm chart stores it on the chart's
+PVC at `/var/lib/openobs/openobs.db`. Use an external Postgres database for
+production or multi-replica Kubernetes deployments once full Postgres
+persistence is enabled.
+
+See the [Kubernetes install guide](https://docs.openobs.com/install/kubernetes) for access, storage, and persistence options.
 
 ## Build from source
 

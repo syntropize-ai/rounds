@@ -5,7 +5,6 @@ The fastest way to try OpenObs on a single machine. Good for laptops, evaluation
 ## Requirements
 
 - Node.js 20 or later
-- An LLM provider API key (Anthropic, OpenAI, Gemini, or a local Ollama)
 
 ## Run instantly with npx
 
@@ -58,7 +57,9 @@ By default OpenObs uses an embedded SQLite database stored in:
 
 Override with `DATA_DIR=/path/to/dir` or `SQLITE_PATH=/path/to/openobs.db`.
 
-For multi-instance deployments, switch to Postgres by setting `DATABASE_URL`. See [Configuration → Storage settings](/configuration#storage-settings).
+The npm package is intended for a single local OpenObs process. For
+multi-instance deployments, use Kubernetes and an external database once full
+Postgres persistence is enabled. See [Configuration → Storage settings](/configuration#storage-settings).
 
 ## Upgrading
 

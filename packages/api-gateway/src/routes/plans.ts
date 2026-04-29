@@ -1,0 +1,247 @@
+/**
+ * /api/plans router. Phase 5 of `docs/design/auto-remediation.md`.
+ *
+ * Endpoints:
+ *   GET    /api/plans?status=&investigationId=
+ *   GET    /api/plans/:id
+ *   POST   /api/plans/:id/approve { autoEdit?: boolean }
+ *   POST   /api/plans/:id/reject
+ *   POST   /api/plans/:id/cancel
+ *   POST   /api/plans/:id/steps/:ordinal/retry
+ *
+ * RBAC:
+ *   - GET endpoints      → plans:read
+ *   - approve/reject/cancel/retry → plans:approve
+ *   - autoEdit=true on approve → additionally requires plans:auto_edit
+ *     (the caller without this grant gets 403; design-doc Q4 says
+ *     auto-edit is opt-in per user/team).
+ */
+
+import { Router } from 'express';
+import type { NextFunction, Request, Response } from 'express';
+import type { ApiError } from '@agentic-obs/common';
+import { ac, ACTIONS } from '@agentic-obs/common';
+import type {
+  IRemediationPlanRepository,
+  RemediationPlanStatus,
+} from '@agentic-obs/data-layer';
+import { authMiddleware } from '../middleware/auth.js';
+import type { AuthenticatedRequest } from '../middleware/auth.js';
+import { createRequirePermission } from '../middleware/require-permission.js';
+import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
+import type { PlanExecutorService } from '../services/plan-executor-service.js';
+
+export interface PlansRouterDeps {
+  plans: IRemediationPlanRepository;
+  executor: PlanExecutorService;
+  ac: AccessControlSurface;
+}
+
+const STATUSES: ReadonlySet<RemediationPlanStatus> = new Set([
+  'draft',
+  'pending_approval',
+  'approved',
+  'rejected',
+  'executing',
+  'completed',
+  'failed',
+  'expired',
+  'cancelled',
+]);
+
+function parseStatus(raw: unknown): RemediationPlanStatus | RemediationPlanStatus[] | undefined {
+  if (typeof raw === 'string' && STATUSES.has(raw as RemediationPlanStatus)) {
+    return raw as RemediationPlanStatus;
+  }
+  if (Array.isArray(raw)) {
+    const list = raw.filter((v): v is RemediationPlanStatus => STATUSES.has(v as RemediationPlanStatus));
+    return list.length > 0 ? list : undefined;
+  }
+  return undefined;
+}
+
+export function createPlansRouter(deps: PlansRouterDeps): Router {
+  const router = Router();
+  const requirePermission = createRequirePermission(deps.ac);
+
+  // ---------------------------------------------------------------------
+  // GET /api/plans
+  // ---------------------------------------------------------------------
+  router.get(
+    '/',
+    authMiddleware,
+    requirePermission(() => ac.eval(ACTIONS.PlansRead, 'plans:*')),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const orgId = authReq.auth?.orgId;
+        if (!orgId) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'org context required' } });
+          return;
+        }
+        const status = parseStatus(req.query['status']);
+        const investigationId = typeof req.query['investigationId'] === 'string'
+          ? req.query['investigationId']
+          : undefined;
+        const list = await deps.plans.listByOrg(orgId, {
+          ...(status ? { status } : {}),
+          ...(investigationId ? { investigationId } : {}),
+        });
+        res.json(list);
+      } catch (err) { next(err); }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // GET /api/plans/:id
+  // ---------------------------------------------------------------------
+  router.get(
+    '/:id',
+    authMiddleware,
+    requirePermission((req) => ac.eval(ACTIONS.PlansRead, `plans:uid:${req.params['id'] ?? ''}`)),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const orgId = authReq.auth?.orgId;
+        if (!orgId) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'org context required' } });
+          return;
+        }
+        const plan = await deps.plans.findByIdInOrg(orgId, req.params['id'] ?? '');
+        if (!plan) {
+          const err: ApiError = { code: 'NOT_FOUND', message: 'plan not found' };
+          res.status(404).json(err);
+          return;
+        }
+        res.json(plan);
+      } catch (err) { next(err); }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // POST /api/plans/:id/approve { autoEdit?: boolean }
+  // ---------------------------------------------------------------------
+  router.post(
+    '/:id/approve',
+    authMiddleware,
+    requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const auth = authReq.auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        const body = (req.body ?? {}) as { autoEdit?: boolean };
+        const autoEdit = body.autoEdit === true;
+
+        if (autoEdit) {
+          // Second permission check — auto-edit is its own action, not bundled
+          // with PlansApprove.
+          const allowed = await deps.ac.evaluate(
+            auth,
+            ac.eval(ACTIONS.PlansAutoEdit, `plans:uid:${req.params['id'] ?? ''}`),
+          );
+          if (!allowed) {
+            const err: ApiError = {
+              code: 'FORBIDDEN',
+              message: 'auto-edit requires plans:auto_edit permission',
+            };
+            res.status(403).json(err);
+            return;
+          }
+        }
+
+        const outcome = await deps.executor.approve(
+          auth.orgId,
+          req.params['id'] ?? '',
+          autoEdit,
+          auth,
+        );
+        const plan = await deps.plans.findByIdInOrg(auth.orgId, req.params['id'] ?? '');
+        res.json({ outcome, plan });
+      } catch (err) { next(err); }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // POST /api/plans/:id/reject
+  // ---------------------------------------------------------------------
+  router.post(
+    '/:id/reject',
+    authMiddleware,
+    requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const auth = authReq.auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        const plan = await deps.executor.reject(
+          auth.orgId,
+          req.params['id'] ?? '',
+          auth,
+        );
+        res.json(plan);
+      } catch (err) { next(err); }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // POST /api/plans/:id/cancel
+  // ---------------------------------------------------------------------
+  router.post(
+    '/:id/cancel',
+    authMiddleware,
+    requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const auth = authReq.auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        const plan = await deps.executor.cancel(
+          auth.orgId,
+          req.params['id'] ?? '',
+          auth,
+        );
+        res.json(plan);
+      } catch (err) { next(err); }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // POST /api/plans/:id/steps/:ordinal/retry
+  // ---------------------------------------------------------------------
+  router.post(
+    '/:id/steps/:ordinal/retry',
+    authMiddleware,
+    requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const auth = authReq.auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        const ordinal = Number.parseInt(req.params['ordinal'] ?? '', 10);
+        if (!Number.isInteger(ordinal) || ordinal < 0) {
+          const err: ApiError = { code: 'BAD_REQUEST', message: 'ordinal must be a non-negative integer' };
+          res.status(400).json(err);
+          return;
+        }
+        const outcome = await deps.executor.retryStep(auth.orgId, req.params['id'] ?? '', ordinal);
+        const plan = await deps.plans.findByIdInOrg(auth.orgId, req.params['id'] ?? '');
+        res.json({ outcome, plan });
+      } catch (err) { next(err); }
+    },
+  );
+
+  return router;
+}

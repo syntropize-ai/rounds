@@ -150,6 +150,14 @@ export const ACTIONS = {
   OpsConnectorsRead: 'ops.connectors:read',
   OpsConnectorsWrite: 'ops.connectors:write',
   OpsCommandsRun: 'ops.commands:run',
+  // Remediation plans (Phase 5 of docs/design/auto-remediation.md). Default
+  // grants seeded in rbac-seed: PlansRead → Viewer+, PlansApprove → Editor+
+  // via grant, PlansAutoEdit has NO default and must be explicitly granted
+  // by an admin. The 'auto-edit' bit is the dangerous one — once the
+  // approver flips it, the executor stops asking for per-step approval.
+  PlansRead: 'plans:read',
+  PlansApprove: 'plans:approve',
+  PlansAutoEdit: 'plans:auto_edit',
   // [openobs-extension] — instance-wide config: LLM provider, notification
   // channels, and dev reset. Granted to Admin+ via ADMIN_ONLY_PERMISSIONS.
   // Lives in the `instance_config` SQLite table (see migration 019). No

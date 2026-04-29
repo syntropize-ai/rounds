@@ -75,6 +75,7 @@ const VIEWER_PERMISSIONS: BuiltinPermission[] = [
   // openobs-specific read.
   { action: ACTIONS.InvestigationsRead, scope: 'investigations:*' },
   { action: ACTIONS.ApprovalsRead, scope: 'approvals:*' },
+  { action: ACTIONS.PlansRead, scope: 'plans:*' },
   { action: ACTIONS.ChatUse, scope: '' },
 ];
 
@@ -114,6 +115,7 @@ const EDITOR_ONLY_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.InvestigationsCreate, scope: '' },
   { action: ACTIONS.InvestigationsDelete, scope: 'investigations:*' },
   { action: ACTIONS.ApprovalsApprove, scope: 'approvals:*' },
+  { action: ACTIONS.PlansApprove, scope: 'plans:*' },
 ];
 
 // -- Admin (Editor + org admin: users/teams/serviceaccounts/roles) ---------
@@ -175,6 +177,11 @@ const ADMIN_ONLY_PERMISSIONS: BuiltinPermission[] = [
 
   // openobs-specific admin.
   { action: ACTIONS.ApprovalsOverride, scope: 'approvals:*' },
+  // Plans:auto_edit is deliberately NOT granted by default — even Admins. The
+  // executor will refuse autoEdit unless the caller has been *explicitly*
+  // granted plans:auto_edit (via a fixed-role assignment or a folder-scoped
+  // grant). This matches the design-doc requirement that auto-edit be opt-in
+  // per user/team, not bundled with the Admin role.
   { action: ACTIONS.AgentsConfigRead, scope: '' },
   { action: ACTIONS.AgentsConfigWrite, scope: '' },
   { action: ACTIONS.OpsConnectorsRead, scope: 'ops.connectors:*' },

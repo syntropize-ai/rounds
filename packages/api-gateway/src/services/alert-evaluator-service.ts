@@ -26,7 +26,6 @@
 import { EventEmitter } from 'node:events';
 import { createLogger } from '@agentic-obs/common/logging';
 import type {
-  AlertCondition,
   AlertOperator,
   AlertRule,
   AlertRuleState,
@@ -135,6 +134,35 @@ export class AlertEvaluatorService extends EventEmitter {
   private readonly clock: ClockFn;
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private running = false;
+
+  // Typed event helpers. Method overrides here (not declaration merging)
+  // keep the @typescript-eslint/no-unsafe-declaration-merging rule happy.
+  override on<E extends keyof AlertEvaluatorEvents>(
+    event: E,
+    listener: AlertEvaluatorEvents[E],
+  ): this;
+  override on(event: string | symbol, listener: (...args: unknown[]) => void): this;
+  override on(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    return super.on(event, listener);
+  }
+
+  override off<E extends keyof AlertEvaluatorEvents>(
+    event: E,
+    listener: AlertEvaluatorEvents[E],
+  ): this;
+  override off(event: string | symbol, listener: (...args: unknown[]) => void): this;
+  override off(event: string | symbol, listener: (...args: unknown[]) => void): this {
+    return super.off(event, listener);
+  }
+
+  override emit<E extends keyof AlertEvaluatorEvents>(
+    event: E,
+    ...args: Parameters<AlertEvaluatorEvents[E]>
+  ): boolean;
+  override emit(event: string | symbol, ...args: unknown[]): boolean;
+  override emit(event: string | symbol, ...args: unknown[]): boolean {
+    return super.emit(event, ...args);
+  }
 
   constructor(opts: AlertEvaluatorOptions) {
     super();
@@ -265,13 +293,3 @@ export class AlertEvaluatorService extends EventEmitter {
   }
 }
 
-// Type-safe `on()` overload helper for consumers (TS doesn't infer
-// EventEmitter signatures from generic args).
-export interface AlertEvaluatorService {
-  on<E extends keyof AlertEvaluatorEvents>(event: E, listener: AlertEvaluatorEvents[E]): this;
-  off<E extends keyof AlertEvaluatorEvents>(event: E, listener: AlertEvaluatorEvents[E]): this;
-  emit<E extends keyof AlertEvaluatorEvents>(event: E, ...args: Parameters<AlertEvaluatorEvents[E]>): boolean;
-}
-
-// Silence the unused-type-import warning in older TS settings.
-export type { AlertCondition };

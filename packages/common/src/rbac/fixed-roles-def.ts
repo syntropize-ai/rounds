@@ -664,6 +664,37 @@ const APPROVALS_OVERRIDER = def(
   ],
 );
 
+const PLANS_READER = def(
+  'fixed:plans:reader',
+  'Plans reader',
+  'Read remediation plans.',
+  'Plans',
+  [{ action: ACTIONS.PlansRead, scope: 'plans:*' }],
+);
+
+const PLANS_APPROVER = def(
+  'fixed:plans:approver',
+  'Plans approver',
+  'Approve, reject, cancel, and retry remediation plans.',
+  'Plans',
+  [
+    { action: ACTIONS.PlansRead, scope: 'plans:*' },
+    { action: ACTIONS.PlansApprove, scope: 'plans:*' },
+  ],
+);
+
+const PLANS_AUTO_EDITOR = def(
+  'fixed:plans:auto_editor',
+  'Plans auto-editor',
+  'Approve a plan in auto-edit mode (executor skips per-step approvals). Sensitive — grant explicitly.',
+  'Plans',
+  [
+    { action: ACTIONS.PlansRead, scope: 'plans:*' },
+    { action: ACTIONS.PlansApprove, scope: 'plans:*' },
+    { action: ACTIONS.PlansAutoEdit, scope: 'plans:*' },
+  ],
+);
+
 const AGENTS_CONFIG_READER = def(
   'fixed:agents.config:reader',
   'Agents configuration reader',
@@ -772,6 +803,9 @@ export const FIXED_ROLE_DEFINITIONS: readonly FixedRoleDefinition[] =
     APPROVALS_READER,
     APPROVALS_APPROVER,
     APPROVALS_OVERRIDER,
+    PLANS_READER,
+    PLANS_APPROVER,
+    PLANS_AUTO_EDITOR,
     AGENTS_CONFIG_READER,
     AGENTS_CONFIG_WRITER,
     OPS_CONNECTORS_READER,

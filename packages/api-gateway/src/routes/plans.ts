@@ -30,6 +30,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { PlanExecutorService } from '../services/plan-executor-service.js';
+import { extractPlanNamespaces } from '../services/plan-namespaces.js';
 
 export interface PlansRouterDeps {
   plans: IRemediationPlanRepository;
@@ -137,19 +138,48 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
         const autoEdit = body.autoEdit === true;
 
         if (autoEdit) {
-          // Second permission check — auto-edit is its own action, not bundled
-          // with PlansApprove.
-          const allowed = await deps.ac.evaluate(
-            auth,
-            ac.eval(ACTIONS.PlansAutoEdit, `plans:uid:${req.params['id'] ?? ''}`),
-          );
-          if (!allowed) {
-            const err: ApiError = {
-              code: 'FORBIDDEN',
-              message: 'auto-edit requires plans:auto_edit permission',
-            };
-            res.status(403).json(err);
+          // Two-layered auto-edit gate (design-doc §6 O2):
+          //   1. Cluster-wide grant `plans:auto_edit` on `plans:*` short-
+          //      circuits — this is the existing 'auto-edit anything' privilege.
+          //   2. Otherwise, narrow to the namespaces this specific plan
+          //      touches. Caller must hold `plans:auto_edit` on
+          //      `plans:namespace:<ns>` for every namespace the plan
+          //      writes to. A plan with any cluster-scoped step can NOT
+          //      be narrowed and falls back to requiring `plans:*`.
+          const plan = await deps.plans.findByIdInOrg(auth.orgId, req.params['id'] ?? '');
+          if (!plan) {
+            const err: ApiError = { code: 'NOT_FOUND', message: 'plan not found' };
+            res.status(404).json(err);
             return;
+          }
+          const wildcard = await deps.ac.evaluate(
+            auth,
+            ac.eval(ACTIONS.PlansAutoEdit, 'plans:*'),
+          );
+          if (!wildcard) {
+            const summary = extractPlanNamespaces(plan);
+            if (summary.hasClusterScoped) {
+              const err: ApiError = {
+                code: 'FORBIDDEN',
+                message: 'auto-edit on a plan with a cluster-scoped step requires plans:auto_edit on plans:* (cluster-wide grant)',
+              };
+              res.status(403).json(err);
+              return;
+            }
+            for (const ns of summary.namespaces) {
+              const ok = await deps.ac.evaluate(
+                auth,
+                ac.eval(ACTIONS.PlansAutoEdit, `plans:namespace:${ns}`),
+              );
+              if (!ok) {
+                const err: ApiError = {
+                  code: 'FORBIDDEN',
+                  message: `auto-edit requires plans:auto_edit on plans:namespace:${ns}`,
+                };
+                res.status(403).json(err);
+                return;
+              }
+            }
           }
         }
 

@@ -1,8 +1,5 @@
 import type { Identity } from '@agentic-obs/common';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { KubectlExecutionAdapter } from '@agentic-obs/adapters';
 import type {
   IApprovalRequestRepository,
   IOpsConnectorRepository,
@@ -188,39 +185,71 @@ export class OpsCommandRunnerService {
     connector: OpsConnector,
     command: string,
   ): Promise<{ observation: string; decision: OpsCommandDecision }> {
-    const kubeconfig = await this.resolveKubeconfig(connector);
-    if (!kubeconfig.ok) {
-      return {
-        decision: 'denied',
-        observation: kubeconfig.error,
-      };
-    }
-    if (!looksLikeKubeconfig(kubeconfig.value)) {
-      return {
-        decision: 'denied',
-        observation:
-          'Command was not executed because only kubeconfig credentials are supported for live kubectl execution in this build.',
-      };
+    const argv = tokenizeKubectlCommand(command).slice(1);
+    if (argv.length === 0) {
+      return { decision: 'denied', observation: 'empty kubectl command' };
     }
 
-    const namespaceError = validateNamespacePolicy(command, connector.allowedNamespaces);
-    if (namespaceError) {
-      return { decision: 'denied', observation: namespaceError };
+    // Use the shared P6 KubectlExecutionAdapter for the actual spawn.
+    // It handles: kubeconfig mktemp/0600/cleanup (also on throw),
+    // KUBECONFIG env wiring, 60s timeout, stdout/stderr cap, and the
+    // permanent-deny + namespace-allowlist gates.
+    //
+    // We pass mode='write' here even though this code path only handles
+    // reads — classifyOpsCommand has already filtered to read intent
+    // upstream, and P6's read-allowlist is narrower than what the
+    // OpsCommandRunner historically permits (`rollout status`,
+    // `api-versions`, `config current-context` etc.). 'write' mode in
+    // the adapter is the union of read+write verbs, so all
+    // historically-allowed reads pass through; the permanent-deny list
+    // (`exec`, `cp`, `port-forward`, ...) still applies as defense in
+    // depth.
+    const adapter = new KubectlExecutionAdapter({
+      resolveKubeconfig: async () => {
+        const k = await this.resolveKubeconfig(connector);
+        if (!k.ok) throw new Error(k.error);
+        return k.value;
+      },
+      allowedNamespaces: connector.allowedNamespaces,
+      mode: 'write',
+    });
+
+    const validation = await adapter.validate({
+      type: 'ops.run_command',
+      targetService: connector.id,
+      params: { argv },
+    });
+    if (!validation.valid) {
+      return { decision: 'denied', observation: validation.reason ?? 'kubectl command rejected' };
     }
 
-    const tempDir = await mkdtemp(join(tmpdir(), 'openobs-kube-'));
-    const kubeconfigPath = join(tempDir, 'config');
+    let result;
     try {
-      await writeFile(kubeconfigPath, kubeconfig.value, { encoding: 'utf8', mode: 0o600 });
-      const args = tokenizeKubectlCommand(command).slice(1);
-      const result = await runKubectl(args, kubeconfigPath);
+      result = await adapter.execute({
+        type: 'ops.run_command',
+        targetService: connector.id,
+        params: { argv },
+      });
+    } catch (err) {
+      // Spawn-level failure (kubectl not on PATH, kubeconfig resolution
+      // threw, ...). Convert to a denied observation rather than letting
+      // the error escape to the agent — the agent has nothing actionable
+      // it can do with a thrown error here.
+      const message = err instanceof Error ? err.message : String(err);
       return {
-        decision: 'read',
-        observation: formatKubectlObservation(command, result),
+        decision: 'denied',
+        observation: `kubectl execution failed: ${message}`,
       };
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
     }
+
+    return {
+      decision: 'read',
+      observation: formatKubectlObservation(command, {
+        exitCode: result.success ? 0 : 1,
+        stdout: typeof result.output === 'string' ? result.output : '',
+        stderr: result.error ?? '',
+      }),
+    };
   }
 
   private async resolveKubeconfig(
@@ -293,32 +322,6 @@ export function classifyOpsCommand(command: string): { decision: OpsCommandDecis
   return { decision: 'approval_required', reason: 'unclassified kubectl command must be reviewed' };
 }
 
-function looksLikeKubeconfig(secret: string): boolean {
-  return /\bapiVersion\s*:/.test(secret) && /\bkind\s*:\s*Config\b/.test(secret);
-}
-
-function validateNamespacePolicy(command: string, allowedNamespaces: string[]): string | null {
-  if (allowedNamespaces.length === 0) return null;
-  const args = tokenizeKubectlCommand(command);
-  const namespace = findNamespaceArg(args);
-  if (!namespace) {
-    return `Command was not executed: connector is restricted to namespaces ${allowedNamespaces.join(', ')}, so the command must include --namespace or -n.`;
-  }
-  if (!allowedNamespaces.includes(namespace)) {
-    return `Command was not executed: namespace "${namespace}" is outside this connector's allowed namespaces (${allowedNamespaces.join(', ')}).`;
-  }
-  return null;
-}
-
-function findNamespaceArg(args: string[]): string | null {
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === '-n' || arg === '--namespace') return args[i + 1] ?? null;
-    if (arg?.startsWith('--namespace=')) return arg.slice('--namespace='.length);
-  }
-  return null;
-}
-
 function tokenizeKubectlCommand(command: string): string[] {
   const tokens: string[] = [];
   let current = '';
@@ -345,34 +348,6 @@ function tokenizeKubectlCommand(command: string): string[] {
   }
   if (current) tokens.push(current);
   return tokens;
-}
-
-function runKubectl(
-  args: string[],
-  kubeconfigPath: string,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawn('kubectl', ['--kubeconfig', kubeconfigPath, ...args], {
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    const timeout = setTimeout(() => {
-      child.kill();
-      stderr += '\nkubectl command timed out after 15s';
-    }, 15_000);
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      resolve({ exitCode: 127, stdout, stderr: err.message });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      resolve({ exitCode: code ?? 1, stdout, stderr });
-    });
-  });
 }
 
 function formatKubectlObservation(

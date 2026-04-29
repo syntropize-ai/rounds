@@ -763,3 +763,51 @@ CREATE TABLE IF NOT EXISTS ops_connectors (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_ops_connectors_org_name ON ops_connectors(org_id, name);
 CREATE INDEX        IF NOT EXISTS ix_ops_connectors_org_id   ON ops_connectors(org_id);
 CREATE INDEX        IF NOT EXISTS ix_ops_connectors_org_type ON ops_connectors(org_id, type);
+
+-- ============================================================================
+-- Remediation plans (Phase 3 of docs/design/auto-remediation.md)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS remediation_plan (
+  id                  TEXT PRIMARY KEY,
+  org_id              TEXT NOT NULL,
+  investigation_id    TEXT NOT NULL,
+  rescue_for_plan_id  TEXT,
+  summary             TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'pending_approval',
+  auto_edit           INTEGER NOT NULL DEFAULT 0,
+  approval_request_id TEXT,
+  created_by          TEXT NOT NULL,
+  created_at          TEXT NOT NULL,
+  expires_at          TEXT NOT NULL,
+  resolved_at         TEXT,
+  resolved_by         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ix_remediation_plan_org_status
+  ON remediation_plan(org_id, status);
+CREATE INDEX IF NOT EXISTS ix_remediation_plan_investigation
+  ON remediation_plan(investigation_id);
+CREATE INDEX IF NOT EXISTS ix_remediation_plan_rescue_for
+  ON remediation_plan(rescue_for_plan_id);
+
+CREATE TABLE IF NOT EXISTS remediation_plan_step (
+  id                  TEXT PRIMARY KEY,
+  plan_id             TEXT NOT NULL,
+  ordinal             INTEGER NOT NULL,
+  kind                TEXT NOT NULL,
+  command_text        TEXT NOT NULL,
+  params_json         TEXT NOT NULL DEFAULT '{}',
+  dry_run_text        TEXT,
+  risk_note           TEXT,
+  continue_on_error   INTEGER NOT NULL DEFAULT 0,
+  status              TEXT NOT NULL DEFAULT 'pending',
+  approval_request_id TEXT,
+  executed_at         TEXT,
+  output_text         TEXT,
+  error_text          TEXT,
+  UNIQUE(plan_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS ix_remediation_plan_step_plan
+  ON remediation_plan_step(plan_id);

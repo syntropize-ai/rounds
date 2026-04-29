@@ -52,6 +52,20 @@ export type {
   OpsConnectorType,
 } from './types/ops-connector.js';
 
+export type {
+  IRemediationPlanRepository,
+  ListRemediationPlansOptions,
+  NewRemediationPlan,
+  NewRemediationPlanStep,
+  RemediationPlan,
+  RemediationPlanPatch,
+  RemediationPlanStatus,
+  RemediationPlanStep,
+  RemediationPlanStepKind,
+  RemediationPlanStepPatch,
+  RemediationPlanStepStatus,
+} from './types/remediation-plan.js';
+
 export * from './postgres/index.js';
 export * from './sqlite/index.js';
 export * from './event-wrappers/index.js';

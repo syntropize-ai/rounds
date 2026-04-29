@@ -69,6 +69,9 @@ import { PostgresInstanceConfigRepository } from './postgres/instance-config.js'
 import { PostgresDatasourceRepository } from './postgres/datasource.js';
 import { PostgresNotificationChannelRepository } from './postgres/notification-channel.js';
 import { PostgresOpsConnectorRepository } from './postgres/ops-connector.js';
+import { SqliteRemediationPlanRepository } from './sqlite/remediation-plan.js';
+import { PostgresRemediationPlanRepository } from './postgres/remediation-plan.js';
+import type { IRemediationPlanRepository } from './types/remediation-plan.js';
 
 /**
  * Extended repositories available with the SQLite backend.
@@ -100,6 +103,7 @@ export interface SqliteRepositories {
   datasources: IDatasourceRepository;
   notificationChannels: INotificationChannelRepository;
   opsConnectors: IOpsConnectorRepository;
+  remediationPlans: IRemediationPlanRepository;
 }
 
 export function createSqliteRepositories(db: SqliteClient): SqliteRepositories {
@@ -123,6 +127,7 @@ export function createSqliteRepositories(db: SqliteClient): SqliteRepositories {
     datasources: new DatasourceRepository(db),
     notificationChannels: new NotificationChannelRepository(db),
     opsConnectors: new OpsConnectorRepository(db),
+    remediationPlans: new SqliteRemediationPlanRepository(db),
   };
 }
 
@@ -147,5 +152,6 @@ export function createPostgresRepositories(db: DbClient): SqliteRepositories {
     datasources: new PostgresDatasourceRepository(db),
     notificationChannels: new PostgresNotificationChannelRepository(db),
     opsConnectors: new PostgresOpsConnectorRepository(db),
+    remediationPlans: new PostgresRemediationPlanRepository(db),
   };
 }

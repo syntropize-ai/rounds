@@ -204,7 +204,7 @@ export class UserRepository implements IUserRepository {
   async countServiceAccounts(orgId: string): Promise<number> {
     const rows = await pgAll<{ n: number }>(this.db, sql`
       SELECT COUNT(*) AS n FROM user
-      WHERE org_id = ${orgId} AND is_service_account = 1
+      WHERE org_id = ${orgId} AND is_service_account = ${fromBool(true)}
     `);
     return rows[0]?.n ?? 0;
   }

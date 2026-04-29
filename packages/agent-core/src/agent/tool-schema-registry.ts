@@ -297,6 +297,93 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  // -------------------------------------------------------------------------
+  // Remediation plans (Phase 4 of docs/design/auto-remediation.md). The agent
+  // emits these AFTER `investigation.complete` when a fix is concrete and in
+  // scope of an attached connector. The plan is the unit of approval; steps
+  // are the unit of execution. Never run write commands from the
+  // investigation turn — propose them in a plan instead.
+  // -------------------------------------------------------------------------
+  'remediation_plan.create': {
+    category: 'always-on',
+    schema: {
+      name: 'remediation_plan.create',
+      description:
+        'Propose a structured remediation plan after an investigation has identified a concrete, in-scope fix. Persists the plan in pending_approval status and creates a plan-level ApprovalRequest so a human can review the whole thing as one unit. Steps are NOT executed by this tool — execution happens after a human approves the plan.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          investigationId: { type: 'string', description: 'Id from investigation.create that motivated this plan.' },
+          summary: { type: 'string', description: 'One-line description of what the plan does. Surfaced in approval UI.' },
+          steps: {
+            type: 'array',
+            description: 'Ordered list of steps. The order is the execution order. Halt-on-failure by default.',
+            items: {
+              type: 'object',
+              properties: {
+                kind: { type: 'string', enum: ['ops.run_command'], description: 'Step kind. Today only ops.run_command (kubectl) is supported.' },
+                commandText: { type: 'string', description: 'Human-readable command, e.g. "kubectl scale deploy/web -n app --replicas=3". Surfaced verbatim to the approver.' },
+                paramsJson: {
+                  type: 'object',
+                  description: 'Structured args. For ops.run_command, must include `argv` (kubectl argv WITHOUT the leading "kubectl") and `connectorId` (the ops_connectors row to run against).',
+                  properties: {
+                    argv: { type: 'array', items: { type: 'string' }, description: 'kubectl argv tokens.' },
+                    connectorId: { type: 'string', description: 'ops connector id.' },
+                  },
+                  required: ['argv', 'connectorId'],
+                },
+                dryRunText: { type: 'string', description: 'Optional. The expected effect of this step in plain text. If you ran a related read query while investigating, summarize the predicted outcome here.' },
+                riskNote: { type: 'string', description: 'Optional. Human-readable risk note ("brief drop to 2 replicas"). Surfaced in the approval UI.' },
+                continueOnError: { type: 'boolean', description: 'If true, plan continues if this step fails. Default false (halt). Use for non-critical steps like notifications.' },
+              },
+              required: ['kind', 'commandText', 'paramsJson'],
+            },
+          },
+          expiresInMs: { type: 'number', description: 'Optional. Override the default approval window (24h) in milliseconds.' },
+        },
+        required: ['investigationId', 'summary', 'steps'],
+      },
+    },
+  },
+  'remediation_plan.create_rescue': {
+    category: 'deferred',
+    schema: {
+      name: 'remediation_plan.create_rescue',
+      description:
+        'Propose a rescue/undo plan paired with a primary plan, to be invoked manually by an operator if the primary fails. Same shape as remediation_plan.create plus rescueForPlanId. Does NOT auto-create an ApprovalRequest; rescue plans are triggered on demand from the UI.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          rescueForPlanId: { type: 'string', description: 'Id of the primary plan this rescue undoes.' },
+          investigationId: { type: 'string', description: 'Same investigation that produced the primary plan.' },
+          summary: { type: 'string', description: 'One-line description of the rollback action.' },
+          steps: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                kind: { type: 'string', enum: ['ops.run_command'] },
+                commandText: { type: 'string' },
+                paramsJson: {
+                  type: 'object',
+                  properties: {
+                    argv: { type: 'array', items: { type: 'string' } },
+                    connectorId: { type: 'string' },
+                  },
+                  required: ['argv', 'connectorId'],
+                },
+                dryRunText: { type: 'string' },
+                riskNote: { type: 'string' },
+                continueOnError: { type: 'boolean' },
+              },
+              required: ['kind', 'commandText', 'paramsJson'],
+            },
+          },
+        },
+        required: ['rescueForPlanId', 'investigationId', 'summary', 'steps'],
+      },
+    },
+  },
 
   // -------------------------------------------------------------------------
   // Dashboard lifecycle + mutation primitives

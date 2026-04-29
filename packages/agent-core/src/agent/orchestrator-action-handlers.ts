@@ -44,4 +44,6 @@ export {
   handleFolderCreate,
   handleFolderList,
   handleOpsRunCommand,
+  handleRemediationPlanCreate,
+  handleRemediationPlanCreateRescue,
 } from './handlers/index.js';

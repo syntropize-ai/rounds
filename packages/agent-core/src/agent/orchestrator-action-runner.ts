@@ -39,6 +39,8 @@ import {
   handleFolderCreate,
   handleFolderList,
   handleOpsRunCommand,
+  handleRemediationPlanCreate,
+  handleRemediationPlanCreateRescue,
 } from './orchestrator-action-handlers.js';
 import type { ToolAuditReporter } from './orchestrator-audit-reporter.js';
 
@@ -188,6 +190,9 @@ async function dispatchAction(
     case 'changes.list_recent': return handleChangesListRecent(ctx, args);
     // Kubernetes / Ops integrations
     case 'ops.run_command': return handleOpsRunCommand(ctx, args);
+    // Remediation plans (P4)
+    case 'remediation_plan.create': return handleRemediationPlanCreate(ctx, args);
+    case 'remediation_plan.create_rescue': return handleRemediationPlanCreateRescue(ctx, args);
     // Web search
     case 'web.search': return handleWebSearch(ctx, args);
     // `tool_search` is intercepted by ReActLoop before dispatch — it

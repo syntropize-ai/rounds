@@ -41,8 +41,8 @@ function fakeSpawn(opts: {
       child.emit('close', opts.exitCode ?? 0, null);
     });
     return child as unknown as ReturnType<typeof import('node:child_process').spawn>;
-  }) as unknown as Parameters<typeof KubectlExecutionAdapter>[0]['spawnFn'];
-  return { fn: fn as NonNullable<Parameters<typeof KubectlExecutionAdapter>[0]['spawnFn']>, calls };
+  }) as unknown as ConstructorParameters<typeof KubectlExecutionAdapter>[0]['spawnFn'];
+  return { fn: fn as NonNullable<ConstructorParameters<typeof KubectlExecutionAdapter>[0]['spawnFn']>, calls };
 }
 
 const KUBECONFIG = 'apiVersion: v1\nkind: Config\nclusters: []\n';

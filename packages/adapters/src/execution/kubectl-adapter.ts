@@ -85,7 +85,7 @@ interface KubectlActionParams {
 }
 
 function takeArgv(action: AdapterAction): readonly string[] {
-  const params = action.params as KubectlActionParams | undefined;
+  const params = action.params as unknown as KubectlActionParams | undefined;
   const argv = params?.argv;
   if (!Array.isArray(argv) || argv.some((a) => typeof a !== 'string')) {
     throw new Error('KubectlExecutionAdapter: action.params.argv must be string[]');

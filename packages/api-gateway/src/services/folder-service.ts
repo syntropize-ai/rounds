@@ -275,37 +275,39 @@ export class FolderService {
       );
     }
 
-    // Cascade delete inside a single transaction.
-    await this.deps.db.run(sql.raw('BEGIN TRANSACTION'));
-    try {
-      const uidList = [...allUids];
-      // Delete dashboards inside the folder subtree.
+    // Cascade delete inside a single transaction. We use the QueryClient's
+    // `withTransaction` primitive so Postgres pins every statement to one
+    // pool connection (raw BEGIN/COMMIT on `pool.query` would route across
+    // connections and partially commit). We run all mutations through `tx`
+    // — including the folder-row deletes — and skip the FolderRepository
+    // helpers here because they go back through the unbound `db`.
+    const uidList = [...allUids];
+    await this.deps.db.withTransaction(async (tx) => {
       for (const u of uidList) {
-        await this.deps.db.run(
+        await tx.run(
           sql`DELETE FROM dashboards WHERE org_id = ${orgId} AND folder_uid = ${u}`,
         );
-        await this.deps.db.run(
+        await tx.run(
           sql`DELETE FROM alert_rules WHERE org_id = ${orgId} AND folder_uid = ${u}`,
         );
-        // Legacy ACL rows attached to a folder by id.
-        const folderRow = await this.deps.folders.findByUid(orgId, u);
-        if (folderRow) {
-          await this.deps.db.run(
-            sql`DELETE FROM dashboard_acl WHERE org_id = ${orgId} AND folder_id = ${folderRow.id}`,
+        // Legacy ACL rows are keyed on the folder id; resolve uid → id on the
+        // tx connection.
+        const folderRows = await tx.all<{ id: string }>(
+          sql`SELECT id FROM folder WHERE org_id = ${orgId} AND uid = ${u}`,
+        );
+        if (folderRows[0]) {
+          await tx.run(
+            sql`DELETE FROM dashboard_acl WHERE org_id = ${orgId} AND folder_id = ${folderRows[0].id}`,
           );
         }
       }
-      // Delete the folder rows themselves, children-first (any ordering works
-      // because we deleted dependents above, but doing children-first is clean).
+      // Delete the folder rows themselves, children-first.
       for (const u of uidList.slice().reverse()) {
-        const f = await this.deps.folders.findByUid(orgId, u);
-        if (f) await this.deps.folders.delete(f.id);
+        await tx.run(
+          sql`DELETE FROM folder WHERE org_id = ${orgId} AND uid = ${u}`,
+        );
       }
-      await this.deps.db.run(sql.raw('COMMIT'));
-    } catch (err) {
-      await this.deps.db.run(sql.raw('ROLLBACK'));
-      throw err;
-    }
+    });
   }
 
   async getParents(orgId: string, uid: string): Promise<GrafanaFolder[]> {

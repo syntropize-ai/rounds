@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import Database from 'better-sqlite3';
 import * as schema from './sqlite-schema.js';
+import type { QueryClient } from './query-client.js';
 
 export type SqliteClient = ReturnType<typeof createSqliteClient>;
 
@@ -13,7 +14,9 @@ export interface SqliteClientOptions {
   wal?: boolean;
 }
 
-export function createSqliteClient(opts: SqliteClientOptions): ReturnType<typeof drizzle<typeof schema>> {
+export function createSqliteClient(opts: SqliteClientOptions): ReturnType<typeof drizzle<typeof schema>> & {
+  withTransaction<T>(fn: (tx: QueryClient) => Promise<T>): Promise<T>;
+} {
   if (opts.path !== ':memory:') {
     mkdirSync(dirname(opts.path), { recursive: true });
   }
@@ -28,5 +31,25 @@ export function createSqliteClient(opts: SqliteClientOptions): ReturnType<typeof
   sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('busy_timeout = 5000');
 
-  return drizzle(sqlite, { schema });
+  const db = drizzle(sqlite, { schema });
+  return Object.assign(db, {
+    // better-sqlite3 is single-connection by design, so the same `db` is
+    // already pinned to one session. We just bracket the work with
+    // BEGIN/COMMIT and roll back on throw.
+    async withTransaction<T>(fn: (tx: QueryClient) => Promise<T>): Promise<T> {
+      sqlite.exec('BEGIN');
+      try {
+        const result = await fn(db as unknown as QueryClient);
+        sqlite.exec('COMMIT');
+        return result;
+      } catch (err) {
+        try {
+          sqlite.exec('ROLLBACK');
+        } catch {
+          /* swallow rollback failure; surface the original error */
+        }
+        throw err;
+      }
+    },
+  });
 }

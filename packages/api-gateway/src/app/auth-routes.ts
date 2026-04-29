@@ -23,6 +23,7 @@ import { createAuthSubsystem } from '../auth/auth-manager.js';
 import type { AuthSubsystem } from '../auth/auth-manager.js';
 import { migrateAuthToDbIfNeeded } from '../migrations/auth-to-db.js';
 import { seedAdminIfNeeded } from '../auth/seed-admin.js';
+import { seedAutoInvestigationSaIfNeeded } from '../auth/seed-auto-investigation-sa.js';
 import { createAuthRouter } from '../routes/auth.js';
 import { createUserRouter } from '../routes/user.js';
 import { createAdminRouter } from '../routes/admin.js';
@@ -79,6 +80,22 @@ async function runAuthMigration(
         'seed admin fallback failed',
       );
     }
+  }
+
+  // Idempotently seed the auto-investigation SA. Runs after the admin
+  // bootstrap above so the org exists. Failures here are non-fatal — the
+  // SA only matters for the alert.fired auto-trigger, and that path is
+  // separately gated by AUTO_INVESTIGATION_SA_TOKEN at boot.
+  try {
+    await seedAutoInvestigationSaIfNeeded({
+      users: authRepos.users,
+      orgUsers: authRepos.orgUsers,
+    });
+  } catch (err) {
+    log.error(
+      { err: err instanceof Error ? err.message : err },
+      'auto-investigation SA seed failed; alert auto-investigations will be unavailable until fixed',
+    );
   }
 }
 

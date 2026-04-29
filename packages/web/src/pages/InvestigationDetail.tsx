@@ -10,6 +10,7 @@ import type { Evidence } from '@agentic-obs/common';
 import type { InvestigationStatus } from '../api/types.js';
 import { relativeTime } from '../utils/time.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
+import InvestigationPlanBanner from '../components/plans/InvestigationPlanBanner.js';
 
 // Types
 
@@ -484,6 +485,9 @@ export default function InvestigationDetail() {
             )}
           </div>
         </div>
+
+        {/* Remediation plan banner (auto-remediation P7) */}
+        <InvestigationPlanBanner investigationId={investigation.id} />
 
         {/* Status badge */}
         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${

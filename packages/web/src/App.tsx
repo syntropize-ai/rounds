@@ -12,6 +12,7 @@ const Investigations = lazy(() => import('./pages/Investigations.js'));
 const InvestigationDetail = lazy(() => import('./pages/InvestigationDetail.js'));
 const Evidence = lazy(() => import('./pages/Evidence.js'));
 const ActionCenter = lazy(() => import('./pages/ActionCenter.js'));
+const PlanDetail = lazy(() => import('./pages/PlanDetail.js'));
 const SetupWizard = lazy(() => import('./pages/SetupWizard.js'));
 const Settings = lazy(() => import('./pages/Settings.js'));
 const Login = lazy(() => import('./pages/Login.js'));
@@ -147,6 +148,7 @@ export default function App() {
                   <Route path="/investigate/:id" element={<Navigate to="/investigations" replace />} />
                   <Route path="/evidence/:id" element={<Evidence />} />
                   <Route path="/actions" element={<ActionCenter />} />
+                  <Route path="/plans/:id" element={<PlanDetail />} />
                   <Route
                     path="/settings"
                     element={

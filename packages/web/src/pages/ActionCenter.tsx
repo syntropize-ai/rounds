@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { apiClient } from '../api/client.js';
+import { Link } from 'react-router-dom';
+import { apiClient, plansApi } from '../api/client.js';
+import type { RemediationPlan } from '../api/client.js';
 import { relativeTime } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
 
@@ -164,25 +166,49 @@ export default function ActionCenter() {
   const [processing, setProcessing] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
-  const [tab, setTab] = useState<'pending' | 'resolved'>('pending');
+  const [tab, setTab] = useState<'pending' | 'plans' | 'resolved'>('pending');
+  const [plans, setPlans] = useState<RemediationPlan[]>([]);
 
   const loadApprovals = useCallback(async () => {
     const res = await apiClient.get<ApprovalRequest[]>('/approvals');
     if (res.error) {
       setError(res.error.message);
     } else {
-      setPending(res.data.filter((r) => r.status === 'pending'));
-      setResolved(res.data.filter((r) => r.status !== 'pending'));
+      // Filter out plan-level + plan-step approvals from the legacy list — those
+      // are surfaced in the dedicated Plans tab via /api/plans, which carries
+      // the structured plan/step context the legacy card can't render.
+      const fromPlanContext = (req: ApprovalRequest) => {
+        const ctx = req.context as { planId?: unknown };
+        return typeof ctx?.planId === 'string';
+      };
+      const isPlanLevel = (req: ApprovalRequest) =>
+        req.action.type === 'plan' || fromPlanContext(req);
+      setPending(res.data.filter((r) => r.status === 'pending' && !isPlanLevel(r)));
+      setResolved(res.data.filter((r) => r.status !== 'pending' && !isPlanLevel(r)));
     }
     setLoading(false);
   }, []);
 
+  const loadPlans = useCallback(async () => {
+    try {
+      const { data } = await plansApi.list({ status: 'pending_approval' });
+      setPlans(data);
+    } catch {
+      // Plans endpoint failures shouldn't crash the legacy view; surface
+      // through the existing `error` slot only if approvals also failed.
+    }
+  }, []);
+
   useEffect(() => {
     void loadApprovals();
+    void loadPlans();
     // Poll every 10s to reflect state changes from the agent
-    const timer = setInterval(() => { void loadApprovals(); }, 10_000);
+    const timer = setInterval(() => {
+      void loadApprovals();
+      void loadPlans();
+    }, 10_000);
     return () => clearInterval(timer);
-  }, [loadApprovals]);
+  }, [loadApprovals, loadPlans]);
 
   const handleApprove = useCallback(async (request: ApprovalRequest) => {
     const { id } = request;
@@ -220,7 +246,7 @@ export default function ActionCenter() {
     }
   }, [loadApprovals]);
 
-  const displayed = tab === 'pending' ? pending : resolved;
+  const approvalsDisplayed = tab === 'pending' ? pending : tab === 'resolved' ? resolved : [];
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-4 bg-[var(--color-surface-lowest)] min-h-full">
@@ -234,7 +260,7 @@ export default function ActionCenter() {
         </div>
         <button
           type="button"
-          onClick={() => void loadApprovals()}
+          onClick={() => { void loadApprovals(); void loadPlans(); }}
           className="text-xs text-on-surface-variant hover:text-[var(--color-primary)] px-3 py-1.5 rounded-lg border border-[var(--color-outline-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
         >
           Refresh
@@ -263,7 +289,7 @@ export default function ActionCenter() {
 
       {/* Tabs */}
       <div className="flex border-b border-[var(--color-outline-variant)]">
-        {(['pending', 'resolved'] as const).map((t) => (
+        {(['pending', 'plans', 'resolved'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -278,6 +304,11 @@ export default function ActionCenter() {
             {t === 'pending' && pending.length > 0 && (
               <span className="ml-1.5 bg-[#F59E0B]/20 text-[#F59E0B] text-xs font-semibold px-1.5 py-0.5 rounded-full">
                 {pending.length}
+              </span>
+            )}
+            {t === 'plans' && plans.length > 0 && (
+              <span className="ml-1.5 bg-[#F59E0B]/20 text-[#F59E0B] text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                {plans.length}
               </span>
             )}
           </button>
@@ -320,13 +351,38 @@ export default function ActionCenter() {
         <div className="px-4 py-3 rounded-xl bg-[#EF4444]/10 border border-[#EF4444]/20 text-sm text-[#EF4444]">
           {error}
         </div>
-      ) : displayed.length === 0 ? (
+      ) : tab === 'plans' ? (
+        plans.length === 0 ? (
+          <div className="text-center py-16 text-[var(--color-outline)] text-sm">No plans pending approval</div>
+        ) : (
+          <div className="space-y-3">
+            {plans.map((plan) => (
+              <Link
+                key={plan.id}
+                to={`/plans/${plan.id}`}
+                className="block bg-[var(--color-surface-highest)] rounded-xl border border-[var(--color-outline-variant)] p-4 hover:border-[var(--color-primary)] transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="font-semibold text-on-surface">{plan.summary}</div>
+                  <span className="text-xs text-on-surface-variant">{plan.steps.length} step{plan.steps.length === 1 ? '' : 's'}</span>
+                </div>
+                <div className="mt-1 text-xs text-on-surface-variant">
+                  Created {relativeTime(plan.createdAt)} • Expires {relativeTime(plan.expiresAt)}
+                  {plan.investigationId && (
+                    <> • From investigation {plan.investigationId.slice(0, 12)}…</>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )
+      ) : approvalsDisplayed.length === 0 ? (
         <div className="text-center py-16 text-[var(--color-outline)] text-sm">
           {tab === 'pending' ? 'No pending approvals' : 'No resolved actions yet'}
         </div>
       ) : (
         <div className="space-y-3">
-          {displayed.map((req) => (
+          {approvalsDisplayed.map((req) => (
             <ActionCard
               key={req.id}
               request={req}

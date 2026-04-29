@@ -20,3 +20,12 @@ export {
   type OpsConnector,
   type OpsConnectorInput,
 } from './ops-api.js';
+
+export {
+  plansApi,
+  type RemediationPlan,
+  type RemediationPlanStep,
+  type RemediationPlanStatus,
+  type RemediationPlanStepStatus,
+  type PlanExecutorOutcome,
+} from './plans-api.js';

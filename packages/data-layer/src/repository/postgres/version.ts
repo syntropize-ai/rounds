@@ -35,26 +35,43 @@ export class PostgresVersionRepository implements IVersionRepository {
     editSource: EditSource,
     message?: string,
   ): Promise<AssetVersion> {
-    // Get the latest version number
-    const latest = await this.getLatest(assetType, assetId);
-    const nextVersion = latest ? latest.version + 1 : 1;
+    // Allocate the next version atomically. Read-then-insert across two
+    // statements is racy: two writers see the same MAX and pick the same
+    // version. We hold a per-(assetType, assetId) advisory lock for the
+    // life of the transaction so concurrent record() calls serialize.
+    const lockKey = `${assetType}:${assetId}`;
+    const id = uid();
     const now = new Date().toISOString();
-
-    const [row] = await this.db
-      .insert(assetVersions)
-      .values({
-        id: uid(),
+    const snapshotJson = JSON.stringify(snapshot ?? null);
+    return this.db.withTransaction(async (tx: import('../../db/query-client.js').QueryClient) => {
+      await tx.run(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`,
+      );
+      const rows = await tx.all<{ next: number }>(
+        sql`SELECT COALESCE(MAX(version), 0) + 1 AS next
+            FROM asset_versions
+            WHERE asset_type = ${assetType} AND asset_id = ${assetId}`,
+      );
+      const nextVersion = Number(rows[0]?.next ?? 1);
+      await tx.run(
+        sql`INSERT INTO asset_versions
+            (id, asset_type, asset_id, version, snapshot, edited_by, edit_source, message, created_at)
+            VALUES (${id}, ${assetType}, ${assetId}, ${nextVersion}, ${snapshotJson},
+                    ${editedBy}, ${editSource}, ${message ?? null}, ${now})`,
+      );
+      return {
+        id,
         assetType,
         assetId,
         version: nextVersion,
-        snapshot: snapshot as Record<string, unknown>,
+        snapshot,
+        diff: undefined,
         editedBy,
         editSource,
-        message: message ?? null,
+        message: message ?? undefined,
         createdAt: now,
-      })
-      .returning();
-    return rowToVersion(row!);
+      };
+    });
   }
 
   async getHistory(assetType: AssetType, assetId: string): Promise<AssetVersion[]> {

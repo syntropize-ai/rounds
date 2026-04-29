@@ -685,8 +685,8 @@ const PLANS_APPROVER = def(
 
 const PLANS_AUTO_EDITOR = def(
   'fixed:plans:auto_editor',
-  'Plans auto-editor',
-  'Approve a plan in auto-edit mode (executor skips per-step approvals). Sensitive — grant explicitly.',
+  'Plans auto-editor (cluster-wide)',
+  'Approve a plan in auto-edit mode for ANY namespace (skips per-step approvals). Sensitive — grant explicitly. For namespace-narrowed auto-edit, grant `plans:auto_edit` on a `plans:namespace:<ns>` scope instead of using this fixed role.',
   'Plans',
   [
     { action: ACTIONS.PlansRead, scope: 'plans:*' },

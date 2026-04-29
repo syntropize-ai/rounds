@@ -18,10 +18,12 @@
 
 import { createLogger } from '@agentic-obs/common/logging';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
+import type { BackgroundRunnerDeps } from '@agentic-obs/agent-core';
 import {
   AlertEvaluatorService,
   type MetricQueryFn,
 } from '../services/alert-evaluator-service.js';
+import { AutoInvestigationDispatcher } from '../services/auto-investigation-dispatcher.js';
 import {
   resolvePrometheusDatasource,
   type PrometheusDatasource,
@@ -82,6 +84,13 @@ export function buildMetricQueryFn(setupConfig: SetupConfigService): MetricQuery
 export interface MountAlertsDeps {
   rules: IAlertRuleRepository;
   setupConfig: SetupConfigService;
+  /**
+   * BackgroundRunnerDeps — when provided AND `AUTO_INVESTIGATION_SA_TOKEN`
+   * is set in env AND `AUTO_INVESTIGATION_ENABLED` is not 'false', the
+   * AutoInvestigationDispatcher is started + subscribed to the
+   * evaluator's `alert.fired` emitter.
+   */
+  runner?: BackgroundRunnerDeps;
 }
 
 /**
@@ -92,11 +101,12 @@ export interface MountAlertsDeps {
  */
 export async function startAlerts(deps: MountAlertsDeps): Promise<{
   evaluator: AlertEvaluatorService | null;
+  dispatcher: AutoInvestigationDispatcher | null;
   stop: () => void;
 }> {
   if (!envFlag('ALERT_EVALUATOR_ENABLED', true)) {
     log.info('alert evaluator disabled by ALERT_EVALUATOR_ENABLED=false');
-    return { evaluator: null, stop: () => undefined };
+    return { evaluator: null, dispatcher: null, stop: () => undefined };
   }
 
   const evaluator = new AlertEvaluatorService({
@@ -106,8 +116,40 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
   await evaluator.start();
   log.info('alert evaluator started');
 
+  // Optionally subscribe the AutoInvestigationDispatcher (P8) to the
+  // evaluator's alert.fired stream. Three independent gates so an
+  // operator can turn pieces on/off without rebuilding:
+  //   - AUTO_INVESTIGATION_ENABLED (default true)
+  //   - AUTO_INVESTIGATION_SA_TOKEN (no default; service-account token)
+  //   - deps.runner (passed in by server.ts wiring)
+  let dispatcher: AutoInvestigationDispatcher | null = null;
+  const dispatcherOn = envFlag('AUTO_INVESTIGATION_ENABLED', true);
+  const saToken = process.env['AUTO_INVESTIGATION_SA_TOKEN'];
+  if (!dispatcherOn) {
+    log.info('auto-investigation dispatcher disabled by AUTO_INVESTIGATION_ENABLED=false');
+  } else if (!saToken) {
+    log.warn(
+      'AUTO_INVESTIGATION_SA_TOKEN unset — auto-investigation dispatcher NOT started. ' +
+      'Create a service account, generate a token, and set the env var to enable.',
+    );
+  } else if (!deps.runner) {
+    log.warn('background-runner deps not provided — auto-investigation dispatcher NOT started');
+  } else {
+    dispatcher = new AutoInvestigationDispatcher({
+      alertEvents: evaluator,
+      runner: deps.runner,
+      saToken,
+    });
+    dispatcher.subscribe();
+    log.info('auto-investigation dispatcher subscribed to alert.fired');
+  }
+
   return {
     evaluator,
-    stop: () => evaluator.stop(),
+    dispatcher,
+    stop: () => {
+      dispatcher?.unsubscribe();
+      evaluator.stop();
+    },
   };
 }

@@ -37,8 +37,10 @@ function getSessionDatasourcePins(sessionId: string): Record<string, string> {
   return pins;
 }
 
-/** Adapts data-layer IAlertRuleRepository to agent-core IAlertRuleStore. */
-function toAlertRuleStore(repo: IAlertRuleRepository): IAlertRuleStore {
+/** Adapts data-layer IAlertRuleRepository to agent-core IAlertRuleStore.
+ * Exported so background-orchestrator builds (alerts → investigation) can
+ * reuse the same adapter without duplicating the shape. */
+export function toAlertRuleStore(repo: IAlertRuleRepository): IAlertRuleStore {
   return {
     create: (data) => repo.create(data as Parameters<IAlertRuleRepository['create']>[0]),
     update: repo.update ? (id, patch) => repo.update(id, patch as Parameters<IAlertRuleRepository['update']>[1]) : undefined,

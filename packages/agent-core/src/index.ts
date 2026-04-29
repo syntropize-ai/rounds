@@ -45,3 +45,5 @@ export {
   type BackgroundRunnerDeps,
   type ISaTokenResolver,
 } from './agent/background-runner.js';
+
+export type { AgentType } from './agent/agent-types.js';

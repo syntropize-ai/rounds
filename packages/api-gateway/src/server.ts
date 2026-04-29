@@ -38,6 +38,7 @@ import { buildAuthSubsystem, mountAuthRoutes } from './app/auth-routes.js';
 import { mountRbacRoutes } from './app/rbac-routes.js';
 import { mountDomainRoutes } from './app/domain-routes.js';
 import { startAlerts } from './app/alerts-boot.js';
+import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
 import { createShutdownHooks } from './app/lifecycle.js';
 import type { WebSocketGatewayDeps } from './websocket/gateway.js';
 
@@ -201,6 +202,16 @@ export async function createApp(): Promise<Application> {
   app.locals['alertsHandle'] = await startAlerts({
     rules: persistence.repos.alertRules,
     setupConfig,
+    runner: {
+      saTokens: bundle.apiKeyService,
+      makeOrchestrator: buildBackgroundOrchestratorFactory({
+        persistence,
+        setupConfig,
+        accessControl,
+        audit: bundle.authSub.audit,
+        folderRepository: sharedFolderRepo,
+      }),
+    },
   });
 
   app.locals['websocketGatewayDeps'] = {

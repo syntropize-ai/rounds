@@ -49,11 +49,17 @@ export interface BackgroundRunnerDeps {
    * that closes over their store/gateway/accessControl singletons and only
    * feeds the runner the per-run fields (identity, agentType).
    */
+  /**
+   * May return synchronously OR a Promise. Async builders are useful when
+   * the orchestrator needs runtime config (LLM, datasources, connectors)
+   * that can change between calls — fetch it inside the factory, not at
+   * BackgroundRunnerDeps construction time.
+   */
   makeOrchestrator: (
     overrides: Pick<OrchestratorDeps, 'identity'> & {
       agentType?: AgentType;
     },
-  ) => OrchestratorAgent;
+  ) => OrchestratorAgent | Promise<OrchestratorAgent>;
 }
 
 /**
@@ -87,7 +93,7 @@ export async function runBackgroundAgent(
     serviceAccountId: lookup.serviceAccountId ?? undefined,
   };
 
-  const agent = deps.makeOrchestrator({
+  const agent = await deps.makeOrchestrator({
     identity,
     ...(input.agentType ? { agentType: input.agentType } : {}),
   });

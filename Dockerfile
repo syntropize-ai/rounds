@@ -14,6 +14,16 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
+# kubectl is required by the Kubernetes ops connector (spawned as a child
+# process). Pinned to a stable minor; bump alongside cluster version skew.
+ARG KUBECTL_VERSION=v1.31.4
+RUN apk add --no-cache curl ca-certificates \
+    && ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') \
+    && curl -fsSL -o /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
+    && chmod +x /usr/local/bin/kubectl \
+    && apk del curl
+
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \

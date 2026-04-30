@@ -21,6 +21,7 @@ data:
   SESSION_TTL: {{ .Values.env.SESSION_TTL | quote }}
   PROACTIVE_CHECK_INTERVAL_MS: {{ .Values.env.PROACTIVE_CHECK_INTERVAL_MS | quote }}
   PROACTIVE_HISTORY_SIZE: {{ .Values.env.PROACTIVE_HISTORY_SIZE | quote }}
+  OPENOBS_ALLOW_PRIVATE_URLS: {{ .Values.env.OPENOBS_ALLOW_PRIVATE_URLS | quote }}
   {{- if .Values.env.LLM_FALLBACK_PROVIDER }}
   LLM_FALLBACK_PROVIDER: {{ .Values.env.LLM_FALLBACK_PROVIDER | quote }}
   {{- end }}

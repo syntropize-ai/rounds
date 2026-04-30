@@ -81,6 +81,10 @@ env:
   SESSION_TTL: "86400"
   PROACTIVE_CHECK_INTERVAL_MS: "60000"
   PROACTIVE_HISTORY_SIZE: "100"
+  # In-cluster datasources (e.g. http://prometheus.monitoring:9090) resolve
+  # to RFC1918 addresses; the helm chart targets self-hosted operators, so
+  # default to permissive. Set to "false" for multi-tenant / public deploys.
+  OPENOBS_ALLOW_PRIVATE_URLS: "true"
   extra: {}
 
 secretEnv:

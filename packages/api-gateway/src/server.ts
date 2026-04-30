@@ -202,6 +202,7 @@ export async function createApp(): Promise<Application> {
   app.locals['alertsHandle'] = await startAlerts({
     rules: persistence.repos.alertRules,
     setupConfig,
+    db: persistence.db,
     runner: {
       saTokens: bundle.apiKeyService,
       makeOrchestrator: buildBackgroundOrchestratorFactory({

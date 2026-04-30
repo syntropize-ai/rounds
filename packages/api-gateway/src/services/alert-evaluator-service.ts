@@ -25,6 +25,7 @@
 
 import { EventEmitter } from 'node:events';
 import { createLogger } from '@agentic-obs/common/logging';
+import type { LeaderLock } from './leader-lock.js';
 import type {
   AlertOperator,
   AlertRule,
@@ -79,6 +80,20 @@ export interface AlertEvaluatorOptions {
    * everything.
    */
   defaultIntervalSec?: number;
+  /**
+   * Optional leader lock for multi-replica HA. When provided, `start()`
+   * tries to acquire it before scheduling rules; if another replica
+   * holds it, this instance waits. A heartbeat refreshes the lock; if we
+   * lose it (e.g. paused process longer than TTL) the schedulers are
+   * cleared and acquisition resumes. Single-process deploys can leave
+   * this unset.
+   */
+  leaderLock?: LeaderLock;
+  /**
+   * How often to heartbeat / poll for leadership. Defaults to one third
+   * of `leaderLock.ttlMs`. Has no effect when `leaderLock` is unset.
+   */
+  leaderHeartbeatMs?: number;
 }
 
 /**
@@ -133,6 +148,10 @@ export class AlertEvaluatorService extends EventEmitter {
   private readonly query: MetricQueryFn;
   private readonly clock: ClockFn;
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly leaderLock?: LeaderLock;
+  private readonly leaderHeartbeatMs: number;
+  private leaderTimer?: NodeJS.Timeout;
+  private isLeader = false;
   private running = false;
 
   // Typed event helpers. Method overrides here (not declaration merging)
@@ -169,6 +188,10 @@ export class AlertEvaluatorService extends EventEmitter {
     this.rules = opts.rules;
     this.query = opts.query;
     this.clock = opts.clock ?? (() => new Date());
+    this.leaderLock = opts.leaderLock;
+    this.leaderHeartbeatMs =
+      opts.leaderHeartbeatMs ??
+      (this.leaderLock ? Math.max(1000, Math.floor(this.leaderLock.ttlMs / 3)) : 0);
   }
 
   /**
@@ -177,19 +200,65 @@ export class AlertEvaluatorService extends EventEmitter {
    * we also re-pull the rule list so newly created/disabled rules get
    * picked up without a service restart.
    *
-   * v1: single process. Multi-replica HA (instance_settings leader lock) is
-   * a follow-up.
+   * When a leaderLock is configured, evaluation only runs while we hold
+   * the lock. The acquire-or-wait poll is run on the same heartbeat
+   * cadence as the lease renewal — a non-leader replica polls cheaply
+   * until the current leader's lease expires.
    */
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    await this.refreshSchedule();
+    if (this.leaderLock) {
+      this.leaderTimer = setInterval(() => {
+        if (!this.running) return;
+        void this.tickLeader();
+      }, this.leaderHeartbeatMs);
+      // Best-effort eager attempt so the first claim doesn't wait one
+      // heartbeat interval.
+      await this.tickLeader();
+    } else {
+      this.isLeader = true;
+      await this.refreshSchedule();
+    }
   }
 
   stop(): void {
     this.running = false;
+    if (this.leaderTimer) {
+      clearInterval(this.leaderTimer);
+      this.leaderTimer = undefined;
+    }
     for (const t of this.timers.values()) clearInterval(t);
     this.timers.clear();
+    if (this.leaderLock && this.isLeader) {
+      // fire-and-forget; release errors are not fatal
+      void this.leaderLock.release().catch(() => undefined);
+    }
+    this.isLeader = false;
+  }
+
+  /**
+   * Re-evaluate leadership. If we're not leader, try to acquire; if we
+   * are, heartbeat. State changes are mirrored on the per-rule timers.
+   */
+  private async tickLeader(): Promise<void> {
+    if (!this.leaderLock) return;
+    if (this.isLeader) {
+      const stillMine = await this.leaderLock.heartbeat();
+      if (!stillMine) {
+        log.warn({}, 'alert evaluator lost leader lock; clearing schedulers');
+        this.isLeader = false;
+        for (const t of this.timers.values()) clearInterval(t);
+        this.timers.clear();
+      }
+      return;
+    }
+    const got = await this.leaderLock.tryAcquire();
+    if (got.ok) {
+      log.info({}, 'alert evaluator acquired leader lock; starting schedulers');
+      this.isLeader = true;
+      await this.refreshSchedule();
+    }
   }
 
   /**

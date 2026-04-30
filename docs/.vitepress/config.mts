@@ -56,6 +56,12 @@ export default defineConfig({
         ],
       },
       {
+        text: 'Operations',
+        items: [
+          { text: 'Auto-remediation', link: '/operations/auto-remediation' },
+        ],
+      },
+      {
         text: 'Reference',
         items: [
           { text: 'Configuration env vars', link: '/configuration' },

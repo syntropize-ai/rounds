@@ -35,6 +35,7 @@ import {
 } from '../middleware/auth.js';
 import { createOrgContextMiddleware } from '../middleware/org-context.js';
 import { ApiKeyService } from '../services/apikey-service.js';
+import { RoleService } from '../services/role-service.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { AuthRepositoryBundle } from './persistence.js';
@@ -87,9 +88,16 @@ async function runAuthMigration(
   // SA only matters for the alert.fired auto-trigger, and that path is
   // separately gated by AUTO_INVESTIGATION_SA_TOKEN at boot.
   try {
+    const roleService = new RoleService(
+      authRepos.roles,
+      authRepos.permissions,
+      authRepos.userRoles,
+      authRepos.teamRoles,
+    );
     await seedAutoInvestigationSaIfNeeded({
       users: authRepos.users,
       orgUsers: authRepos.orgUsers,
+      roles: roleService,
     });
   } catch (err) {
     log.error(

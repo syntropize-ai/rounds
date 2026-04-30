@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, plansApi } from '../api/client.js';
 import type { RemediationPlan } from '../api/client.js';
 import { relativeTime } from '../utils/time.js';
@@ -166,7 +166,29 @@ export default function ActionCenter() {
   const [processing, setProcessing] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
-  const [tab, setTab] = useState<'pending' | 'plans' | 'resolved'>('pending');
+  // Tab can be deep-linked via `?tab=plans` so the sidebar pending-plan
+  // badge (and the InvestigationDetail "View all plans" link) can land
+  // operators directly on the Plans view.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const initialTab: 'pending' | 'plans' | 'resolved' =
+    tabParam === 'plans' || tabParam === 'resolved' ? tabParam : 'pending';
+  const [tab, setTabState] = useState<'pending' | 'plans' | 'resolved'>(initialTab);
+  const setTab = useCallback((next: 'pending' | 'plans' | 'resolved') => {
+    setTabState(next);
+    const params = new URLSearchParams(searchParams);
+    if (next === 'pending') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
+  // React to external URL changes (e.g. clicking the sidebar badge while
+  // already on /actions).
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    const next: 'pending' | 'plans' | 'resolved' =
+      t === 'plans' || t === 'resolved' ? t : 'pending';
+    setTabState((prev) => (prev === next ? prev : next));
+  }, [searchParams]);
   const [plans, setPlans] = useState<RemediationPlan[]>([]);
 
   const loadApprovals = useCallback(async () => {

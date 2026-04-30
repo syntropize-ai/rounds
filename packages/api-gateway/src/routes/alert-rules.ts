@@ -405,10 +405,16 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         }
 
         const question = `Investigate alert "${rule.name}": ${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold}`;
+        // Scope the investigation to the rule's workspace so the operator
+        // viewing it from the same workspace can read it back. Falling back
+        // to the requester's workspace covers older rules without an
+        // explicit workspaceId.
+        const workspaceId = rule.workspaceId ?? resolveOrgId(req);
         const investigation = await deps.investigationStore.create({
           question,
           sessionId: `ses_alert_${Date.now()}`,
           userId: 'alert-system',
+          workspaceId,
         });
 
         // Investigation orchestration now handled by the dashboard agent via chat

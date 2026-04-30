@@ -43,19 +43,59 @@ export default function InvestigationPlanBanner({ investigationId }: Props) {
   const headline = ordered[0];
   if (!headline) return null;
 
+  const isUrgent = URGENT_STATUSES.has(headline.status);
+
   return (
-    <Link
-      to={`/plans/${headline.id}`}
-      className="block px-3 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/15 text-xs font-medium border border-primary/20 transition-colors"
+    <div
+      className={`flex items-center gap-3 px-4 py-3 border-b ${
+        isUrgent
+          ? 'bg-primary/10 border-primary/30'
+          : 'bg-surface-high border-outline-variant/40'
+      }`}
+      data-testid="investigation-plan-banner"
     >
-      {headline.status === 'pending_approval'
-        ? 'Remediation plan ready → Review'
-        : headline.status === 'failed'
-        ? 'Remediation plan failed → Open'
-        : `Remediation plan (${headline.status.replace(/_/g, ' ')})`}
-      {plans.length > 1 && (
-        <span className="ml-1 opacity-70">+{plans.length - 1} more</span>
-      )}
-    </Link>
+      <span
+        className={`shrink-0 w-2 h-2 rounded-full ${
+          headline.status === 'pending_approval'
+            ? 'bg-primary animate-pulse'
+            : headline.status === 'failed'
+            ? 'bg-error'
+            : 'bg-on-surface-variant'
+        }`}
+      />
+      <div className="flex-1 min-w-0">
+        <div className={`text-sm font-semibold ${isUrgent ? 'text-primary' : 'text-on-surface'}`}>
+          {headline.status === 'pending_approval'
+            ? 'Remediation plan ready for review'
+            : headline.status === 'failed'
+            ? 'Remediation plan failed'
+            : `Remediation plan (${headline.status.replace(/_/g, ' ')})`}
+        </div>
+        {headline.summary && (
+          <div className="text-xs text-on-surface-variant truncate mt-0.5">
+            {headline.summary}
+          </div>
+        )}
+      </div>
+      <Link
+        to="/actions?tab=plans"
+        className="shrink-0 text-xs text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline"
+      >
+        View all plans
+      </Link>
+      <Link
+        to={`/plans/${headline.id}`}
+        className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-opacity ${
+          isUrgent
+            ? 'bg-primary text-on-primary-fixed hover:opacity-90'
+            : 'bg-surface-highest text-on-surface hover:bg-surface-high'
+        }`}
+      >
+        {headline.status === 'pending_approval' ? 'Review plan →' : 'Open plan →'}
+        {plans.length > 1 && (
+          <span className="ml-1.5 opacity-70 font-normal">+{plans.length - 1} more</span>
+        )}
+      </Link>
+    </div>
   );
 }

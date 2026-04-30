@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiClient } from '../api/client.js';
+import { apiClient, plansApi } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { relativeTime } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
@@ -88,6 +88,7 @@ function AlertRuleRow({
   navigate,
   canWrite,
   canDelete,
+  pendingPlanId,
 }: {
   rule: AlertRule;
   expanded: boolean;
@@ -100,6 +101,7 @@ function AlertRuleRow({
   navigate: (path: string, opts?: { state?: unknown }) => void;
   canWrite: boolean;
   canDelete: boolean;
+  pendingPlanId?: string;
 }) {
   const stateStyle = STATE_STYLES[rule.state];
   const isDisabled = rule.state === 'disabled';
@@ -243,6 +245,16 @@ function AlertRuleRow({
               </button>
             )}
 
+            {pendingPlanId && (
+              <button
+                type="button"
+                onClick={() => navigate(`/plans/${pendingPlanId}`)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--color-primary)] text-on-primary-fixed hover:opacity-90 transition-opacity"
+              >
+                Review plan →
+              </button>
+            )}
+
             {(rule.state === 'firing' || rule.state === 'pending') && (
               <button
                 type="button"
@@ -321,6 +333,7 @@ export default function Alerts() {
   const [groupBy, setGroupBy] = useState<'none' | 'severity'>('none');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [investigatingId, setInvestigatingId] = useState<string | null>(null);
+  const [pendingPlanByInvestigation, setPendingPlanByInvestigation] = useState<Record<string, string>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Keyboard shortcut: / to focus search
@@ -349,6 +362,29 @@ export default function Alerts() {
     const timer = setInterval(() => { void loadRules(); }, 10_000);
     return () => clearInterval(timer);
   }, [loadRules]);
+
+  // Pull pending-approval plans once and index by investigationId so
+  // each rule row can surface a "Review plan" CTA without an N+1 fetch.
+  const loadPendingPlans = useCallback(async () => {
+    try {
+      const { data } = await plansApi.list({ status: 'pending_approval' });
+      const map: Record<string, string> = {};
+      for (const p of data ?? []) {
+        if (p.investigationId && !map[p.investigationId]) {
+          map[p.investigationId] = p.id;
+        }
+      }
+      setPendingPlanByInvestigation(map);
+    } catch {
+      // Plans endpoint failures shouldn't break the alerts page.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPendingPlans();
+    const timer = setInterval(() => { void loadPendingPlans(); }, 10_000);
+    return () => clearInterval(timer);
+  }, [loadPendingPlans]);
 
   const handleToggle = useCallback(async (rule: AlertRule) => {
     const nextState = rule.state === 'disabled' ? 'enable' : 'disable';
@@ -596,6 +632,7 @@ export default function Alerts() {
                       navigate={navigate}
                       canWrite={canWriteRule}
                       canDelete={canDeleteRule}
+                      pendingPlanId={rule.investigationId ? pendingPlanByInvestigation[rule.investigationId] : undefined}
                     />
                   ))}
                 </div>

@@ -486,9 +486,6 @@ export default function InvestigationDetail() {
           </div>
         </div>
 
-        {/* Remediation plan banner (auto-remediation P7) */}
-        <InvestigationPlanBanner investigationId={investigation.id} />
-
         {/* Status badge */}
         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
           isGenerating
@@ -501,6 +498,10 @@ export default function InvestigationDetail() {
           {getInvestigationStatusStyle(investigation.status).label}
         </div>
       </div>
+
+      {/* Remediation plan banner (auto-remediation P7) — lifted above the
+          fold so operators can find approval without hunting. */}
+      <InvestigationPlanBanner investigationId={investigation.id} />
 
       {/* Content + Chat split — same layout as DashboardWorkspace */}
       <div className="flex-1 flex overflow-hidden">

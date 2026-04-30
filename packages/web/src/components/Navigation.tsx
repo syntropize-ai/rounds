@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext.js';
 import { useTheme } from '../contexts/ThemeContext.js';
 import { OpenObsLogo } from './OpenObsLogo.js';
 import { OrgSwitcher } from './OrgSwitcher.js';
+import { plansApi } from '../api/client.js';
 
 /* ───── Icon components ───── */
 
@@ -33,6 +34,15 @@ function InvestigationIcon({ className }: { className?: string }) {
     <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
       <polygon points="16.24,7.76 14.12,14.12 7.76,16.24 9.88,9.88" stroke="currentColor" strokeWidth={1.8} strokeLinejoin="round" fill="none" />
+    </svg>
+  );
+}
+
+/* Actions — checkmark/clipboard icon for the Action Center */
+function ActionsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
     </svg>
   );
 }
@@ -106,16 +116,20 @@ interface SidebarItemProps {
   icon: React.ReactNode;
   end?: boolean;
   expanded: boolean;
+  /** Optional small badge (e.g. pending count) shown on the icon / label. */
+  badge?: number;
 }
 
-function SidebarItem({ to, label, icon, end, expanded }: SidebarItemProps) {
+function SidebarItem({ to, label, icon, end, expanded, badge }: SidebarItemProps) {
+  const showBadge = typeof badge === 'number' && badge > 0;
+  const badgeLabel = showBadge ? (badge > 99 ? '99+' : String(badge)) : null;
   return (
     <NavLink
       to={to}
       end={end}
-      title={expanded ? undefined : label}
+      title={expanded ? undefined : (showBadge ? `${label} (${badgeLabel} pending)` : label)}
       className={({ isActive }) =>
-        `flex items-center gap-3 h-10 rounded-lg transition-colors ${
+        `relative flex items-center gap-3 h-10 rounded-lg transition-colors ${
           expanded ? 'px-3 w-full' : 'justify-center w-10'
         } ${
           isActive
@@ -124,8 +138,30 @@ function SidebarItem({ to, label, icon, end, expanded }: SidebarItemProps) {
         }`
       }
     >
-      {icon}
-      {expanded && <span className="text-sm font-medium truncate">{label}</span>}
+      <span className="relative inline-flex">
+        {icon}
+        {showBadge && !expanded && (
+          <span
+            aria-label={`${badgeLabel} pending`}
+            className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary-fixed text-[10px] font-bold leading-4 text-center"
+          >
+            {badgeLabel}
+          </span>
+        )}
+      </span>
+      {expanded && (
+        <>
+          <span className="text-sm font-medium truncate">{label}</span>
+          {showBadge && (
+            <span
+              aria-label={`${badgeLabel} pending`}
+              className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-primary text-on-primary-fixed text-[10px] font-bold"
+            >
+              {badgeLabel}
+            </span>
+          )}
+        </>
+      )}
     </NavLink>
   );
 }
@@ -251,6 +287,25 @@ export default function Navigation() {
     window.localStorage.setItem('openobs:sidebar-expanded', expanded ? '1' : '0');
   }, [expanded]);
 
+  // Pending-plan badge for the Action Center entry. Polled every 30s
+  // (per the UX brief) so operators see remediation work waiting on them
+  // even if they aren't on the alerts/investigation pages.
+  const [pendingPlans, setPendingPlans] = useState(0);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const fetchOnce = () => {
+      void plansApi.list({ status: 'pending_approval' })
+        .then(({ data }) => {
+          if (!cancelled) setPendingPlans(data?.length ?? 0);
+        })
+        .catch(() => { /* non-fatal — leave previous count */ });
+    };
+    fetchOnce();
+    const timer = setInterval(fetchOnce, 30_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [user]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login', { replace: true });
@@ -317,6 +372,7 @@ export default function Navigation() {
         <SidebarItem to="/dashboards" label="Dashboards" icon={<DashboardIcon />} expanded={expanded} />
         <SidebarItem to="/investigations" label="Investigations" icon={<InvestigationIcon />} expanded={expanded} />
         <SidebarItem to="/alerts" label="Alerts" icon={<AlertsIcon />} expanded={expanded} />
+        <SidebarItem to="/actions" label="Actions" icon={<ActionsIcon />} expanded={expanded} badge={pendingPlans} />
       </div>
 
       {/* Bottom nav items */}

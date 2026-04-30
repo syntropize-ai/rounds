@@ -27,6 +27,7 @@ import {
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
+import { inClusterAvailable } from '../services/ops-connector-service.js';
 
 export interface SystemRouterDeps {
   setupConfig: SetupConfigService;
@@ -51,6 +52,14 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
   const requireConfigWrite = requirePermission(() =>
     ac.eval(ACTIONS.InstanceConfigWrite),
   );
+
+  // GET /api/system/info — runtime details the UI needs to adapt its forms.
+  // Currently surfaces whether the gateway is running with a Kubernetes
+  // service-account mount (so the Ops connector form can offer "in-cluster"
+  // mode without the user having to paste a kubeconfig).
+  router.get('/info', (_req: Request, res: Response) => {
+    res.json({ inClusterAvailable: inClusterAvailable() });
+  });
 
   // PUT /api/system/llm — save LLM config.
   router.put('/llm', requireConfigWrite, async (req: Request, res: Response) => {

@@ -12,8 +12,11 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import {
-  StructuralKubernetesConnectorRunner,
+  LiveKubernetesConnectorRunner,
   validateKubernetesConnector,
+  synthesizeKubeconfig,
+  synthesizeInClusterKubeconfig,
+  inClusterAvailable,
   type KubernetesConnectorRunner,
 } from '../services/ops-connector-service.js';
 
@@ -60,7 +63,7 @@ function validateBody(body: OpsConnectorBody): string | null {
   if (body.capabilities !== undefined && !Array.isArray(body.capabilities)) {
     return 'capabilities must be an array';
   }
-  return validateKubernetesConnector(body.config ?? {});
+  return validateKubernetesConnector((body.config ?? {}) as OpsConnectorConfig);
 }
 
 function maskForWire(connector: OpsConnector): OpsConnector {
@@ -85,7 +88,7 @@ export function createOpsConnectorsRouter(deps: OpsConnectorsRouterDeps): Router
       ac.eval(ACTIONS.InstanceConfigWrite),
     ),
   );
-  const runner = deps.runner ?? new StructuralKubernetesConnectorRunner();
+  const runner = deps.runner ?? new LiveKubernetesConnectorRunner();
 
   router.get('/', requireRead, async (req: Request, res: Response) => {
     const orgId = requireOrg(req, res);
@@ -117,15 +120,70 @@ export function createOpsConnectorsRouter(deps: OpsConnectorsRouterDeps): Router
       return;
     }
 
+    // Mode-aware secret synthesis (T8 — Ops connector setup refactor).
+    //
+    //   in-cluster: read SA token + CA from /var/run/secrets/... and build a
+    //               kubeconfig server-side. Reject if the gateway isn't
+    //               running with a service-account mount.
+    //   manual:     {server, token, caData?, insecureSkipTlsVerify?} →
+    //               synthesize a kubeconfig YAML server-side. The frontend
+    //               sends these in `body.manual` since they don't fit
+    //               cleanly into the legacy {secret} field.
+    //   kubeconfig: caller hands us a YAML string in `body.secret` — same
+    //               path as before.
+    //   secretRef:  unchanged.
+    let resolvedSecret = body.secret ?? null;
+    const cfg = (body.config ?? {}) as OpsConnectorConfig & {
+      mode?: 'in-cluster' | 'kubeconfig' | 'manual';
+    };
+    const manual = (body as OpsConnectorBody & {
+      manual?: {
+        server?: string;
+        token?: string;
+        caData?: string;
+        insecureSkipTlsVerify?: boolean;
+      };
+    }).manual;
+
+    if (cfg.mode === 'in-cluster') {
+      if (!inClusterAvailable()) {
+        res.status(400).json({
+          error: { code: 'VALIDATION', message: 'in-cluster mode requires the gateway to run with a Kubernetes service-account mount' },
+        });
+        return;
+      }
+      try {
+        resolvedSecret = synthesizeInClusterKubeconfig();
+      } catch (err) {
+        res.status(400).json({
+          error: { code: 'VALIDATION', message: err instanceof Error ? err.message : 'failed to synthesize in-cluster kubeconfig' },
+        });
+        return;
+      }
+    } else if (cfg.mode === 'manual' && manual) {
+      if (!manual.server || !manual.token) {
+        res.status(400).json({
+          error: { code: 'VALIDATION', message: 'manual mode requires server and token' },
+        });
+        return;
+      }
+      resolvedSecret = synthesizeKubeconfig({
+        server: manual.server,
+        token: manual.token,
+        caData: manual.caData,
+        insecureSkipTlsVerify: manual.insecureSkipTlsVerify,
+      });
+    }
+
     const input: NewOpsConnector = {
       id: body.id,
       orgId,
       type: 'kubernetes',
       name: body.name,
       environment: body.environment ?? null,
-      config: body.config ?? {},
+      config: cfg,
       secretRef: body.secretRef ?? null,
-      secret: body.secret ?? null,
+      secret: resolvedSecret,
       allowedNamespaces: body.allowedNamespaces ?? [],
       capabilities: body.capabilities ?? [],
     };

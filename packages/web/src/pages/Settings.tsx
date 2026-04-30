@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../api/client.js';
-import { buildOpsConnectorInput, opsApi, type OpsCapability, type OpsConnector } from '../api/ops-api.js';
+import { buildOpsConnectorInput, opsApi, type OpsCapability, type OpsConnector, type OpsConnectorMode } from '../api/ops-api.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { datasourceUrlPlaceholder, llmBaseUrlPlaceholder } from '../constants/placeholders.js';
 import { DATASOURCE_TYPES, datasourceInfo } from '../constants/datasource-types.js';
@@ -472,6 +472,37 @@ function EditFormWrapper({ initial, onSave, onCancel, onDelete, readOnly = false
 
 // ─── Ops Integrations Tab ───
 
+/**
+ * Returns true when the URL or kubeconfig server field points to a host that
+ * is only reachable from the operator's local machine. The gateway runs in a
+ * container or in-cluster, so 127.0.0.1 / localhost / ::1 / host.docker.internal
+ * will never resolve to anything useful from there.
+ */
+export function isLocalhostServer(server: string): boolean {
+  if (!server) return false;
+  let host = server.trim();
+  try {
+    host = new URL(host).hostname;
+  } catch {
+    // not a URL — fall through and match against the raw string
+  }
+  host = host.toLowerCase().replace(/^\[|\]$/g, '');
+  return host === '127.0.0.1'
+    || host === 'localhost'
+    || host === '::1'
+    || host === 'host.docker.internal';
+}
+
+/**
+ * Look for a `server: ...` line in a pasted kubeconfig and report whether it
+ * is localhost. We don't fully parse YAML here — a substring match against
+ * the canonical line is enough for the warning.
+ */
+export function kubeconfigServerIsLocalhost(yaml: string): boolean {
+  const m = yaml.match(/server:\s*(\S+)/i);
+  return m ? isLocalhostServer(m[1]!) : false;
+}
+
 const OPS_CAPABILITIES: { id: OpsCapability; label: string }[] = [
   { id: 'read', label: 'Read' },
   { id: 'propose', label: 'Propose' },
@@ -486,18 +517,30 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testMessages, setTestMessages] = useState<Record<string, string>>({});
+  const [inClusterAvailable, setInClusterAvailable] = useState(false);
   const [form, setForm] = useState({
+    mode: 'kubeconfig' as OpsConnectorMode,
     name: '',
     environment: 'prod',
-    apiServer: '',
     clusterName: '',
-    context: '',
     namespaces: '',
     kubeconfig: '',
+    context: '',
+    apiServer: '',
     token: '',
-    secretRef: '',
+    caData: '',
+    insecureSkipTlsVerify: false,
     capabilities: { read: true, propose: true, execute_approved: false } as Record<OpsCapability, boolean>,
   });
+
+  useEffect(() => {
+    void apiClient.get<{ inClusterAvailable: boolean }>('/system/info').then((res) => {
+      if (!res.error && res.data?.inClusterAvailable) {
+        setInClusterAvailable(true);
+        setForm((prev) => ({ ...prev, mode: 'in-cluster' }));
+      }
+    });
+  }, []);
 
   const loadConnectors = useCallback(async () => {
     setLoading(true); setError(null);
@@ -522,15 +565,17 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
       setConnectors((prev) => [...prev, connector]);
       setShowForm(false);
       setForm({
+        mode: inClusterAvailable ? 'in-cluster' : 'kubeconfig',
         name: '',
         environment: 'prod',
-        apiServer: '',
         clusterName: '',
-        context: '',
         namespaces: '',
         kubeconfig: '',
+        context: '',
+        apiServer: '',
         token: '',
-        secretRef: '',
+        caData: '',
+        insecureSkipTlsVerify: false,
         capabilities: { read: true, propose: true, execute_approved: false },
       });
     } catch (err) {
@@ -607,29 +652,103 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
               <input type="text" value={form.environment} onChange={(e) => updateForm({ environment: e.target.value })} placeholder="prod" className={inputCls} />
             </Field>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="API Server">
-              <input type="url" value={form.apiServer} onChange={(e) => updateForm({ apiServer: e.target.value })} placeholder="https://kubernetes.example.com" className={inputCls} />
-            </Field>
-            <Field label="Cluster">
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-on-surface)] mb-2">Connection mode</label>
+            <div className="space-y-2">
+              {inClusterAvailable && (
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="ops-mode"
+                    checked={form.mode === 'in-cluster'}
+                    onChange={() => updateForm({ mode: 'in-cluster' })}
+                    className="mt-1 accent-[var(--color-primary)]"
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--color-on-surface)]">In-cluster</span>
+                    <span className="ml-2 px-1.5 py-0.5 rounded bg-[#22C55E]/10 text-[#22C55E] text-[10px] font-semibold">recommended</span>
+                    <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-0.5">Use the gateway pod's service-account token. No credentials to paste.</span>
+                  </span>
+                </label>
+              )}
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="ops-mode"
+                  checked={form.mode === 'kubeconfig'}
+                  onChange={() => updateForm({ mode: 'kubeconfig' })}
+                  className="mt-1 accent-[var(--color-primary)]"
+                />
+                <span>
+                  <span className="font-medium text-[var(--color-on-surface)]">Kubeconfig</span>
+                  <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-0.5">Paste a kubeconfig YAML.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="ops-mode"
+                  checked={form.mode === 'manual'}
+                  onChange={() => updateForm({ mode: 'manual' })}
+                  className="mt-1 accent-[var(--color-primary)]"
+                />
+                <span>
+                  <span className="font-medium text-[var(--color-on-surface)]">Manual</span>
+                  <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-0.5">API server URL + bearer token. Backend builds the kubeconfig.</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {form.mode === 'kubeconfig' && (
+            <>
+              <Field label="Kubeconfig">
+                <textarea value={form.kubeconfig} onChange={(e) => updateForm({ kubeconfig: e.target.value })} rows={6} placeholder="apiVersion: v1&#10;kind: Config&#10;clusters: ..." className={inputCls + ' resize-y font-mono text-xs'} />
+              </Field>
+              {kubeconfigServerIsLocalhost(form.kubeconfig) && (
+                <p className="text-xs text-[#F59E0B] bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded px-3 py-2">
+                  This address is only reachable from your machine. The openobs gateway runs in a container/cluster and cannot reach it. Use <code className="font-mono">kubectl config view --flatten --minify</code> from a reachable jump host, or use In-cluster mode.
+                </p>
+              )}
+              <Field label="Context" hint="Optional. Leave blank to use the kubeconfig's current-context.">
+                <input type="text" value={form.context} onChange={(e) => updateForm({ context: e.target.value })} placeholder="prod-admin" className={inputCls} />
+              </Field>
+            </>
+          )}
+
+          {form.mode === 'manual' && (
+            <>
+              <Field label="API Server URL">
+                <input type="url" value={form.apiServer} onChange={(e) => updateForm({ apiServer: e.target.value })} placeholder="https://kubernetes.example.com:6443" className={inputCls} />
+              </Field>
+              {isLocalhostServer(form.apiServer) && (
+                <p className="text-xs text-[#F59E0B] bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded px-3 py-2">
+                  This address is only reachable from your machine. The openobs gateway runs in a container/cluster and cannot reach it. Use <code className="font-mono">kubectl config view --flatten --minify</code> from a reachable jump host, or use In-cluster mode.
+                </p>
+              )}
+              <Field label="Bearer Token">
+                <input type="password" value={form.token} onChange={(e) => updateForm({ token: e.target.value })} placeholder="Service account token" className={inputCls} />
+              </Field>
+              <Field label="CA Certificate (optional)" hint="PEM-encoded. Leave blank if using skip TLS verify.">
+                <textarea value={form.caData} onChange={(e) => updateForm({ caData: e.target.value })} rows={3} placeholder="-----BEGIN CERTIFICATE-----&#10;..." className={inputCls + ' resize-y font-mono text-xs'} />
+              </Field>
+              <label className="flex items-center gap-2 text-xs text-[var(--color-on-surface-variant)] cursor-pointer">
+                <input type="checkbox" checked={form.insecureSkipTlsVerify} onChange={(e) => updateForm({ insecureSkipTlsVerify: e.target.checked })} className="w-3.5 h-3.5 rounded accent-[var(--color-primary)]" />
+                Skip TLS verify (insecure — only for dev/lab clusters)
+              </label>
+            </>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Cluster name" hint="Optional label.">
               <input type="text" value={form.clusterName} onChange={(e) => updateForm({ clusterName: e.target.value })} placeholder="prod-east" className={inputCls} />
             </Field>
-            <Field label="Context">
-              <input type="text" value={form.context} onChange={(e) => updateForm({ context: e.target.value })} placeholder="prod-admin" className={inputCls} />
+            <Field label="Namespaces" hint="Comma or newline separated. Leave blank for any.">
+              <input type="text" value={form.namespaces} onChange={(e) => updateForm({ namespaces: e.target.value })} placeholder="default, api, payments" className={inputCls} />
             </Field>
           </div>
-          <Field label="Namespaces" hint="Comma or newline separated. Leave blank to require explicit command namespaces.">
-            <textarea value={form.namespaces} onChange={(e) => updateForm({ namespaces: e.target.value })} rows={2} placeholder="default, api, payments" className={inputCls + ' resize-y'} />
-          </Field>
-          <Field label="Kubeconfig">
-            <textarea value={form.kubeconfig} onChange={(e) => updateForm({ kubeconfig: e.target.value })} rows={5} placeholder="Paste kubeconfig" className={inputCls + ' resize-y font-mono text-xs'} />
-          </Field>
-          <Field label="Secret Ref" hint="Optional. env://VAR_NAME, file://absolute/path, or vault://path#field. When set, pasted credentials are ignored.">
-            <input type="text" value={form.secretRef} onChange={(e) => updateForm({ secretRef: e.target.value })} placeholder="env://OPENOBS_KUBECONFIG_PROD" className={inputCls} />
-          </Field>
-          <Field label="Token">
-            <input type="password" value={form.token} onChange={(e) => updateForm({ token: e.target.value })} placeholder="Service account token" className={inputCls} />
-          </Field>
+
           <div>
             <label className="block text-xs font-medium text-[var(--color-on-surface)] mb-2">Capabilities</label>
             <div className="flex flex-wrap gap-3">
@@ -648,7 +767,17 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
           </div>
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--color-outline-variant)]/30">
             <button type="button" onClick={() => setShowForm(false)} className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors">Cancel</button>
-            <button type="button" onClick={() => void handleCreate()} disabled={saving || !form.name.trim() || (!form.apiServer.trim() && !form.clusterName.trim() && !form.context.trim())} className={btnPrimary + ' !py-1.5 !px-3 !text-xs'}>
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={
+                saving
+                || !form.name.trim()
+                || (form.mode === 'kubeconfig' && !form.kubeconfig.trim())
+                || (form.mode === 'manual' && (!form.apiServer.trim() || !form.token.trim()))
+              }
+              className={btnPrimary + ' !py-1.5 !px-3 !text-xs'}
+            >
               {saving ? 'Connecting...' : 'Save connector'}
             </button>
           </div>

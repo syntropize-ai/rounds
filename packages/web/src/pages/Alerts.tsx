@@ -81,6 +81,7 @@ function AlertRuleRow({
   expanded,
   onToggleExpand,
   onToggleState,
+  onEdit,
   onDelete,
   onInvestigate,
   investigating,
@@ -92,6 +93,7 @@ function AlertRuleRow({
   expanded: boolean;
   onToggleExpand: () => void;
   onToggleState: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   onInvestigate: () => void;
   investigating: boolean;
@@ -261,6 +263,20 @@ function AlertRuleRow({
                 className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
               >
                 {isDisabled ? 'Enable' : 'Disable'}
+              </button>
+            )}
+
+            {canWrite && (
+              <button
+                type="button"
+                onClick={onEdit}
+                title="Edit rule"
+                aria-label="Edit rule"
+                className="p-1.5 rounded-lg text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
               </button>
             )}
 
@@ -573,6 +589,7 @@ export default function Alerts() {
                       expanded={expandedIds.has(rule.id)}
                       onToggleExpand={() => toggleExpand(rule.id)}
                       onToggleState={() => void handleToggle(rule)}
+                      onEdit={() => navigate(`/alerts/${rule.id}/edit`)}
                       onDelete={() => setDeletingId(rule.id)}
                       onInvestigate={() => void handleInvestigate(rule)}
                       investigating={investigatingId === rule.id}

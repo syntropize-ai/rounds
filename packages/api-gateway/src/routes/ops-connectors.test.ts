@@ -174,12 +174,10 @@ describe('ops connectors routes', () => {
     await request(app).delete('/api/ops/connectors/k8s-missing').expect(404);
   });
 
-  it('tests connector structure without requiring a Kubernetes cluster', async () => {
-    // Inline `secret` (vs `secretRef: vault://...`) keeps the test
-    // hermetic — no VAULT_ADDR/VAULT_TOKEN env required. The intent is
-    // "structurally valid + has credentials", which an inline secret
-    // satisfies just as well; the runner only checks credential presence,
-    // not contents.
+  it('tests connector with an injected runner (no kubectl needed)', async () => {
+    // The default runner now actually shells out to `kubectl version`. To
+    // keep this test hermetic, we inject a stub runner that returns the
+    // shape we want.
     await repo.create({
       id: 'k8s-a',
       orgId: 'org_a',
@@ -187,10 +185,32 @@ describe('ops connectors routes', () => {
       config: { apiServer: 'https://k8s.example.com' },
       secret: 'fake-kubeconfig-for-structural-test',
     });
-    const app = makeApp(repo, 'org_a');
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      (req as express.Request & { auth?: Identity }).auth = {
+        userId: 'u_1',
+        orgId: 'org_a',
+        orgRole: 'Admin',
+        isServerAdmin: false,
+        authenticatedBy: 'session',
+      };
+      next();
+    });
+    app.use('/api/ops/connectors', createOpsConnectorsRouter({
+      connectors: repo,
+      ac: makeAccessControl(),
+      runner: {
+        test: async () => ({
+          status: 'connected' as const,
+          checks: { structure: 'ok' as const, credentials: 'ok' as const, runner: 'ok' as const },
+          message: 'kubectl version ok',
+        }),
+      },
+    }));
 
     const tested = await request(app).post('/api/ops/connectors/k8s-a/test').expect(200);
     expect(tested.body.status).toBe('connected');
-    expect(tested.body.checks.runner).toBe('skipped');
+    expect(tested.body.checks.runner).toBe('ok');
   });
 });

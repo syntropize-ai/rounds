@@ -243,3 +243,57 @@ export const KUBECTL_READ_VERBS: ReadonlySet<string> = READ_VERBS;
 export const KUBECTL_WRITE_VERBS: ReadonlySet<string> = WRITE_VERBS;
 export const KUBECTL_PERMANENT_DENY_VERBS: ReadonlySet<string> = PERMANENT_DENY_VERBS;
 export const KUBECTL_PERMANENT_DENY_NAMESPACES: ReadonlySet<string> = PERMANENT_DENY_NAMESPACES;
+
+
+/**
+ * Tokenize a `kubectl ...` command STRING into argv. Strips the leading
+ * `kubectl` token if present, supports single- and double-quoted args,
+ * and refuses anything containing shell metacharacters (`/[\`$|;&><]/`)
+ * by returning an empty array.
+ *
+ * Used by callers that receive the command from a higher layer as a
+ * single string (chat input, agent tool args). The empty-array on
+ * shell-meta keeps unparseable-but-dangerous shapes from being silently
+ * passed to a downstream allowlist that only knows about kubectl verbs.
+ *
+ * If you already have argv (from a structured tool call), use
+ * `parseKubectlArgv` instead — it parses meaning out of argv tokens.
+ */
+export function parseKubectlCommandString(command: string): string[] {
+  const trimmed = command.trim();
+  if (!trimmed) return [];
+  if (/[`$|;&><]/.test(trimmed)) return [];
+
+  const tokens: string[] = [];
+  let i = 0;
+  while (i < trimmed.length) {
+    const ch = trimmed[i] ?? '';
+    if (ch === ' ' || ch === '\t' || ch === '\n') {
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      let j = i + 1;
+      let buf = '';
+      while (j < trimmed.length && trimmed[j] !== quote) {
+        buf += trimmed[j];
+        j++;
+      }
+      if (j >= trimmed.length) return []; // unterminated quote
+      tokens.push(buf);
+      i = j + 1;
+      continue;
+    }
+    let j = i;
+    let buf = '';
+    while (j < trimmed.length && !/\s/.test(trimmed[j] ?? '')) {
+      buf += trimmed[j];
+      j++;
+    }
+    tokens.push(buf);
+    i = j;
+  }
+  if (tokens[0] === 'kubectl') tokens.shift();
+  return tokens;
+}

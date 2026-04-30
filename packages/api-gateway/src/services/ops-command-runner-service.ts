@@ -1,5 +1,5 @@
 import type { Identity } from '@agentic-obs/common';
-import { KubectlExecutionAdapter } from '@agentic-obs/adapters';
+import { KubectlExecutionAdapter, parseKubectlCommandString } from '@agentic-obs/adapters';
 import type {
   IApprovalRequestRepository,
   IOpsConnectorRepository,
@@ -185,7 +185,7 @@ export class OpsCommandRunnerService {
     connector: OpsConnector,
     command: string,
   ): Promise<{ observation: string; decision: OpsCommandDecision }> {
-    const argv = tokenizeKubectlCommand(command).slice(1);
+    const argv = parseKubectlCommandString(command);
     if (argv.length === 0) {
       return { decision: 'denied', observation: 'empty kubectl command' };
     }
@@ -320,34 +320,6 @@ export function classifyOpsCommand(command: string): { decision: OpsCommandDecis
   }
 
   return { decision: 'approval_required', reason: 'unclassified kubectl command must be reviewed' };
-}
-
-function tokenizeKubectlCommand(command: string): string[] {
-  const tokens: string[] = [];
-  let current = '';
-  let quote: '"' | "'" | null = null;
-  for (let i = 0; i < command.length; i += 1) {
-    const ch = command[i]!;
-    if (quote) {
-      if (ch === quote) quote = null;
-      else current += ch;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      if (current) {
-        tokens.push(current);
-        current = '';
-      }
-      continue;
-    }
-    current += ch;
-  }
-  if (current) tokens.push(current);
-  return tokens;
 }
 
 function formatKubectlObservation(

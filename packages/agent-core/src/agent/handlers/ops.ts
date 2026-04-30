@@ -1,60 +1,6 @@
-import { checkKubectl } from '@agentic-obs/adapters';
+import { checkKubectl, parseKubectlCommandString } from '@agentic-obs/adapters';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary } from './_shared.js';
-
-/**
- * Best-effort argv parser for a `kubectl ...` command string.
- *
- * The `ops.run_command` tool accepts the command as one user-facing string,
- * so we don't have a structured argv at the handler boundary. We split
- * conservatively (whitespace, single+double quotes) to feed the P6
- * allowlist; any parse failure falls through to the runner, which is
- * still trusted to validate at its layer.
- *
- * Rules:
- *   - leading "kubectl" is dropped if present
- *   - "$(...)" / backticks / pipes / redirects are NOT supported and
- *     produce an empty argv (caller treats that as "couldn't validate"
- *     and lets the runner reject it).
- */
-export function parseKubectlCommandString(command: string): string[] {
-  const trimmed = command.trim();
-  if (!trimmed) return [];
-  if (/[`$|;&><]/.test(trimmed)) return [];
-
-  const tokens: string[] = [];
-  let i = 0;
-  while (i < trimmed.length) {
-    const ch = trimmed[i] ?? '';
-    if (ch === ' ' || ch === '\t' || ch === '\n') {
-      i++;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      const quote = ch;
-      let j = i + 1;
-      let buf = '';
-      while (j < trimmed.length && trimmed[j] !== quote) {
-        buf += trimmed[j];
-        j++;
-      }
-      if (j >= trimmed.length) return []; // unterminated quote
-      tokens.push(buf);
-      i = j + 1;
-      continue;
-    }
-    let j = i;
-    let buf = '';
-    while (j < trimmed.length && !/\s/.test(trimmed[j] ?? '')) {
-      buf += trimmed[j];
-      j++;
-    }
-    tokens.push(buf);
-    i = j;
-  }
-  if (tokens[0] === 'kubectl') tokens.shift();
-  return tokens;
-}
 
 export async function handleOpsRunCommand(
   ctx: ActionContext,

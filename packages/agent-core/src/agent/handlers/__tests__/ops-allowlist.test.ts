@@ -5,7 +5,8 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { AdapterRegistry } from '../../../adapters/index.js';
-import { handleOpsRunCommand, parseKubectlCommandString } from '../ops.js';
+import { handleOpsRunCommand } from '../ops.js';
+import { parseKubectlCommandString } from '@agentic-obs/adapters';
 import type { ActionContext } from '../_context.js';
 
 function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {

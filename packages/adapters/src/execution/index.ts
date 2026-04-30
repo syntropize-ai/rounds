@@ -10,6 +10,7 @@ export type {
 export {
   checkKubectl,
   parseKubectlArgv,
+  parseKubectlCommandString,
   KUBECTL_READ_VERBS,
   KUBECTL_WRITE_VERBS,
   KUBECTL_PERMANENT_DENY_VERBS,

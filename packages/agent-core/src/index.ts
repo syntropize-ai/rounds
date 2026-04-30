@@ -41,9 +41,7 @@ export type { Investigation, InvestigationPlan, InvestigationStatus } from '@age
 
 export {
   runBackgroundAgent,
-  type BackgroundAgentRunInput,
   type BackgroundRunnerDeps,
-  type ISaTokenResolver,
 } from './agent/background-runner.js';
 
 export type { AgentType } from './agent/agent-types.js';

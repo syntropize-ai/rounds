@@ -139,7 +139,7 @@ function build(opts: {
   return { agent, sendEvent, gateway, audit, store };
 }
 
-describe('Scenario 1 — Viewer → dashboard.create → permission denied', () => {
+describe('Scenario 1 — Viewer → dashboard_create → permission denied', () => {
   it('returns a `permission denied:` observation + audit row', async () => {
     const deny = new AccessControlStub((_id, e) => {
       // Deny only dashboards:create; everything else passes.
@@ -147,7 +147,7 @@ describe('Scenario 1 — Viewer → dashboard.create → permission denied', () 
     });
     const { agent, audit } = build({
       llmResponses: [
-        asStep('try to create', 'dashboard.create', { folderUid: 'prod', title: 'X' }),
+        asStep('try to create', 'dashboard_create', { folderUid: 'prod', title: 'X' }),
         // Second turn after seeing the denial — finish politely.
         asReply('I cannot create a dashboard in prod.'),
       ],
@@ -162,11 +162,11 @@ describe('Scenario 1 — Viewer → dashboard.create → permission denied', () 
   });
 });
 
-describe('Scenario 2 — Editor → dashboard.create → allowed', () => {
+describe('Scenario 2 — Editor → dashboard_create → allowed', () => {
   it('executes the create and audits an allow row', async () => {
     const { agent, audit, store } = build({
       llmResponses: [
-        asStep('create', 'dashboard.create', { folderUid: 'prod', title: 'My Dash', datasourceId: 'prom-test' }),
+        asStep('create', 'dashboard_create', { folderUid: 'prod', title: 'My Dash', datasourceId: 'prom-test' }),
         asReply('Created.'),
       ],
       identity: makeTestIdentity({ orgRole: 'Editor' }),
@@ -183,8 +183,8 @@ describe('Scenario 3 — mixed: query allowed, create denied', () => {
     const mixed = new AccessControlStub((_id, e) => !e.string().includes('dashboards:create'));
     const { agent, audit } = build({
       llmResponses: [
-        asStep('query first', 'metrics.query', { query: 'up', sourceId: 'ds-prom' }),
-        asStep('try to create', 'dashboard.create', { folderUid: 'prod', title: 'x' }),
+        asStep('query first', 'metrics_query', { query: 'up', sourceId: 'ds-prom' }),
+        asStep('try to create', 'dashboard_create', { folderUid: 'prod', title: 'x' }),
         asReply('Queried but cannot create.'),
       ],
       accessControl: mixed,
@@ -193,15 +193,15 @@ describe('Scenario 3 — mixed: query allowed, create denied', () => {
     const rows = audit.entries as Array<{ action: string }>;
     const called = rows.filter((e) => e.action === 'agent.tool_called').length;
     const denied = rows.filter((e) => e.action === 'agent.tool_denied').length;
-    // metrics.query has no registered adapter in the empty AdapterRegistry,
+    // metrics_query has no registered adapter in the empty AdapterRegistry,
     // so the handler emits an "unknown datasource" observation — but the gate
-    // still passes it as ALLOWED. Only dashboard.create should be denied.
+    // still passes it as ALLOWED. Only dashboard_create should be denied.
     expect(denied).toBe(1);
     expect(called).toBeGreaterThanOrEqual(1);
   });
 });
 
-describe('Scenario 4 — dashboard.list filters per-row', () => {
+describe('Scenario 4 — dashboard_list filters per-row', () => {
   it('returns only dashboards the user can read', async () => {
     const allowed = new Set(['d1', 'd2', 'd3']);
     const filtered = new AccessControlStub((_id, e) => {
@@ -221,7 +221,7 @@ describe('Scenario 4 — dashboard.list filters per-row', () => {
     ];
     const { agent, sendEvent } = build({
       llmResponses: [
-        asStep('list', 'dashboard.list', {}),
+        asStep('list', 'dashboard_list', {}),
         asReply('Listed dashboards.'),
       ],
       accessControl: filtered,
@@ -232,18 +232,18 @@ describe('Scenario 4 — dashboard.list filters per-row', () => {
     // The observation text emitted as tool_result should only reference the 3 allowed dashboards.
     const toolResults = sendEvent.mock.calls
       .map((c) => c[0])
-      .filter((e: any) => e.type === 'tool_result' && e.tool === 'dashboard.list');
+      .filter((e: any) => e.type === 'tool_result' && e.tool === 'dashboard_list');
     // The summary emitted to the event stream is "N dashboards found" in both cases,
     // but to assert filtering we check the find/list pipeline caught 3.
     expect(toolResults[0].summary).toContain('3 dashboards found');
   });
 });
 
-describe('Scenario 7 — propose_only agent + dashboard.create', () => {
+describe('Scenario 7 — propose_only agent + dashboard_create', () => {
   it('denies at Layer 2 (permissionMode)', async () => {
     const { agent, audit } = build({
       llmResponses: [
-        asStep('attempt', 'alert_rule.write', { op: 'create', folderUid: 'rules', prompt: 'x' }),
+        asStep('attempt', 'alert_rule_write', { op: 'create', folderUid: 'rules', prompt: 'x' }),
         asReply('Proposal only.'),
       ],
       agentType: 'alert-rule-builder',
@@ -259,7 +259,7 @@ describe('Scenario 7 — propose_only agent + dashboard.create', () => {
 });
 
 describe('Scenario 5 / 16 — cross-org / datasource isolation', () => {
-  it('denies metrics.query when the datasource scope is not granted', async () => {
+  it('denies metrics_query when the datasource scope is not granted', async () => {
     const deny = new AccessControlStub((_id, e: Evaluator) => {
       // Grant query on prom-app, deny on prom-infra.
       if (e.string().includes('datasources:uid:prom-app')) return true;
@@ -268,8 +268,8 @@ describe('Scenario 5 / 16 — cross-org / datasource isolation', () => {
     });
     const { agent, audit } = build({
       llmResponses: [
-        asStep('ok', 'metrics.query', { sourceId: 'prom-app', query: 'up' }),
-        asStep('denied', 'metrics.query', { sourceId: 'prom-infra', query: 'up' }),
+        asStep('ok', 'metrics_query', { sourceId: 'prom-app', query: 'up' }),
+        asStep('denied', 'metrics_query', { sourceId: 'prom-infra', query: 'up' }),
         asReply('Mixed result.'),
       ],
       accessControl: deny,

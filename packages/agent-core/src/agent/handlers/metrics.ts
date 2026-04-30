@@ -6,13 +6,13 @@ import type { ActionContext } from './_context.js';
 // ---------------------------------------------------------------------------
 
 function unknownMetricsSource(sourceId: string): string {
-  return `Error: unknown metrics datasource '${sourceId}'. Call datasources.list to see available sources.`;
+  return `Error: unknown metrics datasource '${sourceId}'. Call datasources_list to see available sources.`;
 }
 
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
   const adapter = ctx.adapters.metrics(sourceId);
   if (!adapter) return unknownMetricsSource(sourceId);
   const expr = String(args.query ?? args.expr ?? '');
@@ -23,7 +23,7 @@ export async function handleMetricsQuery(ctx: ActionContext, args: Record<string
   // query reflects what the panel showed instead of "now".
   const timeArg = typeof args.time === 'string' && args.time ? args.time : undefined;
   const time = timeArg ? new Date(timeArg) : undefined;
-  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.query', args: { sourceId, query: expr, ...(timeArg ? { time: timeArg } : {}) }, displayText: `Querying ${sourceId}: ${expr.slice(0, 80)}` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics_query', args: { sourceId, query: expr, ...(timeArg ? { time: timeArg } : {}) }, displayText: `Querying ${sourceId}: ${expr.slice(0, 80)}` });
   try {
     const results = await adapter.instantQuery(expr, time);
     const summary = results.length === 0
@@ -32,11 +32,11 @@ export async function handleMetricsQuery(ctx: ActionContext, args: Record<string
           const labelStr = Object.entries(s.labels).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}="${v}"`).join(', ');
           return `${labelStr || s.labels.__name__ || 'series'}: ${s.value}`;
         }).join('\n') + (results.length > 20 ? `\n... and ${results.length - 20} more series` : '');
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.query', summary: `${results.length} series returned`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: `${results.length} series returned`, success: true });
     return summary;
   } catch (err) {
     const msg = `Query failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.query', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: msg, success: false });
     return msg;
   }
 }
@@ -44,7 +44,7 @@ export async function handleMetricsQuery(ctx: ActionContext, args: Record<string
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
   const adapter = ctx.adapters.metrics(sourceId);
   if (!adapter) return unknownMetricsSource(sourceId);
   const expr = String(args.query ?? args.expr ?? '');
@@ -63,7 +63,7 @@ export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<s
     start = new Date(end.getTime() - durationMin * 60_000);
   }
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.range_query', args: { sourceId, query: expr, step }, displayText: `Range query on ${sourceId}: ${expr.slice(0, 60)}` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics_range_query', args: { sourceId, query: expr, step }, displayText: `Range query on ${sourceId}: ${expr.slice(0, 60)}` });
   try {
     const results = await adapter.rangeQuery(expr, start, end, step);
     const summary = results.length === 0
@@ -73,17 +73,17 @@ export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<s
           const lastVal = r.values.length > 0 ? r.values[r.values.length - 1]![1] : 'N/A';
           return `${labelStr || r.metric.__name__ || 'series'}: ${r.values.length} points, latest=${lastVal}`;
         }).join('\n') + (results.length > 10 ? `\n... and ${results.length - 10} more series` : '');
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.range_query', summary: `${results.length} series returned`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: `${results.length} series returned`, success: true });
     return summary;
   } catch (err) {
     const msg = `Range query failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.range_query', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: msg, success: false });
     return msg;
   }
 }
 
 // ---------------------------------------------------------------------------
-// metrics.discover — single discovery tool with a `kind` discriminator.
+// metrics_discover — single discovery tool with a `kind` discriminator.
 //
 // Collapses the previous five tools (metrics.labels, metrics.label_values,
 // metrics.series, metrics.metadata, metrics.metric_names) so the model picks
@@ -155,7 +155,7 @@ async function discoverNames(adapter: MetricsAdapter, filter: string | undefined
     names = allNames;
   } else {
     const sample = allNames.slice(0, 50);
-    return `${totalCount} metrics available (too many to list). Showing first 50:\n${sample.join('\n')}\n\nUse metrics.discover({ sourceId, kind: "names", match: "keyword" }) to search for specific metrics.`;
+    return `${totalCount} metrics available (too many to list). Showing first 50:\n${sample.join('\n')}\n\nUse metrics_discover({ sourceId, kind: "names", match: "keyword" }) to search for specific metrics.`;
   }
 
   const truncationNote = truncated
@@ -172,15 +172,15 @@ export async function handleMetricsDiscover(
 ): Promise<string> {
   const sourceId = typeof args.sourceId === 'string' ? args.sourceId : '';
   if (!sourceId) {
-    return 'Error: metrics.discover requires "sourceId". Call datasources.list to see available sources.';
+    return 'Error: metrics_discover requires "sourceId". Call datasources_list to see available sources.';
   }
 
   const kindRaw = typeof args.kind === 'string' ? args.kind : '';
   if (!kindRaw) {
-    return 'Error: metrics.discover requires "kind" (one of: labels, values, series, metadata, names).';
+    return 'Error: metrics_discover requires "kind" (one of: labels, values, series, metadata, names).';
   }
   if (!DISCOVER_KINDS.has(kindRaw as DiscoverKind)) {
-    return `Error: metrics.discover received unknown kind "${kindRaw}". Expected one of: labels, values, series, metadata, names.`;
+    return `Error: metrics_discover received unknown kind "${kindRaw}". Expected one of: labels, values, series, metadata, names.`;
   }
   const kind = kindRaw as DiscoverKind;
 
@@ -193,10 +193,10 @@ export async function handleMetricsDiscover(
   // Per-kind required-arg validation. Error messages name the missing arg so
   // the LLM can retry without guessing.
   if (kind === 'values' && !label) {
-    return 'Error: metrics.discover with kind="values" requires "label".';
+    return 'Error: metrics_discover with kind="values" requires "label".';
   }
   if (kind === 'series' && (!matchArray || matchArray.length === 0 || !matchArray[0])) {
-    return 'Error: metrics.discover with kind="series" requires "match" (non-empty array of selectors).';
+    return 'Error: metrics_discover with kind="series" requires "match" (non-empty array of selectors).';
   }
   // kind='metadata' with neither `metric` nor `metrics` is valid — it asks the
   // backend for everything it knows. We don't gate that explicitly.
@@ -227,7 +227,7 @@ export async function handleMetricsDiscover(
   // "Do NOT retry — use reply" wrapper.
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'metrics.discover',
+    tool: 'metrics_discover',
     args: {
       sourceId,
       kind,
@@ -266,19 +266,19 @@ export async function handleMetricsDiscover(
         // this branch is unreachable. The exhaustiveness check keeps a future
         // contributor honest if a new DiscoverKind is added without a case.
         const _exhaustive: never = kind;
-        throw new Error(`metrics.discover: unhandled kind ${String(_exhaustive)}`);
+        throw new Error(`metrics_discover: unhandled kind ${String(_exhaustive)}`);
       }
     }
     ctx.sendEvent({
       type: 'tool_result',
-      tool: 'metrics.discover',
-      summary: `metrics.discover (${kind}) ok`,
+      tool: 'metrics_discover',
+      summary: `metrics_discover (${kind}) ok`,
       success: true,
     });
     return observation;
   } catch (err) {
-    const msg = `metrics.discover (${kind}) failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.discover', summary: msg, success: false });
+    const msg = `metrics_discover (${kind}) failed: ${err instanceof Error ? err.message : String(err)}`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_discover', summary: msg, success: false });
     return msg;
   }
 }
@@ -286,17 +286,17 @@ export async function handleMetricsDiscover(
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsValidate(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
   const adapter = ctx.adapters.metrics(sourceId);
   if (!adapter) return unknownMetricsSource(sourceId);
   const expr = String(args.query ?? args.expr ?? '');
   if (!expr) return 'Error: "query" is required.';
-  ctx.sendEvent({ type: 'tool_call', tool: 'metrics.validate', args: { sourceId, query: expr }, displayText: `Validating: ${expr.slice(0, 60)}` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'metrics_validate', args: { sourceId, query: expr }, displayText: `Validating: ${expr.slice(0, 60)}` });
   try {
     const result = await adapter.testQuery(expr);
     if (!result.ok) {
       const summary = `Invalid query: ${result.error ?? 'unknown error'}`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary, success: false });
+      ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary, success: false });
       return summary;
     }
 
@@ -305,11 +305,11 @@ export async function handleMetricsValidate(ctx: ActionContext, args: Record<str
     await adapter.rangeQuery(expr, start, end, '60s');
 
     const summary = `Valid query: ${expr}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary, success: true });
     return summary;
   } catch (err) {
     const msg = `Invalid query: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics.validate', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary: msg, success: false });
     return msg;
   }
 }

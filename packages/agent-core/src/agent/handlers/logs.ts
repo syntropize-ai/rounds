@@ -8,13 +8,13 @@ import type { ActionContext } from './_context.js';
 const LOGS_QUERY_MAX_CHARS = 2000;
 
 function unknownLogsSource(sourceId: string): string {
-  return `Error: unknown logs datasource '${sourceId}'. Call datasources.list to see available sources.`;
+  return `Error: unknown logs datasource '${sourceId}'. Call datasources_list to see available sources.`;
 }
 
 // TODO: migrate to withToolEventBoundary
 export async function handleLogsQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
   const adapter = ctx.adapters.logs(sourceId);
   if (!adapter) return unknownLogsSource(sourceId);
   const query = String(args.query ?? '');
@@ -29,7 +29,7 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
 
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'logs.query',
+    tool: 'logs_query',
     args: { sourceId, query, limit },
     displayText: `Querying logs on ${sourceId}: ${query.slice(0, 60)}`,
   });
@@ -37,7 +37,7 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
     const result = await adapter.query({ query, start, end, ...(limit !== undefined ? { limit } : {}) });
     if (result.entries.length === 0) {
       const msg = 'Logs query returned no entries.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'logs.query', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg, success: true });
       return msg;
     }
     // Format: `[ts] {k=v, k=v} message` — truncate the whole blob to keep the
@@ -60,11 +60,11 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
     const partialTail = result.partial ? '\n(Backend indicated results were partial — narrow the time window or add filters for completeness.)' : '';
     const warnTail = result.warnings?.length ? `\nWarnings: ${result.warnings.join('; ')}` : '';
     const summary = `${header}\n${lines.join('\n')}${partialTail}${warnTail}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs.query', summary: `${result.entries.length} entries`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: `${result.entries.length} entries`, success: true });
     return summary;
   } catch (err) {
     const msg = `Logs query failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs.query', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg, success: false });
     return msg;
   }
 }
@@ -72,18 +72,18 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
 // TODO: migrate to withToolEventBoundary
 export async function handleLogsLabels(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
   const adapter = ctx.adapters.logs(sourceId);
   if (!adapter) return unknownLogsSource(sourceId);
-  ctx.sendEvent({ type: 'tool_call', tool: 'logs.labels', args: { sourceId }, displayText: `Listing log labels on ${sourceId}` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'logs_labels', args: { sourceId }, displayText: `Listing log labels on ${sourceId}` });
   try {
     const labels = await adapter.listLabels();
     const summary = labels.length === 0 ? 'No log labels available.' : labels.join(', ');
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs.labels', summary: `${labels.length} labels`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: `${labels.length} labels`, success: true });
     return summary;
   } catch (err) {
     const msg = `Failed to list log labels: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs.labels', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: msg, success: false });
     return msg;
   }
 }
@@ -91,22 +91,22 @@ export async function handleLogsLabels(ctx: ActionContext, args: Record<string, 
 // TODO: migrate to withToolEventBoundary
 export async function handleLogsLabelValues(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources.list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
   const adapter = ctx.adapters.logs(sourceId);
   if (!adapter) return unknownLogsSource(sourceId);
   const label = String(args.label ?? '');
   if (!label) return 'Error: "label" is required.';
-  ctx.sendEvent({ type: 'tool_call', tool: 'logs.label_values', args: { sourceId, label }, displayText: `Listing values for log label "${label}"` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'logs_label_values', args: { sourceId, label }, displayText: `Listing values for log label "${label}"` });
   try {
     const values = await adapter.listLabelValues(label);
     const summary = values.length === 0
       ? `No values found for label "${label}".`
       : values.slice(0, 50).join(', ') + (values.length > 50 ? ` ... and ${values.length - 50} more` : '');
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs.label_values', summary: `${values.length} values`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: `${values.length} values`, success: true });
     return summary;
   } catch (err) {
     const msg = `Failed to list log label values: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs.label_values', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: msg, success: false });
     return msg;
   }
 }

@@ -43,7 +43,7 @@ export interface OrchestratorActionContextDeps {
   sessionDatasourcePins?: Record<string, string>;
   opsCommandRunner?: OpsCommandRunner;
   opsConnectors?: OpsConnectorConfig[];
-  /** P4 — when present, registers `remediation_plan.create` + `.create_rescue` tools. */
+  /** P4 — when present, registers `remediation_plan_create` + `.create_rescue` tools. */
   remediationPlans?: IRemediationPlanRepository;
   /** P4 — used to auto-emit a plan-level ApprovalRequest on plan creation. */
   approvalRequests?: IApprovalRequestRepository;

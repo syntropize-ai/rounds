@@ -83,45 +83,44 @@ export const USER_VISIBLE_TOOLS = new Set([
   'investigate_query',
   'investigate_analyze',
   // Data source discovery
-  'datasources.list',
-  'datasources.suggest',
-  'datasources.pin',
-  'datasources.unpin',
+  'datasources_list',
+  'datasources_suggest',
+  'datasources_pin',
+  'datasources_unpin',
   // Metrics primitives (runtime-first toolized access, source-agnostic)
-  'metrics.query',
-  'metrics.range_query',
-  'metrics.discover',
-  'metrics.validate',
+  'metrics_query',
+  'metrics_range_query',
+  'metrics_discover',
+  'metrics_validate',
   // Logs primitives
-  'logs.query',
-  'logs.labels',
-  'logs.label_values',
+  'logs_query',
+  'logs_labels',
+  'logs_label_values',
   // Changes / deployment events
-  'changes.list_recent',
+  'changes_list_recent',
   // Dashboard mutation primitives
-  'dashboard.create',
-  'dashboard.list',
-  'dashboard.clone',
-  'dashboard.add_panels',
-  'dashboard.remove_panels',
-  'dashboard.modify_panel',
-  'dashboard.rearrange',
-  'dashboard.add_variable',
-  'dashboard.set_title',
+  'dashboard_create',
+  'dashboard_list',
+  'dashboard_clone',
+  'dashboard_add_panels',
+  'dashboard_remove_panels',
+  'dashboard_modify_panel',
+  'dashboard_rearrange',
+  'dashboard_add_variable',
+  'dashboard_set_title',
   // Investigation primitives
-  'investigation.create',
-  'investigation.list',
-  'investigation.add_section',
-  'investigation.complete',
+  'investigation_create',
+  'investigation_list',
+  'investigation_add_section',
+  'investigation_complete',
   // Alert rule primitives — write covers create/update/delete via `op`
-  'alert_rule.write',
-  'alert_rule.list',
-  'alert_rule.history',
-  // Web search primitive (both name styles)
+  'alert_rule_write',
+  'alert_rule_list',
+  'alert_rule_history',
+  // Web search primitive
   'web_search',
-  'web.search',
   // Ops connector — single entrypoint for kubectl/cluster commands
-  'ops.run_command',
+  'ops_run_command',
   // Lazy tool loading — surfaces deferred tool schemas on demand
   'tool_search',
 ]);
@@ -134,42 +133,42 @@ export const USER_VISIBLE_TOOLS = new Set([
 export function phaseOf(tool: string): string {
   // Data source discovery
   if (
-    tool === 'datasources.list' ||
-    tool === 'datasources.suggest' ||
-    tool === 'datasources.pin' ||
-    tool === 'datasources.unpin'
+    tool === 'datasources_list' ||
+    tool === 'datasources_suggest' ||
+    tool === 'datasources_pin' ||
+    tool === 'datasources_unpin'
   ) return 'discover';
 
   // Metrics primitives — discover (kind=labels/values/series/metadata/names)
   // collapses into one phase; query / validate stay distinct.
-  if (tool === 'metrics.discover') return 'discover';
-  if (tool === 'metrics.query' || tool === 'metrics.range_query') return 'query';
-  if (tool === 'metrics.validate') return 'validate';
+  if (tool === 'metrics_discover') return 'discover';
+  if (tool === 'metrics_query' || tool === 'metrics_range_query') return 'query';
+  if (tool === 'metrics_validate') return 'validate';
 
   // Logs primitives — same split as metrics
-  if (tool === 'logs.labels' || tool === 'logs.label_values') return 'discover';
-  if (tool === 'logs.query') return 'query';
+  if (tool === 'logs_labels' || tool === 'logs_label_values') return 'discover';
+  if (tool === 'logs_query') return 'query';
 
   // Changes / deployment events
-  if (tool === 'changes.list_recent') return 'discover';
+  if (tool === 'changes_list_recent') return 'discover';
 
   // Dashboard mutation primitives — list is read-only discovery
-  if (tool === 'dashboard.list') return 'discover';
+  if (tool === 'dashboard_list') return 'discover';
   if (tool.startsWith('dashboard.')) return 'dashboard';
 
   // Investigation primitives
-  if (tool === 'investigation.list') return 'discover';
+  if (tool === 'investigation_list') return 'discover';
   if (tool.startsWith('investigation.')) return 'investigate';
 
   // Alert rule primitives — read-only listing groups under discover; write is its own phase
-  if (tool === 'alert_rule.list' || tool === 'alert_rule.history') return 'discover';
-  if (tool === 'alert_rule.write') return 'alert_rule';
+  if (tool === 'alert_rule_list' || tool === 'alert_rule_history') return 'discover';
+  if (tool === 'alert_rule_write') return 'alert_rule';
 
   // Web search
-  if (tool === 'web_search' || tool === 'web.search') return 'research';
+  if (tool === 'web_search') return 'research';
 
   // Ops / cluster commands
-  if (tool === 'ops.run_command') return 'ops';
+  if (tool === 'ops_run_command') return 'ops';
 
   // Lazy tool loading
   if (tool === 'tool_search') return 'discover';
@@ -200,44 +199,42 @@ export const TOOL_LABELS: Record<string, string> = {
   fix_query: 'Fixing queries',
   critic: 'Reviewing panels',
   // Data source discovery
-  'datasources.list': 'Listing data sources',
-  'datasources.suggest': 'Choosing data source',
-  'datasources.pin': 'Pinning data source',
-  'datasources.unpin': 'Unpinning data source',
+  'datasources_list': 'Listing data sources',
+  'datasources_suggest': 'Choosing data source',
+  'datasources_pin': 'Pinning data source',
+  'datasources_unpin': 'Unpinning data source',
   // Metrics primitives (source-agnostic)
-  'metrics.query': 'Querying metrics',
-  'metrics.range_query': 'Range-querying metrics',
-  'metrics.discover': 'Discovering metrics',
-  'metrics.validate': 'Validating query',
+  'metrics_query': 'Querying metrics',
+  'metrics_range_query': 'Range-querying metrics',
+  'metrics_discover': 'Discovering metrics',
+  'metrics_validate': 'Validating query',
   // Logs primitives
-  'logs.query': 'Searching logs',
-  'logs.labels': 'Listing log labels',
-  'logs.label_values': 'Listing log label values',
+  'logs_query': 'Searching logs',
+  'logs_labels': 'Listing log labels',
+  'logs_label_values': 'Listing log label values',
   // Changes / deployment events
-  'changes.list_recent': 'Checking recent changes',
+  'changes_list_recent': 'Checking recent changes',
   // Dashboard mutation primitives
-  'dashboard.create': 'Creating dashboard',
-  'dashboard.list': 'Listing dashboards',
-  'dashboard.clone': 'Cloning dashboard',
-  'dashboard.add_panels': 'Adding panels',
-  'dashboard.remove_panels': 'Removing panels',
-  'dashboard.modify_panel': 'Modifying panel',
-  'dashboard.rearrange': 'Rearranging layout',
-  'dashboard.add_variable': 'Adding variable',
-  'dashboard.set_title': 'Setting title',
+  'dashboard_create': 'Creating dashboard',
+  'dashboard_list': 'Listing dashboards',
+  'dashboard_clone': 'Cloning dashboard',
+  'dashboard_add_panels': 'Adding panels',
+  'dashboard_remove_panels': 'Removing panels',
+  'dashboard_modify_panel': 'Modifying panel',
+  'dashboard_rearrange': 'Rearranging layout',
+  'dashboard_add_variable': 'Adding variable',
+  'dashboard_set_title': 'Setting title',
   // Investigation primitives
-  'investigation.create': 'Creating investigation',
-  'investigation.list': 'Listing investigations',
-  'investigation.add_section': 'Adding investigation section',
-  'investigation.complete': 'Completing investigation',
+  'investigation_create': 'Creating investigation',
+  'investigation_list': 'Listing investigations',
+  'investigation_add_section': 'Adding investigation section',
+  'investigation_complete': 'Completing investigation',
   // Alert rule primitives — write covers create/update/delete via `op`
-  'alert_rule.write': 'Writing alert rule',
-  'alert_rule.list': 'Listing alerts',
-  'alert_rule.history': 'Checking alert history',
-  // Web search (dotted variant)
-  'web.search': 'Researching',
+  'alert_rule_write': 'Writing alert rule',
+  'alert_rule_list': 'Listing alerts',
+  'alert_rule_history': 'Checking alert history',
   // Ops connector (kubectl etc.)
-  'ops.run_command': 'Running ops command',
+  'ops_run_command': 'Running ops command',
   // Lazy tool loading
   'tool_search': 'Loading tool',
   // Panel operations

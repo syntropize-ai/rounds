@@ -35,10 +35,10 @@ describe('dashboard handlers', () => {
       expect(observation).toContain('Created dashboard "My Dashboard"');
       expect(ctx.setNavigateTo).toHaveBeenCalledWith('/dashboards/dash-1');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_call', tool: 'dashboard.create' }),
+        expect.objectContaining({ type: 'tool_call', tool: 'dashboard_create' }),
       );
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'dashboard.create', success: true }),
+        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_create', success: true }),
       );
     });
 
@@ -59,7 +59,7 @@ describe('dashboard handlers', () => {
       });
       await expect(handleDashboardCreate(ctx, { title: 'X', datasourceId: 'prom-test' })).rejects.toThrow('db down');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'dashboard.create', success: false, summary: 'db down' }),
+        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_create', success: false, summary: 'db down' }),
       );
     });
   });
@@ -305,7 +305,7 @@ describe('dashboard handlers', () => {
       const observation = await handleDashboardList(ctx, {});
       expect(observation).toMatch(/Failed to list dashboards: store offline/);
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'dashboard.list', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_list', success: false }),
       );
     });
   });

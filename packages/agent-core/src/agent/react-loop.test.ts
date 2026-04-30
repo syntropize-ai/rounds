@@ -5,8 +5,8 @@ import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
 const ALLOWED_TOOLS = [
   'ask_user',
   'tool_search',
-  'dashboard.modify_panel',
-  'metrics.query',
+  'dashboard_modify_panel',
+  'metrics_query',
 ] as const
 
 describe('ReActLoop', () => {
@@ -50,7 +50,7 @@ describe('ReActLoop', () => {
           toolCalls: [
             {
               id: 'call_1',
-              name: 'dashboard.modify_panel',
+              name: 'dashboard_modify_panel',
               input: { dashboardId: 'd1', panelId: 'panel-1', patch: {} },
             },
           ],
@@ -200,14 +200,14 @@ describe('ReActLoop', () => {
     const sendEvent = vi.fn()
     const gateway = {
       complete: vi.fn()
-        // Turn 1: model asks tool_search to load metrics.query.
+        // Turn 1: model asks tool_search to load metrics_query.
         .mockResolvedValueOnce({
           content: '',
           toolCalls: [
             {
               id: 'call_1',
               name: 'tool_search',
-              input: { query: 'select:metrics.query' },
+              input: { query: 'select:metrics_query' },
             },
           ],
         })
@@ -227,19 +227,19 @@ describe('ReActLoop', () => {
       allowedTools: ALLOWED_TOOLS,
     })
 
-    const result = await loop.runLoop('system', 'load metrics.query', vi.fn())
+    const result = await loop.runLoop('system', 'load metrics_query', vi.fn())
 
     expect(result).toBe('Loaded the query tool, no further action needed.')
 
-    // First gateway call should NOT have metrics.query in tools (it's deferred).
+    // First gateway call should NOT have metrics_query in tools (it's deferred).
     const firstToolNames = (gateway.complete.mock.calls[0]![1].tools as Array<{ name: string }>)
       .map((t) => t.name)
     expect(firstToolNames).toContain('tool_search')
-    expect(firstToolNames).not.toContain('metrics.query')
+    expect(firstToolNames).not.toContain('metrics_query')
 
-    // Second gateway call should now include metrics.query (newly loaded).
+    // Second gateway call should now include metrics_query (newly loaded).
     const secondToolNames = (gateway.complete.mock.calls[1]![1].tools as Array<{ name: string }>)
       .map((t) => t.name)
-    expect(secondToolNames).toContain('metrics.query')
+    expect(secondToolNames).toContain('metrics_query')
   })
 })

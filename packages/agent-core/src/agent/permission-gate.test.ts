@@ -31,7 +31,7 @@ function makeCtx(allowAll = true): ActionContext {
 const writeAgent: AgentDefinition = {
   type: 'orchestrator',
   description: 'test orchestrator',
-  allowedTools: ['dashboard.create', 'dashboard.list', 'metrics.query'],
+  allowedTools: ['dashboard_create', 'dashboard_list', 'metrics_query'],
   inputKinds: ['dashboard'],
   outputKinds: [],
   permissionMode: 'artifact_mutation',
@@ -53,26 +53,26 @@ const proposeOnlyAgent: AgentDefinition = {
 
 describe('checkPermission — three-layer evaluation', () => {
   it('Layer 1: tool not in allowedTools → deny with reason=allowedTools', async () => {
-    const out = await checkPermission(writeAgent, 'dashboard.modify_panel', {}, makeCtx());
+    const out = await checkPermission(writeAgent, 'dashboard_modify_panel', {}, makeCtx());
     expect(out.ok).toBe(false);
     expect(out.reason).toBe('allowedTools');
-    expect(out.action).toBe('dashboard.modify_panel');
+    expect(out.action).toBe('dashboard_modify_panel');
   });
 
   it('Layer 2: read_only agent + mutation → deny with reason=permissionMode', async () => {
-    const out = await checkPermission(readOnlyAgent, 'dashboard.create', {}, makeCtx());
+    const out = await checkPermission(readOnlyAgent, 'dashboard_create', {}, makeCtx());
     expect(out.ok).toBe(false);
     expect(out.reason).toBe('permissionMode');
     expect(out.scope).toBe('mode:read_only');
   });
 
   it('Layer 2: read_only agent + list tool → allowed (reads pass Layer 2)', async () => {
-    const out = await checkPermission(readOnlyAgent, 'dashboard.list', {}, makeCtx());
+    const out = await checkPermission(readOnlyAgent, 'dashboard_list', {}, makeCtx());
     expect(out.ok).toBe(true);
   });
 
   it('Layer 2: propose_only agent + mutation → deny with reason=permissionMode', async () => {
-    const out = await checkPermission(proposeOnlyAgent, 'dashboard.create', {}, makeCtx());
+    const out = await checkPermission(proposeOnlyAgent, 'dashboard_create', {}, makeCtx());
     expect(out.ok).toBe(false);
     expect(out.reason).toBe('permissionMode');
     expect(out.scope).toBe('mode:propose_only');
@@ -81,7 +81,7 @@ describe('checkPermission — three-layer evaluation', () => {
   it('Layer 3: RBAC denies → reason=rbac, action/scope populated', async () => {
     const out = await checkPermission(
       writeAgent,
-      'dashboard.create',
+      'dashboard_create',
       { folderUid: 'prod' },
       makeCtx(/* allowAll */ false),
     );
@@ -95,7 +95,7 @@ describe('checkPermission — three-layer evaluation', () => {
     // propose_only agent AND tool not in list AND allowAll true — Layer 1 fires first.
     const out = await checkPermission(
       { ...writeAgent, allowedTools: [] },
-      'dashboard.create',
+      'dashboard_create',
       {},
       makeCtx(true),
     );
@@ -103,12 +103,12 @@ describe('checkPermission — three-layer evaluation', () => {
   });
 
   it('Layer 2 wins over Layer 3 when both would deny', async () => {
-    const out = await checkPermission(readOnlyAgent, 'dashboard.create', {}, makeCtx(false));
+    const out = await checkPermission(readOnlyAgent, 'dashboard_create', {}, makeCtx(false));
     expect(out.reason).toBe('permissionMode');
   });
 
   it('all three layers pass → ok:true', async () => {
-    const out = await checkPermission(writeAgent, 'dashboard.create', { folderUid: 'prod' }, makeCtx(true));
+    const out = await checkPermission(writeAgent, 'dashboard_create', { folderUid: 'prod' }, makeCtx(true));
     expect(out.ok).toBe(true);
   });
 

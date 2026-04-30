@@ -15,16 +15,16 @@ function def(name: string, description: string): ToolDefinition {
 }
 
 const REGISTRY: Record<string, ToolDefinition> = {
-  'metrics.query': def('metrics.query', 'Run an instant PromQL query against a metrics datasource.'),
-  'metrics.range_query': def('metrics.range_query', 'Run a range PromQL query over a time window.'),
-  'logs.query': def('logs.query', 'Run a logs query (LogQL for Loki) over an explicit window.'),
-  'alert_rule.list': def('alert_rule.list', 'List existing alert rules. Pass a filter keyword.'),
+  'metrics_query': def('metrics_query', 'Run an instant PromQL query against a metrics datasource.'),
+  'metrics_range_query': def('metrics_range_query', 'Run a range PromQL query over a time window.'),
+  'logs_query': def('logs_query', 'Run a logs query (LogQL for Loki) over an explicit window.'),
+  'alert_rule_list': def('alert_rule_list', 'List existing alert rules. Pass a filter keyword.'),
 };
 
 describe('selectTools — exact-name lookup', () => {
   it('returns matched defs in the requested order, skipping unknowns', () => {
-    const result = selectTools(['logs.query', 'nope', 'metrics.query'], REGISTRY);
-    expect(result.map((d) => d.name)).toEqual(['logs.query', 'metrics.query']);
+    const result = selectTools(['logs_query', 'nope', 'metrics_query'], REGISTRY);
+    expect(result.map((d) => d.name)).toEqual(['logs_query', 'metrics_query']);
   });
 
   it('returns an empty list when no names match', () => {
@@ -32,35 +32,35 @@ describe('selectTools — exact-name lookup', () => {
   });
 
   it('ignores blank entries', () => {
-    expect(selectTools(['', '  ', 'metrics.query'], REGISTRY).map((d) => d.name))
-      .toEqual(['metrics.query']);
+    expect(selectTools(['', '  ', 'metrics_query'], REGISTRY).map((d) => d.name))
+      .toEqual(['metrics_query']);
   });
 });
 
 describe('searchTools — keyword search', () => {
   it('matches a single keyword in name or description (case-insensitive)', () => {
     const result = searchTools('promql', REGISTRY);
-    expect(result.map((d) => d.name).sort()).toEqual(['metrics.query', 'metrics.range_query']);
+    expect(result.map((d) => d.name).sort()).toEqual(['metrics_query', 'metrics_range_query']);
   });
 
   it('requires every term to match', () => {
     const result = searchTools('logs query', REGISTRY);
-    expect(result.map((d) => d.name)).toEqual(['logs.query']);
+    expect(result.map((d) => d.name)).toEqual(['logs_query']);
   });
 
   it('ranks name-hits above description-only hits', () => {
     const result = searchTools('query', REGISTRY);
-    // metrics.query, metrics.range_query, logs.query all hit name; alert_rule.list does not.
+    // metrics_query, metrics_range_query, logs_query all hit name; alert_rule_list does not.
     expect(result.map((d) => d.name)).toEqual([
-      'logs.query',
-      'metrics.query',
-      'metrics.range_query',
+      'logs_query',
+      'metrics_query',
+      'metrics_range_query',
     ]);
   });
 
   it('routes select: prefix to selectTools', () => {
-    const result = searchTools('select:logs.query,metrics.query', REGISTRY);
-    expect(result.map((d) => d.name)).toEqual(['logs.query', 'metrics.query']);
+    const result = searchTools('select:logs_query,metrics_query', REGISTRY);
+    expect(result.map((d) => d.name)).toEqual(['logs_query', 'metrics_query']);
   });
 
   it('returns empty for blank query', () => {
@@ -71,11 +71,11 @@ describe('searchTools — keyword search', () => {
 
 describe('formatToolSearchObservation', () => {
   it('wraps each def in a <function>...</function> line inside <functions>', () => {
-    const out = formatToolSearchObservation([REGISTRY['metrics.query']!]);
+    const out = formatToolSearchObservation([REGISTRY['metrics_query']!]);
     expect(out.startsWith('<functions>\n')).toBe(true);
     expect(out.endsWith('\n</functions>')).toBe(true);
     expect(out).toContain('<function>');
-    expect(out).toContain('"name":"metrics.query"');
+    expect(out).toContain('"name":"metrics_query"');
     expect(out).toContain('"parameters"');
   });
 

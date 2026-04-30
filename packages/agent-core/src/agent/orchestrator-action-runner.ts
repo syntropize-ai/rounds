@@ -6,6 +6,7 @@ import type { AgentEvent } from './agent-events.js';
 import type { ReActStep } from './react-loop.js';
 import { checkPermission, denialObservation } from './permission-gate.js';
 import type { ActionContext } from './orchestrator-action-handlers.js';
+import { TOOL_REGISTRY } from './tool-schema-registry.js';
 import {
   handleDashboardCreate,
   handleDashboardClone,
@@ -53,12 +54,12 @@ const log = createLogger('orchestrator');
  * deferral (emit a proposal, don't execute) rather than a denial.
  */
 const MUTATION_ACTIONS = [
-  'dashboard.create', 'dashboard.clone',
-  'dashboard.add_panels', 'dashboard.remove_panels', 'dashboard.modify_panel',
-  'dashboard.rearrange', 'dashboard.add_variable', 'dashboard.set_title',
-  'investigation.create', 'investigation.add_section', 'investigation.complete',
-  // alert_rule.write covers create / update / delete via the `op` discriminator
-  'alert_rule.write',
+  'dashboard_create', 'dashboard_clone',
+  'dashboard_add_panels', 'dashboard_remove_panels', 'dashboard_modify_panel',
+  'dashboard_rearrange', 'dashboard_add_variable', 'dashboard_set_title',
+  'investigation_create', 'investigation_add_section', 'investigation_complete',
+  // alert_rule_write covers create / update / delete via the `op` discriminator
+  'alert_rule_write',
 ] as const;
 
 export interface PermissionWrappedActionRunnerDeps {
@@ -113,6 +114,23 @@ export class PermissionWrappedActionRunner {
       return `Action "${action}" requires approval. A proposal has been submitted.`;
     }
 
+    // --- Required-arg validation (schema-driven) ---
+    // Detect missing required args before dispatching to the handler so we can
+    // tell the user what's missing instead of letting the handler fail and the
+    // model retry blindly. For alert_rule_write op=create with a missing
+    // folderUid, attempt a silent auto-pick when exactly one folder is
+    // visible; otherwise return a clarifying message that lists the folders.
+    const missingObs = await checkRequiredArgs(action, args, ctx);
+    if (missingObs !== null) {
+      this.deps.sendEvent({
+        type: 'tool_result',
+        tool: action,
+        summary: missingObs,
+        success: false,
+      });
+      return missingObs;
+    }
+
     // --- Emit tool_called event + audit allow path (rate-limited) ---
     this.deps.emitAgentEvent(this.deps.makeAgentEvent('agent.tool_called', { tool: action }));
     await this.deps.auditReporter.writeToolAudit('allow', action, args, gateResult);
@@ -148,53 +166,53 @@ async function dispatchAction(
 ): Promise<string | null> {
   switch (action) {
     // Dashboard lifecycle
-    case 'dashboard.create': return handleDashboardCreate(ctx, args);
-    case 'dashboard.list': return handleDashboardList(ctx, args);
-    case 'dashboard.clone': return handleDashboardClone(ctx, args);
+    case 'dashboard_create': return handleDashboardCreate(ctx, args);
+    case 'dashboard_list': return handleDashboardList(ctx, args);
+    case 'dashboard_clone': return handleDashboardClone(ctx, args);
     // Dashboard mutation primitives (dashboardId comes from args)
-    case 'dashboard.add_panels': return handleDashboardAddPanels(ctx, args);
-    case 'dashboard.set_title': return handleDashboardSetTitle(ctx, args);
-    case 'dashboard.remove_panels': return handleDashboardRemovePanels(ctx, args);
-    case 'dashboard.modify_panel': return handleDashboardModifyPanel(ctx, args);
-    case 'dashboard.add_variable': return handleDashboardAddVariable(ctx, args);
+    case 'dashboard_add_panels': return handleDashboardAddPanels(ctx, args);
+    case 'dashboard_set_title': return handleDashboardSetTitle(ctx, args);
+    case 'dashboard_remove_panels': return handleDashboardRemovePanels(ctx, args);
+    case 'dashboard_modify_panel': return handleDashboardModifyPanel(ctx, args);
+    case 'dashboard_add_variable': return handleDashboardAddVariable(ctx, args);
     // Investigation lifecycle
-    case 'investigation.create': return handleInvestigationCreate(ctx, args);
-    case 'investigation.list': return handleInvestigationList(ctx, args);
-    case 'investigation.add_section': return handleInvestigationAddSection(ctx, args);
-    case 'investigation.complete': return handleInvestigationComplete(ctx, args);
-    // Alert rules — alert_rule.write dispatches create/update/delete via `op`
-    case 'alert_rule.write': return handleAlertRuleWrite(ctx, args);
-    case 'alert_rule.list': return handleAlertRuleList(ctx, args);
-    case 'alert_rule.history': return handleAlertRuleHistory(ctx, args);
+    case 'investigation_create': return handleInvestigationCreate(ctx, args);
+    case 'investigation_list': return handleInvestigationList(ctx, args);
+    case 'investigation_add_section': return handleInvestigationAddSection(ctx, args);
+    case 'investigation_complete': return handleInvestigationComplete(ctx, args);
+    // Alert rules — alert_rule_write dispatches create/update/delete via `op`
+    case 'alert_rule_write': return handleAlertRuleWrite(ctx, args);
+    case 'alert_rule_list': return handleAlertRuleList(ctx, args);
+    case 'alert_rule_history': return handleAlertRuleHistory(ctx, args);
     // Folder lifecycle (minimal — organize dashboards)
-    case 'folder.create': return handleFolderCreate(ctx, args);
-    case 'folder.list': return handleFolderList(ctx, args);
+    case 'folder_create': return handleFolderCreate(ctx, args);
+    case 'folder_list': return handleFolderList(ctx, args);
     // Navigation
     case 'navigate': return handleNavigate(ctx, args);
     // Datasource discovery (always allowed)
-    case 'datasources.list': return handleDatasourcesList(ctx, args);
-    case 'datasources.suggest': return handleDatasourcesSuggest(ctx, args);
-    case 'datasources.pin': return handleDatasourcesPin(ctx, args);
-    case 'datasources.unpin': return handleDatasourcesUnpin(ctx, args);
+    case 'datasources_list': return handleDatasourcesList(ctx, args);
+    case 'datasources_suggest': return handleDatasourcesSuggest(ctx, args);
+    case 'datasources_pin': return handleDatasourcesPin(ctx, args);
+    case 'datasources_unpin': return handleDatasourcesUnpin(ctx, args);
     // Source-agnostic metrics primitives — discover collapses labels /
     // label_values / series / metadata / metric_names via `kind`
-    case 'metrics.query': return handleMetricsQuery(ctx, args);
-    case 'metrics.range_query': return handleMetricsRangeQuery(ctx, args);
-    case 'metrics.discover': return handleMetricsDiscover(ctx, args);
-    case 'metrics.validate': return handleMetricsValidate(ctx, args);
+    case 'metrics_query': return handleMetricsQuery(ctx, args);
+    case 'metrics_range_query': return handleMetricsRangeQuery(ctx, args);
+    case 'metrics_discover': return handleMetricsDiscover(ctx, args);
+    case 'metrics_validate': return handleMetricsValidate(ctx, args);
     // Source-agnostic logs primitives
-    case 'logs.query': return handleLogsQuery(ctx, args);
-    case 'logs.labels': return handleLogsLabels(ctx, args);
-    case 'logs.label_values': return handleLogsLabelValues(ctx, args);
+    case 'logs_query': return handleLogsQuery(ctx, args);
+    case 'logs_labels': return handleLogsLabels(ctx, args);
+    case 'logs_label_values': return handleLogsLabelValues(ctx, args);
     // Recent change events
-    case 'changes.list_recent': return handleChangesListRecent(ctx, args);
+    case 'changes_list_recent': return handleChangesListRecent(ctx, args);
     // Kubernetes / Ops integrations
-    case 'ops.run_command': return handleOpsRunCommand(ctx, args);
+    case 'ops_run_command': return handleOpsRunCommand(ctx, args);
     // Remediation plans (P4)
-    case 'remediation_plan.create': return handleRemediationPlanCreate(ctx, args);
-    case 'remediation_plan.create_rescue': return handleRemediationPlanCreateRescue(ctx, args);
+    case 'remediation_plan_create': return handleRemediationPlanCreate(ctx, args);
+    case 'remediation_plan_create_rescue': return handleRemediationPlanCreateRescue(ctx, args);
     // Web search
-    case 'web.search': return handleWebSearch(ctx, args);
+    case 'web_search': return handleWebSearch(ctx, args);
     // `tool_search` is intercepted by ReActLoop before dispatch — it
     // resolves deferred-tool schemas and feeds them back as an observation
     // without round-tripping through the dispatcher. Listed here as a
@@ -202,4 +220,61 @@ async function dispatchAction(
     case 'tool_search': return null;
     default: return `Unknown action "${action}" - skipping.`;
   }
+}
+
+/**
+ * Schema-driven required-arg validation. Returns null when the call is fine
+ * (or after a silent auto-fill). Returns a clarifying observation when an
+ * argument is missing — the runner surfaces that to the user as a tool_result
+ * and short-circuits dispatch so the model doesn't retry blindly.
+ *
+ * Special case: `alert_rule_write` op=create requires `folderUid`. If exactly
+ * one folder is visible we auto-fill silently (UX nicety — almost every
+ * single-folder install hit this). Otherwise we return a list of folders so
+ * the next user reply can pick one.
+ */
+async function checkRequiredArgs(
+  action: string,
+  args: Record<string, unknown>,
+  ctx: ActionContext,
+): Promise<string | null> {
+  // alert_rule_write: try to fill folderUid before generic validation runs.
+  if (action === 'alert_rule_write' && args.op === 'create') {
+    const hasFolderUid = typeof args.folderUid === 'string' && args.folderUid.trim() !== '';
+    if (!hasFolderUid && ctx.folderRepository) {
+      try {
+        const page = await ctx.folderRepository.list({ orgId: ctx.identity.orgId, parentUid: null, limit: 50 });
+        const folders = page.items;
+        if (folders.length === 1) {
+          // Silent auto-pick — single folder, no ambiguity.
+          args.folderUid = folders[0]!.uid;
+        } else if (folders.length === 0) {
+          return 'alert_rule_write op="create" needs a folder, but no folders are configured. Create one with folder_create first, or ask the user where the rule should live.';
+        } else {
+          const list = folders
+            .slice(0, 10)
+            .map((f) => `- ${f.title} (uid=${f.uid})`)
+            .join('\n');
+          return `alert_rule_write op="create" requires "folderUid" and there are ${folders.length} folders to choose from. Use ask_user with these as options so the user picks one:\n${list}`;
+        }
+      } catch {
+        // Folder lookup failed — fall through to generic validation, which
+        // will tell the model folderUid is missing and let it ask the user.
+      }
+    }
+  }
+
+  const entry = TOOL_REGISTRY[action];
+  const required = entry?.schema.input_schema?.required ?? [];
+  const missing = required.filter((name) => {
+    const v = args[name];
+    if (v === undefined || v === null) return true;
+    if (typeof v === 'string' && v.trim() === '') return true;
+    return false;
+  });
+  if (missing.length === 0) return null;
+  return (
+    `Cannot run ${action}: missing required argument${missing.length > 1 ? 's' : ''} ${missing.map((n) => `"${n}"`).join(', ')}. ` +
+    `Ask the user for the missing value (use ask_user) instead of guessing.`
+  );
 }

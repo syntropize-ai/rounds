@@ -1,5 +1,5 @@
 /**
- * Tests for the P2 P6-allowlist gate inside `ops.run_command`. The runner
+ * Tests for the P2 P6-allowlist gate inside `ops_run_command`. The runner
  * is mocked; the assertion is on what the handler refuses BEFORE reaching it.
  */
 

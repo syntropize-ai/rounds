@@ -28,11 +28,11 @@ export async function handleInvestigationCreate(
   let observationText = '';
   await withToolEventBoundary(
     ctx.sendEvent,
-    'investigation.create',
+    'investigation_create',
     { question },
     `Creating investigation: "${question.slice(0, 60)}"`,
     async () => {
-      // Same reason as dashboard.create: the GET route filters by
+      // Same reason as dashboard_create: the GET route filters by
       // workspaceId; missing this field makes the investigation unreachable
       // even though the row is in the store.
       const investigation = await ctx.investigationStore!.create(
@@ -50,7 +50,7 @@ export async function handleInvestigationCreate(
   );
   ctx.emitAgentEvent(
     ctx.makeAgentEvent('agent.tool_completed', {
-      tool: 'investigation.create',
+      tool: 'investigation_create',
       investigationId: createdId,
       summary: observationText,
     }),
@@ -83,7 +83,7 @@ export async function handleInvestigationAddSection(
   const content = String(args.content ?? '');
   if (!content) return 'Error: "content" is required.';
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'investigation.add_section', args: { investigationId, type: sectionType }, displayText: `Adding ${sectionType} section to investigation` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'investigation_add_section', args: { investigationId, type: sectionType }, displayText: `Adding ${sectionType} section to investigation` });
 
   const section: InvestigationReportSection = { type: sectionType, content };
 
@@ -208,7 +208,7 @@ export async function handleInvestigationAddSection(
   ctx.investigationSections.set(investigationId, existing);
 
   const observationText = `Added ${sectionType} section to investigation ${investigationId} (${existing.length} sections total).`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'investigation.add_section', summary: observationText, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'investigation_add_section', summary: observationText, success: true });
   return observationText;
 }
 
@@ -223,7 +223,7 @@ export async function handleInvestigationComplete(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'investigation.complete',
+    'investigation_complete',
     { investigationId },
     `Completing investigation`,
     async () => {
@@ -293,7 +293,7 @@ export async function handleInvestigationList(
   const limit = typeof args.limit === 'number' ? args.limit : 50;
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'investigation.list',
+    tool: 'investigation_list',
     args: filter ? { filter } : {},
     displayText: filter ? `Searching investigations matching "${filter}"` : 'Listing investigations',
   });
@@ -313,7 +313,7 @@ export async function handleInvestigationList(
       const msg = filter
         ? `No investigations match "${filter}" (${all.length} total).`
         : 'No investigations found.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'investigation.list', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'investigation_list', summary: msg, success: true });
       return msg;
     }
     const lines = filtered.slice(0, limit).map((inv) => {
@@ -325,14 +325,14 @@ export async function handleInvestigationList(
     const summary = `${filtered.length} investigation(s)${filter ? ` matching "${filter}"` : ''}:\n${lines.join('\n')}`;
     ctx.sendEvent({
       type: 'tool_result',
-      tool: 'investigation.list',
+      tool: 'investigation_list',
       summary: `${filtered.length} investigations found`,
       success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to list investigations: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'investigation.list', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'investigation_list', summary: msg, success: false });
     return msg;
   }
 }

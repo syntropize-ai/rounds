@@ -19,7 +19,7 @@ export async function handleDatasourcesList(
       : undefined;
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'datasources.list',
+    tool: 'datasources_list',
     args: filter ? filter : {},
     displayText: filter ? `Listing ${filter.signalType} datasources` : 'Listing datasources',
   });
@@ -29,7 +29,7 @@ export async function handleDatasourcesList(
     const msg = filter
       ? `No ${filter.signalType} datasources are configured.`
       : 'No datasources are configured.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'datasources.list', summary: msg, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'datasources_list', summary: msg, success: true });
     return msg;
   }
   const lines = infos.map((d) => {
@@ -39,7 +39,7 @@ export async function handleDatasourcesList(
   const summary = lines.join('\n');
   ctx.sendEvent({
     type: 'tool_result',
-    tool: 'datasources.list',
+    tool: 'datasources_list',
     summary: `${infos.length} datasource(s)`,
     success: true,
   });
@@ -173,7 +173,7 @@ function toAlternatives(views: DatasourceView[], excludeId: string | null): Sugg
 }
 
 // ---------------------------------------------------------------------------
-// datasources.suggest — decision pyramid (hint > default > ambiguous)
+// datasources_suggest — decision pyramid (hint > default > ambiguous)
 // ---------------------------------------------------------------------------
 
 export async function handleDatasourcesSuggest(
@@ -185,7 +185,7 @@ export async function handleDatasourcesSuggest(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'datasources.suggest',
+    'datasources_suggest',
     { userIntent, ...(type ? { type } : {}) },
     'Choosing data source',
     async () => {
@@ -226,7 +226,7 @@ export async function handleDatasourcesSuggest(
 }
 
 // ---------------------------------------------------------------------------
-// datasources.pin / datasources.unpin — session-scoped pinning
+// datasources_pin / datasources_unpin — session-scoped pinning
 // ---------------------------------------------------------------------------
 
 /** Lazy-init the per-session pins bag on first use. chat-service constructs
@@ -246,7 +246,7 @@ export async function handleDatasourcesPin(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'datasources.pin',
+    'datasources_pin',
     { datasourceId, type },
     'Pinning data source',
     async () => {
@@ -266,7 +266,7 @@ export async function handleDatasourcesUnpin(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'datasources.unpin',
+    'datasources_unpin',
     { type },
     'Unpinning data source',
     async () => {

@@ -18,7 +18,7 @@ export async function handleFolderCreate(
   if (!title) return 'Error: "title" is required.';
   const parentUid = typeof args.parentUid === 'string' && args.parentUid !== '' ? args.parentUid : null;
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'folder.create', args: { title, parentUid }, displayText: `Creating folder: ${title}` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'folder_create', args: { title, parentUid }, displayText: `Creating folder: ${title}` });
 
   // Simple uid slug from title; fall back to random if slug collides.
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || `folder-${Date.now().toString(36)}`;
@@ -37,8 +37,8 @@ export async function handleFolderCreate(
   });
 
   const observation = `Folder "${folder.title}" created (uid=${folder.uid})${folder.parentUid ? ` under ${folder.parentUid}` : ' at root'}.`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'folder.create', summary: observation, success: true });
-  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'folder.create', folderUid: folder.uid }));
+  ctx.sendEvent({ type: 'tool_result', tool: 'folder_create', summary: observation, success: true });
+  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'folder_create', folderUid: folder.uid }));
   return observation;
 }
 
@@ -51,7 +51,7 @@ export async function handleFolderList(
   const parentUid = typeof args.parentUid === 'string' ? args.parentUid : null;
   const limit = Math.min(Number(args.limit ?? 50), 200);
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'folder.list', args: { parentUid, limit }, displayText: 'Listing folders' });
+  ctx.sendEvent({ type: 'tool_call', tool: 'folder_list', args: { parentUid, limit }, displayText: 'Listing folders' });
 
   const page = await ctx.folderRepository.list({
     orgId: ctx.identity.orgId,
@@ -68,7 +68,7 @@ export async function handleFolderList(
 
   if (visible.length === 0) {
     const msg = 'No folders visible to you' + (parentUid ? ` under ${parentUid}.` : '.');
-    ctx.sendEvent({ type: 'tool_result', tool: 'folder.list', summary: msg, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'folder_list', summary: msg, success: true });
     return msg;
   }
   const rows = visible
@@ -77,6 +77,6 @@ export async function handleFolderList(
     .join('\n');
   const footer = visible.length > 20 ? `\n... and ${visible.length - 20} more folders` : '';
   const summary = `${visible.length} folders:\n${rows}${footer}`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'folder.list', summary: `${visible.length} folders`, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'folder_list', summary: `${visible.length} folders`, success: true });
   return summary;
 }

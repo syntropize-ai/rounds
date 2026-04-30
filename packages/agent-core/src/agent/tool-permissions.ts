@@ -54,85 +54,85 @@ function resolveDatasourceScope(args: Record<string, unknown>): string {
  */
 export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   // -- Dashboard lifecycle --------------------------------------------------
-  'dashboard.create': (args: Record<string, unknown>) =>
+  'dashboard_create': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:create',
       `folders:uid:${String(args.folderUid ?? '*')}`,
     ),
-  'dashboard.list': () => ac.eval('dashboards:read', 'dashboards:*'),
-  // Clone is read-then-create. We mirror dashboard.create's gating — the new
+  'dashboard_list': () => ac.eval('dashboards:read', 'dashboards:*'),
+  // Clone is read-then-create. We mirror dashboard_create's gating — the new
   // dashboard lands in the wildcard folder (no folderUid arg today), so any
   // narrow per-folder grant must be backed by a wider create grant. The
   // source dashboard's read is gated by the per-row filter in handlers/list,
   // which the source-id lookup goes through implicitly.
-  'dashboard.clone': (args: Record<string, unknown>) =>
+  'dashboard_clone': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:create',
       `folders:uid:${String(args.folderUid ?? '*')}`,
     ),
-  'dashboard.add_panels': (args: Record<string, unknown>) =>
+  'dashboard_add_panels': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:write',
       `dashboards:uid:${String(args.dashboardId ?? '*')}`,
     ),
-  'dashboard.remove_panels': (args: Record<string, unknown>) =>
+  'dashboard_remove_panels': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:write',
       `dashboards:uid:${String(args.dashboardId ?? '*')}`,
     ),
-  'dashboard.modify_panel': (args: Record<string, unknown>) =>
+  'dashboard_modify_panel': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:write',
       `dashboards:uid:${String(args.dashboardId ?? '*')}`,
     ),
-  'dashboard.set_title': (args: Record<string, unknown>) =>
+  'dashboard_set_title': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:write',
       `dashboards:uid:${String(args.dashboardId ?? '*')}`,
     ),
-  'dashboard.add_variable': (args: Record<string, unknown>) =>
+  'dashboard_add_variable': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:write',
       `dashboards:uid:${String(args.dashboardId ?? '*')}`,
     ),
-  'dashboard.rearrange': (args: Record<string, unknown>) =>
+  'dashboard_rearrange': (args: Record<string, unknown>) =>
     ac.eval(
       'dashboards:write',
       `dashboards:uid:${String(args.dashboardId ?? '*')}`,
     ),
 
   // -- Folder tools ---------------------------------------------------------
-  'folder.create': (args: Record<string, unknown>) =>
+  'folder_create': (args: Record<string, unknown>) =>
     ac.eval(
       'folders:create',
       `folders:uid:${String(args.parentUid ?? '*')}`,
     ),
-  'folder.list': () => ac.eval('folders:read', 'folders:*'),
+  'folder_list': () => ac.eval('folders:read', 'folders:*'),
 
   // -- Investigation lifecycle ---------------------------------------------
-  'investigation.create': () => ac.eval('investigations:create'),
-  'investigation.list': () =>
+  'investigation_create': () => ac.eval('investigations:create'),
+  'investigation_list': () =>
     ac.eval('investigations:read', 'investigations:*'),
-  'investigation.add_section': (args: Record<string, unknown>) =>
+  'investigation_add_section': (args: Record<string, unknown>) =>
     ac.eval(
       'investigations:write',
       `investigations:uid:${String(args.investigationId ?? '*')}`,
     ),
-  'investigation.complete': (args: Record<string, unknown>) =>
+  'investigation_complete': (args: Record<string, unknown>) =>
     ac.eval(
       'investigations:write',
       `investigations:uid:${String(args.investigationId ?? '*')}`,
     ),
 
   // -- Alert rules ---------------------------------------------------------
-  // alert_rule.write is the unified create/update/delete tool. The op
+  // alert_rule_write is the unified create/update/delete tool. The op
   // discriminator decides which RBAC action to evaluate:
   //   - op=create   → alert.rules:create on folders:uid:<folderUid|*>
   //   - op=update   → alert.rules:write  on folders:uid:<rule's folderUid|*>
   //   - op=delete   → alert.rules:delete on folders:uid:<rule's folderUid|*>
   // create folderUid comes straight from the args; update/delete need an
   // async lookup against the store to resolve the rule's folder.
-  'alert_rule.write': async (args: Record<string, unknown>, ctx: ActionContext) => {
+  'alert_rule_write': async (args: Record<string, unknown>, ctx: ActionContext) => {
     const op = typeof args.op === 'string' ? args.op : '';
     if (op === 'create') {
       return ac.eval(
@@ -150,42 +150,42 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
     // rejects this case, but the gate runs first — fail closed at the boundary.
     return ac.eval('alert.rules:write', `op:invalid:${op || 'missing'}`);
   },
-  'alert_rule.list': () => ac.eval('alert.rules:read', 'alert.rules:*'),
-  'alert_rule.history': (args: Record<string, unknown>) =>
+  'alert_rule_list': () => ac.eval('alert.rules:read', 'alert.rules:*'),
+  'alert_rule_history': (args: Record<string, unknown>) =>
     ac.eval(
       'alert.rules:read',
       `alert.rules:uid:${String(args.ruleId ?? '*')}`,
     ),
 
   // -- Metrics primitives (source-agnostic; sourceId is required) ----------
-  'metrics.query': (args: Record<string, unknown>) =>
+  'metrics_query': (args: Record<string, unknown>) =>
     ac.eval('datasources:query', resolveDatasourceScope(args)),
-  'metrics.range_query': (args: Record<string, unknown>) =>
+  'metrics_range_query': (args: Record<string, unknown>) =>
     ac.eval('datasources:query', resolveDatasourceScope(args)),
-  // metrics.discover collapses labels / label_values / series / metadata /
+  // metrics_discover collapses labels / label_values / series / metadata /
   // metric_names — they all read against the same datasource scope so the
   // gate is identical regardless of the `kind` discriminator.
-  'metrics.discover': (args: Record<string, unknown>) =>
+  'metrics_discover': (args: Record<string, unknown>) =>
     ac.eval('datasources:query', resolveDatasourceScope(args)),
-  'metrics.validate': (args: Record<string, unknown>) =>
+  'metrics_validate': (args: Record<string, unknown>) =>
     ac.eval('datasources:query', resolveDatasourceScope(args)),
 
   // -- Logs primitives (source-agnostic; sourceId is required) -------------
-  'logs.query': (args: Record<string, unknown>) =>
+  'logs_query': (args: Record<string, unknown>) =>
     ac.eval('datasources:query', resolveDatasourceScope(args)),
-  'logs.labels': (args: Record<string, unknown>) =>
+  'logs_labels': (args: Record<string, unknown>) =>
     ac.eval('datasources:query', resolveDatasourceScope(args)),
-  'logs.label_values': (args: Record<string, unknown>) =>
+  'logs_label_values': (args: Record<string, unknown>) =>
     ac.eval('datasources:query', resolveDatasourceScope(args)),
 
   // -- Recent change events ------------------------------------------------
   // Gated as an investigation-style read so Viewer+ roles can consult
   // deploy / incident history while diagnosing anomalies.
-  'changes.list_recent': () =>
+  'changes_list_recent': () =>
     ac.eval('investigations:read', 'investigations:*'),
 
   // -- Kubernetes / Ops integrations --------------------------------------
-  'ops.run_command': (args: Record<string, unknown>) =>
+  'ops_run_command': (args: Record<string, unknown>) =>
     ac.any(
       ac.eval(
         ACTIONS.OpsCommandsRun,
@@ -195,7 +195,7 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
     ),
 
   // -- Web / knowledge ------------------------------------------------------
-  'web.search': () => ac.eval('chat:use'),
+  'web_search': () => ac.eval('chat:use'),
 };
 
 /**
@@ -223,13 +223,13 @@ export const UNGATED_TOOLS: ReadonlySet<string> = new Set([
   // Discovery is always allowed — the caller needs to see what's configured
   // BEFORE they can form a gated call. This is a read of the in-process
   // registry; no backend side effect.
-  'datasources.list',
+  'datasources_list',
   // Suggestion, pin, unpin are session-scoped reads / in-memory writes — no
   // backend mutation. They MUST stay ungated so the agent can call them
   // before doing any RBAC-checked work.
-  'datasources.suggest',
-  'datasources.pin',
-  'datasources.unpin',
+  'datasources_suggest',
+  'datasources_pin',
+  'datasources_unpin',
 ]);
 
 /**

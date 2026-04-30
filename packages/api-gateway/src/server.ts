@@ -38,6 +38,7 @@ import { buildAuthSubsystem, mountAuthRoutes } from './app/auth-routes.js';
 import { mountRbacRoutes } from './app/rbac-routes.js';
 import { mountDomainRoutes } from './app/domain-routes.js';
 import { startAlerts } from './app/alerts-boot.js';
+import { EventEmittingAlertRuleRepository } from '@agentic-obs/data-layer';
 import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
 import { createShutdownHooks } from './app/lifecycle.js';
 import type { WebSocketGatewayDeps } from './websocket/gateway.js';
@@ -182,6 +183,14 @@ export async function createApp(): Promise<Application> {
     accessControlHolder,
   });
 
+  // Lift the rule-store event wrapper up to createApp so the domain
+  // routes (write path) and the alert evaluator (read/refresh path)
+  // share one event bus — a rule created via the API hits the
+  // evaluator's hot-reload listener through this wrapper.
+  const eventAlertRuleStore = new EventEmittingAlertRuleRepository(
+    persistence.repos.alertRules,
+  );
+
   // -- W6 business routes + bootstrap-aware mounts ----------------------
   mountDomainRoutes({
     app,
@@ -193,6 +202,7 @@ export async function createApp(): Promise<Application> {
     sharedFolderRepo,
     userRateLimiter,
     queryRateLimiter,
+    eventAlertRuleStore,
   });
 
   // Start the periodic alert evaluator (Phase 0.5 boot path). Behind
@@ -200,9 +210,17 @@ export async function createApp(): Promise<Application> {
   // app.locals so a graceful-shutdown caller (or a future AutoInvestigation
   // dispatcher) can reach the evaluator without rebuilding it.
   app.locals['alertsHandle'] = await startAlerts({
-    rules: persistence.repos.alertRules,
+    rules: eventAlertRuleStore,
     setupConfig,
     db: persistence.db,
+    authRepos: {
+      users: bundle.authRepos.users,
+      orgUsers: bundle.authRepos.orgUsers,
+      apiKeys: bundle.authRepos.apiKeys,
+    },
+    subscribeRuleChanges: (cb) => {
+      eventAlertRuleStore.onChange(() => cb());
+    },
     runner: {
       saTokens: bundle.apiKeyService,
       makeOrchestrator: buildBackgroundOrchestratorFactory({

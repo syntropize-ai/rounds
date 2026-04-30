@@ -49,10 +49,10 @@ async function createAlertRule(
   // folderUid is REQUIRED (matches the RBAC gate scope so authorization
   // happens against the actual destination, not caller-supplied metadata
   // that gets dropped). Without it the gate would be a no-op security
-  // theater. See tool-permissions.ts 'alert_rule.write' op=create branch.
+  // theater. See tool-permissions.ts 'alert_rule_write' op=create branch.
   const folderUid = typeof args.folderUid === 'string' ? args.folderUid.trim() : '';
   if (!folderUid) {
-    return 'Error: alert_rule.write with op="create" requires "folderUid" — the folder that owns the rule. Without it the RBAC check would authorize against a value the rule never persists.';
+    return 'Error: alert_rule_write with op="create" requires "folderUid" — the folder that owns the rule. Without it the RBAC check would authorize against a value the rule never persists.';
   }
 
   const currentDash = dashboardId ? await ctx.store.findById(dashboardId) : undefined;
@@ -106,7 +106,7 @@ async function createAlertRule(
       }
     } catch (err) {
       log.warn(
-        { err: err instanceof Error ? err.message : String(err), tool: 'alert_rule.write', op: 'create' },
+        { err: err instanceof Error ? err.message : String(err), tool: 'alert_rule_write', op: 'create' },
         'alertRuleStore lookup failed during upsert — re-throwing to avoid silent duplicate creation',
       );
       throw err;
@@ -124,7 +124,7 @@ async function createAlertRule(
   }
 
   if (!rule) {
-    // Same reason as dashboard.create / investigation.create: the list
+    // Same reason as dashboard_create / investigation_create: the list
     // route filters by workspaceId, so an un-scoped row is invisible
     // even though it's in the store.
     rule = await ctx.alertRuleStore.create(
@@ -253,10 +253,10 @@ export async function handleAlertRuleWrite(
 ): Promise<string> {
   const opRaw = typeof args.op === 'string' ? args.op : '';
   if (!opRaw) {
-    return 'Error: alert_rule.write requires "op" (one of: create, update, delete).';
+    return 'Error: alert_rule_write requires "op" (one of: create, update, delete).';
   }
   if (!ALERT_RULE_WRITE_OPS.has(opRaw as AlertRuleWriteOp)) {
-    return `Error: alert_rule.write received unknown op "${opRaw}". Expected one of: create, update, delete.`;
+    return `Error: alert_rule_write received unknown op "${opRaw}". Expected one of: create, update, delete.`;
   }
   const op = opRaw as AlertRuleWriteOp;
 
@@ -265,12 +265,12 @@ export async function handleAlertRuleWrite(
   if (op === 'create') {
     const prompt = typeof args.prompt === 'string' ? args.prompt : (typeof args.goal === 'string' ? args.goal : '');
     if (!prompt) {
-      return 'Error: alert_rule.write with op="create" requires "prompt" (natural-language description of the alert condition).';
+      return 'Error: alert_rule_write with op="create" requires "prompt" (natural-language description of the alert condition).';
     }
   }
   if (op === 'update' || op === 'delete') {
     if (!args.ruleId || typeof args.ruleId !== 'string') {
-      return `Error: alert_rule.write with op="${op}" requires "ruleId".`;
+      return `Error: alert_rule_write with op="${op}" requires "ruleId".`;
     }
   }
 
@@ -282,7 +282,7 @@ export async function handleAlertRuleWrite(
 
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'alert_rule.write',
+    tool: 'alert_rule_write',
     args: { op, ...(args.ruleId ? { ruleId: args.ruleId } : {}) },
     displayText,
   });
@@ -301,16 +301,16 @@ export async function handleAlertRuleWrite(
         break;
       default: {
         const _exhaustive: never = op;
-        throw new Error(`alert_rule.write: unhandled op ${String(_exhaustive)}`);
+        throw new Error(`alert_rule_write: unhandled op ${String(_exhaustive)}`);
       }
     }
     const success = !observation.startsWith('Error:');
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.write', summary: observation, success });
-    ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'alert_rule.write', summary: observation }));
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_write', summary: observation, success });
+    ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'alert_rule_write', summary: observation }));
     return observation;
   } catch (err) {
-    const msg = `alert_rule.write (${op}) failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.write', summary: msg, success: false });
+    const msg = `alert_rule_write (${op}) failed: ${err instanceof Error ? err.message : String(err)}`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_write', summary: msg, success: false });
     throw err;
   }
 }
@@ -336,7 +336,7 @@ export async function handleAlertRuleList(
   const filter = typeof args.filter === 'string' ? args.filter : undefined;
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'alert_rule.list',
+    tool: 'alert_rule_list',
     args: filter ? { filter } : {},
     displayText: filter ? `Searching alert rules matching "${filter}"` : 'Listing alert rules',
   });
@@ -362,7 +362,7 @@ export async function handleAlertRuleList(
       const msg = filter
         ? `No alert rules match "${filter}" (${list.length} total).`
         : 'No alert rules found.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.list', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_list', summary: msg, success: true });
       return msg;
     }
     const lines = filtered.map((r) => {
@@ -372,14 +372,14 @@ export async function handleAlertRuleList(
     const summary = `${filtered.length} alert rule(s)${filter ? ` matching "${filter}"` : ''}:\n${lines.join('\n')}`;
     ctx.sendEvent({
       type: 'tool_result',
-      tool: 'alert_rule.list',
+      tool: 'alert_rule_list',
       summary: `${filtered.length} alert rules found`,
       success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to list alert rules: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.list', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_list', summary: msg, success: false });
     return msg;
   }
 }
@@ -417,7 +417,7 @@ export async function handleAlertRuleHistory(
 
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'alert_rule.history',
+    tool: 'alert_rule_history',
     args: { ruleId, sinceMinutes, limit },
     displayText: ruleId
       ? `Fetching history for rule ${ruleId} (last ${sinceMinutes} min)`
@@ -431,7 +431,7 @@ export async function handleAlertRuleHistory(
     : ctx.alertRuleStore.getAllHistory?.bind(ctx.alertRuleStore, limit);
   if (!fetcher) {
     const msg = 'Alert history is not available from this store; skip annotations.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.history', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_history', summary: msg, success: false });
     return msg;
   }
 
@@ -484,14 +484,14 @@ export async function handleAlertRuleHistory(
 
     ctx.sendEvent({
       type: 'tool_result',
-      tool: 'alert_rule.history',
+      tool: 'alert_rule_history',
       summary: `${annotations.length} alert events`,
       success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to load alert history: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule.history', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_history', summary: msg, success: false });
     return msg;
   }
 }

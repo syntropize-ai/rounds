@@ -23,12 +23,12 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Discovery
   // -------------------------------------------------------------------------
-  'datasources.list': {
+  'datasources_list': {
     category: 'always-on',
     schema: {
-      name: 'datasources.list',
+      name: 'datasources_list',
       description:
-        'Enumerate configured datasources (id, backend type, signal kind, isDefault flag). Use for "what data sources do I have" type questions. For PICKING a datasource to query against, prefer datasources.suggest — list is for browsing, suggest is for committing.',
+        'Enumerate configured datasources (id, backend type, signal kind, isDefault flag). Use for "what data sources do I have" type questions. For PICKING a datasource to query against, prefer datasources_suggest — list is for browsing, suggest is for committing.',
       input_schema: {
         type: 'object',
         properties: {
@@ -42,12 +42,12 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'datasources.suggest': {
+  'datasources_suggest': {
     category: 'always-on',
     schema: {
-      name: 'datasources.suggest',
+      name: 'datasources_suggest',
       description:
-        'Pick a datasource for the current request. Pass the raw user message as userIntent — substring-matches name/environment/cluster, falls back to the isDefault row, surfaces AMBIGUOUS when multiple candidates and no hint. On AMBIGUOUS use ask_user with the returned alternatives as structured options. After picking (or user confirms), follow with datasources.pin so subsequent tool calls reuse the choice. Skip when only one datasource of the right type exists.',
+        'Pick a datasource for the current request. Pass the raw user message as userIntent — substring-matches name/environment/cluster, falls back to the isDefault row, surfaces AMBIGUOUS when multiple candidates and no hint. On AMBIGUOUS use ask_user with the returned alternatives as structured options. After picking (or user confirms), follow with datasources_pin so subsequent tool calls reuse the choice. Skip when only one datasource of the right type exists.',
       input_schema: {
         type: 'object',
         properties: {
@@ -64,10 +64,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'datasources.pin': {
+  'datasources_pin': {
     category: 'deferred',
     schema: {
-      name: 'datasources.pin',
+      name: 'datasources_pin',
       description:
         'Stick a datasource to this session. Subsequent tools that need a datasource of the same backend type reuse it without re-suggesting. Use after the user picks one or confirms a high-confidence suggest match. Don\'t pin on cross-source compare requests — those need per-query overrides instead.',
       input_schema: {
@@ -80,10 +80,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'datasources.unpin': {
+  'datasources_unpin': {
     category: 'deferred',
     schema: {
-      name: 'datasources.unpin',
+      name: 'datasources_unpin',
       description:
         'Drop the session pin for a backend type. Use when the user explicitly asks to switch ("use staging instead", "换到 prod") — the next tool call will re-suggest from scratch.',
       input_schema: {
@@ -99,16 +99,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Metrics primitives (read-only, source-agnostic). Every call requires sourceId.
   // -------------------------------------------------------------------------
-  'metrics.query': {
+  'metrics_query': {
     category: 'deferred',
     schema: {
-      name: 'metrics.query',
+      name: 'metrics_query',
       description:
-        'Run an instant PromQL/MetricsQL query against a metrics datasource. Returns up to 20 series at a specific timestamp (defaults to now). When analyzing what a panel currently shows, pass `time` set to the panel time-window end so the instant value matches the panel rather than "now". Validate complex queries with metrics.validate first when adding panels.',
+        'Run an instant PromQL/MetricsQL query against a metrics datasource. Returns up to 20 series at a specific timestamp (defaults to now). When analyzing what a panel currently shows, pass `time` set to the panel time-window end so the instant value matches the panel rather than "now". Validate complex queries with metrics_validate first when adding panels.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources.list' },
+          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
           query: { type: 'string', description: 'Backend-native query (PromQL for prometheus, MetricsQL for victoria-metrics)' },
           time: { type: 'string', description: 'Optional ISO-8601 evaluation timestamp. Default: now. Use the panel time-window end when analyzing a panel.' },
         },
@@ -116,16 +116,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'metrics.range_query': {
+  'metrics_range_query': {
     category: 'deferred',
     schema: {
-      name: 'metrics.range_query',
+      name: 'metrics_range_query',
       description:
         'Run a range PromQL/MetricsQL query over a time window. Returns each series as time-stamped points. When analyzing what a panel shows, pass `start` and `end` set to the panel time-window so the result matches the panel rather than "now"; otherwise default window is the last 60 minutes at 60s step.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources.list' },
+          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
           query: { type: 'string', description: 'Backend-native query expression' },
           start: { type: 'string', description: 'ISO-8601 start timestamp (use with end). When analyzing a panel, set to the panel time-window start.' },
           end: { type: 'string', description: 'ISO-8601 end timestamp (use with start). When analyzing a panel, set to the panel time-window end.' },
@@ -136,15 +136,15 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'metrics.discover': {
+  'metrics_discover': {
     // always-on: it's the entry point for nearly every metrics workflow
     // (panel build, alert rule, investigation, ad-hoc query). Forcing a
     // tool_search round-trip before each one would add a useless turn to
-    // the most common path. Lower-frequency cousins (metrics.validate,
-    // metrics.range_query) stay deferred.
+    // the most common path. Lower-frequency cousins (metrics_validate,
+    // metrics_range_query) stay deferred.
     category: 'always-on',
     schema: {
-      name: 'metrics.discover',
+      name: 'metrics_discover',
       description:
         'Ask a metrics backend what it has — five discovery shapes share one tool. Required: sourceId, kind. The kind selects the activity:\n' +
         ' - kind="names": list/search metric names; pass `match` to filter (large clusters are sampled without it).\n' +
@@ -156,7 +156,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources.list' },
+          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
           kind: {
             type: 'string',
             enum: ['labels', 'values', 'series', 'metadata', 'names'],
@@ -183,16 +183,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'metrics.validate': {
+  'metrics_validate': {
     category: 'deferred',
     schema: {
-      name: 'metrics.validate',
+      name: 'metrics_validate',
       description:
-        'Test whether a query is syntactically valid and executes through both instant and dashboard range-query paths. Use as the validation gate before dashboard.add_panels — catches bad PromQL before it lands in a panel.',
+        'Test whether a query is syntactically valid and executes through both instant and dashboard range-query paths. Use as the validation gate before dashboard_add_panels — catches bad PromQL before it lands in a panel.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources.list' },
+          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
           query: { type: 'string', description: 'Backend-native query expression to validate' },
         },
         required: ['sourceId', 'query'],
@@ -203,16 +203,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Logs primitives (read-only, source-agnostic). The query string is backend-native.
   // -------------------------------------------------------------------------
-  'logs.query': {
+  'logs_query': {
     category: 'deferred',
     schema: {
-      name: 'logs.query',
+      name: 'logs_query',
       description:
         'Run a logs query (LogQL for Loki, ES DSL for Elasticsearch, etc.) over an explicit ISO-8601 window. Returns "[timestamp] {labels} message" lines, truncated to keep observations compact.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources.list (signalType=logs)' },
+          sourceId: { type: 'string', description: 'Datasource id from datasources_list (signalType=logs)' },
           query: { type: 'string', description: 'Backend-native logs query' },
           start: { type: 'string', description: 'ISO-8601 start timestamp (required)' },
           end: { type: 'string', description: 'ISO-8601 end timestamp (required)' },
@@ -222,29 +222,29 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'logs.labels': {
+  'logs_labels': {
     category: 'deferred',
     schema: {
-      name: 'logs.labels',
+      name: 'logs_labels',
       description: 'List available log labels for a logs datasource. Use for discovery before constructing selectors.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources.list (signalType=logs)' },
+          sourceId: { type: 'string', description: 'Datasource id from datasources_list (signalType=logs)' },
         },
         required: ['sourceId'],
       },
     },
   },
-  'logs.label_values': {
+  'logs_label_values': {
     category: 'deferred',
     schema: {
-      name: 'logs.label_values',
+      name: 'logs_label_values',
       description: 'List values for a log label (e.g. all values of "namespace"). Truncated to 50 with a "more" hint.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources.list (signalType=logs)' },
+          sourceId: { type: 'string', description: 'Datasource id from datasources_list (signalType=logs)' },
           label: { type: 'string', description: 'Log label name' },
         },
         required: ['sourceId', 'label'],
@@ -255,10 +255,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Changes (read-only) — recent deploys, config rollouts, incidents, flag flips.
   // -------------------------------------------------------------------------
-  'changes.list_recent': {
+  'changes_list_recent': {
     category: 'deferred',
     schema: {
-      name: 'changes.list_recent',
+      name: 'changes_list_recent',
       description:
         'List recent change events (deploys, config rollouts, feature-flag flips, incidents). Use early in investigations to correlate anomalies with known changes. If sourceId is omitted, the first registered change-event datasource is used.',
       input_schema: {
@@ -276,10 +276,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Kubernetes / Ops integrations. Requires an operator-configured connector.
   // -------------------------------------------------------------------------
-  'ops.run_command': {
+  'ops_run_command': {
     category: 'always-on',
     schema: {
-      name: 'ops.run_command',
+      name: 'ops_run_command',
       description:
         'Run a Kubernetes/Ops command through a configured connector. Only use when the user asks to inspect or operate on cluster state and a connectorId is known. Read commands may run with intent="read"; write/mutating commands must use intent="propose" unless the user is executing an approved proposal.',
       input_schema: {
@@ -299,21 +299,21 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   // -------------------------------------------------------------------------
   // Remediation plans (Phase 4 of docs/design/auto-remediation.md). The agent
-  // emits these AFTER `investigation.complete` when a fix is concrete and in
+  // emits these AFTER `investigation_complete` when a fix is concrete and in
   // scope of an attached connector. The plan is the unit of approval; steps
   // are the unit of execution. Never run write commands from the
   // investigation turn — propose them in a plan instead.
   // -------------------------------------------------------------------------
-  'remediation_plan.create': {
+  'remediation_plan_create': {
     category: 'always-on',
     schema: {
-      name: 'remediation_plan.create',
+      name: 'remediation_plan_create',
       description:
         'Propose a structured remediation plan after an investigation has identified a concrete, in-scope fix. Persists the plan in pending_approval status and creates a plan-level ApprovalRequest so a human can review the whole thing as one unit. Steps are NOT executed by this tool — execution happens after a human approves the plan.',
       input_schema: {
         type: 'object',
         properties: {
-          investigationId: { type: 'string', description: 'Id from investigation.create that motivated this plan.' },
+          investigationId: { type: 'string', description: 'Id from investigation_create that motivated this plan.' },
           summary: { type: 'string', description: 'One-line description of what the plan does. Surfaced in approval UI.' },
           steps: {
             type: 'array',
@@ -345,12 +345,12 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'remediation_plan.create_rescue': {
+  'remediation_plan_create_rescue': {
     category: 'deferred',
     schema: {
-      name: 'remediation_plan.create_rescue',
+      name: 'remediation_plan_create_rescue',
       description:
-        'Propose a rescue/undo plan paired with a primary plan, to be invoked manually by an operator if the primary fails. Same shape as remediation_plan.create plus rescueForPlanId. Does NOT auto-create an ApprovalRequest; rescue plans are triggered on demand from the UI.',
+        'Propose a rescue/undo plan paired with a primary plan, to be invoked manually by an operator if the primary fails. Same shape as remediation_plan_create plus rescueForPlanId. Does NOT auto-create an ApprovalRequest; rescue plans are triggered on demand from the UI.',
       input_schema: {
         type: 'object',
         properties: {
@@ -388,12 +388,12 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Dashboard lifecycle + mutation primitives
   // -------------------------------------------------------------------------
-  'dashboard.create': {
+  'dashboard_create': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.create',
+      name: 'dashboard_create',
       description:
-        'Create an empty dashboard. Returns dashboardId. Follow with dashboard.add_panels to populate it. Required before any other dashboard.* mutation when there is no current dashboard context. Requires a primary datasourceId — pick one via datasources.suggest first (or reuse the session pin if set).',
+        'Create an empty dashboard. Returns dashboardId. Follow with dashboard_add_panels to populate it. Required before any other dashboard.* mutation when there is no current dashboard context. Requires a primary datasourceId — pick one via datasources_suggest first (or reuse the session pin if set).',
       input_schema: {
         type: 'object',
         properties: {
@@ -403,17 +403,17 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           datasourceId: {
             type: 'string',
             description:
-              'Primary datasource id for this dashboard. Panels added without their own per-query datasourceId fall back to this. Get from datasources.list / datasources.suggest.',
+              'Primary datasource id for this dashboard. Panels added without their own per-query datasourceId fall back to this. Get from datasources_list / datasources_suggest.',
           },
         },
         required: ['title', 'datasourceId'],
       },
     },
   },
-  'dashboard.list': {
+  'dashboard_list': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.list',
+      name: 'dashboard_list',
       description:
         'List existing dashboards. Pass a filter keyword (matched against title/description) to narrow results. Use this for "open X" / "show X" requests before navigating.',
       input_schema: {
@@ -426,16 +426,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'dashboard.clone': {
+  'dashboard_clone': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.clone',
+      name: 'dashboard_clone',
       description:
         "Clone a dashboard, replacing every query's datasourceId with targetDatasourceId. Use when the user says 'copy/move/clone this dashboard to {env}' — far cheaper than rebuilding from scratch.",
       input_schema: {
         type: 'object',
         properties: {
-          sourceDashboardId: { type: 'string', description: 'Dashboard id to clone (from dashboard.list)' },
+          sourceDashboardId: { type: 'string', description: 'Dashboard id to clone (from dashboard_list)' },
           targetDatasourceId: { type: 'string', description: 'Datasource id assigned to every query in the new dashboard' },
           newTitle: { type: 'string', description: 'Optional title for the new dashboard. Defaults to "{sourceTitle} (cloned)"' },
         },
@@ -443,16 +443,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'dashboard.add_panels': {
+  'dashboard_add_panels': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.add_panels',
+      name: 'dashboard_add_panels',
       description:
-        'Add one or more panels to a dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Validate complex queries with metrics.validate first. Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.',
+        'Add one or more panels to a dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Validate complex queries with metrics_validate first. Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.',
       input_schema: {
         type: 'object',
         properties: {
-          dashboardId: { type: 'string', description: 'Target dashboard id (from dashboard.create or dashboard.list)' },
+          dashboardId: { type: 'string', description: 'Target dashboard id (from dashboard_create or dashboard_list)' },
           panels: {
             type: 'array',
             description: 'Panel configs. Each: { title, visualization, queries: [{refId, expr, datasourceId, legendFormat?, instant?}], unit?, ... }. datasourceId is REQUIRED per query.',
@@ -463,10 +463,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'dashboard.remove_panels': {
+  'dashboard_remove_panels': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.remove_panels',
+      name: 'dashboard_remove_panels',
       description: 'Remove one or more panels from a dashboard by id. Verify panel ids from the Dashboard State context first.',
       input_schema: {
         type: 'object',
@@ -482,10 +482,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'dashboard.modify_panel': {
+  'dashboard_modify_panel': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.modify_panel',
+      name: 'dashboard_modify_panel',
       description:
         'Patch fields on an existing panel (title, queries, visualization, unit, thresholds, …). Provide only the keys to change; everything else on the panel is preserved.',
       input_schema: {
@@ -503,10 +503,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'dashboard.set_title': {
+  'dashboard_set_title': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.set_title',
+      name: 'dashboard_set_title',
       description: 'Update the dashboard title and (optionally) description. Use for renaming an existing dashboard.',
       input_schema: {
         type: 'object',
@@ -519,10 +519,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'dashboard.add_variable': {
+  'dashboard_add_variable': {
     category: 'always-on',
     schema: {
-      name: 'dashboard.add_variable',
+      name: 'dashboard_add_variable',
       description:
         'Add a template variable ($variable) to a dashboard for drill-down. Only use when the user explicitly asks for filtering by a label.',
       input_schema: {
@@ -548,10 +548,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Investigation lifecycle
   // -------------------------------------------------------------------------
-  'investigation.create': {
+  'investigation_create': {
     category: 'always-on',
     schema: {
-      name: 'investigation.create',
+      name: 'investigation_create',
       description:
         'Start a new investigation record for a "why is X" question. Returns investigationId. Use when the user asks for diagnosis or root-cause analysis.',
       input_schema: {
@@ -563,10 +563,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'investigation.list': {
+  'investigation_list': {
     category: 'deferred',
     schema: {
-      name: 'investigation.list',
+      name: 'investigation_list',
       description: 'List existing investigations. Pass a filter keyword to search by intent/question text.',
       input_schema: {
         type: 'object',
@@ -578,16 +578,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'investigation.add_section': {
+  'investigation_add_section': {
     category: 'deferred',
     schema: {
-      name: 'investigation.add_section',
+      name: 'investigation_add_section',
       description:
         'Append a section to an investigation report. type="text" is narrative analysis (substantial paragraphs); type="evidence" attaches a panel snapshot for a key finding. Text sections are the main content; evidence panels support them.',
       input_schema: {
         type: 'object',
         properties: {
-          investigationId: { type: 'string', description: 'Id from investigation.create' },
+          investigationId: { type: 'string', description: 'Id from investigation_create' },
           type: {
             type: 'string',
             enum: ['text', 'evidence'],
@@ -603,16 +603,16 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'investigation.complete': {
+  'investigation_complete': {
     category: 'deferred',
     schema: {
-      name: 'investigation.complete',
+      name: 'investigation_complete',
       description:
         'Finalize the investigation, save the report, and navigate to it. MUST be called at the end of every investigation — without it, all sections are lost.',
       input_schema: {
         type: 'object',
         properties: {
-          investigationId: { type: 'string', description: 'Id from investigation.create' },
+          investigationId: { type: 'string', description: 'Id from investigation_create' },
           summary: { type: 'string', description: 'One-paragraph executive summary of the conclusion' },
         },
         required: ['investigationId', 'summary'],
@@ -623,10 +623,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Alert rules
   // -------------------------------------------------------------------------
-  'alert_rule.write': {
+  'alert_rule_write': {
     category: 'deferred',
     schema: {
-      name: 'alert_rule.write',
+      name: 'alert_rule_write',
       description:
         'Create, update, or delete an alert rule — three verbs share one tool. Required: op. Per op:\n' +
         ' - op="create": requires `prompt` (natural-language description). The rule generator produces PromQL, threshold, severity, labels. Query the current metric value first so the threshold is grounded in real data. Optional `dashboardId` reuses that dashboard\'s queries/variables.\n' +
@@ -642,7 +642,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
           ruleId: { type: 'string', description: 'Required for op=update / op=delete: id of the rule.' },
           prompt: { type: 'string', description: 'Required for op=create: natural-language description of the alert condition.' },
-          folderUid: { type: 'string', description: 'Required for op=create: the folder uid that owns the rule. Drives both RBAC scoping and where the rule lands. Use folder.list / folder.create first if unsure.' },
+          folderUid: { type: 'string', description: 'Required for op=create: the folder uid that owns the rule. Drives both RBAC scoping and where the rule lands. Use folder_list / folder_create first if unsure.' },
           dashboardId: { type: 'string', description: 'Optional for op=create: when set, the generator reuses dashboard queries/variables for consistency.' },
           threshold: { type: 'number', description: 'For op=update: new trigger threshold.' },
           operator: {
@@ -664,10 +664,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'alert_rule.list': {
+  'alert_rule_list': {
     category: 'deferred',
     schema: {
-      name: 'alert_rule.list',
+      name: 'alert_rule_list',
       description: 'List existing alert rules. Pass a filter keyword to search by name.',
       input_schema: {
         type: 'object',
@@ -678,10 +678,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'alert_rule.history': {
+  'alert_rule_history': {
     category: 'deferred',
     schema: {
-      name: 'alert_rule.history',
+      name: 'alert_rule_history',
       description:
         'Recent alert firing/resolution events as ready-to-use annotations JSON. Pass the returned JSON directly as panel.annotations on time_series/heatmap panels for "what happened when" overlays.',
       input_schema: {
@@ -699,10 +699,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Other
   // -------------------------------------------------------------------------
-  'web.search': {
+  'web_search': {
     category: 'always-on',
     schema: {
-      name: 'web.search',
+      name: 'web_search',
       description:
         'Search the web for monitoring best practices, metric naming conventions, and dashboard patterns. Use proactively before creating dashboards, even on familiar stacks.',
       input_schema: {

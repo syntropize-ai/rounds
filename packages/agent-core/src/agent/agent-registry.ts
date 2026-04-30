@@ -30,32 +30,32 @@ agentRegistry.register({
   description: 'Autonomous observability agent that uses primitive tools to build dashboards, investigate issues, and manage alerts',
   allowedTools: [
     // Dashboard lifecycle + mutation primitives
-    'dashboard.create', 'dashboard.list', 'dashboard.clone',
-    'dashboard.add_panels', 'dashboard.remove_panels', 'dashboard.modify_panel',
-    // NOTE: 'dashboard.rearrange' was listed here historically but no handler
+    'dashboard_create', 'dashboard_list', 'dashboard_clone',
+    'dashboard_add_panels', 'dashboard_remove_panels', 'dashboard_modify_panel',
+    // NOTE: 'dashboard_rearrange' was listed here historically but no handler
     // exists in orchestrator-action-handlers.ts (only the action-executor
     // applies a 'rearrange' action internally for layout). Until a real
     // handler lands, keep it out of the LLM-facing tool surface.
-    'dashboard.add_variable', 'dashboard.set_title',
+    'dashboard_add_variable', 'dashboard_set_title',
     // Investigation lifecycle
-    'investigation.create', 'investigation.list',
-    'investigation.add_section',
-    'investigation.complete',
+    'investigation_create', 'investigation_list',
+    'investigation_add_section',
+    'investigation_complete',
     // Datasource discovery (always allowed; no RBAC)
-    'datasources.list',
-    'datasources.suggest', 'datasources.pin', 'datasources.unpin',
+    'datasources_list',
+    'datasources_suggest', 'datasources_pin', 'datasources_unpin',
     // Source-agnostic metrics primitives (each requires sourceId)
-    'metrics.query', 'metrics.range_query', 'metrics.discover', 'metrics.validate',
+    'metrics_query', 'metrics_range_query', 'metrics_discover', 'metrics_validate',
     // Source-agnostic logs primitives (each requires sourceId)
-    'logs.query', 'logs.labels', 'logs.label_values',
+    'logs_query', 'logs_labels', 'logs_label_values',
     // Recent change events
-    'changes.list_recent',
+    'changes_list_recent',
     // Kubernetes / Ops integrations (requires configured connector + RBAC)
-    'ops.run_command',
+    'ops_run_command',
     // Knowledge
-    'web.search',
+    'web_search',
     // Alert rules
-    'alert_rule.write', 'alert_rule.list', 'alert_rule.history',
+    'alert_rule_write', 'alert_rule_list', 'alert_rule_history',
     // Navigation
     'navigate',
     // Lazy tool loading — fetches deferred schemas on demand
@@ -72,9 +72,9 @@ agentRegistry.register({
   description: 'Generates alert rules from natural language, using dashboard context and metric discovery',
   // tool_search is required so this narrow agent can load any tool that's
   // marked deferred in the registry. Without it the deferred tools listed
-  // here (metrics.discover) would be unloadable on a fresh turn — the
+  // here (metrics_discover) would be unloadable on a fresh turn — the
   // schema is only surfaced after a tool_search call.
-  allowedTools: ['alert_rule.write', 'metrics.query', 'metrics.discover', 'llm.complete', 'tool_search'],
+  allowedTools: ['alert_rule_write', 'metrics_query', 'metrics_discover', 'llm.complete', 'tool_search'],
   inputKinds: ['dashboard', 'panel'],
   outputKinds: ['alert_rule'],
   permissionMode: 'propose_only',
@@ -83,7 +83,7 @@ agentRegistry.register({
 agentRegistry.register({
   type: 'verification',
   description: 'Verifies generated artifacts (dashboards, investigation reports, alert rules) meet quality standards',
-  allowedTools: ['verifier.run', 'metrics.query', 'llm.complete'],
+  allowedTools: ['verifier.run', 'metrics_query', 'llm.complete'],
   inputKinds: ['dashboard', 'investigation_report', 'alert_rule'],
   outputKinds: [],
   permissionMode: 'read_only',

@@ -1,5 +1,5 @@
 /**
- * Tests for the remediation_plan.create + .create_rescue handlers.
+ * Tests for the remediation_plan_create + .create_rescue handlers.
  *
  * Use the real SQLite RemediationPlan + ApprovalRequest repos so we
  * exercise the same persistence the gateway uses.
@@ -64,7 +64,7 @@ function validStep(overrides: Record<string, unknown> = {}): Record<string, unkn
   };
 }
 
-describe('remediation_plan.create — error cases', () => {
+describe('remediation_plan_create — error cases', () => {
   let db: SqliteClient;
   let plansRepo: SqliteRemediationPlanRepository;
   let approvalsRepo: SqliteApprovalRequestRepository;
@@ -146,7 +146,7 @@ describe('remediation_plan.create — error cases', () => {
   });
 });
 
-describe('remediation_plan.create — happy path', () => {
+describe('remediation_plan_create — happy path', () => {
   let db: SqliteClient;
   let plansRepo: SqliteRemediationPlanRepository;
   let approvalsRepo: SqliteApprovalRequestRepository;
@@ -228,7 +228,7 @@ describe('remediation_plan.create — happy path', () => {
   });
 });
 
-describe('remediation_plan.create_rescue', () => {
+describe('remediation_plan_create_rescue', () => {
   let db: SqliteClient;
   let plansRepo: SqliteRemediationPlanRepository;
   let approvalsRepo: SqliteApprovalRequestRepository;

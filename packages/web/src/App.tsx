@@ -20,6 +20,7 @@ const Admin = lazy(() => import('./pages/Admin.js'));
 const Dashboards = lazy(() => import('./pages/Dashboards.js'));
 const DashboardWorkspace = lazy(() => import('./pages/DashboardWorkspace.js'));
 const Alerts = lazy(() => import('./pages/Alerts.js'));
+const AlertRuleEdit = lazy(() => import('./pages/AlertRuleEdit.js'));
 
 function RouteFallback() {
   return (
@@ -161,6 +162,7 @@ export default function App() {
                   <Route path="/dashboards" element={<Dashboards />} />
                   <Route path="/dashboards/:id" element={<DashboardWorkspace />} />
                   <Route path="/alerts" element={<Alerts />} />
+                  <Route path="/alerts/:id/edit" element={<AlertRuleEdit />} />
                   <Route path="/connections" element={<Navigate to="/settings" replace />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>

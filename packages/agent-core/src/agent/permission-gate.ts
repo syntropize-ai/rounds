@@ -37,13 +37,13 @@ const TERMINAL = new Set(['ask_user']);
  * Synced with the MUTATION_ACTIONS list in orchestrator-agent.ts.
  */
 const MUTATION_ACTIONS: ReadonlySet<string> = new Set([
-  'dashboard.create', 'dashboard.add_panels', 'dashboard.remove_panels',
-  'dashboard.modify_panel', 'dashboard.rearrange', 'dashboard.add_variable',
-  'dashboard.set_title',
-  'folder.create',
-  'investigation.create', 'investigation.add_section', 'investigation.complete',
-  // alert_rule.write covers create / update / delete via the `op` discriminator
-  'alert_rule.write',
+  'dashboard_create', 'dashboard_add_panels', 'dashboard_remove_panels',
+  'dashboard_modify_panel', 'dashboard_rearrange', 'dashboard_add_variable',
+  'dashboard_set_title',
+  'folder_create',
+  'investigation_create', 'investigation_add_section', 'investigation_complete',
+  // alert_rule_write covers create / update / delete via the `op` discriminator
+  'alert_rule_write',
 ]);
 
 /**
@@ -93,7 +93,7 @@ export async function checkPermission(
   }
 
   // -- Layer 3: RBAC --------------------------------------------------------
-  // Async builders (e.g. alert_rule.write op=update) call into the data store to
+  // Async builders (e.g. alert_rule_write op=update) call into the data store to
   // resolve scopes. A throw here used to be silently coerced into "scope
   // unknown → wildcard `folders:uid:*`" (fail-OPEN). Now we treat any
   // builder failure as deny — fail-closed is the only safe default for a

@@ -140,8 +140,8 @@ describe('handleDatasourcesSuggest — decision pyramid', () => {
     const ctx = ctxWith([{ id: 'only', name: 'only-prom', type: 'prometheus', isDefault: true }]);
     await handleDatasourcesSuggest(ctx, { userIntent: 'cpu' });
     const tools = ctx.sendEvent.mock.calls.map((c) => c[0]);
-    expect(tools[0]).toMatchObject({ type: 'tool_call', tool: 'datasources.suggest' });
-    expect(tools.at(-1)).toMatchObject({ type: 'tool_result', tool: 'datasources.suggest', success: true });
+    expect(tools[0]).toMatchObject({ type: 'tool_call', tool: 'datasources_suggest' });
+    expect(tools.at(-1)).toMatchObject({ type: 'tool_result', tool: 'datasources_suggest', success: true });
   });
 });
 

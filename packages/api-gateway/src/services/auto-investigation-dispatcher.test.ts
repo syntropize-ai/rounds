@@ -45,14 +45,26 @@ describe('AutoInvestigationDispatcher', () => {
     now = new Date('2026-04-29T00:00:00.000Z');
   });
 
-  function mkDispatcher(spawn: ReturnType<typeof vi.fn>) {
+  const fakeIdentity = {
+    userId: 'sa-1',
+    orgId: 'org_main',
+    orgRole: 'Editor' as const,
+    isServerAdmin: false,
+    authenticatedBy: 'api_key' as const,
+    serviceAccountId: 'sa-1',
+  };
+
+  function mkDispatcher(
+    spawn: ReturnType<typeof vi.fn>,
+    resolveSaIdentity: () => Promise<typeof fakeIdentity | null> = async () => fakeIdentity,
+  ) {
     return new AutoInvestigationDispatcher({
       alertEvents,
       runner: {
         saTokens: { validateAndLookup: async () => null },
         makeOrchestrator: () => ({} as never),
       },
-      saToken: 'openobs_sa_test',
+      resolveSaIdentity,
       dedupMs: 60_000,
       clock: () => now,
       spawnAgent: spawn as unknown as typeof import('@agentic-obs/agent-core').runBackgroundAgent,
@@ -67,9 +79,27 @@ describe('AutoInvestigationDispatcher', () => {
     // listener is fire-and-forget; await microtasks
     await new Promise((r) => setImmediate(r));
     expect(spawn).toHaveBeenCalledTimes(1);
-    const args = spawn.mock.calls[0]?.[1] as { saToken: string; message: string };
-    expect(args.saToken).toBe('openobs_sa_test');
+    const args = spawn.mock.calls[0]?.[1] as { identity: { serviceAccountId: string }; message: string };
+    expect(args.identity.serviceAccountId).toBe('sa-1');
     expect(args.message).toMatch(/high-error-rate/);
+  });
+
+  it('skips gracefully when no live SA token is available', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    const d = mkDispatcher(spawn, async () => null);
+    await d.onAlertFired(basePayload());
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('picks up a token minted mid-session on the next alert', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    let mintedYet = false;
+    const d = mkDispatcher(spawn, async () => (mintedYet ? fakeIdentity : null));
+    await d.onAlertFired(basePayload());
+    expect(spawn).not.toHaveBeenCalled();
+    mintedYet = true;
+    await d.onAlertFired(basePayload({ ruleId: 'rule-2' }));
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 
   it('dedups same ruleId within the window', async () => {

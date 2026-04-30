@@ -94,6 +94,19 @@ export interface AlertEvaluatorOptions {
    * of `leaderLock.ttlMs`. Has no effect when `leaderLock` is unset.
    */
   leaderHeartbeatMs?: number;
+  /**
+   * Periodic safety-net cadence — `refreshSchedule()` runs on this
+   * interval regardless of event-driven signals. Catches missed events,
+   * leader handoffs, and out-of-band DB writes (Mimir-style hybrid).
+   * Defaults to 60_000 ms; tunable via `ALERT_EVALUATOR_REFRESH_MS`.
+   */
+  refreshIntervalMs?: number;
+  /**
+   * Debounce window for event-driven `refreshSchedule()` invocations,
+   * coalescing bursts of rule create/update/delete events into a single
+   * rebuild. Defaults to 250 ms.
+   */
+  refreshDebounceMs?: number;
 }
 
 /**
@@ -150,7 +163,11 @@ export class AlertEvaluatorService extends EventEmitter {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly leaderLock?: LeaderLock;
   private readonly leaderHeartbeatMs: number;
+  private readonly refreshIntervalMs: number;
+  private readonly refreshDebounceMs: number;
   private leaderTimer?: NodeJS.Timeout;
+  private refreshTimer?: NodeJS.Timeout;
+  private debounceTimer?: NodeJS.Timeout;
   private isLeader = false;
   private running = false;
 
@@ -192,6 +209,28 @@ export class AlertEvaluatorService extends EventEmitter {
     this.leaderHeartbeatMs =
       opts.leaderHeartbeatMs ??
       (this.leaderLock ? Math.max(1000, Math.floor(this.leaderLock.ttlMs / 3)) : 0);
+    this.refreshIntervalMs = Math.max(
+      1_000,
+      opts.refreshIntervalMs ?? (Number(process.env['ALERT_EVALUATOR_REFRESH_MS']) || 60_000),
+    );
+    this.refreshDebounceMs = Math.max(0, opts.refreshDebounceMs ?? 250);
+  }
+
+  /**
+   * Notify the evaluator that the rule set may have changed (create /
+   * update / delete on the rule store). Coalesces bursts via a short
+   * debounce so 5 rapid creates rebuild the schedule once.
+   *
+   * No-op while not running or while we don't hold leadership — the
+   * periodic safety net or a future leader-claim will pick the change up.
+   */
+  notifyRuleChanged(): void {
+    if (!this.running || !this.isLeader) return;
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = undefined;
+      void this.refreshSchedule();
+    }, this.refreshDebounceMs);
   }
 
   /**
@@ -207,6 +246,20 @@ export class AlertEvaluatorService extends EventEmitter {
    */
   async start(): Promise<void> {
     if (this.running) return;
+    // Listener-before-emitter discipline: the boot sequence is supposed
+    // to subscribe the AutoInvestigationDispatcher BEFORE calling start().
+    // A missing listener at this point usually means a regression in
+    // alerts-boot wiring; warn loudly in dev/test so the race is caught
+    // pre-prod. Don't throw — operators may legitimately run without
+    // auto-investigation.
+    if (process.env['NODE_ENV'] !== 'production' && this.listenerCount('alert.fired') === 0) {
+      log.warn(
+        {},
+        'AlertEvaluatorService.start() called with zero alert.fired listeners. ' +
+        'If auto-investigation is intended to be enabled, the dispatcher must be ' +
+        'subscribed BEFORE start() to avoid losing the first tick\'s events.',
+      );
+    }
     this.running = true;
     if (this.leaderLock) {
       this.leaderTimer = setInterval(() => {
@@ -220,6 +273,12 @@ export class AlertEvaluatorService extends EventEmitter {
       this.isLeader = true;
       await this.refreshSchedule();
     }
+    // Periodic safety-net: re-pull rules every refreshIntervalMs so
+    // missed events / out-of-band DB writes still get scheduled.
+    this.refreshTimer = setInterval(() => {
+      if (!this.running || !this.isLeader) return;
+      void this.refreshSchedule();
+    }, this.refreshIntervalMs);
   }
 
   stop(): void {
@@ -227,6 +286,14 @@ export class AlertEvaluatorService extends EventEmitter {
     if (this.leaderTimer) {
       clearInterval(this.leaderTimer);
       this.leaderTimer = undefined;
+    }
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
     }
     for (const t of this.timers.values()) clearInterval(t);
     this.timers.clear();

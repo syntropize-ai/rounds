@@ -21,14 +21,14 @@ export async function handleDashboardCreate(
   const prompt = String(args.prompt ?? args.description ?? '');
   const datasourceId = typeof args.datasourceId === 'string' ? args.datasourceId.trim() : '';
   if (!datasourceId) {
-    return 'Error: "datasourceId" is required. Call datasources.list (or datasources.suggest) first to choose the primary datasource for this dashboard.';
+    return 'Error: "datasourceId" is required. Call datasources_list (or datasources_suggest) first to choose the primary datasource for this dashboard.';
   }
 
   let createdId = '';
   let observationText = '';
   await withToolEventBoundary(
     ctx.sendEvent,
-    'dashboard.create',
+    'dashboard_create',
     { title, datasourceId },
     `Creating dashboard: "${title}"`,
     async () => {
@@ -59,7 +59,7 @@ export async function handleDashboardCreate(
   );
   ctx.emitAgentEvent(
     ctx.makeAgentEvent('agent.tool_completed', {
-      tool: 'dashboard.create',
+      tool: 'dashboard_create',
       dashboardId: createdId,
       summary: observationText,
     }),
@@ -89,7 +89,7 @@ export async function handleDashboardClone(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'dashboard.clone',
+    'dashboard_clone',
     { sourceDashboardId, targetDatasourceId },
     `Cloning dashboard ${sourceDashboardId} → ${targetDatasourceId}`,
     async () => {
@@ -145,7 +145,7 @@ export async function handleDashboardClone(
       const observation = `Cloned "${source.title}" (${clonedPanels.length} panel${clonedPanels.length === 1 ? '' : 's'}) to datasource ${targetDatasourceId}. New dashboard id: ${created.id}.`;
       ctx.emitAgentEvent(
         ctx.makeAgentEvent('agent.tool_completed', {
-          tool: 'dashboard.clone',
+          tool: 'dashboard_clone',
           sourceDashboardId,
           newDashboardId: created.id,
           targetDatasourceId,
@@ -192,7 +192,7 @@ export async function handleDashboardAddPanels(
     return `Error: every query needs a datasourceId. Missing on: ${missing.join(', ')}. Pass datasourceId per query — the dashboard primary is NOT inherited automatically. For a single-source dashboard, set every query to the dashboard's primary; for compare panels, set per query.`;
   }
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard.add_panels', args: { count: panels.length }, displayText: `Adding ${panels.length} panel(s)` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_add_panels', args: { count: panels.length }, displayText: `Adding ${panels.length} panel(s)` });
 
   type CommonPanel = import('@agentic-obs/common').PanelConfig;
   // Panel sizing is NOT the agent's concern — every panel gets a viz-based
@@ -277,7 +277,7 @@ export async function handleDashboardAddPanels(
   }
 
   const observationText = `Added ${panelConfigs.length} panel(s): ${panelConfigs.map((p) => p.title).join(', ')}`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.add_panels', summary: observationText, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText, success: true });
   // Stream each new panel as a discrete `panel_added` event so the live
   // dashboard view (useDashboardChat) can splice it into the rendered grid
   // without a page refresh. Without these the chat hook only sees
@@ -285,7 +285,7 @@ export async function handleDashboardAddPanels(
   for (const panel of panelConfigs) {
     ctx.sendEvent({ type: 'panel_added', panel } as never);
   }
-  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard.add_panels', summary: observationText }));
+  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard_add_panels', summary: observationText }));
   return observationText;
 }
 
@@ -301,7 +301,7 @@ export async function handleDashboardSetTitle(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'dashboard.set_title',
+    'dashboard_set_title',
     { title },
     `Setting title: "${title}"`,
     async () => {
@@ -321,11 +321,11 @@ export async function handleDashboardRemovePanels(
   const panelIds = Array.isArray(args.panelIds) ? args.panelIds.map(String) : [];
   if (panelIds.length === 0) return 'Error: "panelIds" array is required.';
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard.remove_panels', args: { panelIds }, displayText: `Removing ${panelIds.length} panel(s)` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_remove_panels', args: { panelIds }, displayText: `Removing ${panelIds.length} panel(s)` });
   await ctx.actionExecutor.execute(dashboardId, [{ type: 'remove_panels', panelIds }]);
 
   const observationText = `Removed ${panelIds.length} panel(s).`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.remove_panels', summary: observationText, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
   // Stream `panel_removed` per id so the live view drops them without F5.
   for (const panelId of panelIds) {
     ctx.sendEvent({ type: 'panel_removed', panelId } as never);
@@ -359,11 +359,11 @@ export async function handleDashboardModifyPanel(
     }
   }
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard.modify_panel', args: { panelId, patch }, displayText: `Modifying panel ${panelId}` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_modify_panel', args: { panelId, patch }, displayText: `Modifying panel ${panelId}` });
   await ctx.actionExecutor.execute(dashboardId, [{ type: 'modify_panel', panelId, patch }]);
 
   const observationText = `Modified panel ${panelId}.`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.modify_panel', summary: observationText, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
   // Stream `panel_modified` so the live view applies the patch without F5.
   ctx.sendEvent({ type: 'panel_modified', panelId, patch } as never);
   return observationText;
@@ -386,11 +386,11 @@ export async function handleDashboardAddVariable(
   };
   if (!variable.name) return 'Error: variable "name" is required.';
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard.add_variable', args: { name: variable.name }, displayText: `Adding variable: $${variable.name}` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_add_variable', args: { name: variable.name }, displayText: `Adding variable: $${variable.name}` });
   await ctx.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }]);
 
   const observationText = `Added variable $${variable.name}.`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.add_variable', summary: observationText, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
   return observationText;
 }
 
@@ -416,7 +416,7 @@ export async function handleDashboardList(
   const limit = typeof args.limit === 'number' ? args.limit : 50;
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'dashboard.list',
+    tool: 'dashboard_list',
     args: filter ? { filter } : {},
     displayText: filter ? `Searching dashboards matching "${filter}"` : 'Listing dashboards',
   });
@@ -439,7 +439,7 @@ export async function handleDashboardList(
       const msg = filter
         ? `No dashboards match "${filter}" (${all.length} total).`
         : 'No dashboards found.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.list', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_list', summary: msg, success: true });
       return msg;
     }
     const lines = filtered.slice(0, limit).map((d) => {
@@ -450,14 +450,14 @@ export async function handleDashboardList(
     const summary = `${filtered.length} dashboard(s)${filter ? ` matching "${filter}"` : ''}:\n${lines.join('\n')}`;
     ctx.sendEvent({
       type: 'tool_result',
-      tool: 'dashboard.list',
+      tool: 'dashboard_list',
       summary: `${filtered.length} dashboards found`,
       success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to list dashboards: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard.list', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_list', summary: msg, success: false });
     return msg;
   }
 }

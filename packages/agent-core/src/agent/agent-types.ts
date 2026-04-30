@@ -5,33 +5,33 @@ export type AgentType =
 
 export type AgentToolName =
   // Dashboard lifecycle
-  | 'dashboard.create' | 'dashboard.list' | 'dashboard.clone'
+  | 'dashboard_create' | 'dashboard_list' | 'dashboard_clone'
   // Dashboard mutation primitives — model constructs panel configs directly
-  | 'dashboard.add_panels' | 'dashboard.remove_panels' | 'dashboard.modify_panel'
-  | 'dashboard.rearrange' | 'dashboard.add_variable' | 'dashboard.set_title'
+  | 'dashboard_add_panels' | 'dashboard_remove_panels' | 'dashboard_modify_panel'
+  | 'dashboard_rearrange' | 'dashboard_add_variable' | 'dashboard_set_title'
   // Folder tools (Wave 7)
-  | 'folder.create' | 'folder.list'
+  | 'folder_create' | 'folder_list'
   // Investigation lifecycle
-  | 'investigation.create' | 'investigation.list'
-  | 'investigation.add_section'
-  | 'investigation.complete'
+  | 'investigation_create' | 'investigation_list'
+  | 'investigation_add_section'
+  | 'investigation_complete'
   // Alert rule management — write is the unified create/update/delete tool
-  | 'alert_rule.write'
-  | 'alert_rule.list' | 'alert_rule.history'
+  | 'alert_rule_write'
+  | 'alert_rule_list' | 'alert_rule_history'
   // Navigation
   | 'navigate'
   // Source-agnostic metrics primitives (each requires `sourceId`)
-  | 'metrics.query' | 'metrics.range_query' | 'metrics.discover' | 'metrics.validate'
+  | 'metrics_query' | 'metrics_range_query' | 'metrics_discover' | 'metrics_validate'
   // Source-agnostic logs primitives (each requires `sourceId`)
-  | 'logs.query' | 'logs.labels' | 'logs.label_values'
+  | 'logs_query' | 'logs_labels' | 'logs_label_values'
   // Recent change events (deploys, config rollouts, incidents)
-  | 'changes.list_recent'
+  | 'changes_list_recent'
   // Kubernetes / Ops integrations
-  | 'ops.run_command'
+  | 'ops_run_command'
   // Datasource discovery (always-allowed, no RBAC)
-  | 'datasources.list' | 'datasources.suggest' | 'datasources.pin' | 'datasources.unpin'
+  | 'datasources_list' | 'datasources_suggest' | 'datasources_pin' | 'datasources_unpin'
   // Knowledge & utility
-  | 'web.search' | 'llm.complete'
+  | 'web_search' | 'llm.complete'
   | 'verifier.run'
   // Lazy tool loading (fetches deferred-tool schemas on demand)
   | 'tool_search';

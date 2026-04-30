@@ -13,7 +13,7 @@ describe('runBackgroundAgent', () => {
     };
     await expect(
       runBackgroundAgent(deps as any, { saToken: '', message: 'hi' }),
-    ).rejects.toThrow('saToken is required');
+    ).rejects.toThrow('saToken or identity is required');
     expect(deps.saTokens.validateAndLookup).not.toHaveBeenCalled();
   });
 

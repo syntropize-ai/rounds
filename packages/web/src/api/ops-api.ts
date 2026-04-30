@@ -2,6 +2,8 @@ import { apiClient } from './rest-api.js';
 
 export type OpsCapability = 'read' | 'propose' | 'execute_approved';
 
+export type OpsConnectorMode = 'in-cluster' | 'kubeconfig' | 'manual';
+
 export interface OpsConnector {
   id: string;
   name: string;
@@ -11,6 +13,7 @@ export interface OpsConnector {
     clusterName?: string;
     context?: string;
     credentialType?: 'kubeconfig' | 'token';
+    mode?: OpsConnectorMode;
   };
   allowedNamespaces: string[];
   capabilities: OpsCapability[];
@@ -32,10 +35,18 @@ export interface OpsConnectorInput {
     clusterName?: string;
     context?: string;
     credentialType?: 'kubeconfig' | 'token';
+    mode?: OpsConnectorMode;
   };
   allowedNamespaces: string[];
   secretRef?: string | null;
   secret?: string | null;
+  /** Manual-mode credentials. Backend synthesizes the kubeconfig from these. */
+  manual?: {
+    server: string;
+    token: string;
+    caData?: string;
+    insecureSkipTlsVerify?: boolean;
+  };
   capabilities: OpsCapability[];
 }
 
@@ -46,34 +57,76 @@ export function parseNamespaceList(value: string): string[] {
     .filter(Boolean);
 }
 
-export function buildOpsConnectorInput(value: {
+export interface OpsConnectorFormValue {
+  mode: OpsConnectorMode;
   name: string;
   environment: string;
-  apiServer: string;
   clusterName: string;
-  context: string;
   namespaces: string;
+  // kubeconfig-mode field
   kubeconfig: string;
+  context: string;
+  // manual-mode fields
+  apiServer: string;
   token: string;
-  secretRef: string;
+  caData: string;
+  insecureSkipTlsVerify: boolean;
   capabilities: Record<OpsCapability, boolean>;
-}): OpsConnectorInput {
-  const secret = value.kubeconfig.trim() || value.token.trim() || null;
-  const secretRef = value.secretRef.trim() || null;
-  return {
+}
+
+export function buildOpsConnectorInput(value: OpsConnectorFormValue): OpsConnectorInput {
+  const allowedNamespaces = parseNamespaceList(value.namespaces);
+  const capabilities = (Object.keys(value.capabilities) as OpsCapability[])
+    .filter((capability) => value.capabilities[capability]);
+  const baseConfig = {
+    clusterName: value.clusterName.trim() || undefined,
+    mode: value.mode,
+  };
+  const common = {
     name: value.name.trim(),
     environment: value.environment.trim() || null,
+    allowedNamespaces,
+    capabilities,
+  };
+
+  if (value.mode === 'in-cluster') {
+    return {
+      ...common,
+      config: { ...baseConfig },
+      secret: null,
+      secretRef: null,
+    };
+  }
+
+  if (value.mode === 'manual') {
+    return {
+      ...common,
+      config: {
+        ...baseConfig,
+        apiServer: value.apiServer.trim() || undefined,
+        credentialType: 'token',
+      },
+      manual: {
+        server: value.apiServer.trim(),
+        token: value.token.trim(),
+        caData: value.caData.trim() || undefined,
+        insecureSkipTlsVerify: value.insecureSkipTlsVerify || undefined,
+      },
+      secret: null,
+      secretRef: null,
+    };
+  }
+
+  // kubeconfig
+  return {
+    ...common,
     config: {
-      apiServer: value.apiServer.trim() || undefined,
-      clusterName: value.clusterName.trim() || undefined,
+      ...baseConfig,
       context: value.context.trim() || undefined,
-      credentialType: value.kubeconfig.trim() ? 'kubeconfig' : (value.token.trim() ? 'token' : undefined),
+      credentialType: 'kubeconfig',
     },
-    allowedNamespaces: parseNamespaceList(value.namespaces),
-    secretRef,
-    secret: secretRef ? null : secret,
-    capabilities: (Object.keys(value.capabilities) as OpsCapability[])
-      .filter((capability) => value.capabilities[capability]),
+    secret: value.kubeconfig.trim() || null,
+    secretRef: null,
   };
 }
 

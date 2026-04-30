@@ -39,64 +39,64 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
 }
 
 describe('TOOL_PERMS — per-builder scope derivation', () => {
-  it('dashboard.create builds a folder-scoped creator evaluator', () => {
-    const e = TOOL_PERMS['dashboard.create']!({ folderUid: 'prod' }, makeCtx());
+  it('dashboard_create builds a folder-scoped creator evaluator', () => {
+    const e = TOOL_PERMS['dashboard_create']!({ folderUid: 'prod' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'dashboards:create on folders:uid:prod',
     );
   });
 
-  it('dashboard.create defaults to folders:uid:* when folderUid missing', () => {
-    const e = TOOL_PERMS['dashboard.create']!({}, makeCtx());
+  it('dashboard_create defaults to folders:uid:* when folderUid missing', () => {
+    const e = TOOL_PERMS['dashboard_create']!({}, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'dashboards:create on folders:uid:*',
     );
   });
 
-  it('dashboard.modify_panel scopes to the specific dashboard UID', () => {
-    const e = TOOL_PERMS['dashboard.modify_panel']!({ dashboardId: 'abc' }, makeCtx());
+  it('dashboard_modify_panel scopes to the specific dashboard UID', () => {
+    const e = TOOL_PERMS['dashboard_modify_panel']!({ dashboardId: 'abc' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'dashboards:write on dashboards:uid:abc',
     );
   });
 
-  it('dashboard.list requires read on dashboards:* (per-row filter elsewhere)', () => {
-    const e = TOOL_PERMS['dashboard.list']!({}, makeCtx());
+  it('dashboard_list requires read on dashboards:* (per-row filter elsewhere)', () => {
+    const e = TOOL_PERMS['dashboard_list']!({}, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'dashboards:read on dashboards:*',
     );
   });
 
-  it('metrics.query maps sourceId to scope', () => {
-    const e = TOOL_PERMS['metrics.query']!({ sourceId: 'prom-prod', query: 'up' }, makeCtx());
+  it('metrics_query maps sourceId to scope', () => {
+    const e = TOOL_PERMS['metrics_query']!({ sourceId: 'prom-prod', query: 'up' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'datasources:query on datasources:uid:prom-prod',
     );
   });
 
-  it('metrics.query falls back to wildcard when sourceId is missing', () => {
-    const e = TOOL_PERMS['metrics.query']!({ query: 'up' }, makeCtx());
+  it('metrics_query falls back to wildcard when sourceId is missing', () => {
+    const e = TOOL_PERMS['metrics_query']!({ query: 'up' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'datasources:query on datasources:uid:*',
     );
   });
 
-  it('logs.query derives the datasource scope from sourceId', () => {
-    const e = TOOL_PERMS['logs.query']!({ sourceId: 'loki-prod' }, makeCtx());
+  it('logs_query derives the datasource scope from sourceId', () => {
+    const e = TOOL_PERMS['logs_query']!({ sourceId: 'loki-prod' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'datasources:query on datasources:uid:loki-prod',
     );
   });
 
-  it('changes.list_recent requires investigations:read', () => {
-    const e = TOOL_PERMS['changes.list_recent']!({}, makeCtx());
+  it('changes_list_recent requires investigations:read', () => {
+    const e = TOOL_PERMS['changes_list_recent']!({}, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'investigations:read on investigations:*',
     );
   });
 
-  it('ops.run_command is gated by connector scope', () => {
-    const e = TOOL_PERMS['ops.run_command']!(
+  it('ops_run_command is gated by connector scope', () => {
+    const e = TOOL_PERMS['ops_run_command']!(
       { connectorId: 'kube-prod', command: 'kubectl get pods', intent: 'read' },
       makeCtx(),
     );
@@ -105,15 +105,15 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('ops.run_command falls back to wildcard connector scope when connectorId is missing', () => {
-    const e = TOOL_PERMS['ops.run_command']!({}, makeCtx());
+  it('ops_run_command falls back to wildcard connector scope when connectorId is missing', () => {
+    const e = TOOL_PERMS['ops_run_command']!({}, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
       'any(ops.commands:run on ops.connectors:id:*, instance.config:write)',
     );
   });
 
-  it('investigation.add_section scopes to the investigation UID', () => {
-    const e = TOOL_PERMS['investigation.add_section']!(
+  it('investigation_add_section scopes to the investigation UID', () => {
+    const e = TOOL_PERMS['investigation_add_section']!(
       { investigationId: 'inv-7', type: 'text', content: 'x' },
       makeCtx(),
     );
@@ -122,8 +122,8 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('alert_rule.write op=create is folder-scoped', async () => {
-    const result = await TOOL_PERMS['alert_rule.write']!(
+  it('alert_rule_write op=create is folder-scoped', async () => {
+    const result = await TOOL_PERMS['alert_rule_write']!(
       { op: 'create', folderUid: 'rules' },
       makeCtx(),
     );
@@ -132,13 +132,13 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('alert_rule.write op=update looks up the rule to derive folderUid', async () => {
+  it('alert_rule_write op=update looks up the rule to derive folderUid', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
         getFolderUid: async () => 'ops',
       } as unknown as ActionContext['alertRuleStore'],
     });
-    const result = await TOOL_PERMS['alert_rule.write']!(
+    const result = await TOOL_PERMS['alert_rule_write']!(
       { op: 'update', ruleId: 'rule-1' },
       ctx,
     );
@@ -147,13 +147,13 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('alert_rule.write op=update falls back to wildcard when rule has no folderUid', async () => {
+  it('alert_rule_write op=update falls back to wildcard when rule has no folderUid', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
         getFolderUid: async () => null,
       } as unknown as ActionContext['alertRuleStore'],
     });
-    const result = await TOOL_PERMS['alert_rule.write']!(
+    const result = await TOOL_PERMS['alert_rule_write']!(
       { op: 'update', ruleId: 'rule-1' },
       ctx,
     );
@@ -162,13 +162,13 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('alert_rule.write op=delete uses the delete action with folder scope', async () => {
+  it('alert_rule_write op=delete uses the delete action with folder scope', async () => {
     const ctx = makeCtx({
       alertRuleStore: {
         getFolderUid: async () => 'ops',
       } as unknown as ActionContext['alertRuleStore'],
     });
-    const result = await TOOL_PERMS['alert_rule.write']!(
+    const result = await TOOL_PERMS['alert_rule_write']!(
       { op: 'delete', ruleId: 'rule-1' },
       ctx,
     );
@@ -177,8 +177,8 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('web.search requires chat:use with no scope', () => {
-    const e = TOOL_PERMS['web.search']!({}, makeCtx());
+  it('web_search requires chat:use with no scope', () => {
+    const e = TOOL_PERMS['web_search']!({}, makeCtx());
     expect((e as { string: () => string }).string()).toBe('chat:use');
   });
 });

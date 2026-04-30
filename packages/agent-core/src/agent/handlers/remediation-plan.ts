@@ -3,9 +3,9 @@
  *
  * Phase 4 of `docs/design/auto-remediation.md`. Two tools:
  *
- *   - remediation_plan.create        — primary plan (auto-creates a
+ *   - remediation_plan_create        — primary plan (auto-creates a
  *                                       plan-level ApprovalRequest)
- *   - remediation_plan.create_rescue — rescue/undo plan paired with a
+ *   - remediation_plan_create_rescue — rescue/undo plan paired with a
  *                                       primary; no ApprovalRequest is
  *                                       created until a human triggers it
  *                                       from the UI after a failure.
@@ -145,7 +145,7 @@ async function createPlanCommon(
     ? new Date(Date.now() + expiresInMs).toISOString()
     : undefined;
 
-  const tool = rescueForPlanId === null ? 'remediation_plan.create' : 'remediation_plan.create_rescue';
+  const tool = rescueForPlanId === null ? 'remediation_plan_create' : 'remediation_plan_create_rescue';
   const displayText = rescueForPlanId === null
     ? `Proposing remediation plan: ${summary.slice(0, 60)}`
     : `Proposing rescue plan for ${rescueForPlanId}: ${summary.slice(0, 60)}`;

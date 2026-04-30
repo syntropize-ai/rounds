@@ -82,16 +82,16 @@ function inferTargetType(tool: string): string | null {
   if (
     tool.startsWith('metrics.') ||
     tool.startsWith('logs.') ||
-    tool === 'datasources.list'
+    tool === 'datasources_list'
   ) {
     return 'datasource';
   }
-  if (tool === 'changes.list_recent') return 'changes';
+  if (tool === 'changes_list_recent') return 'changes';
   if (tool.startsWith('ops.')) return 'ops_connector';
   if (tool.startsWith('alert_rule.')) {
     return 'alert_rule';
   }
-  if (tool === 'web.search') return 'web_search';
+  if (tool === 'web_search') return 'web_search';
   return null;
 }
 
@@ -99,19 +99,19 @@ function inferTargetId(tool: string, args: Record<string, unknown>): string | nu
   if (tool.startsWith('dashboard.')) return pickString(args.dashboardId);
   if (tool.startsWith('investigation.')) return pickString(args.investigationId);
   if (tool.startsWith('folder.')) return pickString(args.folderUid ?? args.parentUid);
-  if (tool.startsWith('metrics.') || tool.startsWith('logs.') || tool === 'changes.list_recent') {
+  if (tool.startsWith('metrics.') || tool.startsWith('logs.') || tool === 'changes_list_recent') {
     return pickString(args.sourceId ?? args.datasourceId ?? args.datasourceUid);
   }
   if (tool.startsWith('ops.')) return pickString(args.connectorId);
-  // alert_rule.write derives target id from `op`: create writes into a folder
+  // alert_rule_write derives target id from `op`: create writes into a folder
   // (folderUid), update/delete operate on a specific rule (ruleId).
-  if (tool === 'alert_rule.write') {
+  if (tool === 'alert_rule_write') {
     const op = typeof args.op === 'string' ? args.op : '';
     if (op === 'create') return pickString(args.folderUid);
     if (op === 'update' || op === 'delete') return pickString(args.ruleId);
     return null;
   }
-  if (tool === 'alert_rule.history') {
+  if (tool === 'alert_rule_history') {
     return pickString(args.ruleId);
   }
   return null;

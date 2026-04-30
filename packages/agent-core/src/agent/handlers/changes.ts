@@ -16,14 +16,14 @@ export async function handleChangesListRecent(
     sourceId = firstChange?.id;
   }
   if (!sourceId) {
-    const msg = 'No change-event datasource configured. Call datasources.list to see available sources.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: false });
+    const msg = 'No change-event datasource configured. Call datasources_list to see available sources.';
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
     return msg;
   }
   const adapter = ctx.adapters.changes(sourceId);
   if (!adapter) {
-    const msg = `Error: unknown changes datasource '${sourceId}'. Call datasources.list to see available sources.`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: false });
+    const msg = `Error: unknown changes datasource '${sourceId}'. Call datasources_list to see available sources.`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
     return msg;
   }
 
@@ -34,7 +34,7 @@ export async function handleChangesListRecent(
 
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'changes.list_recent',
+    tool: 'changes_list_recent',
     args: { sourceId, service, window_minutes: windowMinutes },
     displayText: service ? `Recent changes for ${service} (last ${windowMinutes}m)` : `Recent changes (last ${windowMinutes}m)`,
   });
@@ -48,18 +48,18 @@ export async function handleChangesListRecent(
       const msg = service
         ? `No changes for ${service} in the last ${windowMinutes} minute(s).`
         : `No changes in the last ${windowMinutes} minute(s).`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: true });
       return msg;
     }
     const bullets = records.slice(0, 30).map((r) =>
       `- [${r.at}] ${r.service} (${r.kind}): ${r.summary}`,
     );
     const summary = `${records.length} change(s)${service ? ` for ${service}` : ''} in last ${windowMinutes}m:\n${bullets.join('\n')}${records.length > 30 ? `\n... and ${records.length - 30} more` : ''}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: `${records.length} changes`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: `${records.length} changes`, success: true });
     return summary;
   } catch (err) {
     const msg = `Failed to list recent changes: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes.list_recent', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
     return msg;
   }
 }

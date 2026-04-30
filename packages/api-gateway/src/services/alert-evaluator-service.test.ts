@@ -302,6 +302,30 @@ describe('AlertEvaluatorService.tickAll + start/stop', () => {
     expect((await repo.findById(r2.id))?.state).toBe('normal');
   });
 
+  it('notifyRuleChanged() debounces and rebuilds the schedule', async () => {
+    const db = createTestDb();
+    const repo = new SqliteAlertRuleRepository(db);
+    const svc = new AlertEvaluatorService({
+      rules: repo,
+      query: async () => null,
+      clock: () => new Date(),
+      refreshDebounceMs: 5,
+      refreshIntervalMs: 60_000,
+    });
+    const refreshSpy = vi.spyOn(svc, 'refreshSchedule');
+    await svc.start(); // initial refreshSchedule call counted
+    refreshSpy.mockClear();
+    // 5 rapid notifications coalesce to a single rebuild.
+    svc.notifyRuleChanged();
+    svc.notifyRuleChanged();
+    svc.notifyRuleChanged();
+    svc.notifyRuleChanged();
+    svc.notifyRuleChanged();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    svc.stop();
+  });
+
   it('start() registers per-rule timers; stop() clears them', async () => {
     const db = createTestDb();
     const repo = new SqliteAlertRuleRepository(db);

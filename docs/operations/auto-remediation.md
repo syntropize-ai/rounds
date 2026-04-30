@@ -46,16 +46,23 @@ the auto-investigation runs.
 1. Sign in as a server admin.
 2. **Admin → Service accounts**.
 3. Find the `openobs` row (display name *OpenObs Auto-Investigation*).
-4. Click **Create token**, copy the raw `openobs_sa_...` value.
-5. Set the env var on the api-gateway:
-   ```
-   AUTO_INVESTIGATION_SA_TOKEN=openobs_sa_...
-   ```
-6. Restart the gateway.
+4. Click **Create token**.
+
+That's it — no restart required. The dispatcher reads the live api_key
+table on each fired alert, picks up the freshly minted token
+automatically, and uses the SA's identity for the run. Revoking the
+token causes subsequent fires to skip with a warning until you mint a
+new one.
 
 The seeded SA gets the `Editor` org role. Tokens are minted through the
 existing API-key path so audit-log rows attribute the key creation to
 the admin who clicked.
+
+> **Advanced override.** A boot-time `AUTO_INVESTIGATION_SA_TOKEN` env
+> var is still honoured for operators who want to pin a specific token
+> rather than read the table. When set, every run validates that one
+> plaintext token through `ApiKeyService.validateAndLookup`. Leave it
+> unset for the standard flow.
 
 ### 2. RBAC for plan approvers
 
@@ -85,7 +92,8 @@ Three independent gates. All default to enabled except where noted.
 |---|---|---|
 | `ALERT_EVALUATOR_ENABLED` | `true` | Periodic alert evaluation does not run; alert rules sit in `normal` regardless of metric values. |
 | `AUTO_INVESTIGATION_ENABLED` | `true` | Alerts still fire; nothing subscribes — no auto-investigation. Operators must investigate manually. |
-| `AUTO_INVESTIGATION_SA_TOKEN` | _unset_ | Required for the dispatcher. Unset = dispatcher does not subscribe (logged as a warning at boot). |
+| `AUTO_INVESTIGATION_SA_TOKEN` | _unset_ | Advanced override only. When set, the dispatcher uses this plaintext token for every run instead of reading the live api_key table. Leave unset for the standard flow. |
+| `ALERT_EVALUATOR_REFRESH_MS` | `60000` | Periodic safety-net cadence for re-pulling the rule list. Event-driven hot-reload picks up most changes immediately; this catches missed events. |
 | `PLAN_APPROVAL_TTL_MS` | `86_400_000` (24h) | TTL stamped on each plan at creation. Pending plans past TTL flip to `expired`. |
 | `PLAN_EXPIRY_SWEEP_MS` | `60_000` | How often the executor runs the expiry sweeper. |
 
@@ -188,10 +196,17 @@ the step's `paramsJson.connectorId`.
 Boot logs show this when:
 
 - `AUTO_INVESTIGATION_ENABLED=false`, or
-- `AUTO_INVESTIGATION_SA_TOKEN` is unset, or
-- The api-gateway boot didn't pass background-runner deps (regression).
+- The api-gateway boot didn't pass background-runner deps (regression),
+  or auth repos for the SA-identity resolver.
 
 Each is logged with a distinct line — read the log to tell which.
+
+### "no live service-account token found for auto-investigation"
+
+The dispatcher subscribed but the operator hasn't minted an SA token
+yet, or every existing token for the `openobs` SA is revoked or expired.
+Mint a new token under **Admin → Service accounts**; the next firing
+alert will use it. The warning is rate-limited to once per minute.
 
 ### Alerts evaluate but never fire
 

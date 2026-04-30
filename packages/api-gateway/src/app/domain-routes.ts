@@ -66,6 +66,14 @@ export interface MountDomainRoutesDeps {
   sharedFolderRepo: IFolderRepository;
   userRateLimiter: RequestHandler;
   queryRateLimiter: RequestHandler;
+  /**
+   * Shared rule-store wrapper. When the caller (server.ts) lifts the
+   * EventEmittingAlertRuleRepository up so the alert evaluator and the
+   * domain routes share one event bus, it passes the wrapper here.
+   * Otherwise we wrap locally — listeners in the local wrapper will not
+   * see writes routed through any other wrapper.
+   */
+  eventAlertRuleStore?: EventEmittingAlertRuleRepository;
 }
 
 export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
@@ -137,7 +145,8 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   // surface mutations on the shared pub/sub bus.
   const eventFeedStore = new EventEmittingFeedRepository(repos.feedItems);
   const eventApprovalStore = new EventEmittingApprovalRepository(repos.approvals);
-  const eventAlertRuleStore = new EventEmittingAlertRuleRepository(repos.alertRules);
+  const eventAlertRuleStore = deps.eventAlertRuleStore
+    ?? new EventEmittingAlertRuleRepository(repos.alertRules);
 
   app.use('/api/investigations', createInvestigationRouter({
     store: repos.investigations,

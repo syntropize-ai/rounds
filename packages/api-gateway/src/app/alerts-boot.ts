@@ -23,7 +23,11 @@ import {
   AlertEvaluatorService,
   type MetricQueryFn,
 } from '../services/alert-evaluator-service.js';
-import { AutoInvestigationDispatcher } from '../services/auto-investigation-dispatcher.js';
+import {
+  AutoInvestigationDispatcher,
+  buildSaIdentityResolverFromRepos,
+  type SaIdentityResolver,
+} from '../services/auto-investigation-dispatcher.js';
 import { LeaderLock } from '../services/leader-lock.js';
 import {
   resolvePrometheusDatasource,
@@ -31,6 +35,11 @@ import {
 } from '../services/dashboard-service.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
+import type {
+  IApiKeyRepository,
+  IOrgUserRepository,
+  IUserRepository,
+} from '@agentic-obs/common';
 
 const log = createLogger('alerts-boot');
 
@@ -86,12 +95,37 @@ export interface MountAlertsDeps {
   rules: IAlertRuleRepository;
   setupConfig: SetupConfigService;
   /**
-   * BackgroundRunnerDeps — when provided AND `AUTO_INVESTIGATION_SA_TOKEN`
-   * is set in env AND `AUTO_INVESTIGATION_ENABLED` is not 'false', the
-   * AutoInvestigationDispatcher is started + subscribed to the
-   * evaluator's `alert.fired` emitter.
+   * BackgroundRunnerDeps — when provided AND `AUTO_INVESTIGATION_ENABLED`
+   * is not 'false', the AutoInvestigationDispatcher is started +
+   * subscribed to the evaluator's `alert.fired` emitter. The dispatcher
+   * resolves a fresh SA identity per event, so a token minted in the UI
+   * after boot is picked up without restarting.
    */
   runner?: BackgroundRunnerDeps;
+  /**
+   * Auth repositories used by the dispatcher to resolve the `openobs` SA
+   * identity per `alert.fired` event. Without these the dispatcher
+   * cannot run; if absent the dispatcher is skipped.
+   */
+  authRepos?: {
+    users: IUserRepository;
+    orgUsers: IOrgUserRepository;
+    apiKeys: IApiKeyRepository;
+  };
+  /**
+   * Override resolver for the SA identity. Used by tests; production
+   * callers leave this unset and let alerts-boot build the default
+   * resolver from `authRepos`.
+   */
+  resolveSaIdentity?: SaIdentityResolver;
+  /**
+   * Optional registrar for rule-store change events. Called once at boot
+   * with a callback that the underlying store should invoke on every
+   * create/update/delete. Wired via the {@link
+   * import('@agentic-obs/data-layer').EventEmittingAlertRuleRepository}
+   * wrapper. The evaluator coalesces bursts through a debounce.
+   */
+  subscribeRuleChanges?: (cb: () => void) => void;
   /**
    * QueryClient used to back the leader lock. When provided AND
    * `ALERT_EVALUATOR_HA=true`, the evaluator only runs while it holds
@@ -133,41 +167,85 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
     );
   }
 
+  // Construct the evaluator BEFORE wiring listeners. `start()` is held off
+  // until the dispatcher (if any) has subscribed — see the listener-
+  // before-emitter discipline below.
   const evaluator = new AlertEvaluatorService({
     rules: deps.rules,
     query: buildMetricQueryFn(deps.setupConfig),
     ...(leaderLock ? { leaderLock } : {}),
   });
-  await evaluator.start();
-  log.info('alert evaluator started');
 
-  // Optionally subscribe the AutoInvestigationDispatcher (P8) to the
-  // evaluator's alert.fired stream. Three independent gates so an
-  // operator can turn pieces on/off without rebuilding:
+  // Wire the AutoInvestigationDispatcher (P8) to the evaluator's
+  // alert.fired stream BEFORE starting the evaluator, so a tick that
+  // fires on the first scheduling pass can't race past the subscription.
+  // Gates:
   //   - AUTO_INVESTIGATION_ENABLED (default true)
-  //   - AUTO_INVESTIGATION_SA_TOKEN (no default; service-account token)
-  //   - deps.runner (passed in by server.ts wiring)
+  //   - deps.runner provided by server.ts
+  //   - either deps.authRepos (production) or deps.resolveSaIdentity
+  //     (tests) so we can resolve an SA identity per event.
+  // The legacy AUTO_INVESTIGATION_SA_TOKEN env var is honoured as an
+  // advanced override — when set, every run uses that plaintext token
+  // through the existing validateAndLookup path. Operators on the new
+  // path do not need to set it; the dispatcher reads the live api_key
+  // table on each fire.
   let dispatcher: AutoInvestigationDispatcher | null = null;
   const dispatcherOn = envFlag('AUTO_INVESTIGATION_ENABLED', true);
-  const saToken = process.env['AUTO_INVESTIGATION_SA_TOKEN'];
+  const envOverrideToken = process.env['AUTO_INVESTIGATION_SA_TOKEN'];
   if (!dispatcherOn) {
     log.info('auto-investigation dispatcher disabled by AUTO_INVESTIGATION_ENABLED=false');
-  } else if (!saToken) {
-    log.warn(
-      'AUTO_INVESTIGATION_SA_TOKEN unset — auto-investigation dispatcher NOT started. ' +
-      'Create a service account, generate a token, and set the env var to enable.',
-    );
   } else if (!deps.runner) {
     log.warn('background-runner deps not provided — auto-investigation dispatcher NOT started');
   } else {
-    dispatcher = new AutoInvestigationDispatcher({
-      alertEvents: evaluator,
-      runner: deps.runner,
-      saToken,
-    });
-    dispatcher.subscribe();
-    log.info('auto-investigation dispatcher subscribed to alert.fired');
+    let resolveSaIdentity: SaIdentityResolver | undefined = deps.resolveSaIdentity;
+    if (!resolveSaIdentity && envOverrideToken && deps.runner) {
+      // Override path: validate the env token through ApiKeyService each
+      // fire so a revoked token starts to skip without a restart.
+      const runner = deps.runner;
+      resolveSaIdentity = async () => {
+        const lookup = await runner.saTokens.validateAndLookup(envOverrideToken);
+        if (!lookup) return null;
+        return {
+          userId: lookup.user.id,
+          orgId: lookup.orgId,
+          orgRole: lookup.role,
+          isServerAdmin: lookup.isServerAdmin,
+          authenticatedBy: 'api_key',
+          serviceAccountId: lookup.serviceAccountId ?? undefined,
+        };
+      };
+    }
+    if (!resolveSaIdentity && deps.authRepos) {
+      resolveSaIdentity = buildSaIdentityResolverFromRepos(deps.authRepos);
+    }
+    if (!resolveSaIdentity) {
+      log.warn(
+        'auth repos not provided to startAlerts — auto-investigation dispatcher NOT started. ' +
+        'Pass `authRepos` so the dispatcher can resolve the openobs SA identity per event.',
+      );
+    } else {
+      dispatcher = new AutoInvestigationDispatcher({
+        alertEvents: evaluator,
+        runner: deps.runner,
+        resolveSaIdentity,
+      });
+      dispatcher.subscribe();
+      log.info('auto-investigation dispatcher subscribed to alert.fired');
+    }
   }
+
+  // Hot-reload: when the rule store reports a change, ask the evaluator
+  // to refresh its schedule. The evaluator debounces, so a bulk import
+  // collapses to one rebuild.
+  if (deps.subscribeRuleChanges) {
+    deps.subscribeRuleChanges(() => {
+      evaluator.notifyRuleChanged();
+    });
+  }
+
+  // Listener wiring is done — now safe to start the evaluator.
+  await evaluator.start();
+  log.info('alert evaluator started');
 
   return {
     evaluator,

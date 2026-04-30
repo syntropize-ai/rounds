@@ -46,6 +46,7 @@ describe('startAlerts', () => {
   const orig = { ...process.env };
   beforeEach(() => {
     process.env = { ...orig };
+    delete process.env['AUTO_INVESTIGATION_SA_TOKEN'];
   });
 
   it('returns null evaluator when ALERT_EVALUATOR_ENABLED=false', async () => {
@@ -56,17 +57,7 @@ describe('startAlerts', () => {
     handle.stop();
   });
 
-  it('starts evaluator but skips dispatcher when SA token unset', async () => {
-    delete process.env['AUTO_INVESTIGATION_SA_TOKEN'];
-    const handle = await startAlerts({ rules: fakeRepo(), setupConfig: fakeSetupConfig() });
-    expect(handle.evaluator).not.toBeNull();
-    expect(handle.dispatcher).toBeNull();
-    handle.stop();
-  });
-
-  it('skips dispatcher when AUTO_INVESTIGATION_ENABLED=false even with token + runner', async () => {
-    process.env['AUTO_INVESTIGATION_SA_TOKEN'] = 'openobs_sa_x';
-    process.env['AUTO_INVESTIGATION_ENABLED'] = 'false';
+  it('starts evaluator but skips dispatcher when no resolver/authRepos provided', async () => {
     const handle = await startAlerts({
       rules: fakeRepo(),
       setupConfig: fakeSetupConfig(),
@@ -80,12 +71,28 @@ describe('startAlerts', () => {
     handle.stop();
   });
 
-  it('starts dispatcher when token + runner + flag are all set', async () => {
-    process.env['AUTO_INVESTIGATION_SA_TOKEN'] = 'openobs_sa_x';
+  it('skips dispatcher when AUTO_INVESTIGATION_ENABLED=false even with resolver + runner', async () => {
+    process.env['AUTO_INVESTIGATION_ENABLED'] = 'false';
+    const handle = await startAlerts({
+      rules: fakeRepo(),
+      setupConfig: fakeSetupConfig(),
+      resolveSaIdentity: async () => null,
+      runner: {
+        saTokens: { validateAndLookup: async () => null },
+        makeOrchestrator: () => ({}) as never,
+      },
+    });
+    expect(handle.evaluator).not.toBeNull();
+    expect(handle.dispatcher).toBeNull();
+    handle.stop();
+  });
+
+  it('starts dispatcher when resolver + runner + flag are all set', async () => {
     delete process.env['AUTO_INVESTIGATION_ENABLED'];
     const handle = await startAlerts({
       rules: fakeRepo(),
       setupConfig: fakeSetupConfig(),
+      resolveSaIdentity: async () => null,
       runner: {
         saTokens: { validateAndLookup: async () => null },
         makeOrchestrator: () => ({}) as never,

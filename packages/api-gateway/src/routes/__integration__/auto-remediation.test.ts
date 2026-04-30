@@ -301,16 +301,24 @@ describe('E2E: plan flow (approve -> execute -> audit)', () => {
 // ---------------------------------------------------------------------------
 
 describe('E2E: alert dispatcher (alert.fired -> background spawn)', () => {
-  it('subscribes to alert.fired and spawns the agent with the seeded SA token + composed question', async () => {
+  it('subscribes to alert.fired and spawns the agent with the resolved SA identity + composed question', async () => {
     const events = new EventEmitter();
     const spawn = vi.fn().mockResolvedValue('investigation done');
+    const identity = {
+      userId: 'sa-1',
+      orgId: 'org_main',
+      orgRole: 'Editor' as const,
+      isServerAdmin: false,
+      authenticatedBy: 'api_key' as const,
+      serviceAccountId: 'sa-1',
+    };
     const d = new AutoInvestigationDispatcher({
       alertEvents: events,
       runner: {
         saTokens: { validateAndLookup: async () => null },
         makeOrchestrator: () => ({}) as never,
       },
-      saToken: 'openobs_sa_test',
+      resolveSaIdentity: async () => identity,
       spawnAgent: spawn as unknown as typeof import('@agentic-obs/agent-core').runBackgroundAgent,
     });
     d.subscribe();
@@ -330,8 +338,8 @@ describe('E2E: alert dispatcher (alert.fired -> background spawn)', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(spawn).toHaveBeenCalledTimes(1);
-    const args = spawn.mock.calls[0]?.[1] as { saToken: string; message: string };
-    expect(args.saToken).toBe('openobs_sa_test');
+    const args = spawn.mock.calls[0]?.[1] as { identity: { serviceAccountId: string }; message: string };
+    expect(args.identity.serviceAccountId).toBe('sa-1');
     expect(args.message).toBe(buildAlertQuestion(payload));
 
     // Idempotent: same ruleId fires again within the dedup window -> no

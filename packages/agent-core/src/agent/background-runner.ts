@@ -33,8 +33,19 @@ export interface ISaTokenResolver {
 export interface BackgroundAgentRunInput {
   /** Which specialized agent type to start. Defaults to 'orchestrator'. */
   agentType?: AgentType;
-  /** Raw SA token (`openobs_sa_...`). Required. */
-  saToken: string;
+  /**
+   * Raw SA token (`openobs_sa_...`). One of `saToken` or `identity` must
+   * be provided. When `saToken` is supplied it is resolved through
+   * `deps.saTokens.validateAndLookup`.
+   */
+  saToken?: string;
+  /**
+   * Pre-resolved identity. Used when the caller already has a trusted
+   * identity (e.g. an in-process dispatcher that resolved the SA from the
+   * user table) and so does not need a plaintext token round-trip. When
+   * `identity` is supplied the SA-token resolver is skipped entirely.
+   */
+  identity?: Identity;
   /** The message the agent should act on. */
   message: string;
   /** Optional dashboard scoping. */
@@ -72,26 +83,29 @@ export async function runBackgroundAgent(
   deps: BackgroundRunnerDeps,
   input: BackgroundAgentRunInput,
 ): Promise<string> {
-  if (!input.saToken || typeof input.saToken !== 'string') {
-    throw new Error('runBackgroundAgent: saToken is required');
+  let identity: Identity;
+  if (input.identity) {
+    identity = input.identity;
+  } else {
+    if (!input.saToken || typeof input.saToken !== 'string') {
+      throw new Error('runBackgroundAgent: saToken or identity is required');
+    }
+    const lookup = await deps.saTokens.validateAndLookup(input.saToken);
+    if (!lookup) {
+      throw new Error(
+        'runBackgroundAgent: SA token failed to resolve — revoked, expired, or not found. ' +
+          'Rotate the operator token and retry.',
+      );
+    }
+    identity = {
+      userId: lookup.user.id,
+      orgId: lookup.orgId,
+      orgRole: lookup.role,
+      isServerAdmin: lookup.isServerAdmin,
+      authenticatedBy: 'api_key',
+      serviceAccountId: lookup.serviceAccountId ?? undefined,
+    };
   }
-
-  const lookup = await deps.saTokens.validateAndLookup(input.saToken);
-  if (!lookup) {
-    throw new Error(
-      'runBackgroundAgent: SA token failed to resolve — revoked, expired, or not found. ' +
-        'Rotate the operator token and retry.',
-    );
-  }
-
-  const identity: Identity = {
-    userId: lookup.user.id,
-    orgId: lookup.orgId,
-    orgRole: lookup.role,
-    isServerAdmin: lookup.isServerAdmin,
-    authenticatedBy: 'api_key',
-    serviceAccountId: lookup.serviceAccountId ?? undefined,
-  };
 
   const agent = await deps.makeOrchestrator({
     identity,

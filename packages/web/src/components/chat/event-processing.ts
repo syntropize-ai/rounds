@@ -117,8 +117,7 @@ export const USER_VISIBLE_TOOLS = new Set([
   'alert_rule_write',
   'alert_rule_list',
   'alert_rule_history',
-  // Web search primitive (both name styles)
-  'web_search',
+  // Web search primitive
   'web_search',
   // Ops connector — single entrypoint for kubectl/cluster commands
   'ops_run_command',
@@ -166,7 +165,7 @@ export function phaseOf(tool: string): string {
   if (tool === 'alert_rule_write') return 'alert_rule';
 
   // Web search
-  if (tool === 'web_search' || tool === 'web_search') return 'research';
+  if (tool === 'web_search') return 'research';
 
   // Ops / cluster commands
   if (tool === 'ops_run_command') return 'ops';
@@ -234,8 +233,6 @@ export const TOOL_LABELS: Record<string, string> = {
   'alert_rule_write': 'Writing alert rule',
   'alert_rule_list': 'Listing alerts',
   'alert_rule_history': 'Checking alert history',
-  // Web search (dotted variant)
-  'web_search': 'Researching',
   // Ops connector (kubectl etc.)
   'ops_run_command': 'Running ops command',
   // Lazy tool loading

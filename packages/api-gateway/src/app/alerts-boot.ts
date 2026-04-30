@@ -24,6 +24,7 @@ import {
   type MetricQueryFn,
 } from '../services/alert-evaluator-service.js';
 import { AutoInvestigationDispatcher } from '../services/auto-investigation-dispatcher.js';
+import { LeaderLock } from '../services/leader-lock.js';
 import {
   resolvePrometheusDatasource,
   type PrometheusDatasource,
@@ -91,6 +92,13 @@ export interface MountAlertsDeps {
    * evaluator's `alert.fired` emitter.
    */
   runner?: BackgroundRunnerDeps;
+  /**
+   * QueryClient used to back the leader lock. When provided AND
+   * `ALERT_EVALUATOR_HA=true`, the evaluator only runs while it holds
+   * the lock. Multi-replica deploys should pass this so two api-gateway
+   * pods don't both fire alerts.
+   */
+  db?: import('@agentic-obs/data-layer').QueryClient;
 }
 
 /**
@@ -109,9 +117,26 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
     return { evaluator: null, dispatcher: null, stop: () => undefined };
   }
 
+  let leaderLock: LeaderLock | undefined;
+  if (envFlag('ALERT_EVALUATOR_HA', false) && deps.db) {
+    const ttlMs = Number(process.env['ALERT_EVALUATOR_LEADER_TTL_MS']) || 30_000;
+    leaderLock = new LeaderLock({
+      db: deps.db,
+      key: 'alert_evaluator.leader',
+      ttlMs,
+    });
+    log.info({ ttlMs }, 'alert evaluator HA mode: leader lock enabled');
+  } else if (envFlag('ALERT_EVALUATOR_HA', false) && !deps.db) {
+    log.warn(
+      'ALERT_EVALUATOR_HA=true but no db handle wired into startAlerts; running without leader lock. ' +
+      'Multi-replica deploys will double-fire alerts in this state.',
+    );
+  }
+
   const evaluator = new AlertEvaluatorService({
     rules: deps.rules,
     query: buildMetricQueryFn(deps.setupConfig),
+    ...(leaderLock ? { leaderLock } : {}),
   });
   await evaluator.start();
   log.info('alert evaluator started');

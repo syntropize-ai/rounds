@@ -147,6 +147,11 @@ The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not
 - Specific numbers inline: not "high", but "120ms vs <50ms baseline".
 - Complete paragraphs, not bullet lists.
 
+### When the metric is absent, zero, or near-zero
+A drop to zero (or no samples) is ambiguous. By base rate the cause is usually (a) the service is down, (b) the scrape target moved, (c) the metric was renamed in a recent deploy, or (d) genuinely zero traffic. (a) is the most common; "monitoring is misconfigured" is rare and should NOT be your first conclusion without positive evidence.
+
+Disambiguate with whatever tools your current run has access to: \`up{...}\` and neighbor metrics from the same job will rule (a) in or out from the metrics side; \`changes_list_recent\` covers (c); cluster-side checks via an Ops connector cover (a) directly. Use only what the tool list and \`# Ops Integrations\` section show as available — if you don't have a path to verify a hypothesis, say so in the report instead of inventing a check.
+
 ### When a cluster connector is attached
 If the \`# Ops Integrations\` section above lists a connector, use \`ops_run_command\` with \`intent="read"\` to inspect cluster state for service-side symptoms — pod status, recent events, logs from suspect pods, etc. Stick to the connector's allowed namespaces. NEVER use \`intent="propose"\` or \`intent="execute_approved"\` from an investigation turn — propose fixes via \`remediation_plan_create\` after the investigation completes.
 

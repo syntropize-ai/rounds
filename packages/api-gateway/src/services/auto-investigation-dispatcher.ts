@@ -34,8 +34,14 @@ import type { AlertFiredPayload } from './alert-evaluator-service.js';
  * the dispatcher decoupled from the bundle's exact intersection type.
  */
 export interface DispatcherInvestigationStore {
-  findByWorkspace(workspaceId: string): Promise<Investigation[]>;
-  updateStatus(id: string, status: InvestigationStatus): Promise<Investigation | null>;
+  // Sync-or-async returns — repository signatures use MaybeAsync, which
+  // resolves identically through `await` regardless of whether the
+  // underlying call is synchronous (sqlite) or async (postgres).
+  findByWorkspace(workspaceId: string): Investigation[] | Promise<Investigation[]>;
+  updateStatus(
+    id: string,
+    status: InvestigationStatus,
+  ): Investigation | null | undefined | Promise<Investigation | null | undefined>;
 }
 
 /**
@@ -43,7 +49,10 @@ export interface DispatcherInvestigationStore {
  * back to its alert rule.
  */
 export interface DispatcherAlertRuleStore {
-  update(id: string, partial: { investigationId?: string }): Promise<unknown>;
+  // Sync-or-async return — matches both sqlite and postgres repository
+  // signatures via the data-layer's MaybeAsync. We don't consume the
+  // result, only `await` it.
+  update(id: string, partial: { investigationId?: string }): unknown;
 }
 
 const log = createLogger('auto-investigation');

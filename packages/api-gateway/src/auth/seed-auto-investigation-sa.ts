@@ -26,6 +26,15 @@ import type {
   IUserRepository,
 } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
+import type { RoleService } from '../services/role-service.js';
+
+/**
+ * Fixed role uid that bundles OpsConnectorsRead + OpsCommandsRun on
+ * `ops.connectors:*`. The role's `name` is `fixed:ops.commands:runner`;
+ * `RoleService.assignRoleToUser` looks roles up by `uid`, which is the
+ * `:`/`.`-replaced form (see fixed-roles-def.ts `def()`).
+ */
+const OPS_COMMANDS_RUNNER_ROLE_UID = 'fixed_ops_commands_runner';
 
 const log = createLogger('seed-auto-investigation-sa');
 
@@ -37,6 +46,13 @@ export const AUTO_INVESTIGATION_SA_EMAIL = `${AUTO_INVESTIGATION_SA_LOGIN}@servi
 export interface SeedAutoInvestigationSaDeps {
   users: IUserRepository;
   orgUsers: IOrgUserRepository;
+  /**
+   * Optional role service used to assign the `fixed:ops.commands:runner`
+   * role to the SA so the ReAct loop's `ops_run_command` (kubectl) path is
+   * permitted. When omitted, the fixed-role assignment is skipped — useful
+   * for tests that don't care about RBAC wiring.
+   */
+  roles?: RoleService;
 }
 
 export interface SeedAutoInvestigationSaOptions {
@@ -54,6 +70,17 @@ export interface SeedAutoInvestigationSaOptions {
  * matrix grants `plans:approve`, there's no path for the SA to use it.
  * `plans:auto_edit` is NOT granted by Editor (per #99), so the SA
  * cannot approve plans in auto-edit mode either.
+ *
+ * Editor does NOT grant `ACTIONS.OpsCommandsRun`, so the ReAct loop's
+ * `ops_run_command` (kubectl get/describe) path is denied by the
+ * permission gate in agent-core/tool-permissions.ts. To unblock that
+ * path the SA is additionally assigned the fixed role
+ * `fixed:ops.commands:runner` (defined in
+ * packages/common/src/rbac/fixed-roles-def.ts as OPS_COMMANDS_RUNNER),
+ * which bundles `ops.connectors:read` + `ops.commands:run` on
+ * `ops.connectors:*`. The assignment is idempotent and runs every boot
+ * regardless of whether the SA user already exists, so existing
+ * installs upgrade automatically.
  */
 export async function seedAutoInvestigationSaIfNeeded(
   deps: SeedAutoInvestigationSaDeps,
@@ -62,6 +89,7 @@ export async function seedAutoInvestigationSaIfNeeded(
   const orgId = opts.orgId ?? 'org_main';
 
   const existing = await deps.users.findByLogin(AUTO_INVESTIGATION_SA_LOGIN);
+  let userId: string;
   if (existing) {
     if (!existing.isServiceAccount) {
       log.warn(
@@ -78,20 +106,37 @@ export async function seedAutoInvestigationSaIfNeeded(
       await deps.orgUsers.create({ orgId, userId: existing.id, role: 'Editor' });
       log.info({ userId: existing.id, orgId }, 'auto-investigation SA org membership repaired');
     }
-    return existing.id;
+    userId = existing.id;
+  } else {
+    const user = await deps.users.create({
+      email: AUTO_INVESTIGATION_SA_EMAIL,
+      name: AUTO_INVESTIGATION_SA_NAME,
+      login: AUTO_INVESTIGATION_SA_LOGIN,
+      orgId,
+      isAdmin: false,
+      isDisabled: false,
+      isServiceAccount: true,
+      emailVerified: false,
+    });
+    await deps.orgUsers.create({ orgId, userId: user.id, role: 'Editor' });
+    log.info({ userId: user.id, login: user.login }, 'auto-investigation SA seeded');
+    userId = user.id;
   }
 
-  const user = await deps.users.create({
-    email: AUTO_INVESTIGATION_SA_EMAIL,
-    name: AUTO_INVESTIGATION_SA_NAME,
-    login: AUTO_INVESTIGATION_SA_LOGIN,
-    orgId,
-    isAdmin: false,
-    isDisabled: false,
-    isServiceAccount: true,
-    emailVerified: false,
-  });
-  await deps.orgUsers.create({ orgId, userId: user.id, role: 'Editor' });
-  log.info({ userId: user.id, login: user.login }, 'auto-investigation SA seeded');
-  return user.id;
+  // Always (re)attempt the fixed-role assignment so existing installs
+  // upgrade on the next boot. `assignRoleToUser` is idempotent: it
+  // skips the insert when the role is already assigned.
+  if (deps.roles) {
+    try {
+      await deps.roles.assignRoleToUser(orgId, userId, OPS_COMMANDS_RUNNER_ROLE_UID);
+    } catch (err) {
+      log.error(
+        { err: err instanceof Error ? err.message : err, userId, orgId, roleUid: OPS_COMMANDS_RUNNER_ROLE_UID },
+        'failed to assign ops-commands-runner fixed role to auto-investigation SA; ' +
+        'kubectl/ops_run_command will be denied for auto-investigations until this is fixed',
+      );
+    }
+  }
+
+  return userId;
 }

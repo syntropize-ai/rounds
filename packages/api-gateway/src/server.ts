@@ -143,6 +143,7 @@ export async function createApp(): Promise<Application> {
   const bundle = await buildAuthSubsystem(
     persistence.db,
     persistence.authRepos,
+    persistence.rbacRepos,
     persistence.rbacRepos.quotas,
   );
 

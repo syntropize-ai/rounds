@@ -237,13 +237,13 @@ export class OpsCommandRunnerService {
       };
     }
 
-	    return {
-	      decision: mode === 'read' ? 'read' : 'executed',
-	      observation: formatKubectlObservation(mode, command, {
-	        exitCode: result.success ? 0 : 1,
-	        stdout: typeof result.output === 'string' ? result.output : '',
-	        stderr: result.error ?? '',
-	      }),
+        return {
+          decision: mode === 'read' ? 'read' : 'executed',
+          observation: formatKubectlObservation(mode, command, {
+            exitCode: result.success ? 0 : 1,
+            stdout: typeof result.output === 'string' ? result.output : '',
+            stderr: result.error ?? '',
+          }),
     };
   }
 

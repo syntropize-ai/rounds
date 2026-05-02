@@ -5,6 +5,7 @@
  * a workload assumes the local kubectl can talk to the cluster.
  */
 import { spawn } from 'node:child_process';
+import { pollUntil } from './wait.js';
 
 function run(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -21,6 +22,23 @@ function run(cmd: string, args: string[]): Promise<{ stdout: string; stderr: str
   });
 }
 
+async function podCount(namespace: string, deploy: string): Promise<number> {
+  // Count Pods that match the deployment's selector. We use the
+  // app=<deploy> label that the e2e fixtures set on every workload.
+  const { stdout } = await run('kubectl', [
+    'get',
+    'pods',
+    '-n',
+    namespace,
+    '-l',
+    `app=${deploy}`,
+    '--no-headers',
+    '--ignore-not-found',
+  ]);
+  const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.length;
+}
+
 export async function scaleDeployment(
   namespace: string,
   name: string,
@@ -33,27 +51,15 @@ export async function scaleDeployment(
     namespace,
     `--replicas=${replicas}`,
   ]);
-  // Wait until the deployment reflects the requested replicas. For
-  // replicas=0: kubectl-wait on status.replicas never settles because
-  // Kubernetes omits the field entirely when no pods exist. Poll the
-  // pod list directly until it's empty.
   if (replicas === 0) {
-    const deadline = Date.now() + 90_000;
-    while (Date.now() < deadline) {
-      const { stdout } = await run('kubectl', [
-        'get',
-        'pods',
-        '-n',
-        namespace,
-        '-l',
-        `app=${name}`,
-        '--no-headers',
-        '--ignore-not-found',
-      ]);
-      if (stdout.trim() === '') return;
-      await new Promise((r) => setTimeout(r, 2_000));
-    }
-    throw new Error(`pods for ${namespace}/${name} did not terminate within 90s`);
+    // `kubectl rollout status` settles instantly at replicas=0 even while
+    // pods are still terminating, and `--for=jsonpath={.status.replicas}=0`
+    // never matches because the field is omitted at 0. Poll the pod
+    // count directly until every replica is gone.
+    await pollUntil(
+      async () => ((await podCount(namespace, name)) === 0 ? true : null),
+      { timeoutMs: 90_000, intervalMs: 2000, label: `pods of ${name} -> 0` },
+    );
   } else {
     await run('kubectl', [
       'rollout',

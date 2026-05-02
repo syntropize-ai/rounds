@@ -8,15 +8,19 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { apiPost, apiGet } from '../helpers/api-client.js';
+import { apiPost, apiGet, ApiError } from '../helpers/api-client.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STATE = resolve(HERE, '..', '..', '.state');
 
 interface TestResp {
-  status: 'ok' | 'error' | 'unknown' | 'connecting';
+  status: 'connected' | 'degraded' | 'error';
   message?: string;
-  details?: { stage?: string; category?: 'dns' | 'tls' | 'auth' | 'other' };
+  checks?: {
+    structure?: 'ok' | 'failed';
+    credentials?: 'ok' | 'missing';
+    runner?: 'ok' | 'failed' | 'skipped';
+  };
 }
 interface ConnectorList { connectors: Array<{ id: string; name: string }> }
 
@@ -30,7 +34,7 @@ function seededConnectorId(): string | null {
 }
 
 describe('setup/ops-connector-test-connection', () => {
-  it('in-cluster connector probe reports ok or returns categorized error', async () => {
+  it('in-cluster connector probe reports a categorized status', async () => {
     let id = seededConnectorId();
     if (!id) {
       // Fallback: discover from list endpoint.
@@ -39,13 +43,24 @@ describe('setup/ops-connector-test-connection', () => {
     }
     expect(id, 'seeded e2e connector id (.state/ops-connector-id)').toBeTruthy();
 
-    const result = await apiPost<TestResp>(`/api/ops/connectors/${id}/test`, {});
-    // `status` is the contract from PR #120; either it works (ok), or the
-    // failure must carry a categorized reason — never an opaque crash.
-    expect(['ok', 'error', 'unknown']).toContain(result.status);
-    if (result.status === 'error') {
-      const cat = result.details?.category;
-      expect(['dns', 'tls', 'auth', 'other']).toContain(cat ?? 'other');
+    // The route returns 400 when the runner reports `error`. Capture the
+    // response body off the ApiError so we can still assert the
+    // categorized shape.
+    let result: TestResp;
+    try {
+      result = await apiPost<TestResp>(`/api/ops/connectors/${id}/test`, {});
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 400) {
+        result = JSON.parse(err.bodyExcerpt) as TestResp;
+      } else {
+        throw err;
+      }
+    }
+    expect(['connected', 'degraded', 'error']).toContain(result.status);
+    expect(result.checks?.structure).toBe('ok');
+    if (result.status !== 'connected') {
+      // Failure must always carry a `runner` status — never an opaque crash.
+      expect(['ok', 'failed', 'skipped']).toContain(result.checks?.runner);
     }
   }, 60_000);
 });

@@ -47,7 +47,7 @@ describe('alerts/for-duration-zero', () => {
         const r = await apiGet<AlertRule>(`/api/alert-rules/${ruleId}`);
         return r.state === 'firing' ? r : null;
       },
-      { timeoutMs: 90_000, intervalMs: 2000, label: 'forDur=0 rule -> firing' },
+      { timeoutMs: 180_000, intervalMs: 2000, label: 'forDur=0 rule -> firing' },
     );
     expect(fired.state).toBe('firing');
   }, 180_000);

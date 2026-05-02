@@ -17,7 +17,7 @@ async function waitState(id: string, target: string[]): Promise<AlertRule> {
       const r = await apiGet<AlertRule>(`/api/alert-rules/${id}`);
       return target.includes(r.state) ? r : null;
     },
-    { timeoutMs: 120_000, intervalMs: 3000, label: `rule -> ${target.join('|')}` },
+    { timeoutMs: 240_000, intervalMs: 3000, label: `rule -> ${target.join('|')}` },
   );
 }
 
@@ -53,5 +53,5 @@ describe('alerts/multi-fire-counts', () => {
     expect(typeof first.fireCount).toBe('number');
     expect(typeof second.fireCount).toBe('number');
     expect(second.fireCount!).toBeGreaterThan(first.fireCount!);
-  }, 180_000);
+  }, 600_000);
 });

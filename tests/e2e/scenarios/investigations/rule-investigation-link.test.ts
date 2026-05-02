@@ -5,11 +5,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { apiPost, apiGet, apiDelete } from '../helpers/api-client.js';
 import { pollUntil } from '../helpers/wait.js';
 import { scaleDeployment } from '../helpers/scale.js';
-import { skipWithoutLLM } from '../helpers/llm.js';
+import { skipWithoutLLMQuality } from '../helpers/llm.js';
 
 const NS = 'openobs-e2e';
 const DEPLOY = 'web-api';
-const itLLM = skipWithoutLLM(it);
+// Same caveat as manual-investigate-reuses: rule.investigationId is only set
+// after the agent finishes and finalize runs, and free-tier models often
+// don't call `investigation_create`, so there's nothing to link.
+const itLLM = skipWithoutLLMQuality(it);
 
 interface AlertRule { id: string; state: string; investigationId?: string }
 

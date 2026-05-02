@@ -7,11 +7,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { apiPost, apiGet, apiDelete } from '../helpers/api-client.js';
 import { pollUntil } from '../helpers/wait.js';
 import { scaleDeployment } from '../helpers/scale.js';
-import { skipWithoutLLM } from '../helpers/llm.js';
+import { skipWithoutLLMQuality } from '../helpers/llm.js';
 
 const NS = 'openobs-e2e';
 const DEPLOY = 'web-api';
-const itLLM = skipWithoutLLM(it);
+// rule.investigationId is only written by the dispatcher's finalize step,
+// which runs AFTER the agent's run returns. Free-tier models often skip the
+// `investigation_create` tool call, so no investigation row exists and the
+// finalize step finds nothing to link. Gate this on a strong-model env flag.
+const itLLM = skipWithoutLLMQuality(it);
 
 interface AlertRule { id: string; state: string; investigationId?: string }
 interface InvestigateResp { investigationId: string; existing: boolean }

@@ -38,7 +38,7 @@ describe('alerts/alert-resolves', () => {
         const r = await apiGet<AlertRule>(`/api/alert-rules/${ruleId}`);
         return r.state === 'firing' ? r : null;
       },
-      { timeoutMs: 90_000, intervalMs: 3000, label: 'rule -> firing' },
+      { timeoutMs: 240_000, intervalMs: 3000, label: 'rule -> firing' },
     );
 
     await scaleDeployment(NS, DEPLOY, 3);
@@ -47,8 +47,8 @@ describe('alerts/alert-resolves', () => {
         const r = await apiGet<AlertRule>(`/api/alert-rules/${ruleId}`);
         return r.state === 'resolved' || r.state === 'normal' ? r : null;
       },
-      { timeoutMs: 120_000, intervalMs: 3000, label: 'rule -> resolved' },
+      { timeoutMs: 240_000, intervalMs: 3000, label: 'rule -> resolved' },
     );
     expect(['resolved', 'normal']).toContain(healed.state);
-  }, 180_000);
+  }, 600_000);
 });

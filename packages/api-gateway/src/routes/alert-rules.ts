@@ -422,7 +422,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         const workspaceId = rule.workspaceId ?? resolveOrgId(req);
         const investigation = await deps.investigationStore.create({
           question,
-          sessionId: `ses_alert_${Date.now()}`,
+          sessionId: `inv_alert_${Date.now()}`,
           userId: 'alert-system',
           workspaceId,
         });

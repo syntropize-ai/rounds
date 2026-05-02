@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { apiClient } from '../api/client.js';
 import { fadeIn } from '../animations.js';
@@ -8,7 +8,11 @@ import { relativeTime } from '../utils/time.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
 import { groupEvents } from '../components/chat/event-processing.js';
 import type { Block } from '../components/chat/event-processing.js';
-import { UserMessage, AssistantMessage, ErrorMessage } from '../components/chat/MessageComponents.js';
+import {
+  UserMessage,
+  AssistantMessage,
+  ErrorMessage,
+} from '../components/chat/MessageComponents.js';
 import AgentActivityBlock from '../components/chat/AgentActivityBlock.js';
 import { OpenObsLogo } from '../components/OpenObsLogo.js';
 
@@ -25,8 +29,9 @@ interface Dashboard {
 
 interface ChatSession {
   id: string;
-  title: string;
+  title?: string | null;
   createdAt: string;
+  updatedAt?: string;
 }
 
 // Quick action cards
@@ -35,8 +40,18 @@ const QUICK_ACTIONS = [
   {
     category: 'Investigate',
     icon: (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+      <svg
+        className="w-4 h-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M13 10V3L4 14h7v7l9-11h-7z"
+        />
       </svg>
     ),
     colorClass: 'text-on-surface',
@@ -46,8 +61,18 @@ const QUICK_ACTIONS = [
   {
     category: 'Build',
     icon: (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18M7 16l4-4 4 4 4-4" />
+      <svg
+        className="w-4 h-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M3 3v18h18M7 16l4-4 4 4 4-4"
+        />
       </svg>
     ),
     colorClass: 'text-secondary',
@@ -57,8 +82,18 @@ const QUICK_ACTIONS = [
   {
     category: 'Alert',
     icon: (
-      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <svg
+        className="w-4 h-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+        />
       </svg>
     ),
     colorClass: 'text-error',
@@ -71,8 +106,16 @@ const QUICK_ACTIONS = [
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const globalChat = useGlobalChat();
-  const { events, isGenerating, sendMessage, stopGeneration } = globalChat;
+  const {
+    events,
+    isGenerating,
+    sendMessage,
+    stopGeneration,
+    currentSessionId,
+    loadSession,
+  } = globalChat;
 
   const [input, setInput] = useState('');
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
@@ -85,18 +128,27 @@ export default function Home() {
   const blocks = useMemo(() => groupEvents(events), [events]);
   const lastAgentBlockId = useMemo(() => {
     for (let i = blocks.length - 1; i >= 0; i -= 1) {
-      if (blocks[i]!.type === 'agent') return (blocks[i] as Extract<Block, { type: 'agent' }>).id;
+      if (blocks[i]!.type === 'agent')
+        return (blocks[i] as Extract<Block, { type: 'agent' }>).id;
     }
     return null;
   }, [blocks]);
 
-  // Home = new conversation entry point. Start a fresh session on mount
-  // so user always gets a clean slate when clicking "Home".
-  // Past conversations are accessible via the "Recent Conversations" section below.
+  const chatIdFromUrl = useMemo(
+    () => new URLSearchParams(location.search).get('chat'),
+    [location.search],
+  );
+
+  // Home is the new conversation entry point unless the URL explicitly names
+  // a durable personal chat to reopen.
   useEffect(() => {
-    globalChat.startNewSession();
+    if (chatIdFromUrl) {
+      void loadSession(chatIdFromUrl);
+    } else {
+      globalChat.startNewSession();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [chatIdFromUrl]);
 
   const handleDeleteDashboard = useCallback(async (id: string) => {
     const res = await apiClient.delete(`/dashboards/${id}`);
@@ -107,16 +159,40 @@ export default function Home() {
 
   useEffect(() => {
     void apiClient.get<Dashboard[]>(`/dashboards?limit=6`).then((res) => {
-      if (!res.error && Array.isArray(res.data)) setDashboards(res.data.slice(0, 6));
+      if (!res.error && Array.isArray(res.data))
+        setDashboards(res.data.slice(0, 6));
     });
+  }, []);
+
+  const refreshSessions = useCallback(() => {
+    void apiClient
+      .get<{ sessions: ChatSession[] }>('/chat/sessions?limit=10')
+      .then((res) => {
+        if (!res.error && res.data?.sessions) setSessions(res.data.sessions);
+      });
   }, []);
 
   useEffect(() => {
-    void apiClient.get<{ sessions: ChatSession[] }>('/chat/sessions?limit=10').then((res) => {
-      if (!res.error && res.data?.sessions) setSessions(res.data.sessions);
-    });
-  }, []);
+    refreshSessions();
+  }, [refreshSessions]);
 
+  useEffect(() => {
+    if (!currentSessionId || currentSessionId === chatIdFromUrl) return;
+    const params = new URLSearchParams(location.search);
+    params.set('chat', currentSessionId);
+    navigate(
+      { pathname: '/', search: `?${params.toString()}` },
+      { replace: true },
+    );
+  }, [chatIdFromUrl, currentSessionId, location.search, navigate]);
+
+  const wasGeneratingRef = useRef(false);
+  useEffect(() => {
+    if (wasGeneratingRef.current && !isGenerating) {
+      refreshSessions();
+    }
+    wasGeneratingRef.current = isGenerating;
+  }, [isGenerating, refreshSessions]);
 
   // Auto-scroll on new events
   useEffect(() => {
@@ -140,6 +216,17 @@ export default function Home() {
   const handleQuickAction = (actionPrompt: string) => {
     void sendMessage(actionPrompt);
   };
+
+  const handleOpenSession = useCallback(
+    (sessionId: string) => {
+      void loadSession(sessionId);
+      navigate({
+        pathname: '/',
+        search: `?chat=${encodeURIComponent(sessionId)}`,
+      });
+    },
+    [loadSession, navigate],
+  );
 
   // Reusable input component (used in both modes)
   const inputArea = (
@@ -167,7 +254,11 @@ export default function Home() {
             className="absolute right-14 bottom-3 w-8 h-8 bg-surface-highest hover:bg-error/15 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors rounded-full"
             title="Stop"
           >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <svg
+              className="w-3.5 h-3.5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
               <rect x="5" y="5" width="10" height="10" rx="1" />
             </svg>
           </button>
@@ -180,7 +271,12 @@ export default function Home() {
           title="Send"
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z" clipRule="evenodd" transform="rotate(-90 10 10)" />
+            <path
+              fillRule="evenodd"
+              d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z"
+              clipRule="evenodd"
+              transform="rotate(-90 10 10)"
+            />
           </svg>
         </button>
       </div>
@@ -209,7 +305,8 @@ export default function Home() {
                 How can OpenObs help?
               </h1>
               <p className="text-on-surface-variant text-sm md:text-base max-w-xl mx-auto leading-relaxed">
-                Ask it to build, explain, investigate, or prepare an approved fix.
+                Ask it to build, explain, investigate, or prepare an approved
+                fix.
               </p>
             </motion.div>
 
@@ -245,15 +342,80 @@ export default function Home() {
                 </button>
               ))}
             </motion.div>
-          </div>
 
+            {sessions.length > 0 && (
+              <motion.section
+                className="mt-10"
+                variants={fadeIn}
+                initial="hidden"
+                animate="visible"
+                transition={{ delay: 0.25 }}
+                aria-label="My conversations"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
+                    My conversations
+                  </h2>
+                  {currentSessionId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        globalChat.startNewSession();
+                        navigate('/', { replace: true });
+                      }}
+                      className="text-xs text-primary hover:text-primary-container transition-colors"
+                    >
+                      New chat
+                    </button>
+                  )}
+                </div>
+                <div className="grid gap-2">
+                  {sessions.map((session) => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => handleOpenSession(session.id)}
+                      className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        session.id === currentSessionId
+                          ? 'border-primary/50 bg-primary/5'
+                          : 'border-outline-variant bg-surface-container/60 hover:border-outline hover:bg-surface-container'
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm text-on-surface">
+                          {session.title?.trim() || 'Untitled conversation'}
+                        </span>
+                        <span className="block text-xs text-on-surface-variant">
+                          {relativeTime(session.updatedAt ?? session.createdAt)}
+                        </span>
+                      </span>
+                      <svg
+                        className="h-4 w-4 shrink-0 text-on-surface-variant"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    </button>
+                  ))}
+                </div>
+              </motion.section>
+            )}
+          </div>
         </div>
 
         <ConfirmDialog
           open={deletingDashId !== null}
           title="Delete dashboard?"
           message="This dashboard and all its panels will be permanently deleted."
-          onConfirm={() => { if (deletingDashId) void handleDeleteDashboard(deletingDashId); setDeletingDashId(null); }}
+          onConfirm={() => {
+            if (deletingDashId) void handleDeleteDashboard(deletingDashId);
+            setDeletingDashId(null);
+          }}
           onCancel={() => setDeletingDashId(null)}
         />
       </div>
@@ -272,13 +434,25 @@ export default function Home() {
             if (block.type === 'message') {
               const evt = block.event;
               if (evt.kind === 'error') {
-                return <ErrorMessage key={evt.id} content={evt.content ?? 'An error occurred'} />;
+                return (
+                  <ErrorMessage
+                    key={evt.id}
+                    content={evt.content ?? 'An error occurred'}
+                  />
+                );
               }
               if (evt.message?.role === 'user') {
-                return <UserMessage key={evt.id} content={evt.message.content} />;
+                return (
+                  <UserMessage key={evt.id} content={evt.message.content} />
+                );
               }
               if (evt.message?.role === 'assistant') {
-                return <AssistantMessage key={evt.id} content={evt.message.content} />;
+                return (
+                  <AssistantMessage
+                    key={evt.id}
+                    content={evt.message.content}
+                  />
+                );
               }
               return null;
             }

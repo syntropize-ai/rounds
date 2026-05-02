@@ -208,7 +208,6 @@ export const dashboards = sqliteTable(
     folder: text('folder'),
     workspaceId: text('workspace_id'),
     orgId: text('org_id').notNull().default('org_main'),
-    sessionId: text('session_id'),
     version: integer('version'),
     publishStatus: text('publish_status'),
     error: text('error'),
@@ -219,14 +218,10 @@ export const dashboards = sqliteTable(
     index('dashboards_user_idx').on(t.userId),
     index('dashboards_workspace_idx').on(t.workspaceId),
     index('dashboards_org_idx').on(t.orgId),
-    index('dashboards_session_idx').on(t.sessionId),
     index('dashboards_status_idx').on(t.status),
     index('dashboards_created_at_idx').on(t.createdAt),
   ],
 );
-
-// `dashboard_messages` removed — see migration 020. Chat history now lives in
-// `chat_messages` (defined further below) keyed by sessionId.
 
 // — alert rules
 
@@ -487,12 +482,39 @@ export const chatSessions = sqliteTable(
     title: text('title').notNull().default(''),
     contextSummary: text('context_summary'),
     orgId: text('org_id').notNull().default('org_main'),
+    ownerUserId: text('owner_user_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (t) => [
     index('chat_sessions_updated_at_idx').on(t.updatedAt),
     index('chat_sessions_org_idx').on(t.orgId),
+    index('chat_sessions_owner_idx').on(t.orgId, t.ownerUserId),
+  ],
+);
+
+export const chatSessionContexts = sqliteTable(
+  'chat_session_contexts',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    orgId: text('org_id').notNull().default('org_main'),
+    ownerUserId: text('owner_user_id').notNull(),
+    resourceType: text('resource_type').notNull(),
+    resourceId: text('resource_id').notNull(),
+    relation: text('relation').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    index('chat_session_contexts_session_idx').on(t.sessionId),
+    index('chat_session_contexts_owner_idx').on(t.orgId, t.ownerUserId),
+    index('chat_session_contexts_resource_idx').on(t.orgId, t.resourceType, t.resourceId),
+    uniqueIndex('chat_session_contexts_unique_idx').on(
+      t.sessionId,
+      t.resourceType,
+      t.resourceId,
+      t.relation,
+    ),
   ],
 );
 

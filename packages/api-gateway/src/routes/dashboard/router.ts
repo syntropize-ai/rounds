@@ -181,9 +181,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         dashboardNotFound(res)
         return
       }
-      // Chat history lives in chat_messages keyed by sessionId and is
-      // intentionally not cascaded — sessions can outlive any single
-      // dashboard (the chat that created it is still useful context).
       res.status(204).send()
     }
     catch (err) {

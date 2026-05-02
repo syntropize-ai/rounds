@@ -23,6 +23,9 @@ import type {
   SavedInvestigationReport,
   PostMortemReport,
   ChatSession,
+  ChatSessionContext,
+  ChatSessionContextRelation,
+  ChatSessionContextResourceType,
   ChatMessage,
 } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
@@ -377,13 +380,46 @@ export interface IPostMortemRepository {
 
 // — ChatSession
 
+export interface ChatSessionScope {
+  orgId?: string;
+  ownerUserId?: string;
+}
+
 export interface IChatSessionRepository {
-  create(session: { id: string; title?: string; orgId?: string }): MaybeAsync<ChatSession>;
-  findById(id: string, scope?: { orgId?: string }): MaybeAsync<ChatSession | undefined>;
-  findAll(limit?: number, scope?: { orgId?: string }): MaybeAsync<ChatSession[]>;
-  updateTitle(id: string, title: string, scope?: { orgId?: string }): MaybeAsync<ChatSession | undefined>;
-  updateContextSummary(id: string, summary: string, scope?: { orgId?: string }): MaybeAsync<ChatSession | undefined>;
-  delete(id: string): MaybeAsync<boolean>;
+  create(session: {
+    id: string;
+    title?: string;
+    orgId?: string;
+    ownerUserId?: string;
+  }): MaybeAsync<ChatSession>;
+  findById(id: string, scope?: ChatSessionScope): MaybeAsync<ChatSession | undefined>;
+  findAll(limit?: number, scope?: ChatSessionScope): MaybeAsync<ChatSession[]>;
+  updateTitle(id: string, title: string, scope?: ChatSessionScope): MaybeAsync<ChatSession | undefined>;
+  updateContextSummary(id: string, summary: string, scope?: ChatSessionScope): MaybeAsync<ChatSession | undefined>;
+  delete(id: string, scope?: ChatSessionScope): MaybeAsync<boolean>;
+}
+
+// — ChatSessionContext
+
+export interface ChatSessionContextResourceScope extends ChatSessionScope {
+  resourceType: ChatSessionContextResourceType;
+  resourceId: string;
+}
+
+export interface IChatSessionContextRepository {
+  create(context: {
+    id?: string;
+    sessionId: string;
+    orgId: string;
+    ownerUserId: string;
+    resourceType: ChatSessionContextResourceType;
+    resourceId: string;
+    relation: ChatSessionContextRelation;
+    createdAt?: string;
+  }): MaybeAsync<ChatSessionContext>;
+  listBySession(sessionId: string, scope?: ChatSessionScope): MaybeAsync<ChatSessionContext[]>;
+  listByResource(scope: ChatSessionContextResourceScope, limit?: number): MaybeAsync<ChatSessionContext[]>;
+  deleteBySession(sessionId: string, scope?: ChatSessionScope): MaybeAsync<void>;
 }
 
 // — ChatMessage

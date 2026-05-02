@@ -5,7 +5,10 @@ import InvestigationReportView from '../components/InvestigationReportView.js';
 import type { ConclusionData } from '../components/ConclusionPanel.js';
 import ChatPanel from '../components/ChatPanel.js';
 import type { ChatEvent } from '../hooks/useDashboardChat.js';
-import type { InvestigationReport as IReport, InvestigationReportSection } from '../hooks/useDashboardChat.js';
+import type {
+  InvestigationReport as IReport,
+  InvestigationReportSection,
+} from '../hooks/useDashboardChat.js';
 import type { Evidence } from '@agentic-obs/common';
 import type { InvestigationStatus } from '../api/types.js';
 import { relativeTime } from '../utils/time.js';
@@ -59,11 +62,16 @@ function statusDescription(status: string): string {
 }
 
 let eventCounter = 0;
-function makeEventId() { return `inv_evt_${++eventCounter}`; }
+function makeEventId() {
+  return `inv_evt_${++eventCounter}`;
+}
 
 // Convert investigation state changes into ChatEvents for the ChatPanel
 
-function buildChatEvents(investigation: FullInvestigation, conclusion: ConclusionData | null): ChatEvent[] {
+function buildChatEvents(
+  investigation: FullInvestigation,
+  conclusion: ConclusionData | null,
+): ChatEvent[] {
   const events: ChatEvent[] = [];
 
   // Initial user message — the investigation question
@@ -129,7 +137,11 @@ function buildChatEvents(investigation: FullInvestigation, conclusion: Conclusio
   }
 
   // Analysis / status update
-  if (investigation.status === 'explaining' || investigation.status === 'acting' || investigation.status === 'verifying') {
+  if (
+    investigation.status === 'explaining' ||
+    investigation.status === 'acting' ||
+    investigation.status === 'verifying'
+  ) {
     events.push({
       id: makeEventId(),
       kind: 'thinking',
@@ -144,7 +156,11 @@ function buildChatEvents(investigation: FullInvestigation, conclusion: Conclusio
       msg += `\n\n**Root Cause:** ${conclusion.rootCause}`;
     }
     if (conclusion.recommendedActions?.length) {
-      msg += '\n\n**Recommended Actions:**\n' + conclusion.recommendedActions.map((a) => `- ${typeof a === 'string' ? a : a.label}`).join('\n');
+      msg +=
+        '\n\n**Recommended Actions:**\n' +
+        conclusion.recommendedActions
+          .map((a) => `- ${typeof a === 'string' ? a : a.label}`)
+          .join('\n');
     }
     events.push({
       id: makeEventId(),
@@ -172,10 +188,13 @@ function buildChatEvents(investigation: FullInvestigation, conclusion: Conclusio
   return events;
 }
 
-
 // Live progress view while investigation is running
 
-function LiveProgressView({ investigation }: { investigation: FullInvestigation }) {
+function LiveProgressView({
+  investigation,
+}: {
+  investigation: FullInvestigation;
+}) {
   return (
     <div className="px-12 py-10 max-w-4xl mx-auto space-y-8">
       <header className="space-y-4">
@@ -186,7 +205,6 @@ function LiveProgressView({ investigation }: { investigation: FullInvestigation 
           {investigation.intent}
         </h1>
       </header>
-
 
       {/* Plan objective */}
       {investigation.plan?.objective && (
@@ -213,16 +231,44 @@ function LiveProgressView({ investigation }: { investigation: FullInvestigation 
               <div key={step.id || i} className="flex items-start gap-3 py-1">
                 <span className="mt-1 shrink-0">
                   {step.status === 'completed' ? (
-                    <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    <svg
+                      className="w-4 h-4 text-emerald-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
                   ) : step.status === 'running' ? (
-                    <span className="w-4 h-4 flex items-center justify-center"><span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" /></span>
+                    <span className="w-4 h-4 flex items-center justify-center">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                    </span>
                   ) : step.status === 'failed' ? (
-                    <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    <svg
+                      className="w-4 h-4 text-red-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6 18L18 6M6 6l12 12"
+                      />
+                    </svg>
                   ) : (
                     <span className="w-4 h-4 rounded-full border-2 border-outline-variant block" />
                   )}
                 </span>
-                <p className={`text-[15px] leading-relaxed ${step.status === 'skipped' ? 'text-outline line-through' : 'text-on-surface-variant'}`}>
+                <p
+                  className={`text-[15px] leading-relaxed ${step.status === 'skipped' ? 'text-outline line-through' : 'text-on-surface-variant'}`}
+                >
                   {step.description}
                 </p>
               </div>
@@ -239,7 +285,8 @@ function LiveProgressView({ investigation }: { investigation: FullInvestigation 
             Evidence Collected
           </h3>
           <p className="text-[15px] text-on-surface-variant pl-4 border-l-2 border-primary/40">
-            {investigation.evidence.length} data point{investigation.evidence.length > 1 ? 's' : ''} collected so far...
+            {investigation.evidence.length} data point
+            {investigation.evidence.length > 1 ? 's' : ''} collected so far...
           </p>
         </section>
       )}
@@ -248,7 +295,9 @@ function LiveProgressView({ investigation }: { investigation: FullInvestigation 
       {!investigation.plan?.steps?.length && (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <span className="inline-block w-8 h-8 border-2 border-outline-variant border-t-primary rounded-full animate-spin mb-4" />
-          <p className="text-sm text-on-surface-variant">{statusDescription(investigation.status)}</p>
+          <p className="text-sm text-on-surface-variant">
+            {statusDescription(investigation.status)}
+          </p>
         </div>
       )}
     </div>
@@ -261,7 +310,9 @@ export default function InvestigationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const globalChat = useGlobalChat();
-  const [investigation, setInvestigation] = useState<FullInvestigation | null>(null);
+  const [investigation, setInvestigation] = useState<FullInvestigation | null>(
+    null,
+  );
   const [conclusion, setConclusion] = useState<ConclusionData | null>(null);
   const [report, setReport] = useState<IReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -269,12 +320,7 @@ export default function InvestigationDetail() {
   const [agentEvents, setAgentEvents] = useState<ChatEvent[]>([]);
   const [agentGenerating, setAgentGenerating] = useState(false);
 
-  // Load the session that created this investigation so the ChatPanel shows its history
-  useEffect(() => {
-    if (investigation?.sessionId && investigation.sessionId !== globalChat.currentSessionId) {
-      void globalChat.loadSession(investigation.sessionId);
-    }
-  }, [investigation?.sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Chat history is bound by the URL (`?chat=...`) and loaded in Layout.
 
   const fetchInvestigation = useCallback(async () => {
     if (!id) return;
@@ -289,26 +335,35 @@ export default function InvestigationDetail() {
 
     if (res.data.status === 'completed' || res.data.status === 'failed') {
       // Fetch the LLM-generated report
-      const rRes = await apiClient.get<{ summary: string; sections: InvestigationReportSection[] }>(`/investigations/${id}/report`);
+      const rRes = await apiClient.get<{
+        summary: string;
+        sections: InvestigationReportSection[];
+      }>(`/investigations/${id}/report`);
       if (!rRes.error && rRes.data?.summary) {
         setReport({ summary: rRes.data.summary, sections: rRes.data.sections });
       }
       // Fetch conclusion for chat panel
-      const cRes = await apiClient.get<{ conclusion: ConclusionData }>(`/investigations/${id}/conclusion`);
+      const cRes = await apiClient.get<{ conclusion: ConclusionData }>(
+        `/investigations/${id}/conclusion`,
+      );
       if (!cRes.error && cRes.data?.conclusion) {
         setConclusion(cRes.data.conclusion);
       }
     }
   }, [id]);
 
-  useEffect(() => { void fetchInvestigation(); }, [fetchInvestigation]);
+  useEffect(() => {
+    void fetchInvestigation();
+  }, [fetchInvestigation]);
 
   // Tell the global chat which investigation the user is viewing
   useEffect(() => {
     if (id) {
       globalChat.setPageContext({ kind: 'investigation', id });
     }
-    return () => { globalChat.setPageContext(null); };
+    return () => {
+      globalChat.setPageContext(null);
+    };
   }, [id, globalChat]);
 
   // Poll while investigation is active
@@ -325,120 +380,146 @@ export default function InvestigationDetail() {
     return buildChatEvents(investigation, conclusion);
   }, [investigation, conclusion]);
 
-  const chatEvents = useMemo(() => [...baseChatEvents, ...agentEvents], [baseChatEvents, agentEvents]);
+  const chatEvents = useMemo(
+    () => [...baseChatEvents, ...agentEvents],
+    [baseChatEvents, agentEvents],
+  );
 
-  const isGenerating = (investigation ? !isTerminal(investigation.status) : false) || agentGenerating;
+  const isGenerating =
+    (investigation ? !isTerminal(investigation.status) : false) ||
+    agentGenerating;
 
   // Handle follow-up messages from ChatPanel
-  const handleSendMessage = useCallback(async (content: string) => {
-    if (!id) return;
-    const userEventId = crypto.randomUUID();
-    setAgentEvents((prev) => [
-      ...prev,
-      {
-        id: userEventId,
-        kind: 'message',
-        message: {
-          id: userEventId,
-          role: 'user',
-          content,
-          timestamp: new Date().toISOString(),
-        },
-      },
-    ]);
-    setAgentGenerating(true);
-
-    // Investigation follow-ups go through the canonical chat-service endpoint
-    // with `pageContext.kind = 'investigation'` so the orchestrator knows
-    // which investigation to scope tools against. The investigation's own
-    // sessionId is reused so subsequent turns share history.
-    await apiClient.postStream(
-      `/chat`,
-      {
-        message: content,
-        ...(investigation?.sessionId ? { sessionId: investigation.sessionId } : {}),
-        pageContext: { kind: 'investigation', id },
-      },
-      (eventType: string, rawData: string) => {
-        let parsed: Record<string, unknown> = {};
-        try {
-          parsed = JSON.parse(rawData) as Record<string, unknown>;
-        } catch {
-          parsed = { content: rawData };
-        }
-
-        const eventId = crypto.randomUUID();
-
-        if (eventType === 'thinking') {
-          setAgentEvents((prev) => [
-            ...prev,
-            {
-              id: eventId,
-              kind: 'thinking',
-              content: (parsed.content as string) ?? 'Thinking...',
-            },
-          ]);
-          return;
-        }
-
-        if (eventType === 'reply') {
-          setAgentEvents((prev) => [
-            ...prev,
-            {
-              id: eventId,
-              kind: 'message',
-              message: {
-                id: eventId,
-                role: 'assistant',
-                content: (parsed.content as string) ?? '',
-                timestamp: new Date().toISOString(),
-              },
-            },
-          ]);
-          return;
-        }
-
-        if (eventType === 'error') {
-          setAgentEvents((prev) => [
-            ...prev,
-            {
-              id: eventId,
-              kind: 'error',
-              content: (parsed.message as string) ?? 'Something went wrong',
-            },
-          ]);
-          setAgentGenerating(false);
-          return;
-        }
-
-        if (eventType === 'done') {
-          if (typeof parsed.navigate === 'string' && parsed.navigate !== `/investigations/${id}`) {
-            if (parsed.intent === 'dashboard') {
-              navigate(parsed.navigate, { state: { initialPrompt: content } });
-            } else {
-              navigate(parsed.navigate);
-            }
-            return;
-          }
-          setAgentEvents((prev) => [...prev, { id: eventId, kind: 'done' }]);
-          setAgentGenerating(false);
-        }
-      },
-    ).catch((err) => {
-      const message = err instanceof Error ? err.message : 'Network error';
+  const handleSendMessage = useCallback(
+    async (content: string) => {
+      if (!id) return;
+      const userEventId = crypto.randomUUID();
       setAgentEvents((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
-          kind: 'error',
-          content: message,
+          id: userEventId,
+          kind: 'message',
+          message: {
+            id: userEventId,
+            role: 'user',
+            content,
+            timestamp: new Date().toISOString(),
+          },
         },
       ]);
-      setAgentGenerating(false);
-    }).finally(() => {
-      setAgentGenerating(false);
-    });
-  }, [id, investigation?.sessionId, navigate]);
+      setAgentGenerating(true);
+
+      // Investigation follow-ups go through the canonical chat-service endpoint
+      // with `pageContext.kind = 'investigation'` so the orchestrator knows
+      // which investigation to scope tools against. Continue the active
+      // personal chat from the URL/global context when one exists.
+      await apiClient
+        .postStream(
+          `/chat`,
+          {
+            message: content,
+            ...(globalChat.currentSessionId
+              ? { sessionId: globalChat.currentSessionId }
+              : {}),
+            pageContext: { kind: 'investigation', id },
+          },
+          (eventType: string, rawData: string) => {
+            let parsed: Record<string, unknown> = {};
+            try {
+              parsed = JSON.parse(rawData) as Record<string, unknown>;
+            } catch {
+              parsed = { content: rawData };
+            }
+
+            const eventId = crypto.randomUUID();
+
+            if (eventType === 'thinking') {
+              setAgentEvents((prev) => [
+                ...prev,
+                {
+                  id: eventId,
+                  kind: 'thinking',
+                  content: (parsed.content as string) ?? 'Thinking...',
+                },
+              ]);
+              return;
+            }
+
+            if (eventType === 'reply') {
+              setAgentEvents((prev) => [
+                ...prev,
+                {
+                  id: eventId,
+                  kind: 'message',
+                  message: {
+                    id: eventId,
+                    role: 'assistant',
+                    content: (parsed.content as string) ?? '',
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+              ]);
+              return;
+            }
+
+            if (eventType === 'error') {
+              setAgentEvents((prev) => [
+                ...prev,
+                {
+                  id: eventId,
+                  kind: 'error',
+                  content: (parsed.message as string) ?? 'Something went wrong',
+                },
+              ]);
+              setAgentGenerating(false);
+              return;
+            }
+
+            if (eventType === 'done') {
+              if (
+                typeof parsed.navigate === 'string' &&
+                parsed.navigate !== `/investigations/${id}`
+              ) {
+                const target = new URL(parsed.navigate, window.location.origin);
+                const sessionId =
+                  typeof parsed.sessionId === 'string'
+                    ? parsed.sessionId
+                    : globalChat.currentSessionId;
+                if (sessionId) target.searchParams.set('chat', sessionId);
+                const path = `${target.pathname}${target.search}${target.hash}`;
+                if (parsed.intent === 'dashboard') {
+                  navigate(path, { state: { initialPrompt: content } });
+                } else {
+                  navigate(path);
+                }
+                return;
+              }
+              setAgentEvents((prev) => [
+                ...prev,
+                { id: eventId, kind: 'done' },
+              ]);
+              setAgentGenerating(false);
+            }
+          },
+        )
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Network error';
+          setAgentEvents((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              kind: 'error',
+              content: message,
+            },
+          ]);
+          setAgentGenerating(false);
+        })
+        .finally(() => {
+          setAgentGenerating(false);
+        });
+    },
+    [id, globalChat.currentSessionId, navigate],
+  );
 
   if (loading) {
     return (
@@ -451,8 +532,14 @@ export default function InvestigationDetail() {
   if (error || !investigation) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
-        <p className="text-sm text-red-400">{error ?? 'Investigation not found'}</p>
-        <button type="button" onClick={() => navigate('/investigations')} className="text-sm text-primary hover:underline">
+        <p className="text-sm text-red-400">
+          {error ?? 'Investigation not found'}
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/investigations')}
+          className="text-sm text-primary hover:underline"
+        >
           Back to Investigations
         </button>
       </div>
@@ -469,15 +556,29 @@ export default function InvestigationDetail() {
           className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-high transition-colors"
           title="Back to investigations"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
         </button>
 
         <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-semibold text-on-surface truncate">{investigation.intent}</h1>
+          <h1 className="text-sm font-semibold text-on-surface truncate">
+            {investigation.intent}
+          </h1>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-on-surface-variant">{relativeTime(investigation.createdAt)}</span>
+            <span className="text-[11px] text-on-surface-variant">
+              {relativeTime(investigation.createdAt)}
+            </span>
             {investigation.plan?.entity && (
               <span className="px-1.5 py-0.5 rounded bg-surface-high text-on-surface-variant text-[10px] font-mono">
                 {investigation.plan.entity}
@@ -487,14 +588,18 @@ export default function InvestigationDetail() {
         </div>
 
         {/* Status badge */}
-        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-          isGenerating
-            ? 'bg-primary/10 text-primary'
-            : investigation.status === 'completed'
-            ? 'bg-secondary/15 text-secondary'
-            : 'bg-error/15 text-error'
-        }`}>
-          {isGenerating && <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+        <div
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+            isGenerating
+              ? 'bg-primary/10 text-primary'
+              : investigation.status === 'completed'
+                ? 'bg-secondary/15 text-secondary'
+                : 'bg-error/15 text-error'
+          }`}
+        >
+          {isGenerating && (
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+          )}
           {getInvestigationStatusStyle(investigation.status).label}
         </div>
       </div>
@@ -508,7 +613,10 @@ export default function InvestigationDetail() {
         {/* Left: Report (complete) or live progress (running) */}
         <div className="flex-1 flex flex-col min-w-0">
           {report ? (
-            <InvestigationReportView report={report} title={investigation.intent} />
+            <InvestigationReportView
+              report={report}
+              title={investigation.intent}
+            />
           ) : (
             <div className="flex-1 overflow-y-auto overscroll-contain bg-surface-lowest">
               <LiveProgressView investigation={investigation} />
@@ -516,14 +624,15 @@ export default function InvestigationDetail() {
           )}
 
           <div className="shrink-0 px-6 py-2 flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${isGenerating ? 'bg-primary animate-pulse' : investigation.status === 'completed' ? 'bg-secondary' : 'bg-red-400'}`} />
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${isGenerating ? 'bg-primary animate-pulse' : investigation.status === 'completed' ? 'bg-secondary' : 'bg-red-400'}`}
+            />
             <span className="text-xs text-on-surface-variant">
               {isGenerating
                 ? statusDescription(investigation.status)
                 : investigation.status === 'completed'
-                ? `${investigation.evidence?.length ?? 0} evidence · ${investigation.hypotheses?.length ?? 0} hypotheses`
-                : 'Failed'
-              }
+                  ? `${investigation.evidence?.length ?? 0} evidence · ${investigation.hypotheses?.length ?? 0} hypotheses`
+                  : 'Failed'}
             </span>
           </div>
         </div>

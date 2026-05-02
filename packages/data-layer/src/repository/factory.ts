@@ -14,6 +14,7 @@ import type {
   IInvestigationReportRepository,
   IPostMortemRepository,
   IChatSessionRepository,
+  IChatSessionContextRepository,
   IChatMessageRepository,
   IChatSessionEventRepository,
 } from './interfaces.js';
@@ -45,6 +46,7 @@ import { SqliteVersionRepository } from './sqlite/version.js';
 import { SqliteInvestigationReportRepository } from './sqlite/investigation-report.js';
 import { SqlitePostMortemRepository } from './sqlite/post-mortem.js';
 import { SqliteChatSessionRepository } from './sqlite/chat-session.js';
+import { SqliteChatSessionContextRepository } from './sqlite/chat-session-context.js';
 import { SqliteChatMessageRepository } from './sqlite/chat-message.js';
 import { SqliteChatSessionEventRepository } from './sqlite/chat-session-event.js';
 import { InstanceConfigRepository } from './sqlite/instance-config.js';
@@ -65,6 +67,7 @@ import { PostgresVersionRepository } from './postgres/version.js';
 import { PostgresInvestigationReportRepository } from './postgres/investigation-report.js';
 import { PostgresPostMortemRepository } from './postgres/post-mortem.js';
 import { PostgresChatSessionRepository } from './postgres/chat-session.js';
+import { PostgresChatSessionContextRepository } from './postgres/chat-session-context.js';
 import { PostgresChatMessageRepository } from './postgres/chat-message.js';
 import { PostgresChatSessionEventRepository } from './postgres/chat-session-event.js';
 import { PostgresInstanceConfigRepository } from './postgres/instance-config.js';
@@ -100,6 +103,7 @@ export interface RepositoryBundle {
   investigationReports: IInvestigationReportRepository;
   postMortems: IPostMortemRepository;
   chatSessions: IChatSessionRepository;
+  chatSessionContexts: IChatSessionContextRepository;
   chatMessages: IChatMessageRepository;
   chatSessionEvents: IChatSessionEventRepository;
   // W2 / T2.2 — instance-scoped config (replaces setup-config.json).
@@ -126,6 +130,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     investigationReports: new SqliteInvestigationReportRepository(db),
     postMortems: new SqlitePostMortemRepository(db),
     chatSessions: new SqliteChatSessionRepository(db),
+    chatSessionContexts: new SqliteChatSessionContextRepository(db),
     chatMessages: new SqliteChatMessageRepository(db),
     chatSessionEvents: new SqliteChatSessionEventRepository(db),
     instanceConfig: new InstanceConfigRepository(db),
@@ -153,6 +158,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     investigationReports: new PostgresInvestigationReportRepository(db),
     postMortems: new PostgresPostMortemRepository(db),
     chatSessions: new PostgresChatSessionRepository(db),
+    chatSessionContexts: new PostgresChatSessionContextRepository(db),
     chatMessages: new PostgresChatMessageRepository(db),
     chatSessionEvents: new PostgresChatSessionEventRepository(db),
     instanceConfig: new PostgresInstanceConfigRepository(queryClient),

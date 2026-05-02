@@ -26,7 +26,6 @@ export class InvestigationWorkspaceService {
         id: inv.id,
         status: inv.status,
         intent: inv.intent,
-        sessionId: inv.sessionId,
         userId: inv.userId,
         createdAt: inv.createdAt,
         updatedAt: inv.updatedAt,

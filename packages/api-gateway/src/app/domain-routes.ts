@@ -214,6 +214,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     chatSessionStore: repos.chatSessions,
     chatMessageStore: repos.chatMessages,
     chatEventStore: repos.chatSessionEvents,
+    chatSessionContextStore: repos.chatSessionContexts,
     opsConnectorStore: repos.opsConnectors,
     approvalStore: repos.approvals,
     remediationPlanStore: repos.remediationPlans,

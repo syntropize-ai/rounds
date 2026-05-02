@@ -152,7 +152,6 @@ export interface IGatewayDashboardStore {
     useExistingMetrics?: boolean
     folder?: string
     workspaceId?: string
-    sessionId?: string
   }): MaybeAsync<Dashboard>
   findById(id: string): MaybeAsync<Dashboard | undefined>
   findAll(userId?: string): MaybeAsync<Dashboard[]>

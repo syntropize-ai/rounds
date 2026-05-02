@@ -159,7 +159,6 @@ export function useDashboardChat(
   initialPanels: PanelConfig[],
   initialVariables: DashboardVariable[] = [],
   timeRange = '1h',
-  sessionId?: string,
 ): UseDashboardChatResult {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -169,7 +168,6 @@ export function useDashboardChat(
   const [panels, setPanels] = useState<PanelConfig[]>(initialPanels);
   const [variables, setVariables] = useState<DashboardVariable[]>(initialVariables);
   const abortRef = useRef<AbortController | null>(null);
-  const historyLoadedRef = useRef(false);
 
   // Track whether SSE has modified panels during this generation cycle
   const sseModifiedRef = useRef(false);
@@ -189,47 +187,14 @@ export function useDashboardChat(
     }
   }, [initialPanels, isGenerating]);
 
-  // Load chat history from the chat-service session messages endpoint on
-  // mount / dashboard change. Without a sessionId there is no history to load,
-  // so the hook initializes empty messages/events for the new dashboard.
+  // Resource pages do not own chat history. The global personal chat loads
+  // history from `?chat=...`; this hook only tracks the live dashboard stream.
   useEffect(() => {
     if (!dashboardId) return;
-    historyLoadedRef.current = false;
     setMessages([]);
     setEvents([]);
     setInvestigationReport(null);
-    let cancelled = false;
-    void (async () => {
-      const chatPromise = sessionId
-        ? apiClient.get<{ messages: ChatMessage[] }>(`/chat/sessions/${sessionId}/messages`)
-        : Promise.resolve({ data: { messages: [] }, error: null } as { data: { messages: ChatMessage[] } | null; error: null | { code: string; message?: string } });
-      const chatRes = await chatPromise;
-      if (cancelled) return;
-      const loadedMessages = chatRes.data?.messages ?? [];
-      if (loadedMessages.length) {
-        setMessages(loadedMessages);
-        setEvents((prev) => {
-          // If events were already added (e.g. initial prompt), prepend history before them
-          if (prev.length > 0) {
-            const existingIds = new Set(prev.map((e) => e.id));
-            const historyEvents = loadedMessages
-              .filter((m) => !existingIds.has(m.id))
-              .map((m) => ({ id: m.id, kind: 'message' as const, message: m }));
-            return [...historyEvents, ...prev];
-          }
-          return loadedMessages.map((m) => ({
-            id: m.id,
-            kind: 'message' as const,
-            message: m,
-          }));
-        });
-      }
-      historyLoadedRef.current = true;
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [dashboardId, sessionId]);
+  }, [dashboardId]);
 
   const appendEvent = useCallback((evt: ChatEvent) => {
     setEvents((prev) => [...prev, evt]);
@@ -425,16 +390,13 @@ export function useDashboardChat(
       setIsGenerating(true);
 
       try {
-        // Route through the canonical chat-service endpoint. The dashboard is
-        // identified through `pageContext` so the orchestrator scopes its
-        // dashboard.* tools to it; the legacy POST /api/dashboards/:id/chat
-        // path was removed.
+        // Route through the canonical personal chat endpoint. The dashboard is
+        // identified through page context only.
         const tr = resolveChatTimeRange(timeRange);
         await apiClient.postStream(
           `/chat`,
           {
             message: content,
-            ...(sessionId ? { sessionId } : {}),
             pageContext: { kind: 'dashboard', id: dashboardId, timeRange },
             timeRange: tr,
           },
@@ -450,7 +412,7 @@ export function useDashboardChat(
         setIsGenerating(false);
       }
     },
-    [dashboardId, sessionId, isGenerating, handleSSEEvent, appendEvent, timeRange],
+    [dashboardId, isGenerating, handleSSEEvent, appendEvent, timeRange],
   );
 
   const stopGeneration = useCallback(() => {

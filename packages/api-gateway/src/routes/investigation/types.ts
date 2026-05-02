@@ -7,8 +7,6 @@ import type { Investigation, InvestigationStatus } from '@agentic-obs/common';
 export interface CreateInvestigationBody {
   /** Natural-language question from the user */
   question: string;
-  /** Session to attach the investigation to */
-  sessionId?: string;
   /** Optional entity hint (e.g. "checkout-service") */
   entity?: string;
   /** Optional time range hint (ISO-8601 strings) */
@@ -46,7 +44,6 @@ export interface InvestigationSummary {
   id: string;
   status: InvestigationStatus;
   intent: string;
-  sessionId: string;
   userId: string;
   createdAt: string;
   updatedAt: string;

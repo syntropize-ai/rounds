@@ -1,5 +1,10 @@
 import { Router } from 'express';
-import type { Router as ExpressRouter, Request, Response, NextFunction } from 'express';
+import type {
+  Router as ExpressRouter,
+  Request,
+  Response,
+  NextFunction,
+} from 'express';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { DashboardSseEvent } from '@agentic-obs/common';
 import { ac, ACTIONS } from '@agentic-obs/common';
@@ -7,7 +12,14 @@ import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import { ChatService } from '../services/chat-service.js';
-import type { ChatServiceDeps } from '../services/chat-service.js';
+import {
+  findOwnedChatSession,
+  listOwnedChatSessions,
+} from '../services/chat-service.js';
+import type {
+  ChatServiceDeps,
+  ChatSessionOwnerScope,
+} from '../services/chat-service.js';
 
 const log = createLogger('chat-router');
 
@@ -15,17 +27,17 @@ function sendSseEvent(res: Response, event: DashboardSseEvent): void {
   res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
 
-function orgIdFromReq(req: Request): string | undefined {
-  return (req as AuthenticatedRequest).auth?.orgId;
-}
-
 async function ensureSessionInOrg(
   deps: ChatServiceDeps,
   sessionId: string,
-  orgId: string | undefined,
+  scope: ChatSessionOwnerScope | undefined,
 ): Promise<boolean> {
-  if (!orgId || !deps.chatSessionStore) return false;
-  const session = await deps.chatSessionStore.findById(sessionId, { orgId });
+  if (!scope || !deps.chatSessionStore) return false;
+  const session = await findOwnedChatSession(
+    deps.chatSessionStore,
+    sessionId,
+    scope,
+  );
   return Boolean(session);
 }
 
@@ -44,7 +56,9 @@ async function handleChatStream(
   // req.auth is guaranteed by authMiddleware above — if it's missing, the
   // middleware already short-circuited with 401 and we would not be here.
   if (!req.auth) {
-    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+    res.status(401).json({
+      error: { code: 'UNAUTHORIZED', message: 'authentication required' },
+    });
     return;
   }
 
@@ -75,7 +89,9 @@ async function handleChatStream(
     const result = await service.handleMessage(
       message,
       sessionId,
-      (event) => { if (!closed) sendSseEvent(res, event); },
+      (event) => {
+        if (!closed) sendSseEvent(res, event);
+      },
       req.auth,
       pageContext,
       abortController.signal,
@@ -106,7 +122,9 @@ async function handleChatStream(
       log.error({ err }, 'chat handler error');
       const errMsg = err instanceof Error ? err.message : 'Internal error';
       if (!closed) {
-        res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', message: errMsg })}\n\n`);
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ type: 'error', message: errMsg })}\n\n`,
+        );
       }
     }
   } finally {
@@ -122,99 +140,130 @@ export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
   router.use(authMiddleware);
 
   // POST /chat — unified session-based chat endpoint (SSE streaming)
-  router.post('/', requirePermission(() => ac.eval(ACTIONS.ChatUse)), async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    try {
-      const body = req.body as { message?: string; sessionId?: string; pageContext?: { kind: string; id?: string; timeRange?: string } };
-      if (typeof body.message !== 'string' || body.message.trim() === '') {
-        res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'message is required and must be a non-empty string' } });
-        return;
-      }
+  router.post(
+    '/',
+    requirePermission(() => ac.eval(ACTIONS.ChatUse)),
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+      try {
+        const body = req.body as {
+          message?: string;
+          sessionId?: string;
+          pageContext?: { kind: string; id?: string; timeRange?: string };
+        };
+        if (typeof body.message !== 'string' || body.message.trim() === '') {
+          res.status(400).json({
+            error: {
+              code: 'INVALID_INPUT',
+              message: 'message is required and must be a non-empty string',
+            },
+          });
+          return;
+        }
 
-      const message = body.message.trim();
-      const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim()
-        ? body.sessionId.trim()
-        : undefined;
-      const pageContext = body.pageContext ?? undefined;
-      if (sessionId && !await ensureSessionInOrg(deps, sessionId, orgIdFromReq(req))) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Chat session not found' } });
-        return;
-      }
+        const message = body.message.trim();
+        const sessionId =
+          typeof body.sessionId === 'string' && body.sessionId.trim()
+            ? body.sessionId.trim()
+            : undefined;
+        const pageContext = body.pageContext ?? undefined;
+        const ownerScope = req.auth
+          ? { orgId: req.auth.orgId, ownerUserId: req.auth.userId }
+          : undefined;
+        if (
+          sessionId &&
+          !(await ensureSessionInOrg(deps, sessionId, ownerScope))
+        ) {
+          res.status(404).json({
+            error: { code: 'NOT_FOUND', message: 'Chat session not found' },
+          });
+          return;
+        }
 
-      await handleChatStream(req, res, message, sessionId, pageContext, deps);
-    } catch (err) {
-      next(err);
-    }
-  });
+        await handleChatStream(req, res, message, sessionId, pageContext, deps);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   // GET /chat/sessions — list recent chat sessions
-  router.get('/sessions', requirePermission(() => ac.eval(ACTIONS.ChatUse)), async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      if (!deps.chatSessionStore) {
-        res.json({ sessions: [] });
-        return;
+  router.get(
+    '/sessions',
+    requirePermission(() => ac.eval(ACTIONS.ChatUse)),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!deps.chatSessionStore) {
+          res.json({ sessions: [] });
+          return;
+        }
+        const auth = (req as AuthenticatedRequest).auth;
+        if (!auth) {
+          res.status(401).json({
+            error: {
+              code: 'UNAUTHORIZED',
+              message: 'authentication required',
+            },
+          });
+          return;
+        }
+        const limit = Math.min(Number(req.query['limit']) || 50, 200);
+        const scope = { orgId: auth.orgId, ownerUserId: auth.userId };
+        const sessions = await listOwnedChatSessions(
+          deps.chatSessionStore,
+          limit,
+          scope,
+        );
+        res.json({ sessions });
+      } catch (err) {
+        next(err);
       }
-      const orgId = orgIdFromReq(req);
-      if (!orgId) {
-        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
-        return;
-      }
-      const limit = Math.min(Number(req.query['limit']) || 50, 200);
-      const sessions = await deps.chatSessionStore.findAll(limit, { orgId });
-      res.json({ sessions });
-    } catch (err) {
-      next(err);
-    }
-  });
+    },
+  );
 
   // GET /chat/sessions/:id/messages — get messages + persisted step events for
   // a session. The `events` array lets the web client rebuild the full chat
   // panel (agent activity blocks, tool calls, panel-added notices, etc.)
   // exactly as it looked during the live run.
-  router.get('/sessions/:id/messages', requirePermission(() => ac.eval(ACTIONS.ChatUse)), async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const sessionId = req.params['id'] ?? '';
-      if (!sessionId) {
-        res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'session id is required' } });
-        return;
-      }
-      const orgId = orgIdFromReq(req);
-      if (!await ensureSessionInOrg(deps, sessionId, orgId)) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Chat session not found' } });
-        return;
-      }
+  router.get(
+    '/sessions/:id/messages',
+    requirePermission(() => ac.eval(ACTIONS.ChatUse)),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const sessionId = req.params['id'] ?? '';
+        if (!sessionId) {
+          res.status(400).json({
+            error: {
+              code: 'INVALID_INPUT',
+              message: 'session id is required',
+            },
+          });
+          return;
+        }
+        const auth = (req as AuthenticatedRequest).auth;
+        const ownerScope = auth
+          ? { orgId: auth.orgId, ownerUserId: auth.userId }
+          : undefined;
+        if (!(await ensureSessionInOrg(deps, sessionId, ownerScope))) {
+          res.status(404).json({
+            error: { code: 'NOT_FOUND', message: 'Chat session not found' },
+          });
+          return;
+        }
 
-      const [messages, events] = await Promise.all([
-        deps.chatMessageStore ? deps.chatMessageStore.getMessages(sessionId) : Promise.resolve([]),
-        deps.chatEventStore ? deps.chatEventStore.listBySession(sessionId) : Promise.resolve([]),
-      ]);
-      res.json({ sessionId, messages, events });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  // GET /chat/:sessionId — retrieve conversation history for a session (legacy)
-  router.get('/:sessionId', requirePermission(() => ac.eval(ACTIONS.ChatUse)), async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const sessionId = req.params['sessionId'] ?? '';
-      if (!sessionId) {
-        res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'sessionId is required' } });
-        return;
+        const [messages, events] = await Promise.all([
+          deps.chatMessageStore
+            ? deps.chatMessageStore.getMessages(sessionId)
+            : Promise.resolve([]),
+          deps.chatEventStore
+            ? deps.chatEventStore.listBySession(sessionId)
+            : Promise.resolve([]),
+        ]);
+        res.json({ sessionId, messages, events });
+      } catch (err) {
+        next(err);
       }
-      const orgId = orgIdFromReq(req);
-      if (!await ensureSessionInOrg(deps, sessionId, orgId)) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Chat session not found' } });
-        return;
-      }
-
-      const messages = deps.chatMessageStore
-        ? await deps.chatMessageStore.getMessages(sessionId)
-        : [];
-      res.json({ sessionId, messages });
-    } catch (err) {
-      next(err);
-    }
-  });
+    },
+  );
 
   return router;
 }

@@ -35,7 +35,6 @@ export interface NewDashboardInput {
   useExistingMetrics?: boolean;
   folder?: string;
   workspaceId?: string;
-  sessionId?: string;
 }
 
 /**

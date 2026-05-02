@@ -27,7 +27,6 @@ export class DashboardStore implements Persistable {
     useExistingMetrics?: boolean
     folder?: string
     workspaceId?: string
-    sessionId?: string
   }): Dashboard {
     const now = new Date().toISOString()
     const id = uid()
@@ -47,7 +46,6 @@ export class DashboardStore implements Persistable {
       useExistingMetrics: params.useExistingMetrics ?? true,
       ...(params.folder !== undefined ? { folder: params.folder } : {}),
       ...(params.workspaceId !== undefined ? { workspaceId: params.workspaceId } : {}),
-      ...(params.sessionId !== undefined ? { sessionId: params.sessionId } : {}),
       createdAt: now,
       updatedAt: now,
     }

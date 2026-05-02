@@ -65,7 +65,6 @@ describe('InvestigationWorkspaceService', () => {
         id: 'inv_a',
         status: 'planning',
         intent: 'Investigate latency',
-        sessionId: 'ses_1',
         userId: 'u_1',
         createdAt: '2026-04-25T00:00:00.000Z',
         updatedAt: '2026-04-25T00:00:00.000Z',

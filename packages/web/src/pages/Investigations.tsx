@@ -12,7 +12,6 @@ interface InvestigationSummary {
   id: string;
   status: string;
   intent: string;
-  sessionId: string;
   userId: string;
   createdAt: string;
   updatedAt: string;
@@ -94,7 +93,6 @@ export default function Investigations() {
     return sorted.filter((inv) =>
       inv.intent.toLowerCase().includes(q)
       || inv.status.toLowerCase().includes(q)
-      || inv.sessionId.toLowerCase().includes(q)
       || inv.userId.toLowerCase().includes(q)
     );
   }, [search, sorted]);

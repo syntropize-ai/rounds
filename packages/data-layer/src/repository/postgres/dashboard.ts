@@ -65,7 +65,6 @@ interface DashboardRow {
   folder: string | null;
   workspace_id: string | null;
   org_id: string;
-  session_id: string | null;
   version: number | null;
   publish_status: string | null;
   error: string | null;
@@ -115,7 +114,6 @@ function rowToDashboard(r: DashboardRow): Dashboard {
   };
   if (r.folder !== null) base.folder = r.folder;
   if (r.workspace_id !== null) base.workspaceId = r.workspace_id;
-  if (r.session_id !== null) base.sessionId = r.session_id;
   if (r.version !== null) base.version = r.version;
   if (r.publish_status !== null) base.publishStatus = r.publish_status as PublishStatus;
   if (r.error !== null) base.error = r.error;
@@ -140,7 +138,7 @@ export class DashboardRepository implements IDashboardRepository {
       INSERT INTO dashboards (
         id, type, title, description, prompt, user_id, status,
         panels, variables, refresh_interval_sec, datasource_ids,
-        use_existing_metrics, folder, workspace_id, session_id,
+        use_existing_metrics, folder, workspace_id,
         created_at, updated_at
       ) VALUES (
         ${id},
@@ -157,7 +155,6 @@ export class DashboardRepository implements IDashboardRepository {
         ${useExistingMetrics},
         ${input.folder ?? null},
         ${input.workspaceId ?? null},
-        ${input.sessionId ?? null},
         ${now},
         ${now}
       )
@@ -322,7 +319,7 @@ export class DashboardRepository implements IDashboardRepository {
         INSERT INTO dashboards (
           id, type, title, description, prompt, user_id, status,
           panels, variables, refresh_interval_sec, datasource_ids,
-          use_existing_metrics, folder, workspace_id, session_id,
+          use_existing_metrics, folder, workspace_id,
           version, publish_status, error, created_at, updated_at
         ) VALUES (
           ${raw.id},
@@ -339,7 +336,6 @@ export class DashboardRepository implements IDashboardRepository {
           ${fromBool(raw.useExistingMetrics, true)},
           ${raw.folder ?? null},
           ${raw.workspaceId ?? null},
-          ${raw.sessionId ?? null},
           ${raw.version ?? null},
           ${raw.publishStatus ?? null},
           ${raw.error ?? null},
@@ -360,7 +356,6 @@ export class DashboardRepository implements IDashboardRepository {
           use_existing_metrics = excluded.use_existing_metrics,
           folder               = excluded.folder,
           workspace_id         = excluded.workspace_id,
-          session_id           = excluded.session_id,
           version              = excluded.version,
           publish_status       = excluded.publish_status,
           error                = excluded.error,

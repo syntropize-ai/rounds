@@ -25,7 +25,6 @@ describe('DashboardRepository', () => {
       useExistingMetrics: false,
       folder: 'prod',
       workspaceId: 'ws-1',
-      sessionId: 'sess-7',
     });
 
     expect(d.id).toMatch(/^[0-9a-f-]{36}$/i);
@@ -38,7 +37,6 @@ describe('DashboardRepository', () => {
     expect(d.useExistingMetrics).toBe(false);
     expect(d.folder).toBe('prod');
     expect(d.workspaceId).toBe('ws-1');
-    expect(d.sessionId).toBe('sess-7');
     expect(d.createdAt).toEqual(d.updatedAt);
 
     const fetched = await repo.findById(d.id);
@@ -58,7 +56,6 @@ describe('DashboardRepository', () => {
     expect(d.datasourceIds).toEqual([]);
     expect(d.folder).toBeUndefined();
     expect(d.workspaceId).toBeUndefined();
-    expect(d.sessionId).toBeUndefined();
   });
 
   // -- missing-id lookup --

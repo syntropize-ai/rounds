@@ -25,8 +25,11 @@ export type {
   IInvestigationReportRepository,
   IPostMortemRepository,
   IChatSessionRepository,
+  IChatSessionContextRepository,
   IChatMessageRepository,
   IChatSessionEventRepository,
+  ChatSessionContextResourceScope,
+  ChatSessionScope,
   ChatSessionEventRecord,
 } from './interfaces.js';
 

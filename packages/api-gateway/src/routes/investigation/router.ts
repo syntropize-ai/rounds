@@ -72,7 +72,7 @@ export function createInvestigationRouter(
         const workspaceId = resolveOrgId(req);
         const investigation = await store.create({
           question: body.question.trim(),
-          sessionId: body.sessionId ?? `ses_${Date.now()}`,
+          sessionId: `inv_${Date.now()}`,
           userId: authReq.auth?.userId ?? 'anonymous',
           entity: body.entity,
           timeRange: body.timeRange,

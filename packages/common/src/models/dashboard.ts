@@ -234,7 +234,6 @@ export interface Dashboard {
   useExistingMetrics: boolean;
   folder?: string;
   workspaceId?: string;
-  sessionId?: string;
   version?: number;
   publishStatus?: PublishStatus;
   createdAt: string;
@@ -248,10 +247,28 @@ export interface ChatSession {
   id: string;
   title: string;
   orgId?: string;
+  ownerUserId?: string | null;
   createdAt: string;
   updatedAt: string;
   /** LLM-generated summary of older conversation turns for context compaction */
   contextSummary?: string;
+}
+
+export type ChatSessionContextResourceType = 'dashboard' | 'investigation' | 'alert';
+export type ChatSessionContextRelation =
+  | 'created_from_chat'
+  | 'viewed_with_chat'
+  | 'referenced';
+
+export interface ChatSessionContext {
+  id: string;
+  sessionId: string;
+  orgId: string;
+  ownerUserId: string;
+  resourceType: ChatSessionContextResourceType;
+  resourceId: string;
+  relation: ChatSessionContextRelation;
+  createdAt: string;
 }
 
 export interface ChatMessage {

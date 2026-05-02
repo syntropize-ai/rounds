@@ -585,7 +585,6 @@ CREATE TABLE IF NOT EXISTS dashboards (
   folder               TEXT,
   folder_uid           TEXT NULL,
   workspace_id         TEXT,
-  session_id           TEXT,
   version              INTEGER,
   publish_status       TEXT,
   error                TEXT,
@@ -599,6 +598,7 @@ CREATE INDEX IF NOT EXISTS ix_dashboards_folder_uid ON dashboards(org_id, folder
 CREATE TABLE IF NOT EXISTS chat_sessions (
   id              TEXT PRIMARY KEY,
   org_id          TEXT NOT NULL DEFAULT 'org_main',
+  owner_user_id   TEXT,
   title           TEXT NOT NULL DEFAULT '',
   context_summary TEXT,
   created_at      TEXT NOT NULL,
@@ -606,6 +606,21 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS ix_chat_sessions_org_id ON chat_sessions(org_id);
+CREATE INDEX IF NOT EXISTS ix_chat_sessions_owner ON chat_sessions(org_id, owner_user_id);
+
+CREATE TABLE IF NOT EXISTS chat_session_contexts (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL,
+  org_id          TEXT NOT NULL,
+  owner_user_id   TEXT NOT NULL,
+  resource_type   TEXT NOT NULL,
+  resource_id     TEXT NOT NULL,
+  relation        TEXT NOT NULL,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_chat_session_contexts_session ON chat_session_contexts(session_id);
+CREATE INDEX IF NOT EXISTS ix_chat_session_contexts_owner_resource ON chat_session_contexts(org_id, owner_user_id, resource_type, resource_id);
 
 CREATE TABLE IF NOT EXISTS chat_messages (
   id         TEXT PRIMARY KEY,

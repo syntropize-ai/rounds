@@ -178,7 +178,6 @@ export const investigationOpenApiSpec = {
         required: ['question'],
         properties: {
           question: { type: 'string', description: 'Natural-language question' },
-          sessionId: { type: 'string' },
           entity: { type: 'string', description: 'Entity hint (e.g. service name)' },
           timeRange: {
             type: 'object',
@@ -198,7 +197,6 @@ export const investigationOpenApiSpec = {
             enum: ['planning', 'investigating', 'evidencing', 'explaining', 'active', 'verifying', 'completed', 'failed'],
           },
           intent: { type: 'string' },
-          sessionId: { type: 'string' },
           userId: { type: 'string' },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },

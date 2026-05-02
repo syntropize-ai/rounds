@@ -32,7 +32,6 @@ interface Dashboard {
   createdAt: string;
   updatedAt?: string;
   folder?: string;
-  sessionId?: string;
 }
 
 // Main
@@ -41,7 +40,8 @@ export default function DashboardWorkspace() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const initialPrompt = (location.state as { initialPrompt?: string } | null)?.initialPrompt;
+  const initialPrompt = (location.state as { initialPrompt?: string } | null)
+    ?.initialPrompt;
   const initialPromptSent = useRef(false);
 
   const { user, hasPermission } = useAuth();
@@ -51,22 +51,31 @@ export default function DashboardWorkspace() {
   // check shape (`dashboards:uid:<id>`) so UI hides what the server would
   // 403 anyway.
   const canEditDashboard =
-    !!user
-    && (user.isServerAdmin
-      || hasPermission('dashboards:write', id ? `dashboards:uid:${id}` : undefined)
-      || hasPermission('dashboards:write'));
+    !!user &&
+    (user.isServerAdmin ||
+      hasPermission(
+        'dashboards:write',
+        id ? `dashboards:uid:${id}` : undefined,
+      ) ||
+      hasPermission('dashboards:write'));
   const canDeleteDashboard =
-    !!user
-    && (user.isServerAdmin
-      || hasPermission('dashboards:delete', id ? `dashboards:uid:${id}` : undefined)
-      || hasPermission('dashboards:delete'));
+    !!user &&
+    (user.isServerAdmin ||
+      hasPermission(
+        'dashboards:delete',
+        id ? `dashboards:uid:${id}` : undefined,
+      ) ||
+      hasPermission('dashboards:delete'));
   // Managing per-dashboard ACLs requires `dashboards.permissions:read` (to open
   // the dialog) — Admin-only grant. Hide the button for everyone below.
   const canManagePermissions =
-    !!user
-    && (user.isServerAdmin
-      || hasPermission('dashboards.permissions:read', id ? `dashboards:uid:${id}` : undefined)
-      || hasPermission('dashboards.permissions:read'));
+    !!user &&
+    (user.isServerAdmin ||
+      hasPermission(
+        'dashboards.permissions:read',
+        id ? `dashboards:uid:${id}` : undefined,
+      ) ||
+      hasPermission('dashboards.permissions:read'));
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,10 +100,18 @@ export default function DashboardWorkspace() {
 
   const loadDashboard = useCallback(async () => {
     if (!id) return;
-    const res = await apiClient.getValidated<Dashboard>(`/dashboards/${id}`, DashboardSchema, 'Dashboard');
-    const errStatus = Number((res.error as Record<string, unknown> | undefined)?.status);
+    const res = await apiClient.getValidated<Dashboard>(
+      `/dashboards/${id}`,
+      DashboardSchema,
+      'Dashboard',
+    );
+    const errStatus = Number(
+      (res.error as Record<string, unknown> | undefined)?.status,
+    );
     const isTransient =
-      !!res.error && (res.error.code === 'RATE_LIMITED' || (!Number.isNaN(errStatus) && errStatus >= 500));
+      !!res.error &&
+      (res.error.code === 'RATE_LIMITED' ||
+        (!Number.isNaN(errStatus) && errStatus >= 500));
 
     if (isTransient) {
       if (dashboardLoadedRef.current) {
@@ -137,7 +154,7 @@ export default function DashboardWorkspace() {
   // Chat / SSE
   const {
     events,
-    isGenerating,
+    isGenerating: dashboardChatGenerating,
     sendMessage,
     stopGeneration,
     panels,
@@ -145,43 +162,39 @@ export default function DashboardWorkspace() {
     setPanels,
     setVariables,
     investigationReport,
-  } = useDashboardChat(id ?? '', dashboard?.panels ?? [], dashboard?.variables ?? [], timeRange, dashboard?.sessionId);
+  } = useDashboardChat(
+    id ?? '',
+    dashboard?.panels ?? [],
+    dashboard?.variables ?? [],
+    timeRange,
+  );
   const [showReport, setShowReport] = useState(false);
   const globalChat = useGlobalChat();
+  const isGenerating = dashboardChatGenerating || globalChat.isGenerating;
 
   // Tell the global chat which dashboard the user is viewing + current time range
   useEffect(() => {
     if (id) {
       globalChat.setPageContext({ kind: 'dashboard', id, timeRange });
     }
-    return () => { globalChat.setPageContext(null); };
+    return () => {
+      globalChat.setPageContext(null);
+    };
   }, [id, timeRange, globalChat]);
 
-  // Load the session that created this dashboard so the ChatPanel shows its
-  // full history (messages + agent step events). We always call loadSession
-  // on mount — not only when the session IDs differ — because after a page
-  // refresh localStorage still holds the matching sessionId while the
-  // in-memory events/messages arrays start empty, so a naive equality guard
-  // would leave the chat panel blank.
-  //
-  // Exception: when arriving from Home with an initialPrompt we're about to
-  // start a fresh live run in this same session — loadSession would race the
-  // first outgoing SSE events and wipe them, so skip it in that case.
-  const sessionLoadedRef = useRef<string | null>(null);
-  useEffect(() => {
-    const sid = dashboard?.sessionId;
-    if (!sid || initialPrompt) return;
-    if (sessionLoadedRef.current === sid) return;
-    sessionLoadedRef.current = sid;
-    void globalChat.loadSession(sid);
-  }, [dashboard?.sessionId, initialPrompt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Chat history is bound by the URL (`?chat=...`) and loaded in Layout.
 
   // Investigation reports are now handled in the Investigations page.
   // No auto-show on dashboard — the chat will display a link instead.
 
   // Auto-send initial prompt from Home page via the global chat
   useEffect(() => {
-    if (initialPrompt && dashboard && !initialPromptSent.current && !globalChat.isGenerating) {
+    if (
+      initialPrompt &&
+      dashboard &&
+      !initialPromptSent.current &&
+      !globalChat.isGenerating
+    ) {
       initialPromptSent.current = true;
       if (location.state) {
         window.history.replaceState({}, '');
@@ -195,28 +208,37 @@ export default function DashboardWorkspace() {
   useEffect(() => {
     if (wasGeneratingRef.current && !isGenerating && id) {
       // Generation just finished — fetch final dashboard state once
-      void apiClient.getValidated<Dashboard>(`/dashboards/${id}`, DashboardSchema, 'Dashboard').then((res) => {
-        if (!res.error && res.data) {
-          setDashboard(res.data);
-          setPanels(res.data.panels ?? []);
-          setVariables(res.data.variables ?? []);
-        }
-      });
+      void apiClient
+        .getValidated<Dashboard>(
+          `/dashboards/${id}`,
+          DashboardSchema,
+          'Dashboard',
+        )
+        .then((res) => {
+          if (!res.error && res.data) {
+            setDashboard(res.data);
+            setPanels(res.data.panels ?? []);
+            setVariables(res.data.variables ?? []);
+          }
+        });
     }
     wasGeneratingRef.current = isGenerating;
   }, [isGenerating, id, setPanels, setVariables]);
 
   // Variable changes
-  const handleVariableChange = useCallback((name: string, value: string) => {
-    setVariables((prev) =>
-      prev.map((v) => (v.name === name ? { ...v, current: value } : v))
-    );
-    // Datasource swaps invalidate every panel's query cache key, so wipe the
-    // shared cache and broadcast a refresh — without this, panels keep
-    // showing data from the previous backend until their next interval tick.
-    queryScheduler.clearCache();
-    window.dispatchEvent(new CustomEvent('dashboard:refresh-panels'));
-  }, [setVariables]);
+  const handleVariableChange = useCallback(
+    (name: string, value: string) => {
+      setVariables((prev) =>
+        prev.map((v) => (v.name === name ? { ...v, current: value } : v)),
+      );
+      // Datasource swaps invalidate every panel's query cache key, so wipe the
+      // shared cache and broadcast a refresh — without this, panels keep
+      // showing data from the previous backend until their next interval tick.
+      queryScheduler.clearCache();
+      window.dispatchEvent(new CustomEvent('dashboard:refresh-panels'));
+    },
+    [setVariables],
+  );
 
   // Resolved variable values for `${name}` substitution in panel queries.
   // Today only `$datasource` flows through here, but the map shape lets us
@@ -238,9 +260,14 @@ export default function DashboardWorkspace() {
 
   const saveTitle = async () => {
     if (!id || !titleDraft.trim()) return;
-    const res = await apiClient.putValidated<Dashboard>(`/dashboards/${id}`, {
-      title: titleDraft.trim(),
-    }, DashboardSchema, 'Dashboard');
+    const res = await apiClient.putValidated<Dashboard>(
+      `/dashboards/${id}`,
+      {
+        title: titleDraft.trim(),
+      },
+      DashboardSchema,
+      'Dashboard',
+    );
     if (!res.error) setDashboard(res.data);
     setEditingTitle(false);
   };
@@ -255,7 +282,12 @@ export default function DashboardWorkspace() {
   const handleSavePanel = async (updated: PanelConfig) => {
     if (!id || !dashboard) return;
     const newPanels = panels.map((p) => (p.id === updated.id ? updated : p));
-    const res = await apiClient.putValidated<Dashboard>(`/dashboards/${id}/panels`, newPanels, DashboardSchema, 'Dashboard');
+    const res = await apiClient.putValidated<Dashboard>(
+      `/dashboards/${id}/panels`,
+      newPanels,
+      DashboardSchema,
+      'Dashboard',
+    );
     if (!res.error) {
       setDashboard(res.data);
       setPanels(res.data.panels);
@@ -281,7 +313,12 @@ export default function DashboardWorkspace() {
       visualization: 'time_series',
       refreshIntervalSec: 30,
     };
-    const res = await apiClient.postValidated<Dashboard>(`/dashboards/${id}/panels`, newPanel, DashboardSchema, 'Dashboard');
+    const res = await apiClient.postValidated<Dashboard>(
+      `/dashboards/${id}/panels`,
+      newPanel,
+      DashboardSchema,
+      'Dashboard',
+    );
     if (!res.error) {
       setDashboard(res.data);
       setPanels(res.data.panels);
@@ -295,7 +332,15 @@ export default function DashboardWorkspace() {
   const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleLayoutChange = useCallback(
-    (newLayout: Array<{ i: string; x: number; y: number; w: number; h: number }>) => {
+    (
+      newLayout: Array<{
+        i: string;
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+      }>,
+    ) => {
       if (!id || !panels) return;
       if (layoutTimerRef.current) clearTimeout(layoutTimerRef.current);
       layoutTimerRef.current = setTimeout(() => {
@@ -311,15 +356,22 @@ export default function DashboardWorkspace() {
           };
         });
 
-        void apiClient.putValidated<Dashboard>(`/dashboards/${id}/panels`, { panels: updatedPanels }, DashboardSchema, 'Dashboard').then((res) => {
-          if (!res.error) {
-            setDashboard(res.data);
-            setPanels(res.data.panels);
-          }
-        });
+        void apiClient
+          .putValidated<Dashboard>(
+            `/dashboards/${id}/panels`,
+            { panels: updatedPanels },
+            DashboardSchema,
+            'Dashboard',
+          )
+          .then((res) => {
+            if (!res.error) {
+              setDashboard(res.data);
+              setPanels(res.data.panels);
+            }
+          });
       }, 500);
     },
-    [id, panels, setPanels]
+    [id, panels, setPanels],
   );
 
   // Scroll to panel
@@ -340,7 +392,9 @@ export default function DashboardWorkspace() {
   if (loadError || !dashboard) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-surface-lowest text-center px-6">
-        <p className="text-error text-sm mb-4">{loadError ?? 'Dashboard not found.'}</p>
+        <p className="text-error text-sm mb-4">
+          {loadError ?? 'Dashboard not found.'}
+        </p>
         <button
           type="button"
           onClick={() => navigate(-1)}
@@ -359,7 +413,13 @@ export default function DashboardWorkspace() {
       <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 bg-surface-lowest border-b border-outline-variant">
         <button
           type="button"
-          onClick={() => navigate(dashboard?.type === 'investigation' ? '/investigations' : '/dashboards')}
+          onClick={() =>
+            navigate(
+              dashboard?.type === 'investigation'
+                ? '/investigations'
+                : '/dashboards',
+            )
+          }
           className="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors shrink-0"
           aria-label="Back to dashboards"
         >
@@ -377,16 +437,30 @@ export default function DashboardWorkspace() {
             <div className="flex items-center gap-2 min-w-0">
               <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
               <span className="text-sm text-on-surface-variant truncate italic">
-                {dashboard.prompt?.length > 50 ? `${dashboard.prompt.slice(0, 50)}...` : dashboard.prompt}
+                {dashboard.prompt?.length > 50
+                  ? `${dashboard.prompt.slice(0, 50)}...`
+                  : dashboard.prompt}
               </span>
             </div>
           ) : showReport ? (
             <div className="flex items-center gap-2 min-w-0">
-              <svg className="w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197M4.7 10a5.3 5.3 0 1010.6 0 5.3 5.3 0 00-10.6 0z" />
+              <svg
+                className="w-4 h-4 text-primary shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-5.197-5.197M4.7 10a5.3 5.3 0 1010.6 0 5.3 5.3 0 00-10.6 0z"
+                />
               </svg>
               <span className="text-sm font-semibold text-on-surface truncate">
-                {dashboard.title.startsWith('Investigation') ? dashboard.title : 'Investigation'}
+                {dashboard.title.startsWith('Investigation')
+                  ? dashboard.title
+                  : 'Investigation'}
               </span>
             </div>
           ) : editingTitle ? (
@@ -417,11 +491,11 @@ export default function DashboardWorkspace() {
             </span>
           )}
 
-        {!showReport && !isGenerating && dashboard.folder && (
-          <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
-            {dashboard.folder}
-          </span>
-        )}
+          {!showReport && !isGenerating && dashboard.folder && (
+            <span className="text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
+              {dashboard.folder}
+            </span>
+          )}
         </div>
 
         {/* Center: time range + refresh */}
@@ -453,8 +527,18 @@ export default function DashboardWorkspace() {
                     : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high'
                 }`}
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
                 </svg>
                 {editMode ? 'Editing' : 'Edit'}
               </button>
@@ -467,8 +551,18 @@ export default function DashboardWorkspace() {
                 onClick={() => void handleAddPanel()}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-on-surface-variant hover:text-on-surface hover:bg-surface-high transition-colors"
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 4.5v15m7.5-7.5h-15"
+                  />
                 </svg>
                 Add Panel
               </button>
@@ -482,10 +576,24 @@ export default function DashboardWorkspace() {
                 type="button"
                 onClick={() => setShowFolderDialog(true)}
                 className="p-1.5 rounded-lg transition-colors hover:bg-surface-high text-on-surface-variant hover:text-on-surface"
-                title={dashboard.folder ? `Folder: ${dashboard.folder}` : 'Move to folder'}
+                title={
+                  dashboard.folder
+                    ? `Folder: ${dashboard.folder}`
+                    : 'Move to folder'
+                }
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                  />
                 </svg>
               </button>
             )}
@@ -498,8 +606,18 @@ export default function DashboardWorkspace() {
                 title="Permissions"
               >
                 {/* Shield icon */}
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l8 3v6c0 5-3.5 9.5-8 11-4.5-1.5-8-6-8-11V5l8-3z" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 2l8 3v6c0 5-3.5 9.5-8 11-4.5-1.5-8-6-8-11V5l8-3z"
+                  />
                 </svg>
               </button>
             )}
@@ -511,8 +629,18 @@ export default function DashboardWorkspace() {
                 className="group relative p-2 rounded-lg text-on-surface-variant hover:text-error hover:bg-surface-high transition-colors shrink-0"
                 title="Delete"
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
+                  />
                 </svg>
               </button>
             )}
@@ -547,15 +675,21 @@ export default function DashboardWorkspace() {
                 // truthiness of these callbacks (see DashboardPanelCard.tsx
                 // lines ~690 and ~715), so this removes them from the DOM
                 // entirely — not just hidden-until-hover — for Viewers.
-                onEditPanel={canEditDashboard
-                  ? (panelId) => {
-                      const p = panels.find((x) => x.id === panelId);
-                      if (p) setEditingPanel(p);
-                    }
-                  : undefined}
-                onDeletePanel={canEditDashboard
-                  ? (panelId) => { void handleDeletePanel(panelId); }
-                  : undefined}
+                onEditPanel={
+                  canEditDashboard
+                    ? (panelId) => {
+                        const p = panels.find((x) => x.id === panelId);
+                        if (p) setEditingPanel(p);
+                      }
+                    : undefined
+                }
+                onDeletePanel={
+                  canEditDashboard
+                    ? (panelId) => {
+                        void handleDeletePanel(panelId);
+                      }
+                    : undefined
+                }
                 onLayoutChange={handleLayoutChange}
                 onTimeRangeChange={setTimeRange}
               />
@@ -563,13 +697,16 @@ export default function DashboardWorkspace() {
           )}
 
           <div className="shrink-0 px-6 py-2 flex items-center gap-2">
-            <span className={`w-1.5 h-1.5 rounded-full ${isGenerating ? 'bg-primary animate-pulse' : 'bg-secondary'}`} />
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${isGenerating ? 'bg-primary animate-pulse' : 'bg-secondary'}`}
+            />
             <span className="text-xs text-on-surface-variant">
-              {isGenerating ? 'Generating...' : `${panels.length} panel${panels.length !== 1 ? 's' : ''} ready`}
+              {isGenerating
+                ? 'Generating...'
+                : `${panels.length} panel${panels.length !== 1 ? 's' : ''} ready`}
             </span>
           </div>
         </div>
-
       </div>
 
       {editingPanel && (
@@ -588,7 +725,9 @@ export default function DashboardWorkspace() {
           currentFolder={dashboard?.folder}
           open={showFolderDialog}
           onClose={() => setShowFolderDialog(false)}
-          onSaved={(folder) => setDashboard((prev) => (prev ? { ...prev, folder } : prev))}
+          onSaved={(folder) =>
+            setDashboard((prev) => (prev ? { ...prev, folder } : prev))
+          }
         />
       )}
 
@@ -608,7 +747,12 @@ export default function DashboardWorkspace() {
         onConfirm={async () => {
           if (id) {
             const res = await apiClient.delete(`/dashboards/${id}`);
-            if (!res.error) navigate(dashboard?.type === 'investigation' ? '/investigations' : '/dashboards');
+            if (!res.error)
+              navigate(
+                dashboard?.type === 'investigation'
+                  ? '/investigations'
+                  : '/dashboards',
+              );
           }
           setShowDeleteConfirm(false);
         }}

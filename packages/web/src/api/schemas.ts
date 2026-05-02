@@ -184,7 +184,6 @@ export const DashboardSchema = z
     useExistingMetrics: z.boolean().optional(),
     folder: z.string().optional(),
     workspaceId: z.string().optional(),
-    sessionId: z.string().optional(),
     version: z.number().optional(),
     publishStatus: z.enum(['draft', 'published', 'archived']).optional(),
     createdAt: z.string(),

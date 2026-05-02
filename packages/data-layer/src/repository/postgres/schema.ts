@@ -209,10 +209,43 @@ export const chatSessions = pgTable(
     title: text('title').notNull().default(''),
     contextSummary: text('context_summary'),
     orgId: text('org_id').notNull().default('org_main'),
+    ownerUserId: text('owner_user_id'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
-  (t) => [index('pg_repo_chat_sessions_org_idx').on(t.orgId)],
+  (t) => [
+    index('pg_repo_chat_sessions_org_idx').on(t.orgId),
+    index('pg_repo_chat_sessions_owner_idx').on(t.orgId, t.ownerUserId),
+  ],
+);
+
+export const chatSessionContexts = pgTable(
+  'chat_session_contexts',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    orgId: text('org_id').notNull().default('org_main'),
+    ownerUserId: text('owner_user_id').notNull(),
+    resourceType: text('resource_type').notNull(),
+    resourceId: text('resource_id').notNull(),
+    relation: text('relation').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    index('pg_repo_chat_session_contexts_session_idx').on(t.sessionId),
+    index('pg_repo_chat_session_contexts_owner_idx').on(t.orgId, t.ownerUserId),
+    index('pg_repo_chat_session_contexts_resource_idx').on(
+      t.orgId,
+      t.resourceType,
+      t.resourceId,
+    ),
+    uniqueIndex('pg_repo_chat_session_contexts_unique_idx').on(
+      t.sessionId,
+      t.resourceType,
+      t.resourceId,
+      t.relation,
+    ),
+  ],
 );
 
 export const chatMessages = pgTable(

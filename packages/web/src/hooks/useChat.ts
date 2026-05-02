@@ -28,9 +28,9 @@ export interface UseChatResult {
   clearPendingNavigation: () => void;
   /** Set the current page context — agent uses this to know which resource the user is viewing. */
   setPageContext: (ctx: PageContext | null) => void;
-  /** Current session ID (readonly). */
+  /** Current durable session ID (readonly). Empty until the server creates one. */
   currentSessionId: string;
-  /** Clear messages/events, generate a new sessionId, persist to localStorage. */
+  /** Clear messages/events and start an unsaved draft session. */
   startNewSession: () => void;
   /** Load a session's messages from the backend. Handles 404 gracefully. */
   loadSession: (sessionId: string) => Promise<void>;
@@ -59,40 +59,65 @@ function payloadToChatEvent(
 ): ChatEvent | null {
   switch (kind) {
     case 'thinking':
-      return { id, kind: 'thinking', content: (payload.content as string) ?? 'Thinking...' };
+      return {
+        id,
+        kind: 'thinking',
+        content: (payload.content as string) ?? 'Thinking...',
+      };
     case 'tool_call':
       return {
         id,
         kind: 'tool_call',
         tool: payload.tool as string | undefined,
-        content: (payload.displayText as string) ?? (payload.content as string) ?? '',
+        content:
+          (payload.displayText as string) ?? (payload.content as string) ?? '',
       };
     case 'tool_result':
       return {
         id,
         kind: 'tool_result',
         tool: payload.tool as string | undefined,
-        content: (payload.summary as string) ?? (payload.content as string) ?? '',
+        content:
+          (payload.summary as string) ?? (payload.content as string) ?? '',
         success: payload.success !== false,
       };
     case 'panel_added':
-      return { id, kind: 'panel_added', panel: payload.panel as ChatEvent['panel'] };
+      return {
+        id,
+        kind: 'panel_added',
+        panel: payload.panel as ChatEvent['panel'],
+      };
     case 'panel_removed':
-      return { id, kind: 'panel_removed', panelId: payload.panelId as string | undefined };
+      return {
+        id,
+        kind: 'panel_removed',
+        panelId: payload.panelId as string | undefined,
+      };
     case 'panel_modified':
-      return { id, kind: 'panel_modified', panelId: payload.panelId as string | undefined };
+      return {
+        id,
+        kind: 'panel_modified',
+        panelId: payload.panelId as string | undefined,
+      };
     case 'ask_user': {
       const { question, options } = parseAskUserPayload(payload);
       return { id, kind: 'ask_user', question, options };
     }
     case 'ds_choice': {
-      const chosenId = typeof payload.chosenId === 'string' ? payload.chosenId : '';
+      const chosenId =
+        typeof payload.chosenId === 'string' ? payload.chosenId : '';
       const chosenName = typeof payload.name === 'string' ? payload.name : '';
-      const chooseReason = typeof payload.reason === 'string' ? payload.reason : '';
-      const confidence = (payload.confidence === 'high' || payload.confidence === 'medium' || payload.confidence === 'low')
-        ? payload.confidence
-        : 'low';
-      const rawAlts = Array.isArray(payload.alternatives) ? payload.alternatives : [];
+      const chooseReason =
+        typeof payload.reason === 'string' ? payload.reason : '';
+      const confidence =
+        payload.confidence === 'high' ||
+        payload.confidence === 'medium' ||
+        payload.confidence === 'low'
+          ? payload.confidence
+          : 'low';
+      const rawAlts = Array.isArray(payload.alternatives)
+        ? payload.alternatives
+        : [];
       const alternatives = rawAlts
         .map((a) => {
           if (!a || typeof a !== 'object') return null;
@@ -100,25 +125,53 @@ function payloadToChatEvent(
           const aid = typeof obj.id === 'string' ? obj.id : '';
           const name = typeof obj.name === 'string' ? obj.name : '';
           if (!aid || !name) return null;
-          const env = typeof obj.environment === 'string' ? obj.environment : undefined;
-          const cluster = typeof obj.cluster === 'string' ? obj.cluster : undefined;
-          return { id: aid, name, ...(env ? { environment: env } : {}), ...(cluster ? { cluster } : {}) };
+          const env =
+            typeof obj.environment === 'string' ? obj.environment : undefined;
+          const cluster =
+            typeof obj.cluster === 'string' ? obj.cluster : undefined;
+          return {
+            id: aid,
+            name,
+            ...(env ? { environment: env } : {}),
+            ...(cluster ? { cluster } : {}),
+          };
         })
         .filter((a): a is NonNullable<typeof a> => a !== null);
-      return { id, kind: 'ds_choice', chosenId, chosenName, chooseReason, confidence, alternatives };
+      return {
+        id,
+        kind: 'ds_choice',
+        chosenId,
+        chosenName,
+        chooseReason,
+        confidence,
+        alternatives,
+      };
     }
     case 'error':
       return {
         id,
         kind: 'error',
         content:
-          (payload.message as string) ?? (payload.content as string) ?? 'An error occurred',
+          (payload.message as string) ??
+          (payload.content as string) ??
+          'An error occurred',
       };
     default:
       // Kinds we intentionally don't replay: variable_added / investigation_report
       // are reflected in dashboard state, not chat history; agent_event /
       // verification_report / approval_required aren't currently rendered.
       return null;
+  }
+}
+
+function withChatQuery(path: string, sessionId: string): string {
+  if (!sessionId || !path.startsWith('/')) return path;
+  try {
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set('chat', sessionId);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return path;
   }
 }
 
@@ -130,8 +183,12 @@ export function useChat(): UseChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [events, setEvents] = useState<ChatEvent[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<'not-found' | 'network' | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(
+    null,
+  );
+  const [loadError, setLoadError] = useState<'not-found' | 'network' | null>(
+    null,
+  );
   const lastLoadSessionIdRef = useRef<string | null>(null);
   // Monotonic token bumped on every loadSession() call. A stale completion
   // (slow network) checks this against its captured token and bails if a
@@ -141,14 +198,18 @@ export function useChat(): UseChatResult {
   const pageContextRef = useRef<PageContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string>(
-    () => localStorage.getItem('chat_session_id') ?? `ses_${crypto.randomUUID()}`,
+    () => localStorage.getItem('chat_session_id') ?? '',
   );
   const sessionIdRef = useRef<string>(currentSessionId);
 
   // Keep ref in sync with state
   useEffect(() => {
     sessionIdRef.current = currentSessionId;
-    localStorage.setItem('chat_session_id', currentSessionId);
+    if (currentSessionId) {
+      localStorage.setItem('chat_session_id', currentSessionId);
+    } else {
+      localStorage.removeItem('chat_session_id');
+    }
   }, [currentSessionId]);
 
   const appendEvent = useCallback((evt: ChatEvent) => {
@@ -190,7 +251,10 @@ export function useChat(): UseChatResult {
             id,
             kind: 'tool_call',
             tool: parsed.tool as string | undefined,
-            content: (parsed.displayText as string) ?? (parsed.content as string) ?? '',
+            content:
+              (parsed.displayText as string) ??
+              (parsed.content as string) ??
+              '',
           });
           break;
         }
@@ -200,31 +264,44 @@ export function useChat(): UseChatResult {
             id,
             kind: 'tool_result',
             tool: parsed.tool as string | undefined,
-            content: (parsed.summary as string) ?? (parsed.content as string) ?? '',
+            content:
+              (parsed.summary as string) ?? (parsed.content as string) ?? '',
             success: parsed.success !== false,
           });
           break;
         }
 
         case 'panel_added': {
-          appendEvent({ id, kind: 'panel_added', panel: parsed.panel as ChatEvent['panel'] });
+          appendEvent({
+            id,
+            kind: 'panel_added',
+            panel: parsed.panel as ChatEvent['panel'],
+          });
           break;
         }
 
         case 'panel_removed': {
-          appendEvent({ id, kind: 'panel_removed', panelId: parsed.panelId as string | undefined });
+          appendEvent({
+            id,
+            kind: 'panel_removed',
+            panelId: parsed.panelId as string | undefined,
+          });
           break;
         }
 
         case 'panel_modified': {
-          appendEvent({ id, kind: 'panel_modified', panelId: parsed.panelId as string | undefined });
+          appendEvent({
+            id,
+            kind: 'panel_modified',
+            panelId: parsed.panelId as string | undefined,
+          });
           break;
         }
 
         case 'navigate': {
           const path = (parsed.path as string) ?? '';
           if (path) {
-            setPendingNavigation(path);
+            setPendingNavigation(withChatQuery(path, sessionIdRef.current));
           }
           break;
         }
@@ -255,10 +332,24 @@ export function useChat(): UseChatResult {
         }
 
         case 'done': {
+          const durableSessionId =
+            typeof parsed.sessionId === 'string' && parsed.sessionId.trim()
+              ? parsed.sessionId.trim()
+              : '';
+          if (durableSessionId && durableSessionId !== sessionIdRef.current) {
+            sessionIdRef.current = durableSessionId;
+            setCurrentSessionId(durableSessionId);
+          }
+
           // Check if done carries a navigate directive as well
           const navigateTo = parsed.navigate as string | undefined;
           if (navigateTo) {
-            setPendingNavigation(navigateTo);
+            setPendingNavigation(
+              withChatQuery(
+                navigateTo,
+                durableSessionId || sessionIdRef.current,
+              ),
+            );
           }
           appendEvent({ id, kind: 'done', content: 'Generation complete' });
           break;
@@ -266,7 +357,9 @@ export function useChat(): UseChatResult {
 
         case 'error': {
           const content =
-            (parsed.message as string) ?? (parsed.content as string) ?? 'An error occurred';
+            (parsed.message as string) ??
+            (parsed.content as string) ??
+            'An error occurred';
           appendEvent({ id, kind: 'error', content });
           break;
         }
@@ -303,11 +396,12 @@ export function useChat(): UseChatResult {
         const ctxWithTz = pageContextRef.current
           ? { ...pageContextRef.current, clientTimezone: tz }
           : { kind: 'home', clientTimezone: tz };
+        const sid = sessionIdRef.current;
         await apiClient.postStream(
           '/chat',
           {
             message: content,
-            sessionId: sessionIdRef.current,
+            ...(sid ? { sessionId: sid } : {}),
             pageContext: ctxWithTz,
           },
           handleSSEEvent,
@@ -357,6 +451,7 @@ export function useChat(): UseChatResult {
   }, [appendEvent]);
 
   const startNewSession = useCallback(() => {
+    loadTokenRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
     setMessages([]);
@@ -367,8 +462,7 @@ export function useChat(): UseChatResult {
     // banner would otherwise sit on top of a fresh empty chat.
     setLoadError(null);
     lastLoadSessionIdRef.current = null;
-    const newId = `ses_${crypto.randomUUID()}`;
-    setCurrentSessionId(newId);
+    setCurrentSessionId('');
   }, []);
 
   const loadSession = useCallback(async (sessionId: string) => {
@@ -390,7 +484,13 @@ export function useChat(): UseChatResult {
       const res = await apiClient.get<{
         sessionId: string;
         messages: ChatMessage[];
-        events?: Array<{ id: string; seq: number; kind: string; payload: Record<string, unknown>; timestamp: string }>;
+        events?: Array<{
+          id: string;
+          seq: number;
+          kind: string;
+          payload: Record<string, unknown>;
+          timestamp: string;
+        }>;
       }>(`/chat/sessions/${sessionId}/messages`);
 
       if (token !== loadTokenRef.current) {
@@ -405,14 +505,17 @@ export function useChat(): UseChatResult {
         // Distinguish 404 (the session genuinely doesn't exist on the server)
         // from any other failure (5xx, transport, etc.) so the UI can render
         // the right empty-state instead of a blank chat with no signal.
-        const errStatus = Number((res.error as unknown as Record<string, unknown>).status);
+        const errStatus = Number(
+          (res.error as unknown as Record<string, unknown>).status,
+        );
         const code = res.error.code ?? '';
         const msg = res.error.message ?? '';
         const is404 =
-          errStatus === 404 ||
-          code === 'NOT_FOUND' ||
-          /not\s*found/i.test(msg);
-        console.error('[useChat] loadSession failed', { sessionId, error: res.error });
+          errStatus === 404 || code === 'NOT_FOUND' || /not\s*found/i.test(msg);
+        console.error('[useChat] loadSession failed', {
+          sessionId,
+          error: res.error,
+        });
         setLoadError(is404 ? 'not-found' : 'network');
         return;
       }
@@ -440,7 +543,14 @@ export function useChat(): UseChatResult {
       }
       for (const raw of res.data.events ?? []) {
         const evt = payloadToChatEvent(raw.id, raw.kind, raw.payload);
-        if (evt) entries.push({ kind: 'evt', ts: raw.timestamp, seq: raw.seq, id: raw.id, evt });
+        if (evt)
+          entries.push({
+            kind: 'evt',
+            ts: raw.timestamp,
+            seq: raw.seq,
+            id: raw.id,
+            evt,
+          });
       }
       entries.sort((a, b) => {
         if (a.ts !== b.ts) return a.ts < b.ts ? -1 : 1;

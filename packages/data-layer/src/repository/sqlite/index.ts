@@ -14,6 +14,7 @@ export { SqliteNotificationRepository } from './notification.js';
 export { SqliteVersionRepository } from './version.js';
 export { SqliteCaseRepository } from './case.js';
 export { SqliteChatSessionRepository } from './chat-session.js';
+export { SqliteChatSessionContextRepository } from './chat-session-context.js';
 export { SqliteChatMessageRepository } from './chat-message.js';
 export { SqliteChatSessionEventRepository } from './chat-session-event.js';
 

@@ -1,6 +1,7 @@
 import type { InstanceDatasource } from '@agentic-obs/common';
 import { AdapterRegistry } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter, LokiLogsAdapter } from '@agentic-obs/adapters';
+import type { IChangesAdapter } from '@agentic-obs/adapters';
 
 /**
  * Convert InstanceDatasource[] to the narrower `DatasourceConfig[]`
@@ -71,7 +72,16 @@ export function datasourceHeaders(ds: InstanceDatasource): Record<string, string
  * we don't have an adapter for yet; those just won't be queryable by the
  * agent until an adapter lands).
  */
-export function buildAdapterRegistry(datasources: InstanceDatasource[]): AdapterRegistry {
+export interface ChangeAdapterRegistration {
+  id: string;
+  name: string;
+  adapter: IChangesAdapter;
+}
+
+export function buildAdapterRegistry(
+  datasources: InstanceDatasource[],
+  changeAdapters: ChangeAdapterRegistration[] = [],
+): AdapterRegistry {
   const registry = new AdapterRegistry();
   for (const ds of datasources) {
     const headers = datasourceHeaders(ds);
@@ -87,6 +97,12 @@ export function buildAdapterRegistry(datasources: InstanceDatasource[]): Adapter
       });
     }
     // elasticsearch / clickhouse / tempo / jaeger / otel: adapters not yet implemented
+  }
+  for (const source of changeAdapters) {
+    registry.register({
+      info: { id: source.id, name: source.name, type: 'github', signalType: 'changes' },
+      changes: source.adapter,
+    });
   }
   return registry;
 }
@@ -110,4 +126,3 @@ export async function withDashboardLock<T>(dashboardId: string, fn: () => Promis
     }
   }
 }
-

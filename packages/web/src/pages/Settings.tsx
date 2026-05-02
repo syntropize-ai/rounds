@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../api/client.js';
-import { buildOpsConnectorInput, opsApi, type OpsCapability, type OpsConnector, type OpsConnectorMode } from '../api/ops-api.js';
+import {
+  buildOpsConnectorInput,
+  inspectKubeconfigMetadata,
+  isLocalhostApiServer,
+  opsApi,
+  type KubeconfigMetadata,
+  type OpsCapability,
+  type OpsConnector,
+  type OpsConnectorMode,
+} from '../api/ops-api.js';
+import { githubChangeSourcesApi, type GitHubChangeSource } from '../api/github-change-sources-api.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { datasourceUrlPlaceholder, llmBaseUrlPlaceholder } from '../constants/placeholders.js';
 import { DATASOURCE_TYPES, datasourceInfo } from '../constants/datasource-types.js';
@@ -44,7 +54,7 @@ interface DsFormState {
 
 interface TestResult { ok: boolean; message: string; version?: string; }
 
-type SettingsTab = 'datasources' | 'ops' | 'llm' | 'notifications' | 'danger';
+type SettingsTab = 'datasources' | 'github' | 'ops' | 'llm' | 'notifications' | 'danger';
 
 // ─── Constants ───
 
@@ -64,7 +74,11 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v6c0 1.657 3.582 3 8 3s8-1.343 8-3V6" /><path d="M4 12v6c0 1.657 3.582 3 8 3s8-1.343 8-3v-6" /></svg>,
   },
   {
-    id: 'ops', label: 'Ops Integrations',
+    id: 'github', label: 'GitHub',
+    icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" /></svg>,
+  },
+  {
+    id: 'ops', label: 'Kubernetes',
     icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M7 7v10a2 2 0 002 2h6a2 2 0 002-2V7M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 12h6M9 15h4" /></svg>,
   },
   {
@@ -470,43 +484,220 @@ function EditFormWrapper({ initial, onSave, onCancel, onDelete, readOnly = false
   return <DatasourceForm value={form} onChange={setForm} onSave={() => void handleSave()} onCancel={onCancel} onDelete={onDelete} saving={saving} isNew={false} readOnly={readOnly} />;
 }
 
-// ─── Ops Integrations Tab ───
+// ─── GitHub Change Sources Tab ───
 
-/**
- * Returns true when the URL or kubeconfig server field points to a host that
- * is only reachable from the operator's local machine. The gateway runs in a
- * container or in-cluster, so 127.0.0.1 / localhost / ::1 / host.docker.internal
- * will never resolve to anything useful from there.
- */
-export function isLocalhostServer(server: string): boolean {
-  if (!server) return false;
-  let host = server.trim();
-  try {
-    host = new URL(host).hostname;
-  } catch {
-    // not a URL — fall through and match against the raw string
+const GITHUB_EVENTS = [
+  { id: 'deployment', label: 'Deployments' },
+  { id: 'deployment_status', label: 'Deployment status' },
+];
+
+function GitHubChangeSourcesTab({ canWrite }: { canWrite: boolean }) {
+  const [sources, setSources] = useState<GitHubChangeSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<GitHubChangeSource | null>(null);
+  const [form, setForm] = useState({
+    name: '',
+    owner: '',
+    repo: '',
+    secret: '',
+    events: { deployment: true, deployment_status: true } as Record<string, boolean>,
+  });
+
+  const loadSources = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      setSources(await githubChangeSourcesApi.list());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load GitHub sources');
+      setSources([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadSources(); }, [loadSources]);
+
+  const webhookUrl = (path: string) => `${window.location.origin}${path}`;
+
+  const handleCreate = async () => {
+    setSaving(true); setError(null); setCreated(null);
+    try {
+      const source = await githubChangeSourcesApi.create({
+        name: form.name.trim(),
+        owner: form.owner.trim() || undefined,
+        repo: form.repo.trim() || undefined,
+        secret: form.secret.trim() || undefined,
+        events: GITHUB_EVENTS.filter((event) => form.events[event.id]).map((event) => event.id),
+      });
+      setSources((prev) => [...prev, source]);
+      setCreated(source);
+      setShowForm(false);
+      setForm({
+        name: '',
+        owner: '',
+        repo: '',
+        secret: '',
+        events: { deployment: true, deployment_status: true },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create GitHub source');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setError(null);
+    try {
+      await githubChangeSourcesApi.delete(id);
+      setSources((prev) => prev.filter((source) => source.id !== id));
+      if (created?.id === id) setCreated(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete GitHub source');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <span className="inline-block w-6 h-6 border-2 border-[var(--color-outline-variant)] border-t-[var(--color-primary)] rounded-full animate-spin" />
+      </div>
+    );
   }
-  host = host.toLowerCase().replace(/^\[|\]$/g, '');
-  return host === '127.0.0.1'
-    || host === 'localhost'
-    || host === '::1'
-    || host === 'host.docker.internal';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-[var(--color-on-surface-variant)]">
+            {sources.length > 0 ? `${sources.length} GitHub source${sources.length === 1 ? '' : 's'} connected` : 'No GitHub sources connected'}
+          </p>
+          <p className="text-xs text-[var(--color-outline)] mt-0.5">
+            Deployment webhooks become change events the agent can correlate during investigations.
+          </p>
+        </div>
+        {!showForm && canWrite && (
+          <button type="button" onClick={() => setShowForm(true)} className={btnPrimary}>
+            Connect GitHub
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-[#EF4444]/25 bg-[#EF4444]/10 px-3 py-2 text-sm text-[#EF4444]">
+          {error}
+        </div>
+      )}
+
+      {created && (
+        <div className="rounded-lg border border-[#22C55E]/20 bg-[#22C55E]/10 px-3 py-3">
+          <p className="text-sm font-medium text-[#22C55E]">GitHub source created</p>
+          <div className="mt-2 grid gap-2 text-xs">
+            <div>
+              <span className="text-[var(--color-outline)]">Webhook URL</span>
+              <div className="mt-1 font-mono text-[var(--color-on-surface)] break-all">{webhookUrl(created.webhookPath)}</div>
+            </div>
+            {created.secret && (
+              <div>
+                <span className="text-[var(--color-outline)]">Webhook secret</span>
+                <div className="mt-1 font-mono text-[var(--color-on-surface)] break-all">{created.secret}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showForm && canWrite && (
+        <div className="space-y-4 p-4 bg-[var(--color-surface-highest)] rounded-xl border border-[var(--color-outline-variant)]">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--color-on-surface)]">Connect GitHub deployments</h3>
+            <p className="text-xs text-[var(--color-on-surface-variant)] mt-0.5">
+              Create a webhook endpoint, then paste the URL and secret into a GitHub repository webhook.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Name">
+              <input type="text" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Prod deploys" className={inputCls} />
+            </Field>
+            <Field label="Owner" hint="Optional">
+              <input type="text" value={form.owner} onChange={(e) => setForm((prev) => ({ ...prev, owner: e.target.value }))} placeholder="openobs" className={inputCls} />
+            </Field>
+            <Field label="Repository" hint="Optional">
+              <input type="text" value={form.repo} onChange={(e) => setForm((prev) => ({ ...prev, repo: e.target.value }))} placeholder="openobs" className={inputCls} />
+            </Field>
+            <Field label="Webhook secret" hint="Leave blank to generate one.">
+              <input type="password" value={form.secret} onChange={(e) => setForm((prev) => ({ ...prev, secret: e.target.value }))} placeholder="Generated if blank" className={inputCls} />
+            </Field>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-on-surface)] mb-2">Events</label>
+            <div className="flex flex-wrap gap-3">
+              {GITHUB_EVENTS.map((event) => (
+                <label key={event.id} className="flex items-center gap-2 text-sm text-[var(--color-on-surface-variant)]">
+                  <input
+                    type="checkbox"
+                    checked={form.events[event.id]}
+                    onChange={(e) => setForm((prev) => ({ ...prev, events: { ...prev.events, [event.id]: e.target.checked } }))}
+                    className="w-3.5 h-3.5 rounded accent-[var(--color-primary)]"
+                  />
+                  {event.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--color-outline-variant)]/30">
+            <button type="button" onClick={() => setShowForm(false)} className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors">Cancel</button>
+            <button type="button" onClick={() => void handleCreate()} disabled={saving || !form.name.trim()} className={btnPrimary + ' !py-1.5 !px-3 !text-xs'}>
+              {saving ? 'Connecting...' : 'Create webhook'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {sources.map((source) => (
+        <div key={source.id} className="rounded-xl border border-[var(--color-outline-variant)] px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-[var(--color-on-surface)]">{source.name}</span>
+                <span className="px-1.5 py-0.5 rounded bg-[var(--color-primary)]/10 text-[var(--color-primary)] text-[10px] font-medium">changes</span>
+                {source.lastEventAt && <span className="text-[10px] text-[var(--color-outline)]">last event {new Date(source.lastEventAt).toLocaleString()}</span>}
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-outline)] font-mono break-all">{webhookUrl(source.webhookPath)}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {source.owner && <span className="px-1.5 py-0.5 rounded bg-[var(--color-surface-high)] text-[10px] text-[var(--color-on-surface-variant)]">{source.owner}{source.repo ? `/${source.repo}` : ''}</span>}
+                {source.events.map((event) => (
+                  <span key={event} className="px-1.5 py-0.5 rounded bg-[var(--color-surface-high)] text-[10px] text-[var(--color-on-surface-variant)]">{event}</span>
+                ))}
+                <span className="px-1.5 py-0.5 rounded bg-[var(--color-surface-high)] text-[10px] text-[var(--color-on-surface-variant)]">{source.secretMasked}</span>
+              </div>
+            </div>
+            {canWrite && (
+              <button type="button" onClick={() => void handleDelete(source.id)} className="px-3 py-1.5 rounded-lg text-xs text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors">
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-/**
- * Look for a `server: ...` line in a pasted kubeconfig and report whether it
- * is localhost. We don't fully parse YAML here — a substring match against
- * the canonical line is enough for the warning.
- */
-export function kubeconfigServerIsLocalhost(yaml: string): boolean {
-  const m = yaml.match(/server:\s*(\S+)/i);
-  return m ? isLocalhostServer(m[1]!) : false;
+// ─── Ops Integrations Tab ───
+
+function inspectPastedKubeconfig(yaml: string): KubeconfigMetadata | null {
+  if (!yaml.trim()) return null;
+  return inspectKubeconfigMetadata(yaml);
 }
 
 const OPS_CAPABILITIES: { id: OpsCapability; label: string }[] = [
-  { id: 'read', label: 'Read' },
-  { id: 'propose', label: 'Propose' },
-  { id: 'execute_approved', label: 'Execute approved' },
+  { id: 'read', label: 'Run diagnostics' },
+  { id: 'propose', label: 'Draft remediation plans' },
+  { id: 'execute_approved', label: 'Execute approved changes' },
 ];
 
 function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
@@ -557,6 +748,17 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
   useEffect(() => { void loadConnectors(); }, [loadConnectors]);
 
   const updateForm = (patch: Partial<typeof form>) => setForm((prev) => ({ ...prev, ...patch }));
+  const kubeconfigPreview = inspectPastedKubeconfig(form.kubeconfig);
+
+  const updateKubeconfig = (value: string) => {
+    const preview = inspectPastedKubeconfig(value);
+    updateForm({
+      kubeconfig: value,
+      ...(preview?.clusterName && !form.clusterName ? { clusterName: preview.clusterName } : {}),
+      ...(preview?.context && !form.context ? { context: preview.context } : {}),
+      ...(preview?.apiServer ? { apiServer: preview.apiServer } : {}),
+    });
+  };
 
   const handleCreate = async () => {
     setSaving(true); setError(null);
@@ -643,8 +845,20 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
       )}
 
       {showForm && canWrite && (
-        <div className="space-y-3 p-4 bg-[var(--color-surface-highest)] rounded-xl border border-[var(--color-outline-variant)]">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-5 p-4 bg-[var(--color-surface-highest)] rounded-xl border border-[var(--color-outline-variant)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--color-on-surface)]">Connect Kubernetes</h3>
+              <p className="text-xs text-[var(--color-on-surface-variant)] mt-0.5">
+                Choose how OpenObs should reach the cluster, then restrict what the agent may do.
+              </p>
+            </div>
+            <span className="px-2 py-1 rounded bg-[var(--color-primary)]/10 text-[var(--color-primary)] text-[10px] font-semibold shrink-0">
+              guided setup
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <Field label="Name">
               <input type="text" value={form.name} onChange={(e) => updateForm({ name: e.target.value })} placeholder="Production Kubernetes" className={inputCls} />
             </Field>
@@ -654,59 +868,70 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[var(--color-on-surface)] mb-2">Connection mode</label>
-            <div className="space-y-2">
+            <label className="block text-xs font-semibold text-[var(--color-on-surface)] mb-2">1. Connection method</label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {inClusterAvailable && (
-                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <label className={`rounded-lg border p-3 cursor-pointer transition-colors ${form.mode === 'in-cluster' ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10' : 'border-[var(--color-outline-variant)] hover:border-[var(--color-outline)]'}`}>
                   <input
                     type="radio"
                     name="ops-mode"
                     checked={form.mode === 'in-cluster'}
                     onChange={() => updateForm({ mode: 'in-cluster' })}
-                    className="mt-1 accent-[var(--color-primary)]"
+                    className="sr-only"
                   />
-                  <span>
-                    <span className="font-medium text-[var(--color-on-surface)]">In-cluster</span>
-                    <span className="ml-2 px-1.5 py-0.5 rounded bg-[#22C55E]/10 text-[#22C55E] text-[10px] font-semibold">recommended</span>
-                    <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-0.5">Use the gateway pod's service-account token. No credentials to paste.</span>
-                  </span>
+                  <span className="block text-sm font-medium text-[var(--color-on-surface)]">In-cluster</span>
+                  <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-[#22C55E]/10 text-[#22C55E] text-[10px] font-semibold">recommended</span>
+                  <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-2">Use the gateway pod's service account. No credentials to paste.</span>
                 </label>
               )}
-              <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <label className={`rounded-lg border p-3 cursor-pointer transition-colors ${form.mode === 'kubeconfig' ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10' : 'border-[var(--color-outline-variant)] hover:border-[var(--color-outline)]'}`}>
                 <input
                   type="radio"
                   name="ops-mode"
                   checked={form.mode === 'kubeconfig'}
                   onChange={() => updateForm({ mode: 'kubeconfig' })}
-                  className="mt-1 accent-[var(--color-primary)]"
+                  className="sr-only"
                 />
-                <span>
-                  <span className="font-medium text-[var(--color-on-surface)]">Kubeconfig</span>
-                  <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-0.5">Paste a kubeconfig YAML.</span>
-                </span>
+                <span className="block text-sm font-medium text-[var(--color-on-surface)]">Paste kubeconfig</span>
+                <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-2">Best when you already have a service-account kubeconfig.</span>
               </label>
-              <label className="flex items-start gap-2 text-sm cursor-pointer">
+              <label className={`rounded-lg border p-3 cursor-pointer transition-colors ${form.mode === 'manual' ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10' : 'border-[var(--color-outline-variant)] hover:border-[var(--color-outline)]'}`}>
                 <input
                   type="radio"
                   name="ops-mode"
                   checked={form.mode === 'manual'}
                   onChange={() => updateForm({ mode: 'manual' })}
-                  className="mt-1 accent-[var(--color-primary)]"
+                  className="sr-only"
                 />
-                <span>
-                  <span className="font-medium text-[var(--color-on-surface)]">Manual</span>
-                  <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-0.5">API server URL + bearer token. Backend builds the kubeconfig.</span>
-                </span>
+                <span className="block text-sm font-medium text-[var(--color-on-surface)]">API server + token</span>
+                <span className="block text-[11px] text-[var(--color-on-surface-variant)] mt-2">Advanced path for manually issued bearer tokens.</span>
               </label>
             </div>
           </div>
 
           {form.mode === 'kubeconfig' && (
-            <>
+            <div className="space-y-3">
+              <label className="block text-xs font-semibold text-[var(--color-on-surface)]">2. Import kubeconfig</label>
               <Field label="Kubeconfig">
-                <textarea value={form.kubeconfig} onChange={(e) => updateForm({ kubeconfig: e.target.value })} rows={6} placeholder="apiVersion: v1&#10;kind: Config&#10;clusters: ..." className={inputCls + ' resize-y font-mono text-xs'} />
+                <textarea value={form.kubeconfig} onChange={(e) => updateKubeconfig(e.target.value)} rows={7} placeholder="apiVersion: v1&#10;kind: Config&#10;clusters: ..." className={inputCls + ' resize-y font-mono text-xs'} />
               </Field>
-              {kubeconfigServerIsLocalhost(form.kubeconfig) && (
+              {kubeconfigPreview && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)]/50 p-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-[var(--color-outline)]">Cluster</div>
+                    <div className="text-xs text-[var(--color-on-surface)] truncate">{kubeconfigPreview.clusterName ?? 'Not detected'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-[var(--color-outline)]">Context</div>
+                    <div className="text-xs text-[var(--color-on-surface)] truncate">{kubeconfigPreview.context ?? 'Not detected'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-[var(--color-outline)]">API server</div>
+                    <div className="text-xs text-[var(--color-on-surface)] truncate">{kubeconfigPreview.apiServer ?? 'Not detected'}</div>
+                  </div>
+                </div>
+              )}
+              {kubeconfigPreview?.unreachableFromGateway && (
                 <p className="text-xs text-[#F59E0B] bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded px-3 py-2">
                   This address is only reachable from your machine. The openobs gateway runs in a container/cluster and cannot reach it. Use <code className="font-mono">kubectl config view --flatten --minify</code> from a reachable jump host, or use In-cluster mode.
                 </p>
@@ -714,15 +939,16 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
               <Field label="Context" hint="Optional. Leave blank to use the kubeconfig's current-context.">
                 <input type="text" value={form.context} onChange={(e) => updateForm({ context: e.target.value })} placeholder="prod-admin" className={inputCls} />
               </Field>
-            </>
+            </div>
           )}
 
           {form.mode === 'manual' && (
-            <>
+            <div className="space-y-3">
+              <label className="block text-xs font-semibold text-[var(--color-on-surface)]">2. Cluster credentials</label>
               <Field label="API Server URL">
                 <input type="url" value={form.apiServer} onChange={(e) => updateForm({ apiServer: e.target.value })} placeholder="https://kubernetes.example.com:6443" className={inputCls} />
               </Field>
-              {isLocalhostServer(form.apiServer) && (
+              {isLocalhostApiServer(form.apiServer) && (
                 <p className="text-xs text-[#F59E0B] bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded px-3 py-2">
                   This address is only reachable from your machine. The openobs gateway runs in a container/cluster and cannot reach it. Use <code className="font-mono">kubectl config view --flatten --minify</code> from a reachable jump host, or use In-cluster mode.
                 </p>
@@ -737,34 +963,51 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
                 <input type="checkbox" checked={form.insecureSkipTlsVerify} onChange={(e) => updateForm({ insecureSkipTlsVerify: e.target.checked })} className="w-3.5 h-3.5 rounded accent-[var(--color-primary)]" />
                 Skip TLS verify (insecure — only for dev/lab clusters)
               </label>
-            </>
+            </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Cluster name" hint="Optional label.">
-              <input type="text" value={form.clusterName} onChange={(e) => updateForm({ clusterName: e.target.value })} placeholder="prod-east" className={inputCls} />
-            </Field>
-            <Field label="Namespaces" hint="Comma or newline separated. Leave blank for any.">
-              <input type="text" value={form.namespaces} onChange={(e) => updateForm({ namespaces: e.target.value })} placeholder="default, api, payments" className={inputCls} />
-            </Field>
-          </div>
+          {form.mode === 'in-cluster' && (
+            <div className="rounded-lg border border-[#22C55E]/20 bg-[#22C55E]/10 px-3 py-2">
+              <p className="text-xs text-[#22C55E] font-medium">Service account detected</p>
+              <p className="text-xs text-[var(--color-on-surface-variant)] mt-0.5">
+                OpenObs will build a kubeconfig from the gateway pod's mounted token and certificate.
+              </p>
+            </div>
+          )}
 
-          <div>
-            <label className="block text-xs font-medium text-[var(--color-on-surface)] mb-2">Capabilities</label>
-            <div className="flex flex-wrap gap-3">
-              {OPS_CAPABILITIES.map((capability) => (
-                <label key={capability.id} className="flex items-center gap-2 text-sm text-[var(--color-on-surface-variant)]">
-                  <input
-                    type="checkbox"
-                    checked={form.capabilities[capability.id]}
-                    onChange={(e) => updateForm({ capabilities: { ...form.capabilities, [capability.id]: e.target.checked } })}
-                    className="w-3.5 h-3.5 rounded accent-[var(--color-primary)]"
-                  />
-                  {capability.label}
-                </label>
-              ))}
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold text-[var(--color-on-surface)]">3. Access boundary</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Cluster name" hint="Shown to the agent and operators.">
+                <input type="text" value={form.clusterName} onChange={(e) => updateForm({ clusterName: e.target.value })} placeholder="prod-east" className={inputCls} />
+              </Field>
+              <Field label="Namespaces" hint="Comma or newline separated. Blank allows cluster-scoped reads; writes still require an explicit namespace.">
+                <input type="text" value={form.namespaces} onChange={(e) => updateForm({ namespaces: e.target.value })} placeholder="default, api, payments" className={inputCls} />
+              </Field>
+            </div>
+            <div className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)]/40 p-3">
+              <label className="block text-xs font-medium text-[var(--color-on-surface)] mb-2">Agent permissions</label>
+              <div className="space-y-2">
+                {OPS_CAPABILITIES.map((capability) => (
+                  <label key={capability.id} className="flex items-start gap-2 text-sm text-[var(--color-on-surface-variant)]">
+                    <input
+                      type="checkbox"
+                      checked={form.capabilities[capability.id]}
+                      onChange={(e) => updateForm({ capabilities: { ...form.capabilities, [capability.id]: e.target.checked } })}
+                      className="mt-0.5 w-3.5 h-3.5 rounded accent-[var(--color-primary)]"
+                    />
+                    <span>
+                      <span className="text-[var(--color-on-surface)]">{capability.label}</span>
+                      {capability.id === 'execute_approved' && (
+                        <span className="block text-[11px] text-[var(--color-outline)]">Requires the existing approval workflow before any write command runs.</span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
+
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--color-outline-variant)]/30">
             <button type="button" onClick={() => setShowForm(false)} className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors">Cancel</button>
             <button
@@ -778,7 +1021,7 @@ function OpsIntegrationsTab({ canWrite }: { canWrite: boolean }) {
               }
               className={btnPrimary + ' !py-1.5 !px-3 !text-xs'}
             >
-              {saving ? 'Connecting...' : 'Save connector'}
+              {saving ? 'Connecting...' : 'Connect cluster'}
             </button>
           </div>
         </div>
@@ -1132,6 +1375,11 @@ export default function Settings() {
   const canCreateDs = !!user && (user.isServerAdmin || hasPermission('datasources:create'));
   const canWriteDs = !!user && (user.isServerAdmin || hasPermission('datasources:write'));
   const canDeleteDs = !!user && (user.isServerAdmin || hasPermission('datasources:delete'));
+  const canWriteChangeSources = !!user && (
+    user.isServerAdmin ||
+    hasPermission('datasources:write') ||
+    hasPermission('instance.config:write')
+  );
   // LLM / Notifications / Danger reset: gated by the canonical
   // `instance.config:write` action (granted to Admin+ via
   // ADMIN_ONLY_PERMISSIONS in roles-def.ts). Matches the backend enforcement
@@ -1175,7 +1423,8 @@ export default function Settings() {
           </h2>
           <p className="text-sm text-[var(--color-on-surface-variant)] mb-6">
             {tab === 'datasources' && 'Connect to Prometheus, Loki, Elasticsearch and other data sources.'}
-            {tab === 'ops' && 'Connect Kubernetes and operational command integrations.'}
+            {tab === 'github' && 'Ingest deployments from GitHub as change events for investigations.'}
+            {tab === 'ops' && 'Connect Kubernetes clusters for diagnostics and approved remediation.'}
             {tab === 'llm' && 'Configure the AI model used for investigations and analysis.'}
             {tab === 'notifications' && 'Set up alert delivery channels.'}
             {tab === 'danger' && 'Irreversible actions for your OpenObs instance.'}
@@ -1184,6 +1433,7 @@ export default function Settings() {
           {tab === 'datasources' && (
             <DataSourcesTab canCreate={canCreateDs} canWrite={canWriteDs} canDelete={canDeleteDs} />
           )}
+          {tab === 'github' && <GitHubChangeSourcesTab canWrite={canWriteChangeSources} />}
           {tab === 'ops' && <OpsIntegrationsTab canWrite={canOpsWrite} />}
           {tab === 'llm' && <LlmTab canWrite={canAdminWrite} />}
           {tab === 'notifications' && <NotificationsTab canWrite={canAdminWrite} />}

@@ -40,6 +40,7 @@ import { mountDomainRoutes } from './app/domain-routes.js';
 import { startAlerts } from './app/alerts-boot.js';
 import { EventEmittingAlertRuleRepository } from '@agentic-obs/data-layer';
 import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
+import { GitHubChangeSourceRegistry } from './services/github-change-source-service.js';
 import { createShutdownHooks } from './app/lifecycle.js';
 import type { WebSocketGatewayDeps } from './websocket/gateway.js';
 
@@ -107,7 +108,11 @@ function mountGlobalMiddleware(app: Application): void {
     }),
   );
 
-  app.use(express.json());
+  app.use(express.json({
+    verify: (req, _res, buf) => {
+      (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    },
+  }));
   app.use(requestLogger);
   app.use(cors);
   // CSRF — double-submit cookie. Mounts BEFORE auth middleware so we can
@@ -191,6 +196,7 @@ export async function createApp(): Promise<Application> {
   const eventAlertRuleStore = new EventEmittingAlertRuleRepository(
     persistence.repos.alertRules,
   );
+  const githubChangeSources = new GitHubChangeSourceRegistry(persistence.repos.changeSources);
 
   // -- W6 business routes + bootstrap-aware mounts ----------------------
   mountDomainRoutes({
@@ -204,6 +210,7 @@ export async function createApp(): Promise<Application> {
     userRateLimiter,
     queryRateLimiter,
     eventAlertRuleStore,
+    githubChangeSources,
   });
 
   // Start the periodic alert evaluator (Phase 0.5 boot path). Behind
@@ -231,6 +238,7 @@ export async function createApp(): Promise<Application> {
         accessControl,
         audit: bundle.authSub.audit,
         folderRepository: sharedFolderRepo,
+        githubChangeSources,
       }),
     },
   });

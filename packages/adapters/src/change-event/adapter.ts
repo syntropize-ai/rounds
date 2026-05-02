@@ -2,6 +2,7 @@
 
 import type { Change } from '@agentic-obs/common';
 import type { DataAdapter } from '../adapter.js';
+import type { ChangeRecord, ChangesListInput, IChangesAdapter } from '../interfaces.js';
 import type {
   Capabilities,
   SemanticQuery,
@@ -20,7 +21,7 @@ export interface ChangeEventAdapterConfig {
   maxEvents?: number;
 }
 
-export class ChangeEventAdapter implements DataAdapter {
+export class ChangeEventAdapter implements DataAdapter, IChangesAdapter {
   readonly name: string;
   readonly description = 'In-memory change event adapter (deploy, config, scale, feature flags)';
 
@@ -110,6 +111,17 @@ export class ChangeEventAdapter implements DataAdapter {
     };
   }
 
+  async listRecent(input: ChangesListInput): Promise<ChangeRecord[]> {
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - input.windowMinutes * 60_000);
+    return this.store.query({
+      serviceId: input.service,
+      startTime,
+      endTime,
+      limit: 100,
+    }).map(toChangeRecord);
+  }
+
   // -- Webhook ingestion --
 
   /**
@@ -156,4 +168,26 @@ export class ChangeEventAdapter implements DataAdapter {
   get changeStore(): ChangeEventStore {
     return this.store;
   }
+}
+
+const CHANGE_KIND: Record<Change['type'], ChangeRecord['kind']> = {
+  deploy: 'deploy',
+  config: 'config',
+  scale: 'config',
+  feature_flag: 'feature-flag',
+};
+
+function toChangeRecord(change: Change): ChangeRecord {
+  return {
+    id: change.id,
+    service: change.serviceId,
+    kind: CHANGE_KIND[change.type] ?? 'other',
+    summary: change.description,
+    at: change.timestamp,
+    metadata: {
+      author: change.author,
+      ...(change.version ? { version: change.version } : {}),
+      ...(change.diff ? { diff: change.diff } : {}),
+    },
+  };
 }

@@ -59,13 +59,19 @@ function makeApp(opts: {
     create: opts.capturedCreate,
   } as unknown as Parameters<typeof createAlertRulesRouter>[0]['investigationStore'];
 
-  setAuthMiddleware((req, _res, next) => {
+  const app = express();
+  app.use(express.json());
+  // Inject identity per-app before the router. The router's internal
+  // authMiddleware reads a module-level resolvedMiddleware (set in the
+  // beforeAll hook to a passthrough); since req.auth is already populated
+  // here, the passthrough is a no-op and the router proceeds with the
+  // intended identity. This pattern is robust to vitest worker-thread
+  // module sharing — any other test file that mutates the global cannot
+  // strip req.auth that's already set on this request.
+  app.use((req, _res, next) => {
     (req as express.Request & { auth?: Identity }).auth = opts.identity;
     next();
   });
-
-  const app = express();
-  app.use(express.json());
   app.use(
     '/api/alert-rules',
     createAlertRulesRouter({
@@ -80,7 +86,10 @@ function makeApp(opts: {
 
 describe('POST /api/alert-rules/:id/investigate', () => {
   beforeEach(() => {
-    setAuthMiddleware(null);
+    // Replace the global auth middleware with a passthrough so the
+    // router's internal `authMiddleware` call is a no-op and won't
+    // overwrite req.auth that the per-app middleware (in makeApp) sets.
+    setAuthMiddleware((_req, _res, next) => { next(); });
   });
 
   it('passes the rule\'s workspaceId to investigationStore.create', async () => {

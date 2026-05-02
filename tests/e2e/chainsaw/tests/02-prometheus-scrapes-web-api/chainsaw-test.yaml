@@ -1,0 +1,38 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: prometheus-scrapes-web-api
+spec:
+  description: |
+    The in-cluster Prometheus is actively scraping all 3 web-api pods. We poll
+    its query API until count(up{app="web-api"}) > 0. Uses an ephemeral curl
+    pod inside the cluster so the test is independent of port-forwarding.
+  timeouts:
+    exec: 90s
+  steps:
+    - name: query-prometheus-up
+      try:
+        - script:
+            timeout: 90s
+            content: |
+              set -eu
+              deadline=$(( $(date +%s) + 60 ))
+              while [ "$(date +%s)" -lt "$deadline" ]; do
+                out=$(kubectl run --rm -i --restart=Never \
+                  -n openobs-e2e \
+                  --image=curlimages/curl:8.10.1 \
+                  --quiet \
+                  chainsaw-promquery-$RANDOM -- \
+                  curl -sf 'http://prometheus.openobs-e2e:9090/api/v1/query?query=count(up%7Bapp%3D%22web-api%22%7D%3D%3D1)' \
+                  2>/dev/null || true)
+                # Extract the first scalar value from result[*].value[1]
+                val=$(printf '%s' "$out" | sed -n 's/.*"value":\[[^,]*,"\([0-9.]*\)"\].*/\1/p' | head -n1)
+                echo "prometheus reports up{app=web-api}==1 count=${val:-?}"
+                if [ -n "${val:-}" ] && [ "${val%.*}" -gt 0 ] 2>/dev/null; then
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "prometheus did not report any up web-api targets within 60s" >&2
+              exit 1

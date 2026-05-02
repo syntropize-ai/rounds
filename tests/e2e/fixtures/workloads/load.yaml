@@ -1,0 +1,57 @@
+---
+# load-200: hits / on web-api → 200s. Keeps RPS > 0 in the healthy state.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-200
+  namespace: openobs-e2e
+  labels:
+    app: load-200
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-200
+  template:
+    metadata:
+      labels:
+        app: load-200
+    spec:
+      containers:
+        - name: curl
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - while true; do curl -sfo /dev/null http://web-api.openobs-e2e:8080/; sleep 0.2; done
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits:   { cpu: 100m, memory: 64Mi }
+---
+# load-500: hits /err on web-api → 5xx. Scale up to spike error rate, scale to 0
+# to simulate quiet.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-500
+  namespace: openobs-e2e
+  labels:
+    app: load-500
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-500
+  template:
+    metadata:
+      labels:
+        app: load-500
+    spec:
+      containers:
+        - name: curl
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - while true; do curl -so /dev/null http://web-api.openobs-e2e:8080/err; sleep 0.5; done
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits:   { cpu: 100m, memory: 64Mi }

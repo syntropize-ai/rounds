@@ -1,0 +1,88 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cluster-ready
+spec:
+  description: |
+    All e2e workloads (prometheus, web-api x3, load-200, load-500) and openobs
+    itself are running, and the in-cluster Services have the expected number of
+    endpoints. Workloads are left in place for downstream tests.
+  steps:
+    - name: prometheus-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: prometheus
+                namespace: openobs-e2e
+              status:
+                readyReplicas: 1
+    - name: web-api-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: web-api
+                namespace: openobs-e2e
+              status:
+                readyReplicas: 3
+    - name: load-generators-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: load-200
+                namespace: openobs-e2e
+              status:
+                readyReplicas: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: load-500
+                namespace: openobs-e2e
+              status:
+                readyReplicas: 1
+    - name: openobs-ready
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: openobs
+                namespace: openobs
+              status:
+                (readyReplicas > `0`): true
+    - name: prometheus-service-has-endpoint
+      try:
+        - script:
+            content: |
+              count=$(kubectl get endpoints prometheus -n openobs-e2e \
+                -o jsonpath='{range .subsets[*]}{range .addresses[*]}{.ip}{"\n"}{end}{end}' \
+                | grep -c .)
+              if [ "$count" -lt 1 ]; then
+                echo "expected >=1 prometheus endpoint, got $count" >&2
+                exit 1
+              fi
+              echo "prometheus endpoints: $count"
+    - name: web-api-service-has-3-endpoints
+      try:
+        - script:
+            content: |
+              count=$(kubectl get endpoints web-api -n openobs-e2e \
+                -o jsonpath='{range .subsets[*]}{range .addresses[*]}{.ip}{"\n"}{end}{end}' \
+                | grep -c .)
+              if [ "$count" -ne 3 ]; then
+                echo "expected 3 web-api endpoints, got $count" >&2
+                exit 1
+              fi
+              echo "web-api endpoints: $count"

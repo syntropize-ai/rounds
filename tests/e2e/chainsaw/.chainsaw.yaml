@@ -1,0 +1,15 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Configuration
+metadata:
+  name: openobs-e2e
+spec:
+  testFile: chainsaw-test.yaml
+  parallel: 1
+  timeouts:
+    apply: 60s
+    assert: 60s
+    error: 60s
+    exec: 60s
+    delete: 60s
+    cleanup: 60s

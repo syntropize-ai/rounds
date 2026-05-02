@@ -1,0 +1,37 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: openobs-reachable
+spec:
+  description: |
+    openobs answers HTTP 200 on /api/health/ready from inside the cluster. The
+    Service is resolved via DNS (openobs.openobs.svc) so this verifies both
+    cluster-internal networking and the readiness endpoint.
+  timeouts:
+    exec: 90s
+  steps:
+    - name: curl-openobs-ready
+      try:
+        - script:
+            timeout: 90s
+            content: |
+              set -eu
+              deadline=$(( $(date +%s) + 60 ))
+              while [ "$(date +%s)" -lt "$deadline" ]; do
+                code=$(kubectl run --rm -i --restart=Never \
+                  -n openobs \
+                  --image=curlimages/curl:8.10.1 \
+                  --quiet \
+                  chainsaw-openobs-ready-$RANDOM -- \
+                  curl -s -o /dev/null -w '%{http_code}' \
+                  'http://openobs.openobs.svc:80/api/health/ready' \
+                  2>/dev/null || true)
+                echo "openobs /api/health/ready -> ${code:-?}"
+                if [ "$code" = "200" ]; then
+                  exit 0
+                fi
+                sleep 5
+              done
+              echo "openobs /api/health/ready never returned 200 within 60s" >&2
+              exit 1

@@ -21,7 +21,9 @@
  * loginAs does the login + a primer GET, and apiAs auto-attaches the
  * CSRF header on non-safe methods.
  */
-import { apiPost, apiDelete, BASE_URL, getSaToken } from './api-client.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { BASE_URL, getSaToken } from './api-client.js';
 
 export type Role = 'Viewer' | 'Editor' | 'Admin';
 
@@ -40,6 +42,51 @@ interface CreateUserResp {
 
 let counter = 0;
 
+/**
+ * /api/admin/* requires server-admin. The seeded SA in seed.sh is only
+ * Editor — not server-admin. Use the seeded admin user's session cookie
+ * instead (the bootstrap admin IS server-admin) and prime the CSRF
+ * cookie via a safe-method probe so mutations clear the CSRF middleware.
+ */
+async function adminCookieHeader(): Promise<string> {
+  const jarPath = join(process.cwd(), 'tests/e2e/.state/admin-cookie');
+  const jar = readFileSync(jarPath, 'utf8');
+  const sessionLine = jar
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l && l.includes('openobs_session') && !/^#\s/.test(l));
+  if (!sessionLine) {
+    throw new Error('tests/e2e/.state/admin-cookie missing openobs_session — did seed.sh run?');
+  }
+  const sessionVal = sessionLine.split(/\t+/)[6] ?? '';
+  const probe = await fetch(`${BASE_URL}/api/whoami`, {
+    headers: { cookie: `openobs_session=${sessionVal}` },
+  });
+  const setCookie = probe.headers.get('set-cookie') ?? '';
+  const csrfMatch = setCookie.match(/openobs_csrf=([^;,\s]+)/);
+  const csrf = csrfMatch?.[1] ?? '';
+  return `openobs_session=${sessionVal}${csrf ? `; openobs_csrf=${csrf}` : ''}`;
+}
+
+async function adminFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const cookie = await adminCookieHeader();
+  const csrf = (cookie.match(/openobs_csrf=([^;]+)/) || [])[1] ?? '';
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: {
+      cookie,
+      ...(csrf ? { 'x-csrf-token': csrf } : {}),
+      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`admin ${method} ${path} -> ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return text.length > 0 ? (JSON.parse(text) as T) : (undefined as T);
+}
+
 /** Create a local user with a generated email/password. */
 export async function createUser(role: Role): Promise<TestUser> {
   counter += 1;
@@ -47,7 +94,7 @@ export async function createUser(role: Role): Promise<TestUser> {
   const email = `e2e-${role.toLowerCase()}-${stamp}@example.com`;
   const login = `e2e-${role.toLowerCase()}-${stamp}`;
   const password = `e2e-pw-${stamp}-strongenough`;
-  const user = await apiPost<CreateUserResp>('/api/admin/users', {
+  const user = await adminFetch<CreateUserResp>('POST', '/api/admin/users', {
     email,
     login,
     name: login,
@@ -68,7 +115,7 @@ export async function createServerAdmin(): Promise<TestUser> {
   const email = `e2e-srvadmin-${stamp}@example.com`;
   const login = `e2e-srvadmin-${stamp}`;
   const password = `e2e-pw-${stamp}-strongenough`;
-  const user = await apiPost<CreateUserResp>('/api/admin/users', {
+  const user = await adminFetch<CreateUserResp>('POST', '/api/admin/users', {
     email,
     login,
     name: login,
@@ -81,7 +128,7 @@ export async function createServerAdmin(): Promise<TestUser> {
 
 export async function deleteUser(id: string): Promise<void> {
   try {
-    await apiDelete(`/api/admin/users/${id}`);
+    await adminFetch<unknown>('DELETE', `/api/admin/users/${id}`);
   } catch {
     /* best effort */
   }

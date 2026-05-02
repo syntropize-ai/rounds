@@ -25,6 +25,31 @@ export OPENOBS_TEST_LLM_API_KEY=sk-...
 npm run e2e:full
 ```
 
+### Colima users
+
+Creating a fresh kind cluster on Colima (macOS) often fails with:
+`could not find a log line that matches "Reached target .*Multi-User
+System.*|detected cgroup v1"`. Colima's nested cgroup layout is the
+culprit — kind expects systemd cgroup conventions that the default
+Colima VM doesn't expose to a brand-new node.
+
+Two workarounds:
+
+```sh
+# A. Reuse an existing kind cluster you already have running
+export CLUSTER=kind     # or whatever `kind get clusters` lists
+npm run e2e:up
+
+# B. Spin Colima with cgroupsv2 enabled
+colima delete
+colima start --cgroup-manager systemd --cpu 4 --memory 8
+```
+
+`tests/e2e/kit.sh down` will delete the cluster named by `CLUSTER`. If
+you set `CLUSTER=kind` to reuse a long-running shared cluster, prefer
+`helm uninstall openobs -n openobs && kubectl delete ns openobs` for
+cleanup so the shared cluster stays up.
+
 `e2e:full` is `up -> run -> down`. The intermediate steps are also exposed:
 
 ```sh

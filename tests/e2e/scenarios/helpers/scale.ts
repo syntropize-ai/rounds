@@ -34,17 +34,26 @@ export async function scaleDeployment(
     `--replicas=${replicas}`,
   ]);
   // Wait until the deployment reflects the requested replicas. For
-  // replicas=0 the rollout-status wait would never settle, so we read
-  // status.replicas instead.
+  // replicas=0: kubectl-wait on status.replicas never settles because
+  // Kubernetes omits the field entirely when no pods exist. Poll the
+  // pod list directly until it's empty.
   if (replicas === 0) {
-    await run('kubectl', [
-      'wait',
-      `deploy/${name}`,
-      '-n',
-      namespace,
-      '--for=jsonpath={.status.replicas}=0',
-      '--timeout=60s',
-    ]);
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
+      const { stdout } = await run('kubectl', [
+        'get',
+        'pods',
+        '-n',
+        namespace,
+        '-l',
+        `app=${name}`,
+        '--no-headers',
+        '--ignore-not-found',
+      ]);
+      if (stdout.trim() === '') return;
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+    throw new Error(`pods for ${namespace}/${name} did not terminate within 90s`);
   } else {
     await run('kubectl', [
       'rollout',

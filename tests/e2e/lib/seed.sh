@@ -62,10 +62,22 @@ api() {
   local path="$1"; shift
   local outfile; outfile="$(mktemp)"
   local code
+  # CSRF: when authenticated via session cookie, mutating verbs need
+  # x-csrf-token mirroring the openobs_csrf cookie. Read from the
+  # current cookie jar if present.
+  local csrf_header=()
+  if [[ -f "$COOKIE_JAR" && "$method" != "GET" && "$method" != "HEAD" && "$method" != "OPTIONS" ]]; then
+    local csrf_token
+    csrf_token=$(awk '$6 == "openobs_csrf" {print $7}' "$COOKIE_JAR" 2>/dev/null | tail -1)
+    if [[ -n "$csrf_token" ]]; then
+      csrf_header=(-H "x-csrf-token: $csrf_token")
+    fi
+  fi
   # Use --fail-with-body so non-2xx is fatal but body is still captured.
   code="$(curl -sS -o "$outfile" -w '%{http_code}' \
     -X "$method" \
     -H 'content-type: application/json' \
+    "${csrf_header[@]+${csrf_header[@]}}" \
     "$@" \
     "$BASE_URL$path" || true)"
   if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
@@ -85,9 +97,18 @@ api_probe() {
   local method="$1"; shift
   local path="$1"; shift
   local outfile; outfile="$(mktemp)"
+  local csrf_header=()
+  if [[ -f "$COOKIE_JAR" && "$method" != "GET" && "$method" != "HEAD" && "$method" != "OPTIONS" ]]; then
+    local csrf_token
+    csrf_token=$(awk '$6 == "openobs_csrf" {print $7}' "$COOKIE_JAR" 2>/dev/null | tail -1)
+    if [[ -n "$csrf_token" ]]; then
+      csrf_header=(-H "x-csrf-token: $csrf_token")
+    fi
+  fi
   HTTP_CODE="$(curl -sS -o "$outfile" -w '%{http_code}' \
     -X "$method" \
     -H 'content-type: application/json' \
+    "${csrf_header[@]+${csrf_header[@]}}" \
     "$@" \
     "$BASE_URL$path" || true)"
   HTTP_BODY="$(cat "$outfile")"
@@ -132,22 +153,30 @@ esac
 if ! grep -q -E 'oobs_session|session' "$COOKIE_JAR" 2>/dev/null; then
   phase "login (admin already existed)"
   login_body=$(cat <<JSON
-{"login":"admin","password":"$ADMIN_PASSWORD"}
+{"user":"admin","password":"$ADMIN_PASSWORD"}
 JSON
 )
-  api_probe POST "/api/auth/login" -c "$COOKIE_JAR" --data "$login_body"
+  api_probe POST "/api/login" -c "$COOKIE_JAR" --data "$login_body"
   if [[ "$HTTP_CODE" -lt 200 || "$HTTP_CODE" -ge 300 ]]; then
     fail "POST /api/auth/login -> $HTTP_CODE: $HTTP_BODY"
   fi
 fi
 cp "$COOKIE_JAR" "$ADMIN_COOKIE_FILE"
 
-CURL_AUTH=(-b "$COOKIE_JAR")
+CURL_AUTH=(-b "$COOKIE_JAR" -c "$COOKIE_JAR")
+
+# CSRF middleware mints `openobs_csrf` only on safe-method requests.
+# Make one GET so we have a CSRF token in the jar before any PUT/POST.
+api GET "/api/auth/me" "${CURL_AUTH[@]}" >/dev/null || true
 
 # --- 3. configure LLM ----------------------------------------------------
 phase "configure LLM ($OPENOBS_TEST_LLM_PROVIDER / $OPENOBS_TEST_LLM_MODEL)"
+base_url_field=""
+if [[ -n "${OPENOBS_TEST_LLM_BASE_URL:-}" ]]; then
+  base_url_field=",\"baseUrl\":\"$OPENOBS_TEST_LLM_BASE_URL\""
+fi
 llm_body=$(cat <<JSON
-{"provider":"$OPENOBS_TEST_LLM_PROVIDER","apiKey":"$OPENOBS_TEST_LLM_API_KEY","model":"$OPENOBS_TEST_LLM_MODEL"}
+{"provider":"$OPENOBS_TEST_LLM_PROVIDER","apiKey":"$OPENOBS_TEST_LLM_API_KEY","model":"$OPENOBS_TEST_LLM_MODEL"$base_url_field}
 JSON
 )
 api PUT "/api/system/llm" "${CURL_AUTH[@]}" --data "$llm_body" >/dev/null

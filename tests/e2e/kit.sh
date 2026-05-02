@@ -36,7 +36,18 @@ cmd_up() {
   helm_install
   wait_ready
   pf_up
+  apply_workloads
   ok "openobs e2e cluster up at $(cat "${STATE_DIR}/url")"
+}
+
+apply_workloads() {
+  local ns="${WORKLOADS_NS:-openobs-e2e}"
+  phase "applying workload fixtures to namespace ${ns}"
+  kubectl get namespace "${ns}" >/dev/null 2>&1 || kubectl create namespace "${ns}"
+  kubectl apply -n "${ns}" -f "${E2E_ROOT}/fixtures/workloads/" >/dev/null
+  kubectl wait --for=condition=available --timeout=180s deployment --all -n "${ns}" >/dev/null \
+    || warn "some workload deployments still pending (continuing)"
+  ok "workload fixtures applied"
 }
 
 cmd_down() {
@@ -59,6 +70,11 @@ cmd_run() {
   local url
   url="$(cat "${STATE_DIR}/url")"
   phase "running scenarios against ${url}"
+
+  # Idempotent setup wizard: bootstrap admin, LLM config, datasource,
+  # ops connector, SA token. Writes .state/sa-token which scenarios read.
+  phase "seeding setup state"
+  bash "${E2E_ROOT}/lib/seed.sh"
 
   local has_scenarios=0
   if compgen -G "${E2E_ROOT}/scenarios/**/*.test.ts" >/dev/null \

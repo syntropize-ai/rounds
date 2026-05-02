@@ -768,6 +768,54 @@ CREATE INDEX        IF NOT EXISTS ix_ops_connectors_org_id   ON ops_connectors(o
 CREATE INDEX        IF NOT EXISTS ix_ops_connectors_org_type ON ops_connectors(org_id, type);
 
 -- ============================================================================
+-- Change sources and events (GitHub deployments, releases, etc.)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS change_sources (
+  id               TEXT PRIMARY KEY,
+  org_id           TEXT NOT NULL,
+  type             TEXT NOT NULL CHECK (type = 'github'),
+  name             TEXT NOT NULL,
+  owner            TEXT NULL,
+  repo             TEXT NULL,
+  events_json      TEXT NOT NULL DEFAULT '[]',
+  encrypted_secret TEXT NULL,
+  active           INTEGER NOT NULL DEFAULT 1,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  last_event_at    TEXT NULL,
+  FOREIGN KEY (org_id) REFERENCES org(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_change_sources_org_name ON change_sources(org_id, name);
+CREATE INDEX        IF NOT EXISTS ix_change_sources_org_id   ON change_sources(org_id);
+CREATE INDEX        IF NOT EXISTS ix_change_sources_org_type ON change_sources(org_id, type);
+
+CREATE TABLE IF NOT EXISTS change_events (
+  id           TEXT PRIMARY KEY,
+  org_id       TEXT NOT NULL,
+  source_id    TEXT NOT NULL,
+  service_id   TEXT NOT NULL,
+  type         TEXT NOT NULL,
+  timestamp    TEXT NOT NULL,
+  author       TEXT NOT NULL,
+  description  TEXT NOT NULL,
+  diff         TEXT NULL,
+  version      TEXT NULL,
+  payload_json TEXT NULL,
+  created_at   TEXT NOT NULL,
+  FOREIGN KEY (org_id) REFERENCES org(id) ON DELETE CASCADE,
+  FOREIGN KEY (source_id) REFERENCES change_sources(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_change_events_org_time
+  ON change_events(org_id, timestamp);
+CREATE INDEX IF NOT EXISTS ix_change_events_source_time
+  ON change_events(source_id, timestamp);
+CREATE INDEX IF NOT EXISTS ix_change_events_service_time
+  ON change_events(org_id, service_id, timestamp);
+
+-- ============================================================================
 -- Remediation plans (Phase 3 of docs/design/auto-remediation.md)
 -- ============================================================================
 

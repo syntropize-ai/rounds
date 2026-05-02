@@ -47,6 +47,7 @@ import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
 import { createChatRouter } from '../routes/chat.js';
 import { createOpsConnectorsRouter } from '../routes/ops-connectors.js';
+import { createGithubChangeSourcesRouter } from '../routes/github-change-sources.js';
 import { bootstrapAware } from '../middleware/bootstrap-aware.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { createOrgContextMiddleware } from '../middleware/org-context.js';
@@ -55,6 +56,7 @@ import type { AccessControlService } from '../services/accesscontrol-service.js'
 import type { AuthSubsystem } from '../auth/auth-manager.js';
 import type { AuthRepositories } from './auth-routes.js';
 import type { Persistence } from './persistence.js';
+import type { GitHubChangeSourceRegistry } from '../services/github-change-source-service.js';
 
 export interface MountDomainRoutesDeps {
   app: Application;
@@ -74,6 +76,7 @@ export interface MountDomainRoutesDeps {
    * see writes routed through any other wrapper.
    */
   eventAlertRuleStore?: EventEmittingAlertRuleRepository;
+  githubChangeSources?: GitHubChangeSourceRegistry;
 }
 
 export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
@@ -96,6 +99,12 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   app.use('/api/openapi.json', openApiRouter);
   app.use('/api/webhooks', createWebhookRouter({ ac: accessControl }));
   app.use('/api/metrics', metricsRouter);
+  if (deps.githubChangeSources) {
+    app.use('/api/change-sources', createGithubChangeSourcesRouter({
+      registry: deps.githubChangeSources,
+      ac: accessControl,
+    }));
+  }
 
   // Relaxed rate limiter for dashboard query routes — must be on the
   // mount path BEFORE the bootstrap-aware auth chain.
@@ -212,6 +221,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     auditWriter: authSub.audit,
     folderRepository: sharedFolderRepo,
     setupConfig,
+    githubChangeSources: deps.githubChangeSources,
   }));
   app.use('/api/alert-rules', createAlertRulesRouter({
     alertRuleStore: eventAlertRuleStore,

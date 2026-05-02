@@ -36,6 +36,7 @@ import type { Persistence } from './persistence.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
+import type { GitHubChangeSourceRegistry } from '../services/github-change-source-service.js';
 
 const NOOP_CONVERSATION_STORE: IAgentConversationStore = {
   getMessages: async () => [],
@@ -53,6 +54,8 @@ export interface BackgroundOrchestratorFactoryDeps {
   audit?: AuditWriter;
   /** Optional folder backend — enables folder.create / folder.list tools. */
   folderRepository?: IFolderRepository;
+  /** In-process GitHub/change sources. */
+  githubChangeSources?: GitHubChangeSourceRegistry;
 }
 
 export type MakeBackgroundOrchestrator = (overrides: {
@@ -79,7 +82,10 @@ export function buildBackgroundOrchestratorFactory(
     }
     const datasources = await deps.setupConfig.listDatasources({ orgId: identity.orgId });
     const gateway = createLlmGateway(llm);
-    const adapters = buildAdapterRegistry(datasources);
+    const adapters = buildAdapterRegistry(
+      datasources,
+      deps.githubChangeSources ? await deps.githubChangeSources.listAdapters(identity.orgId) : [],
+    );
 
     const opsCommandRunner = deps.persistence.repos.opsConnectors && deps.persistence.repos.approvals
       ? new OpsCommandRunnerService({

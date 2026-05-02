@@ -16,6 +16,7 @@ import type { AuditWriter } from '../auth/audit-writer.js';
 import type { SetupConfigService } from './setup-config-service.js';
 import type { IGatewayDashboardStore } from '../repositories/types.js';
 import type { IInvestigationReportRepository, IAlertRuleRepository, IGatewayInvestigationStore, IChatSessionRepository, IChatMessageRepository, IChatSessionEventRepository, IOpsConnectorRepository, IApprovalRequestRepository } from '@agentic-obs/data-layer';
+import type { GitHubChangeSourceRegistry } from './github-change-source-service.js';
 
 const log = createLogger('chat-service');
 
@@ -83,6 +84,8 @@ export interface ChatServiceDeps {
   folderRepository?: import('@agentic-obs/common').IFolderRepository;
   /** W2 / T2.4 — LLM + datasource config source. */
   setupConfig: SetupConfigService;
+  /** In-process change sources such as GitHub webhooks. */
+  githubChangeSources?: GitHubChangeSourceRegistry;
 }
 
 /**
@@ -193,7 +196,10 @@ export class ChatService {
 
     const gateway = createLlmGateway(llm);
     const model = llm.model;
-    const adapters = buildAdapterRegistry(datasources);
+    const adapters = buildAdapterRegistry(
+      datasources,
+      this.deps.githubChangeSources ? await this.deps.githubChangeSources.listAdapters(identity.orgId) : [],
+    );
     const opsCommandRunner = this.deps.opsConnectorStore && this.deps.approvalStore
       ? new OpsCommandRunnerService({
           connectors: this.deps.opsConnectorStore,

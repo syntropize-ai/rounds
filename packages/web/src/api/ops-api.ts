@@ -57,6 +57,140 @@ export function parseNamespaceList(value: string): string[] {
     .filter(Boolean);
 }
 
+export interface KubeconfigMetadata {
+  apiServer?: string;
+  clusterName?: string;
+  context?: string;
+  serverIsLocalhost: boolean;
+  unreachableFromGateway: boolean;
+}
+
+interface ParsedKubeconfigCluster {
+  name?: string;
+  server?: string;
+}
+
+interface ParsedKubeconfigContext {
+  name?: string;
+  cluster?: string;
+}
+
+function stripYamlComment(value: string): string {
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if ((ch === '"' || ch === "'") && (i === 0 || value[i - 1] !== '\\')) {
+      quote = quote === ch ? null : quote ?? ch;
+      continue;
+    }
+    if (ch === '#' && quote === null && (i === 0 || /\s/.test(value[i - 1] ?? ''))) {
+      return value.slice(0, i).trim();
+    }
+  }
+  return value.trim();
+}
+
+function parseYamlScalar(value: string): string | undefined {
+  const trimmed = stripYamlComment(value).trim();
+  if (!trimmed) return undefined;
+  const quote = trimmed[0];
+  if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function readYamlKey(line: string, key: string): string | undefined {
+  const match = line.match(new RegExp(`^\\s*${key}:\\s*(.*)$`));
+  return match ? parseYamlScalar(match[1] ?? '') : undefined;
+}
+
+export function isLocalhostApiServer(server: string | undefined): boolean {
+  if (!server) return false;
+  let host = server.trim();
+  try {
+    host = new URL(host).hostname;
+  } catch {
+    // Some pasted values are bare hosts. Match those directly.
+  }
+  host = host.toLowerCase().replace(/^\[|\]$/g, '');
+  return host === '127.0.0.1'
+    || host === 'localhost'
+    || host === '::1'
+    || host === 'host.docker.internal';
+}
+
+export function inspectKubeconfigMetadata(yaml: string): KubeconfigMetadata {
+  const clusters: ParsedKubeconfigCluster[] = [];
+  const contexts: ParsedKubeconfigContext[] = [];
+  let currentContext: string | undefined;
+  let section: 'clusters' | 'contexts' | undefined;
+  let activeCluster: ParsedKubeconfigCluster | undefined;
+  let activeContext: ParsedKubeconfigContext | undefined;
+
+  for (const rawLine of yaml.split(/\r?\n/)) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith('#')) continue;
+
+    const topLevel = rawLine.match(/^([A-Za-z][\w-]*):\s*(.*)$/);
+    if (topLevel) {
+      activeCluster = undefined;
+      activeContext = undefined;
+      if (topLevel[1] === 'current-context') {
+        currentContext = parseYamlScalar(topLevel[2] ?? '');
+      }
+      section = topLevel[1] === 'clusters' || topLevel[1] === 'contexts'
+        ? topLevel[1]
+        : undefined;
+      continue;
+    }
+
+    const listItem = rawLine.match(/^\s*-\s*(.*)$/);
+    if (listItem) {
+      if (section === 'clusters') {
+        activeCluster = {};
+        activeContext = undefined;
+        clusters.push(activeCluster);
+        const name = readYamlKey(listItem[1] ?? '', 'name');
+        if (name) activeCluster.name = name;
+      } else if (section === 'contexts') {
+        activeContext = {};
+        activeCluster = undefined;
+        contexts.push(activeContext);
+        const name = readYamlKey(listItem[1] ?? '', 'name');
+        if (name) activeContext.name = name;
+      }
+      continue;
+    }
+
+    if (section === 'clusters' && activeCluster) {
+      const name = readYamlKey(rawLine, 'name');
+      if (name) activeCluster.name = name;
+      const server = readYamlKey(rawLine, 'server');
+      if (server) activeCluster.server = server;
+    } else if (section === 'contexts' && activeContext) {
+      const name = readYamlKey(rawLine, 'name');
+      if (name) activeContext.name = name;
+      const cluster = readYamlKey(rawLine, 'cluster');
+      if (cluster) activeContext.cluster = cluster;
+    }
+  }
+
+  const selectedContext = contexts.find((ctx) => ctx.name === currentContext) ?? contexts[0];
+  const selectedClusterName = selectedContext?.cluster ?? clusters[0]?.name;
+  const selectedCluster = clusters.find((cluster) => cluster.name === selectedClusterName) ?? clusters[0];
+  const apiServer = selectedCluster?.server;
+  const context = currentContext ?? selectedContext?.name;
+  const serverIsLocalhost = isLocalhostApiServer(apiServer);
+
+  return {
+    ...(apiServer ? { apiServer } : {}),
+    ...(selectedCluster?.name ? { clusterName: selectedCluster.name } : {}),
+    ...(context ? { context } : {}),
+    serverIsLocalhost,
+    unreachableFromGateway: serverIsLocalhost,
+  };
+}
+
 export interface OpsConnectorFormValue {
   mode: OpsConnectorMode;
   name: string;

@@ -51,6 +51,7 @@ import { InstanceConfigRepository } from './sqlite/instance-config.js';
 import { DatasourceRepository } from './sqlite/datasource.js';
 import { NotificationChannelRepository } from './sqlite/notification-channel.js';
 import { OpsConnectorRepository } from './sqlite/ops-connector.js';
+import { SqliteChangeSourceRepository } from './sqlite/change-source.js';
 import { PostgresInvestigationRepository } from './postgres/investigation.js';
 import { PostgresIncidentRepository } from './postgres/incident.js';
 import { PostgresFeedItemRepository } from './postgres/feed.js';
@@ -70,9 +71,11 @@ import { PostgresInstanceConfigRepository } from './postgres/instance-config.js'
 import { PostgresDatasourceRepository } from './postgres/datasource.js';
 import { PostgresNotificationChannelRepository } from './postgres/notification-channel.js';
 import { PostgresOpsConnectorRepository } from './postgres/ops-connector.js';
+import { PostgresChangeSourceRepository } from './postgres/change-source.js';
 import { SqliteRemediationPlanRepository } from './sqlite/remediation-plan.js';
 import { PostgresRemediationPlanRepository } from './postgres/remediation-plan.js';
 import type { IRemediationPlanRepository } from './types/remediation-plan.js';
+import type { IChangeSourceRepository } from './types/change-source.js';
 
 /**
  * Complete repository bundle available behind every persistence backend.
@@ -104,6 +107,7 @@ export interface RepositoryBundle {
   datasources: IDatasourceRepository;
   notificationChannels: INotificationChannelRepository;
   opsConnectors: IOpsConnectorRepository;
+  changeSources: IChangeSourceRepository;
   remediationPlans: IRemediationPlanRepository;
 }
 
@@ -128,6 +132,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     datasources: new DatasourceRepository(db),
     notificationChannels: new NotificationChannelRepository(db),
     opsConnectors: new OpsConnectorRepository(db),
+    changeSources: new SqliteChangeSourceRepository(db),
     remediationPlans: new SqliteRemediationPlanRepository(db),
   };
 }
@@ -154,6 +159,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     datasources: new PostgresDatasourceRepository(queryClient),
     notificationChannels: new PostgresNotificationChannelRepository(queryClient),
     opsConnectors: new PostgresOpsConnectorRepository(db),
+    changeSources: new PostgresChangeSourceRepository(queryClient),
     remediationPlans: new PostgresRemediationPlanRepository(db),
   };
 }

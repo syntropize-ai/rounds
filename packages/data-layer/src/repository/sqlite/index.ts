@@ -22,5 +22,6 @@ export { InstanceConfigRepository } from './instance-config.js';
 export { DatasourceRepository } from './datasource.js';
 export { NotificationChannelRepository } from './notification-channel.js';
 export { OpsConnectorRepository } from './ops-connector.js';
+export { SqliteChangeSourceRepository } from './change-source.js';
 
 export { SqliteRemediationPlanRepository } from './remediation-plan.js';

@@ -53,6 +53,17 @@ export type {
 } from './types/ops-connector.js';
 
 export type {
+  ChangeEvent,
+  ChangeSource,
+  ChangeSourceType,
+  IChangeSourceRepository,
+  ListChangeEventsOptions,
+  NewChangeEvent,
+  NewChangeSource,
+  PublicChangeSource,
+} from './types/change-source.js';
+
+export type {
   IRemediationPlanRepository,
   ListRemediationPlansOptions,
   NewRemediationPlan,

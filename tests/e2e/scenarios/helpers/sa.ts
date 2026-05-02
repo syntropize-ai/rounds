@@ -18,12 +18,18 @@ interface CreateTokenResp { id: string; key: string }
 
 let counter = 0;
 
-export async function mintSaToken(name?: string): Promise<SaTokenPair> {
+export type SaRole = 'Viewer' | 'Editor' | 'Admin';
+
+export async function mintSaToken(
+  nameOrOpts?: string | { name?: string; role?: SaRole },
+): Promise<SaTokenPair> {
   counter += 1;
-  const saName = name ?? `e2e-sa-${Date.now()}-${counter}`;
+  const opts = typeof nameOrOpts === 'string' ? { name: nameOrOpts } : nameOrOpts ?? {};
+  const saName = opts.name ?? `e2e-sa-${Date.now()}-${counter}`;
+  const role: SaRole = opts.role ?? 'Admin';
   const sa = await apiPost<CreateSaResp>('/api/serviceaccounts', {
     name: saName,
-    role: 'Admin',
+    role,
   });
   const token = await apiPost<CreateTokenResp>(
     `/api/serviceaccounts/${sa.id}/tokens`,

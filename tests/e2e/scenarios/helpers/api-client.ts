@@ -69,6 +69,11 @@ async function call<T>(
   }
 }
 
+/** Expose the cached SA token for tests that need raw Bearer auth. */
+export function getSaToken(): string {
+  return TOKEN;
+}
+
 export const apiGet = <T>(path: string) => call<T>('GET', path);
 export const apiPost = <T>(path: string, body?: unknown) =>
   call<T>('POST', path, body);

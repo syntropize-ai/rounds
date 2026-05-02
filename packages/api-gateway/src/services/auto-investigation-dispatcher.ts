@@ -19,13 +19,41 @@
  */
 
 import type { EventEmitter } from 'node:events';
-import type { Identity } from '@agentic-obs/common';
+import type { Identity, Investigation, InvestigationStatus } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import {
   runBackgroundAgent,
   type BackgroundRunnerDeps,
 } from '@agentic-obs/agent-core';
 import type { AlertFiredPayload } from './alert-evaluator-service.js';
+
+/**
+ * Minimum surface the dispatcher needs to finalize an investigation
+ * row. Wider repository interfaces (sqlite / postgres / gateway-extended)
+ * all satisfy this shape; depending on the narrow contract here keeps
+ * the dispatcher decoupled from the bundle's exact intersection type.
+ */
+export interface DispatcherInvestigationStore {
+  // Sync-or-async returns — repository signatures use MaybeAsync, which
+  // resolves identically through `await` regardless of whether the
+  // underlying call is synchronous (sqlite) or async (postgres).
+  findByWorkspace(workspaceId: string): Investigation[] | Promise<Investigation[]>;
+  updateStatus(
+    id: string,
+    status: InvestigationStatus,
+  ): Investigation | null | undefined | Promise<Investigation | null | undefined>;
+}
+
+/**
+ * Minimum surface the dispatcher needs to link the new investigation
+ * back to its alert rule.
+ */
+export interface DispatcherAlertRuleStore {
+  // Sync-or-async return — matches both sqlite and postgres repository
+  // signatures via the data-layer's MaybeAsync. We don't consume the
+  // result, only `await` it.
+  update(id: string, partial: { investigationId?: string }): unknown;
+}
 
 const log = createLogger('auto-investigation');
 
@@ -68,6 +96,21 @@ export interface AutoInvestigationDispatcherOptions {
    * `runBackgroundAgent`.
    */
   spawnAgent?: typeof runBackgroundAgent;
+  /**
+   * Investigation repo. When provided, the dispatcher post-processes the
+   * investigation row created by the agent's `investigation_create` tool
+   * call: if the agent didn't call `investigation_complete`, the row is
+   * transitioned to `completed` (or `failed` on agent error) so the UI
+   * detail page renders something instead of spinning at `planning`.
+   */
+  investigations?: DispatcherInvestigationStore;
+  /**
+   * Alert-rule repo. When provided, the dispatcher writes the created
+   * investigation's id back to `rule.investigationId` so the manual
+   * Investigate button on the Alerts page reuses it instead of creating
+   * a duplicate row.
+   */
+  alertRules?: DispatcherAlertRuleStore;
 }
 
 /**
@@ -208,8 +251,14 @@ export class AutoInvestigationDispatcher {
     this.recent.set(payload.ruleId, now);
     this.gcRecent(now);
 
+    // Snapshot the dispatch start time so we can find the investigation
+    // row created by the agent's `investigation_create` tool below.
+    const startedAtIso = this.clock().toISOString();
+
+    let reply = '';
+    let agentError: Error | null = null;
     try {
-      const reply = await this.spawnAgent(this.opts.runner, {
+      reply = await this.spawnAgent(this.opts.runner, {
         identity,
         message: buildAlertQuestion(payload),
       });
@@ -218,12 +267,103 @@ export class AutoInvestigationDispatcher {
         'auto-investigation completed',
       );
     } catch (err) {
+      agentError = err instanceof Error ? err : new Error(String(err));
       // Crash isolation: one failed investigation must not stop the
-      // dispatcher from handling future alerts.
+      // dispatcher from handling future alerts. Fall through so the
+      // finalization step still tries to mark whatever the agent created
+      // as failed instead of leaving it stuck at planning.
       log.error(
-        { err: err instanceof Error ? err.message : String(err), ruleId: payload.ruleId },
+        { err: agentError.message, ruleId: payload.ruleId },
         'auto-investigation failed',
       );
+    }
+
+    // Finalize the investigation row + link it to the rule. Best-effort:
+    // missing repos (constructor was wired without them) just skip.
+    await this.finalizeInvestigation(payload, identity, startedAtIso, reply, agentError);
+  }
+
+  /**
+   * After the agent run returns (success or failure), find the investigation
+   * row the agent created via `investigation_create` and:
+   *
+   *   1. If status is still in a pre-terminal state, transition it to
+   *      `completed` (success) or `failed` (agent threw). Models often
+   *      forget to call `investigation_complete`; without this, the row
+   *      sits at `planning` forever and the UI spins.
+   *   2. Write its id back to `rule.investigationId` so the manual
+   *      Investigate button reuses this row instead of creating a
+   *      duplicate one.
+   *
+   * Discovery is by `(workspaceId, createdAt > dispatchStart)` and picks
+   * the most recently created row. There's no investigation→alertRule
+   * foreign key today; if that becomes unreliable in practice the cleaner
+   * fix is to add `alertRuleId` to the Investigation schema.
+   */
+  private async finalizeInvestigation(
+    payload: AlertFiredPayload,
+    identity: Identity,
+    dispatchStartIso: string,
+    _reply: string,
+    agentError: Error | null,
+  ): Promise<void> {
+    const { investigations, alertRules } = this.opts;
+    if (!investigations) return;
+
+    let inv: { id: string; status: string; createdAt: string } | null = null;
+    try {
+      const list = await investigations.findByWorkspace(identity.orgId);
+      // Latest investigation created at or after dispatchStart.
+      const candidates = list
+        .filter((r) => r.createdAt >= dispatchStartIso)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      inv = candidates[0] ?? null;
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), ruleId: payload.ruleId },
+        'finalize: investigation lookup failed',
+      );
+      return;
+    }
+
+    if (!inv) {
+      // Agent never called investigation_create. Nothing to finalize.
+      // The reply already landed in chat-service logs above; structured
+      // persistence is on the agent.
+      return;
+    }
+
+    // 1. Status transition. Pre-terminal states get flipped; terminal
+    //    states (completed/failed) are left alone — the agent already
+    //    finalized properly.
+    const terminal = inv.status === 'completed' || inv.status === 'failed';
+    if (!terminal) {
+      const nextStatus = agentError ? 'failed' : 'completed';
+      try {
+        await investigations.updateStatus(inv.id, nextStatus);
+        log.info(
+          { investigationId: inv.id, from: inv.status, to: nextStatus, ruleId: payload.ruleId },
+          'finalize: forced status transition (agent did not call investigation_complete)',
+        );
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), investigationId: inv.id },
+          'finalize: updateStatus failed',
+        );
+      }
+    }
+
+    // 2. Link the investigation to the rule so manual re-Investigate
+    //    reuses it. Best-effort; ignore non-fatal errors.
+    if (alertRules) {
+      try {
+        await alertRules.update(payload.ruleId, { investigationId: inv.id });
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), ruleId: payload.ruleId, investigationId: inv.id },
+          'finalize: alertRule.update(investigationId) failed',
+        );
+      }
     }
   }
 

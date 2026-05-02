@@ -9,12 +9,25 @@
  * workspaceId through.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import type { AlertRule } from '@agentic-obs/common';
 import type { Identity } from '@agentic-obs/common';
-import { setAuthMiddleware } from '../middleware/auth.js';
+
+// Replace the module-level authMiddleware (which delegates to a global
+// resolvedMiddleware mutable across the process) with a passthrough.
+// vi.mock isolates per-test-file regardless of vitest worker reuse, so
+// other test files that mutate the global cannot strip req.auth that
+// our per-app middleware in makeApp() sets below.
+vi.mock('../middleware/auth.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../middleware/auth.js')>();
+  return {
+    ...actual,
+    authMiddleware: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+  };
+});
+
 import { createAlertRulesRouter } from './alert-rules.js';
 
 const ALWAYS_ALLOW: { evaluate: () => Promise<true>; eval: (...a: unknown[]) => unknown } = {
@@ -59,13 +72,19 @@ function makeApp(opts: {
     create: opts.capturedCreate,
   } as unknown as Parameters<typeof createAlertRulesRouter>[0]['investigationStore'];
 
-  setAuthMiddleware((req, _res, next) => {
+  const app = express();
+  app.use(express.json());
+  // Inject identity per-app before the router. The router's internal
+  // authMiddleware reads a module-level resolvedMiddleware (set in the
+  // beforeAll hook to a passthrough); since req.auth is already populated
+  // here, the passthrough is a no-op and the router proceeds with the
+  // intended identity. This pattern is robust to vitest worker-thread
+  // module sharing — any other test file that mutates the global cannot
+  // strip req.auth that's already set on this request.
+  app.use((req, _res, next) => {
     (req as express.Request & { auth?: Identity }).auth = opts.identity;
     next();
   });
-
-  const app = express();
-  app.use(express.json());
   app.use(
     '/api/alert-rules',
     createAlertRulesRouter({
@@ -79,10 +98,6 @@ function makeApp(opts: {
 }
 
 describe('POST /api/alert-rules/:id/investigate', () => {
-  beforeEach(() => {
-    setAuthMiddleware(null);
-  });
-
   it('passes the rule\'s workspaceId to investigationStore.create', async () => {
     const create = vi.fn(async (input: { workspaceId?: string }) => ({
       id: 'inv_1',

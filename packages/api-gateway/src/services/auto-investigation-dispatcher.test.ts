@@ -151,4 +151,99 @@ describe('AutoInvestigationDispatcher', () => {
     await new Promise((r) => setImmediate(r));
     expect(spawn).toHaveBeenCalledTimes(1); // still 1, unsubscribe worked
   });
+
+  describe('finalizeInvestigation', () => {
+    function mkInv(overrides: Partial<{ id: string; status: string; createdAt: string }> = {}) {
+      return {
+        id: overrides.id ?? 'inv-1',
+        status: overrides.status ?? 'planning',
+        createdAt: overrides.createdAt ?? '2026-04-29T00:00:01.000Z',
+      } as unknown as import('@agentic-obs/common').Investigation;
+    }
+
+    function mkRepos(invs: ReturnType<typeof mkInv>[]) {
+      const updateStatus = vi.fn().mockResolvedValue(null);
+      const ruleUpdate = vi.fn().mockResolvedValue(null);
+      const investigations = {
+        findByWorkspace: vi.fn().mockResolvedValue(invs),
+        updateStatus,
+      } as unknown as import('@agentic-obs/data-layer').IInvestigationRepository;
+      const alertRules = {
+        update: ruleUpdate,
+      } as unknown as import('@agentic-obs/data-layer').IAlertRuleRepository;
+      return { investigations, alertRules, updateStatus, ruleUpdate };
+    }
+
+    function mkDispatcherWithRepos(
+      spawn: ReturnType<typeof vi.fn>,
+      repos: ReturnType<typeof mkRepos>,
+    ) {
+      return new AutoInvestigationDispatcher({
+        alertEvents,
+        runner: {
+          saTokens: { validateAndLookup: async () => null },
+          makeOrchestrator: () => ({} as never),
+        },
+        resolveSaIdentity: async () => fakeIdentity,
+        dedupMs: 60_000,
+        clock: () => now,
+        spawnAgent: spawn as unknown as typeof import('@agentic-obs/agent-core').runBackgroundAgent,
+        investigations: repos.investigations,
+        alertRules: repos.alertRules,
+      });
+    }
+
+    it('flips planning → completed when the agent did not call investigation_complete', async () => {
+      const spawn = vi.fn().mockResolvedValue('summary text');
+      const repos = mkRepos([mkInv({ id: 'inv-A', status: 'planning' })]);
+      const d = mkDispatcherWithRepos(spawn, repos);
+      await d.onAlertFired(basePayload({ ruleId: 'rule-A' }));
+      expect(repos.updateStatus).toHaveBeenCalledWith('inv-A', 'completed');
+    });
+
+    it('flips planning → failed when the agent run threw', async () => {
+      const spawn = vi.fn().mockRejectedValue(new Error('LLM 500'));
+      const repos = mkRepos([mkInv({ id: 'inv-A', status: 'planning' })]);
+      const d = mkDispatcherWithRepos(spawn, repos);
+      await d.onAlertFired(basePayload({ ruleId: 'rule-A' }));
+      expect(repos.updateStatus).toHaveBeenCalledWith('inv-A', 'failed');
+    });
+
+    it('leaves a terminal status alone (agent already finalized)', async () => {
+      const spawn = vi.fn().mockResolvedValue('ok');
+      const repos = mkRepos([mkInv({ id: 'inv-A', status: 'completed' })]);
+      const d = mkDispatcherWithRepos(spawn, repos);
+      await d.onAlertFired(basePayload({ ruleId: 'rule-A' }));
+      expect(repos.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('writes the new investigation id back to the rule so manual Investigate reuses it', async () => {
+      const spawn = vi.fn().mockResolvedValue('ok');
+      const repos = mkRepos([mkInv({ id: 'inv-A', status: 'planning' })]);
+      const d = mkDispatcherWithRepos(spawn, repos);
+      await d.onAlertFired(basePayload({ ruleId: 'rule-A' }));
+      expect(repos.ruleUpdate).toHaveBeenCalledWith('rule-A', { investigationId: 'inv-A' });
+    });
+
+    it('skips finalize when the agent never created an investigation', async () => {
+      const spawn = vi.fn().mockResolvedValue('agent gave up');
+      const repos = mkRepos([]); // no investigations created
+      const d = mkDispatcherWithRepos(spawn, repos);
+      await d.onAlertFired(basePayload({ ruleId: 'rule-A' }));
+      expect(repos.updateStatus).not.toHaveBeenCalled();
+      expect(repos.ruleUpdate).not.toHaveBeenCalled();
+    });
+
+    it('only considers investigations created at or after the dispatch start time', async () => {
+      const spawn = vi.fn().mockResolvedValue('ok');
+      // One stale row from before this dispatch, one created during it.
+      const stale = mkInv({ id: 'inv-OLD', status: 'planning', createdAt: '2026-04-28T23:00:00.000Z' });
+      const fresh = mkInv({ id: 'inv-NEW', status: 'planning', createdAt: '2026-04-29T00:00:01.000Z' });
+      const repos = mkRepos([stale, fresh]);
+      const d = mkDispatcherWithRepos(spawn, repos);
+      await d.onAlertFired(basePayload({ ruleId: 'rule-A' }));
+      expect(repos.updateStatus).toHaveBeenCalledWith('inv-NEW', 'completed');
+      expect(repos.ruleUpdate).toHaveBeenCalledWith('rule-A', { investigationId: 'inv-NEW' });
+    });
+  });
 });

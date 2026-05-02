@@ -214,6 +214,7 @@ export async function createApp(): Promise<Application> {
     rules: eventAlertRuleStore,
     setupConfig,
     db: persistence.db,
+    investigations: persistence.repos.investigations,
     authRepos: {
       users: bundle.authRepos.users,
       orgUsers: bundle.authRepos.orgUsers,

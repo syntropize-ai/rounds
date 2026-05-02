@@ -179,13 +179,25 @@ function mergeCookies(existing: string, addition: string[]): string {
  * /api/user) so subsequent state-changing requests can echo it.
  */
 export async function loginAs(user: TestUser): Promise<string> {
-  const res = await fetch(`${BASE_URL}/api/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ user: user.login, password: user.password }),
-  });
-  if (!res.ok) {
-    throw new Error(`login as ${user.login} -> ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  // /api/login has a per-IP rate limiter. Spinning up many test users
+  // in sequence trips it; retry 429 with exponential backoff.
+  let res: Response | null = null;
+  let attempt = 0;
+  while (attempt < 6) {
+    res = await fetch(`${BASE_URL}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user: user.login, password: user.password }),
+    });
+    if (res.status !== 429) break;
+    attempt += 1;
+    const backoff = Math.min(1000 * 2 ** attempt, 16_000);
+    await new Promise((r) => setTimeout(r, backoff));
+  }
+  if (!res || !res.ok) {
+    const status = res?.status ?? '<no response>';
+    const body = res ? (await res.text()).slice(0, 200) : '';
+    throw new Error(`login as ${user.login} -> ${status}: ${body}`);
   }
   const setCookie = res.headers.get('set-cookie') ?? '';
   let cookie = parseSetCookie(setCookie).join('; ');

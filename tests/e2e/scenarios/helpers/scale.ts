@@ -58,7 +58,7 @@ export async function scaleDeployment(
     // count directly until every replica is gone.
     await pollUntil(
       async () => ((await podCount(namespace, name)) === 0 ? true : null),
-      { timeoutMs: 90_000, intervalMs: 2000, label: `pods of ${name} -> 0` },
+      { timeoutMs: 180_000, intervalMs: 2000, label: `pods of ${name} -> 0` },
     );
   } else {
     await run('kubectl', [

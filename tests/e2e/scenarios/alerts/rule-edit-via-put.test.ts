@@ -32,10 +32,9 @@ describe('alerts/rule-edit-via-put', () => {
     try { await scaleDeployment(NS, DEPLOY, 3); } catch { /* noop */ }
   }, 180_000);
 
-  // Marked `it.fails` until evaluator hot-reload is wired through —
-  // ALERT_EVALUATOR_REFRESH_MS is pinned high in the test harness, so
-  // edits won't be visible without a process restart.
-  it.fails('PUT threshold is honored within one evaluator cycle (hot-reload todo)', async () => {
+  // PR #128 wired evaluator hot-reload through EventEmittingAlertRuleRepository,
+  // so PUT changes are visible without a process restart.
+  it('PUT threshold is honored within one evaluator cycle', async () => {
     // Create a rule with a threshold that will NOT trigger at full traffic.
     const created = await apiPost<AlertRule>('/api/alert-rules', {
       name: 'web-api-edit',

@@ -104,7 +104,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'metrics_query',
       description:
-        'Run an instant PromQL/MetricsQL query against a metrics datasource. Returns up to 20 series at a specific timestamp (defaults to now). When analyzing what a panel currently shows, pass `time` set to the panel time-window end so the instant value matches the panel rather than "now". Validate complex queries with metrics_validate first when adding panels.',
+        'Run an instant PromQL/MetricsQL query against a metrics datasource. Returns up to 20 series at a specific timestamp (defaults to now). When analyzing what a panel currently shows, pass `time` set to the panel time-window end so the instant value matches the panel rather than "now". Validate complex queries with metrics_validate first when adding panels.\n\n' +
+        'IMPORTANT: this is *Prometheus* PromQL, not Grafana template-variable syntax. Functions like `label_values(metric, label)` and `query_result(...)` are Grafana-only and will return HTTP 400. To enumerate label values, call `metrics_discover` with `kind="values"` and `label="<name>"` instead — that hits the dedicated Prometheus label-values endpoint.',
       input_schema: {
         type: 'object',
         properties: {

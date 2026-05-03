@@ -114,46 +114,38 @@ export interface AutoInvestigationDispatcherOptions {
 }
 
 /**
- * Build a {@link SaIdentityResolver} backed by the SA user row + the live
- * api_key table. Returns `null` when:
+ * Build a {@link SaIdentityResolver} backed by the SA user row alone.
+ * Returns `null` only when:
  *   - the SA user doesn't exist (seeding hasn't run)
  *   - the SA has no membership in the target org
- *   - no non-revoked, non-expired api_key row exists for the SA
  *
- * The identity is constructed directly — we never look up plaintext
- * tokens (the column stores SHA-256 only). The presence of a live key
- * row is the operator-consent gate; any caller spawning agent runs with
- * this identity is auditable as the SA.
+ * Auto-investigation is a system feature — same mental model as the alert
+ * evaluator itself, which doesn't need an operator-minted token to run.
+ * Earlier versions of this resolver gated on the existence of a live
+ * `api_key` row for the SA, on the theory that minting a key was the
+ * operator's "consent" signal. In practice it just made auto-investigation
+ * silently no-op until someone discovered they had to click through the
+ * service-accounts UI to mint a token — bad UX with no real security gain
+ * (the dispatcher is in-process; no token validation actually happens).
+ *
+ * To disable auto-investigation, set `AUTO_INVESTIGATION_ENABLED=false`
+ * (handled at the alerts-boot level), or disable the SA user.
  */
 export function buildSaIdentityResolverFromRepos(deps: {
   users: import('@agentic-obs/common').IUserRepository;
   orgUsers: import('@agentic-obs/common').IOrgUserRepository;
-  apiKeys: import('@agentic-obs/common').IApiKeyRepository;
   /** SA login name; defaults to 'openobs' (the seeded auto-investigation SA). */
   saLogin?: string;
   /** Org id to bind the identity to; defaults to 'org_main'. */
   orgId?: string;
-  clock?: () => Date;
 }): SaIdentityResolver {
   const saLogin = deps.saLogin ?? 'openobs';
   const orgId = deps.orgId ?? 'org_main';
-  const clock = deps.clock ?? (() => new Date());
   return async () => {
     const sa = await deps.users.findByLogin(saLogin);
-    if (!sa || !sa.isServiceAccount) return null;
+    if (!sa || !sa.isServiceAccount || sa.isDisabled) return null;
     const member = await deps.orgUsers.findMembership(orgId, sa.id);
     if (!member) return null;
-    const keys = await deps.apiKeys.list({
-      orgId,
-      serviceAccountId: sa.id,
-      includeRevoked: false,
-      includeExpired: false,
-    });
-    const nowIso = clock().toISOString();
-    const live = keys.items.find(
-      (k) => !k.isRevoked && (k.expires === null || k.expires > nowIso),
-    );
-    if (!live) return null;
     return {
       userId: sa.id,
       orgId,

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import {
   AutoInvestigationDispatcher,
   buildAlertQuestion,
+  buildSaIdentityResolverFromRepos,
 } from './auto-investigation-dispatcher.js';
 import type { AlertFiredPayload } from './alert-evaluator-service.js';
 
@@ -245,5 +246,67 @@ describe('AutoInvestigationDispatcher', () => {
       expect(repos.updateStatus).toHaveBeenCalledWith('inv-NEW', 'completed');
       expect(repos.ruleUpdate).toHaveBeenCalledWith('rule-A', { investigationId: 'inv-NEW' });
     });
+  });
+});
+
+describe('buildSaIdentityResolverFromRepos', () => {
+  // The earlier resolver gated on a live api_key row; users had to mint a
+  // token via the UI before any auto-investigation could run, with no error
+  // surfacing the requirement. The resolver now runs on the SA user row
+  // alone — no token needed. These tests pin that contract.
+
+  function makeRepos(opts: {
+    sa: { id: string; isServiceAccount: boolean; isDisabled?: boolean } | null;
+    member: { role: 'Editor' | 'Viewer' | 'Admin' } | null;
+  }) {
+    return {
+      users: { findByLogin: vi.fn(async () => opts.sa) },
+      orgUsers: { findMembership: vi.fn(async () => opts.member) },
+    } as unknown as Parameters<typeof buildSaIdentityResolverFromRepos>[0];
+  }
+
+  it('returns identity for an enabled SA without any api_key row', async () => {
+    const resolver = buildSaIdentityResolverFromRepos(
+      makeRepos({
+        sa: { id: 'u_sa', isServiceAccount: true },
+        member: { role: 'Editor' },
+      }),
+    );
+    const id = await resolver(basePayload());
+    expect(id).toEqual({
+      userId: 'u_sa',
+      orgId: 'org_main',
+      orgRole: 'Editor',
+      isServerAdmin: false,
+      authenticatedBy: 'api_key',
+      serviceAccountId: 'u_sa',
+    });
+  });
+
+  it('returns null when the SA user does not exist (seed has not run)', async () => {
+    const resolver = buildSaIdentityResolverFromRepos(
+      makeRepos({ sa: null, member: null }),
+    );
+    expect(await resolver(basePayload())).toBeNull();
+  });
+
+  it('returns null when the SA user is disabled', async () => {
+    const resolver = buildSaIdentityResolverFromRepos(
+      makeRepos({
+        sa: { id: 'u_sa', isServiceAccount: true, isDisabled: true },
+        member: { role: 'Editor' },
+      }),
+    );
+    expect(await resolver(basePayload())).toBeNull();
+  });
+
+  it('returns null when the SA has no membership in the target org', async () => {
+    const resolver = buildSaIdentityResolverFromRepos(
+      makeRepos({
+        sa: { id: 'u_sa', isServiceAccount: true },
+        member: null,
+      }),
+    );
+    expect(await resolver(basePayload())).toBeNull();
   });
 });

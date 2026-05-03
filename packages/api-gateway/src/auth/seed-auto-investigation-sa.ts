@@ -1,24 +1,25 @@
 /**
  * Seed the `openobs` auto-investigation service account on first boot.
  *
- * Phase 8 / O1 of the auto-remediation design. The dispatcher
- * (#108 / alerts-boot.ts) needs an SA token to spawn background
- * investigations; this seed makes sure the SA user exists, ready for
- * an admin to mint a key for it via the existing service-account UI.
+ * Phase 8 / O1 of the auto-remediation design. The dispatcher uses this
+ * SA's identity in-process to run agent tools with the right permissions
+ * — it does NOT need an api_key row or plaintext token. Auto-investigation
+ * is a system feature like the alert evaluator itself: no operator setup
+ * required.
  *
  * Idempotent: if a user with login `openobs` and `is_service_account=1`
- * already exists, no-op. Org membership is also idempotent.
+ * already exists, no-op. Org membership and the
+ * `fixed:ops.commands:runner` role assignment are also idempotent.
  *
- * Why we don't auto-mint the API key here: API keys are minted through
- * `ApiKeyService` which performs an audit + binds the key to the
- * caller's identity. Auto-minting at boot bypasses that and produces
- * unattributed audit rows. The setup story is:
- *   1. This seed creates the SA user.
- *   2. An admin opens the service-accounts page, picks `openobs`, and
- *      generates a token via the existing UI. The audit row attributes
- *      the key to that admin.
- *   3. Operator copies the raw `openobs_sa_...` token into the
- *      `AUTO_INVESTIGATION_SA_TOKEN` env var and restarts the gateway.
+ * To disable auto-investigation at runtime, set
+ * `AUTO_INVESTIGATION_ENABLED=false` (handled at the alerts-boot level)
+ * or set `is_disabled=1` on the SA user row.
+ *
+ * Cross-process callers that authenticate AS the SA (e.g. an external
+ * script) still need a real api_key — mint one through the
+ * service-accounts UI as before. The legacy
+ * `AUTO_INVESTIGATION_SA_TOKEN` env var also still works as an explicit
+ * override for that path.
  */
 
 import type {

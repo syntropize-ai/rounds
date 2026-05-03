@@ -272,7 +272,7 @@ describe('buildSaIdentityResolverFromRepos', () => {
         member: { role: 'Editor' },
       }),
     );
-    const id = await resolver(basePayload());
+    const id = await resolver();
     expect(id).toEqual({
       userId: 'u_sa',
       orgId: 'org_main',
@@ -287,7 +287,7 @@ describe('buildSaIdentityResolverFromRepos', () => {
     const resolver = buildSaIdentityResolverFromRepos(
       makeRepos({ sa: null, member: null }),
     );
-    expect(await resolver(basePayload())).toBeNull();
+    expect(await resolver()).toBeNull();
   });
 
   it('returns null when the SA user is disabled', async () => {
@@ -297,7 +297,7 @@ describe('buildSaIdentityResolverFromRepos', () => {
         member: { role: 'Editor' },
       }),
     );
-    expect(await resolver(basePayload())).toBeNull();
+    expect(await resolver()).toBeNull();
   });
 
   it('returns null when the SA has no membership in the target org', async () => {
@@ -307,6 +307,6 @@ describe('buildSaIdentityResolverFromRepos', () => {
         member: null,
       }),
     );
-    expect(await resolver(basePayload())).toBeNull();
+    expect(await resolver()).toBeNull();
   });
 });

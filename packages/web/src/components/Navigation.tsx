@@ -1,10 +1,36 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.js';
 import { useTheme } from '../contexts/ThemeContext.js';
+import { useGlobalChat } from '../contexts/ChatContext.js';
 import { OpenObsLogo } from './OpenObsLogo.js';
 import { OrgSwitcher } from './OrgSwitcher.js';
-import { plansApi } from '../api/client.js';
+import { apiClient, plansApi } from '../api/client.js';
+
+/** Recent chat session shown in the sidebar Recents tab. */
+interface RecentSession {
+  id: string;
+  title?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+type SidebarTab = 'nav' | 'recents';
+
+function relativeTime(iso: string | undefined): string {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const diff = Date.now() - then;
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 /* ───── Icon components ───── */
 
@@ -287,6 +313,69 @@ export default function Navigation() {
     window.localStorage.setItem('openobs:sidebar-expanded', expanded ? '1' : '0');
   }, [expanded]);
 
+  // Sidebar tab — 'nav' shows the route links, 'recents' shows recent chat
+  // sessions. Persisted so it survives reload, mirroring `expanded`. Tabs
+  // only render when the rail is expanded; the collapsed icon-only mode
+  // always falls back to the nav.
+  const [activeTab, setActiveTab] = useState<SidebarTab>(() => {
+    if (typeof window === 'undefined') return 'nav';
+    const saved = window.localStorage.getItem('openobs:sidebar-tab');
+    return saved === 'recents' ? 'recents' : 'nav';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('openobs:sidebar-tab', activeTab);
+  }, [activeTab]);
+
+  // Recent sessions — fetched only when the Recents tab is active or about
+  // to become active so we don't poll the chat API for users who never look
+  // at it. Mirrors the limit/refresh pattern Home.tsx uses.
+  const globalChat = useGlobalChat();
+  const [sessions, setSessions] = useState<RecentSession[]>([]);
+  const refreshSessions = useCallback(() => {
+    void apiClient
+      .get<{ sessions: RecentSession[] }>('/chat/sessions?limit=20')
+      .then((res) => {
+        if (!res.error && res.data?.sessions) setSessions(res.data.sessions);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'recents' || !user) return;
+    refreshSessions();
+  }, [activeTab, user, refreshSessions]);
+
+  // Refresh when a generation finishes — mirrors Home's behavior so a new
+  // session shows up in the sidebar list as soon as the model finalizes.
+  const wasGeneratingRef = useRef(false);
+  useEffect(() => {
+    if (activeTab !== 'recents') return;
+    if (wasGeneratingRef.current && !globalChat.isGenerating) {
+      refreshSessions();
+    }
+    wasGeneratingRef.current = globalChat.isGenerating;
+  }, [activeTab, globalChat.isGenerating, refreshSessions]);
+
+  const chatIdFromUrl =
+    new URLSearchParams(location.search).get('chat') ?? undefined;
+
+  const openSession = useCallback(
+    (sessionId: string) => {
+      void globalChat.loadSession(sessionId);
+      navigate({
+        pathname: '/',
+        search: `?chat=${encodeURIComponent(sessionId)}`,
+      });
+    },
+    [globalChat, navigate],
+  );
+
+  const startNew = useCallback(() => {
+    globalChat.startNewSession();
+    navigate('/', { replace: true });
+  }, [globalChat, navigate]);
+
   // Pending-plan badge for the Action Center entry. Polled every 30s
   // (per the UX brief) so operators see remediation work waiting on them
   // even if they aren't on the alerts/investigation pages.
@@ -366,14 +455,100 @@ export default function Navigation() {
         </div>
       )}
 
-      {/* Primary nav items */}
-      <div className={`flex flex-col gap-1 flex-1 ${expanded ? '' : 'items-center'}`}>
-        <SidebarItem to="/" label="Home" icon={<HomeIcon />} end expanded={expanded} />
-        <SidebarItem to="/dashboards" label="Dashboards" icon={<DashboardIcon />} expanded={expanded} />
-        <SidebarItem to="/investigations" label="Investigations" icon={<InvestigationIcon />} expanded={expanded} />
-        <SidebarItem to="/alerts" label="Alerts" icon={<AlertsIcon />} expanded={expanded} />
-        <SidebarItem to="/actions" label="Actions" icon={<ActionsIcon />} expanded={expanded} badge={pendingPlans} />
-      </div>
+      {/* Tab strip — Nav vs Recents (chat sessions). Only renders in
+          expanded mode; the collapsed icon rail always shows the nav so
+          there's no surprise "where did Home go" when users collapse. */}
+      {expanded && (
+        <div
+          role="tablist"
+          aria-label="Sidebar view"
+          className="mb-2 flex items-center gap-1 rounded-lg bg-surface-high/40 p-1 text-xs font-medium"
+        >
+          {(['nav', 'recents'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 rounded-md py-1.5 transition-colors ${
+                activeTab === tab
+                  ? 'bg-surface-lowest text-on-surface shadow-sm'
+                  : 'text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              {tab === 'nav' ? 'Nav' : 'Recents'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Primary nav items — always rendered when collapsed; in expanded
+          mode only when the Nav tab is active. */}
+      {(activeTab === 'nav' || !expanded) && (
+        <div className={`flex flex-col gap-1 flex-1 ${expanded ? '' : 'items-center'}`}>
+          <SidebarItem to="/" label="Home" icon={<HomeIcon />} end expanded={expanded} />
+          <SidebarItem to="/dashboards" label="Dashboards" icon={<DashboardIcon />} expanded={expanded} />
+          <SidebarItem to="/investigations" label="Investigations" icon={<InvestigationIcon />} expanded={expanded} />
+          <SidebarItem to="/alerts" label="Alerts" icon={<AlertsIcon />} expanded={expanded} />
+          <SidebarItem to="/actions" label="Actions" icon={<ActionsIcon />} expanded={expanded} badge={pendingPlans} />
+        </div>
+      )}
+
+      {/* Recents tab — list of recent chat sessions + new-chat button.
+          Only renders in expanded mode; collapsed mode always shows nav. */}
+      {expanded && activeTab === 'recents' && (
+        <div className="flex flex-col flex-1 min-h-0">
+          <button
+            type="button"
+            onClick={startNew}
+            className="mb-2 flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-on-surface hover:bg-surface-high/60 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+                clipRule="evenodd"
+              />
+            </svg>
+            New chat
+          </button>
+          <div className="flex-1 min-h-0 overflow-y-auto -mr-1 pr-1">
+            {sessions.length === 0 ? (
+              <p className="px-2 py-3 text-xs text-on-surface-variant">
+                No conversations yet.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5">
+                {sessions.map((s) => {
+                  const active = s.id === chatIdFromUrl;
+                  return (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onClick={() => openSession(s.id)}
+                        title={s.title?.trim() || 'Untitled conversation'}
+                        className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                          active
+                            ? 'bg-primary/10 text-on-surface'
+                            : 'text-on-surface-variant hover:bg-surface-high/60 hover:text-on-surface'
+                        }`}
+                      >
+                        <div className="text-xs truncate">
+                          {s.title?.trim() || 'Untitled conversation'}
+                        </div>
+                        <div className="text-[10px] text-on-surface-variant/80">
+                          {relativeTime(s.updatedAt ?? s.createdAt)}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Bottom nav items */}
       <div className={`flex flex-col gap-1 mt-auto ${expanded ? '' : 'items-center'}`}>

@@ -180,6 +180,160 @@ describe('AnthropicProvider — request body', () => {
     expect(body.system).toBe('You are helpful.\nBe brief.');
     expect(body.messages).toEqual([{ role: 'user', content: 'Hi' }]);
   });
+
+  // ── Wire-translation regression tests ──────────────────────────────
+  // Bedrock validates request bodies strictly; any internal-only field
+  // that leaks into the wire body becomes a 400. These tests pin the
+  // chokepoint so future internal additions don't silently re-leak.
+
+  it('strips tool_name from tool_result blocks (internal-only field)', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-sonnet-4-5',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete(
+      [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 'tu_1', name: 'metrics.query', input: { q: 'up' } },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            // tool_name is required by openobs's internal ContentBlock (used
+            // by OpenAI/Gemini providers) but MUST NOT appear on the wire.
+            {
+              type: 'tool_result',
+              tool_use_id: 'tu_1',
+              tool_name: 'metrics.query',
+              content: '{"value": 1}',
+            },
+          ],
+        },
+      ],
+      { model: 'claude-sonnet-4-5' },
+    );
+
+    const body = getRequestBody(spy);
+    const messages = body.messages as Array<{ role: string; content: unknown }>;
+    const userBlocks = messages[1]?.content as Array<Record<string, unknown>>;
+    expect(userBlocks[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'tu_1',
+      content: '{"value": 1}',
+    });
+    expect(userBlocks[0]).not.toHaveProperty('tool_name');
+  });
+
+  it('preserves is_error on tool_result when set', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-sonnet-4-5',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete(
+      [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tu_1',
+              tool_name: 'metrics.query',
+              content: 'boom',
+              is_error: true,
+            },
+          ],
+        },
+      ],
+      { model: 'claude-sonnet-4-5' },
+    );
+
+    const body = getRequestBody(spy);
+    const userBlocks = (body.messages as Array<{ content: unknown }>)[0]
+      ?.content as Array<Record<string, unknown>>;
+    expect(userBlocks[0]).toEqual({
+      type: 'tool_result',
+      tool_use_id: 'tu_1',
+      content: 'boom',
+      is_error: true,
+    });
+  });
+
+  it('omits temperature for Opus 4.7 (deprecated sampling)', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-opus-4-7',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete([{ role: 'user', content: 'hi' }], {
+      model: 'claude-opus-4-7',
+      temperature: 0.2,
+    });
+
+    const body = getRequestBody(spy);
+    expect(body).not.toHaveProperty('temperature');
+  });
+
+  it('passes temperature through for older models that still accept it', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-3-5-sonnet-latest',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete([{ role: 'user', content: 'hi' }], {
+      model: 'claude-3-5-sonnet-latest',
+      temperature: 0.2,
+    });
+
+    const body = getRequestBody(spy);
+    expect(body.temperature).toBe(0.2);
+  });
+
+  it('omits temperature when thinking is enabled on a sampling-deprecated model', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-opus-4-7',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete([{ role: 'user', content: 'hi' }], {
+      model: 'claude-opus-4-7',
+      temperature: 0.2,
+      thinking: { effort: 'low' },
+    });
+
+    const body = getRequestBody(spy);
+    expect(body).not.toHaveProperty('temperature');
+    expect(body.thinking).toMatchObject({ type: 'enabled' });
+  });
 });
 
 describe('AnthropicProvider — response parsing', () => {

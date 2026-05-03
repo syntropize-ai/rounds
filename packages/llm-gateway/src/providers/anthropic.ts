@@ -4,11 +4,12 @@ import type {
   LLMOptions,
   LLMResponse,
   CompletionMessage,
+  ContentBlock,
   ModelInfo,
   ToolCall,
 } from '../types.js';
 import { ProviderError, classifyProviderHttpError } from '../types.js';
-import { effortToBudgetTokens, getCapabilities } from './capabilities.js';
+import { effortToBudgetTokens, getCapabilities, type SamplingParam } from './capabilities.js';
 import { buildApiKeyResolver } from '../api-key-helper.js';
 
 const log = createLogger('anthropic-provider');
@@ -108,6 +109,84 @@ function isThinkingBlock(block: AnthropicContentBlock): block is AnthropicThinki
   return block.type === 'thinking' && typeof (block as AnthropicThinkingBlock).thinking === 'string';
 }
 
+// ── Wire translation ──────────────────────────────────────────────────────
+//
+// The gateway's internal `ContentBlock` is a superset designed to round-trip
+// across all providers (it carries fields like `tool_name` that OpenAI /
+// Gemini's wire shapes need on tool_result). The Anthropic wire is stricter —
+// Bedrock in particular rejects unknown fields with
+// `ValidationException: Extra inputs are not permitted`. Every block that
+// leaves this provider goes through these explicit rebuilds, so adding a new
+// internal field never silently leaks onto the Anthropic wire.
+
+interface AnthropicToolResultWireBlock {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string;
+  is_error?: boolean;
+}
+
+type AnthropicWireBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | AnthropicToolResultWireBlock
+  | { type: 'thinking'; thinking: string; signature?: string };
+
+interface AnthropicWireMessage {
+  role: 'user' | 'assistant';
+  content: string | AnthropicWireBlock[];
+}
+
+function toAnthropicWireBlock(b: ContentBlock): AnthropicWireBlock {
+  switch (b.type) {
+    case 'text':
+      return { type: 'text', text: b.text };
+    case 'tool_use':
+      return { type: 'tool_use', id: b.id, name: b.name, input: b.input };
+    case 'tool_result': {
+      // Deliberately drop `tool_name` — the Anthropic wire has no such field.
+      // tool_result is correlated to its tool_use purely via `tool_use_id`.
+      const out: AnthropicToolResultWireBlock = {
+        type: 'tool_result',
+        tool_use_id: b.tool_use_id,
+        content: b.content,
+      };
+      if (b.is_error !== undefined) out.is_error = b.is_error;
+      return out;
+    }
+  }
+}
+
+function toAnthropicWireMessage(m: CompletionMessage): AnthropicWireMessage {
+  // Anthropic only accepts user/assistant in the messages array; system is
+  // hoisted out by the caller. Anything else here is a programmer error.
+  if (m.role !== 'user' && m.role !== 'assistant') {
+    throw new Error(`toAnthropicWireMessage: unexpected role "${m.role}"`);
+  }
+  if (typeof m.content === 'string') {
+    return { role: m.role, content: m.content };
+  }
+  return { role: m.role, content: m.content.map(toAnthropicWireBlock) };
+}
+
+/**
+ * Pick the sampling knobs the model accepts. Returns an object spread-ready
+ * for the request body — keys absent from the result must NOT appear on the
+ * wire (some upstreams treat presence-with-undefined as a validation error).
+ */
+function pickSamplingParams(
+  options: LLMOptions,
+  allowed: ReadonlySet<SamplingParam>,
+): { temperature?: number; top_p?: number; top_k?: number } {
+  const out: { temperature?: number; top_p?: number; top_k?: number } = {};
+  if (allowed.has('temperature') && options.temperature !== undefined) {
+    out.temperature = options.temperature;
+  }
+  // top_p / top_k aren't on LLMOptions today; reserved for future without
+  // having to re-touch this site.
+  return out;
+}
+
 export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
   private readonly resolveKey: () => Promise<string>;
@@ -143,15 +222,20 @@ export class AnthropicProvider implements LLMProvider {
       if (typeof c === 'string') return c;
       return c.filter((b) => b.type === 'text').map((b) => (b as { type: 'text'; text: string }).text).join('\n');
     };
+
+    const capabilities = getCapabilities('anthropic', options.model ?? '');
+    const sampling = pickSamplingParams(options, capabilities.samplingParams);
+
     const requestBody: Record<string, unknown> = {
       model: options.model,
       system: systemParts.length > 0 ? systemParts.map((m) => flattenContent(m.content)).join('\n') : undefined,
-      // Conversation messages pass through as-is. Anthropic's API natively
-      // accepts content as either a string or an array of {type:'text'|'tool_use'|'tool_result'}
-      // blocks, which exactly matches our ContentBlock shape — no translation needed.
-      messages: conversationParts,
-      temperature: options.temperature,
+      // Translate to Anthropic wire shape. Internal ContentBlock carries
+      // fields (e.g. tool_result.tool_name) that other providers need but
+      // Anthropic/Bedrock reject as "Extra inputs". Whitelisting here is the
+      // single chokepoint that keeps internal shape from leaking out.
+      messages: conversationParts.map(toAnthropicWireMessage),
       max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS,
+      ...sampling,
     };
     if (tools) {
       requestBody.tools = tools;
@@ -161,11 +245,17 @@ export class AnthropicProvider implements LLMProvider {
     }
 
     // Extended thinking — only attach when the model supports it. Anthropic
-    // requires temperature=1 when thinking is enabled, so we override here.
-    if (options.thinking && getCapabilities('anthropic', options.model ?? '').supportsThinking) {
+    // requires temperature=1 when thinking is enabled, so we override here
+    // (only when the model actually accepts a temperature knob; otherwise
+    // the API uses its own implicit value).
+    if (options.thinking && capabilities.supportsThinking) {
       const budget = effortToBudgetTokens(options.thinking.effort);
       requestBody.thinking = { type: 'enabled', budget_tokens: budget };
-      requestBody.temperature = 1;
+      if (capabilities.samplingParams.has('temperature')) {
+        requestBody.temperature = 1;
+      } else {
+        delete requestBody.temperature;
+      }
       // budget_tokens must be < max_tokens; bump max_tokens if needed
       const currentMax = (requestBody.max_tokens as number) ?? DEFAULT_MAX_TOKENS;
       if (currentMax <= budget) {

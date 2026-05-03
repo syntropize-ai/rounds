@@ -1,3 +1,5 @@
+export type SamplingParam = 'temperature' | 'top_p' | 'top_k';
+
 export interface ProviderCapabilities {
   /** Does the provider support native tool_use API? Required to use ANY tools. */
   supportsNativeTools: boolean;
@@ -9,7 +11,18 @@ export interface ProviderCapabilities {
   supportsThinking: boolean;
   /** Can the model emit multiple tool_use blocks in a single turn? */
   supportsParallelTools: boolean;
+  /**
+   * Sampling knobs the model accepts on the wire. Models outside this set
+   * MUST be filtered out before sending — newer Anthropic models (Opus 4.7+)
+   * deprecated `temperature`/`top_p`/`top_k` and Bedrock returns 400
+   * `ValidationException: temperature is deprecated for this model` when an
+   * older default leaks through. Empty set = no sampling knobs supported.
+   */
+  samplingParams: ReadonlySet<SamplingParam>;
 }
+
+const ALL_SAMPLING: ReadonlySet<SamplingParam> = new Set(['temperature', 'top_p', 'top_k']);
+const NO_SAMPLING: ReadonlySet<SamplingParam> = new Set();
 
 // Per-provider model-name predicates for thinking support. Kept narrow on
 // purpose — when a new model family lands, add the regex here rather than
@@ -20,6 +33,20 @@ function anthropicSupportsThinking(model: string): boolean {
   if (/^claude-3-7-/.test(model)) return true;
   if (/^claude-(opus|sonnet|haiku)-([4-9]|\d{2,})/.test(model)) return true;
   return false;
+}
+
+/**
+ * Anthropic deprecated sampling knobs (temperature/top_p/top_k) starting with
+ * the Opus 4.7 line. Older models (3.x, 4.x through 4.6) still accept them.
+ * Bedrock enforces this strictly; api.anthropic.com is currently lenient but
+ * will follow.
+ */
+function anthropicSamplingParams(model: string): ReadonlySet<SamplingParam> {
+  // 4.7+ deprecated all sampling controls. Match `claude-(opus|sonnet|haiku)-4-7`
+  // and any future minor (4-8, 4-9, 4-10…) plus the entire 5.x+ line.
+  if (/^claude-(opus|sonnet|haiku)-4-([7-9]|\d{2,})/.test(model)) return NO_SAMPLING;
+  if (/^claude-(opus|sonnet|haiku)-([5-9]|\d{2,})/.test(model)) return NO_SAMPLING;
+  return ALL_SAMPLING;
 }
 
 function openaiSupportsReasoning(model: string): boolean {
@@ -52,26 +79,40 @@ export function getCapabilities(
         supportsNativeTools: true,
         supportsThinking: anthropicSupportsThinking(model),
         supportsParallelTools: true,
+        samplingParams: anthropicSamplingParams(model),
       };
     case 'openai':
       return {
         supportsNativeTools: true,
         supportsThinking: openaiSupportsReasoning(model),
         supportsParallelTools: true,
+        // OpenAI reasoning models (o-series, gpt-5) reject temperature/top_p.
+        samplingParams: openaiSupportsReasoning(model) ? NO_SAMPLING : ALL_SAMPLING,
       };
     case 'gemini':
       return {
         supportsNativeTools: true,
         supportsThinking: geminiSupportsThinking(model),
         supportsParallelTools: false,
+        samplingParams: ALL_SAMPLING,
       };
     case 'ollama':
       // Per-model — runtime probe handles tool capability. Thinking is model
       // dependent (Qwen3-Thinking, QwQ have it) and we can't tell without a
       // probe; keep false so we don't send an unsupported flag.
-      return { supportsNativeTools: true, supportsThinking: false, supportsParallelTools: false };
+      return {
+        supportsNativeTools: true,
+        supportsThinking: false,
+        supportsParallelTools: false,
+        samplingParams: ALL_SAMPLING,
+      };
     case 'mock':
-      return { supportsNativeTools: true, supportsThinking: false, supportsParallelTools: true };
+      return {
+        supportsNativeTools: true,
+        supportsThinking: false,
+        supportsParallelTools: true,
+        samplingParams: ALL_SAMPLING,
+      };
   }
 }
 

@@ -104,4 +104,25 @@ export interface ActionContext {
    * concurrently with reused investigation ids.
    */
   investigationSections: Map<string, InvestigationReportSection[]>;
+  /**
+   * Active investigation id for this session. Set by `investigation_create`,
+   * cleared by `investigation_complete`. `add_section` and `complete` read
+   * from here instead of taking the id as a tool parameter — earlier the
+   * LLM would copy the id wrong (truncation) on long multi-turn runs and
+   * sections silently attached to a phantom map key.
+   *
+   * Session-scoped (single ReAct loop is serial) — owner discipline is the
+   * same as `investigationSections`.
+   */
+  activeInvestigationId: string | null;
+  /**
+   * Active dashboard id for this session. Set by `dashboard_create` /
+   * `dashboard_clone`, never auto-cleared (the user may keep mutating the
+   * same dashboard for the rest of the conversation). Same truncation
+   * footgun as investigation: the multi-turn `dashboard_create` →
+   * `dashboard_add_panels` / `dashboard_modify_panel` flow used to require
+   * the model to copy a long uuid back through tool params, with periodic
+   * silent corruption.
+   */
+  activeDashboardId: string | null;
 }

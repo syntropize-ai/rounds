@@ -53,6 +53,10 @@ export async function handleDashboardCreate(
       ctx.setNavigateTo(`/dashboards/${dashboard.id}`);
 
       createdId = dashboard.id;
+      // Mark this dashboard as the active one for the session — subsequent
+      // dashboard_add_panels / modify_panel / etc. calls in this ReAct loop
+      // pick it up implicitly instead of taking a (truncatable) id param.
+      ctx.activeDashboardId = createdId;
       observationText = `Created dashboard "${dashboard.title}" (id: ${dashboard.id}).`;
       return observationText;
     },
@@ -141,6 +145,8 @@ export async function handleDashboardClone(
       }
 
       ctx.setNavigateTo(`/dashboards/${created.id}`);
+      // The freshly cloned dashboard becomes the active one (same as create).
+      ctx.activeDashboardId = created.id;
 
       const observation = `Cloned "${source.title}" (${clonedPanels.length} panel${clonedPanels.length === 1 ? '' : 's'}) to datasource ${targetDatasourceId}. New dashboard id: ${created.id}.`;
       ctx.emitAgentEvent(
@@ -167,8 +173,10 @@ export async function handleDashboardAddPanels(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const dashboardId = String(args.dashboardId ?? '');
-  if (!dashboardId) return 'Error: "dashboardId" is required.';
+  const dashboardId = ctx.activeDashboardId;
+  if (!dashboardId) {
+    return 'Error: no active dashboard. Call dashboard_create first.';
+  }
   const panels = args.panels as Array<Record<string, unknown>> | undefined;
   if (!panels || !Array.isArray(panels) || panels.length === 0) {
     return 'Error: "panels" array is required with at least one panel config.';
@@ -293,8 +301,10 @@ export async function handleDashboardSetTitle(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const dashboardId = String(args.dashboardId ?? '');
-  if (!dashboardId) return 'Error: "dashboardId" is required.';
+  const dashboardId = ctx.activeDashboardId;
+  if (!dashboardId) {
+    return 'Error: no active dashboard. Call dashboard_create first.';
+  }
   const title = String(args.title ?? '');
   const description = typeof args.description === 'string' ? args.description : undefined;
   if (!title) return 'Error: "title" is required.';
@@ -316,8 +326,10 @@ export async function handleDashboardRemovePanels(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const dashboardId = String(args.dashboardId ?? '');
-  if (!dashboardId) return 'Error: "dashboardId" is required.';
+  const dashboardId = ctx.activeDashboardId;
+  if (!dashboardId) {
+    return 'Error: no active dashboard. Call dashboard_create first.';
+  }
   const panelIds = Array.isArray(args.panelIds) ? args.panelIds.map(String) : [];
   if (panelIds.length === 0) return 'Error: "panelIds" array is required.';
 
@@ -338,8 +350,10 @@ export async function handleDashboardModifyPanel(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const dashboardId = String(args.dashboardId ?? '');
-  if (!dashboardId) return 'Error: "dashboardId" is required.';
+  const dashboardId = ctx.activeDashboardId;
+  if (!dashboardId) {
+    return 'Error: no active dashboard. Call dashboard_create first.';
+  }
   const panelId = String(args.panelId ?? '');
   if (!panelId) return 'Error: "panelId" is required.';
   const patch = { ...args } as Record<string, unknown>;
@@ -374,8 +388,10 @@ export async function handleDashboardAddVariable(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const dashboardId = String(args.dashboardId ?? '');
-  if (!dashboardId) return 'Error: "dashboardId" is required.';
+  const dashboardId = ctx.activeDashboardId;
+  if (!dashboardId) {
+    return 'Error: no active dashboard. Call dashboard_create first.';
+  }
   const variable = args.variable as import('@agentic-obs/common').DashboardVariable ?? {
     name: String(args.name ?? ''),
     label: String(args.label ?? args.name ?? ''),

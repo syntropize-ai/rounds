@@ -25,6 +25,8 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
     pushConversationAction: vi.fn(),
     setNavigateTo: vi.fn(),
     investigationSections: new Map(),
+    activeInvestigationId: null,
+    activeDashboardId: null,
     ...overrides,
   } as ActionContext;
 }

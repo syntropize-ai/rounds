@@ -99,7 +99,9 @@ export async function migrateAuthToDbIfNeeded(
     };
   }
 
-  const existing = await deps.users.list({ limit: 1 });
+  // Exclude service accounts so the auto-investigation SA (seeded at
+  // every boot) never makes a fresh install look "already migrated".
+  const existing = await deps.users.list({ limit: 1, isServiceAccount: false });
   if (existing.total > 0) {
     log.info({ userCount: existing.total }, 'users already present; marking migration done');
     if (!dryRun) await writeMarker(deps.db);

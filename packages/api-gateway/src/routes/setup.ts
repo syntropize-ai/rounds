@@ -181,7 +181,10 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
   router.get('/status', async (_req: Request, res: Response) => {
     let hasAdmin = false;
     try {
-      const { total } = await deps.users.list({ limit: 1 });
+      // Exclude service accounts: seed-auto-investigation-sa inserts a
+      // user row on every boot, so an unfiltered count makes a fresh DB
+      // look bootstrapped and skips the wizard's admin step.
+      const { total } = await deps.users.list({ limit: 1, isServiceAccount: false });
       hasAdmin = total > 0;
     } catch (err) {
       log.warn({ err }, 'hasAdmin probe failed');

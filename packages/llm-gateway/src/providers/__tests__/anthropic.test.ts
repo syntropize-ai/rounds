@@ -432,6 +432,99 @@ describe('AnthropicProvider — request body', () => {
   });
 });
 
+describe('AnthropicProvider — system prompt cache boundary', () => {
+  const MARKER = '__OPENOBS_SYSTEM_PROMPT_DYNAMIC_BOUNDARY__';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-22T00:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('splits system on the boundary marker and tags the static prefix with cache_control', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-3-5-sonnet-latest',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete(
+      [
+        { role: 'system', content: `STATIC PREFIX${'\n\n'}${MARKER}${'\n\n'}DYNAMIC SUFFIX` },
+        { role: 'user', content: 'Hi' },
+      ],
+      { model: 'claude-3-5-sonnet-latest' },
+    );
+
+    const body = getRequestBody(spy);
+    expect(Array.isArray(body.system)).toBe(true);
+    const blocks = body.system as Array<Record<string, unknown>>;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toMatchObject({
+      type: 'text',
+      text: 'STATIC PREFIX',
+      cache_control: { type: 'ephemeral' },
+    });
+    expect(blocks[1]).toEqual({ type: 'text', text: 'DYNAMIC SUFFIX' });
+    expect(blocks[1]).not.toHaveProperty('cache_control');
+  });
+
+  it('passes through plain string when the marker is absent', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-3-5-sonnet-latest',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete(
+      [
+        { role: 'system', content: 'no marker here' },
+        { role: 'user', content: 'Hi' },
+      ],
+      { model: 'claude-3-5-sonnet-latest' },
+    );
+
+    const body = getRequestBody(spy);
+    expect(body.system).toBe('no marker here');
+  });
+
+  it('strips the boundary marker from the wire payload (split path)', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-3-5-sonnet-latest',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete(
+      [
+        { role: 'system', content: `A${'\n'}${MARKER}${'\n'}B` },
+        { role: 'user', content: 'Hi' },
+      ],
+      { model: 'claude-3-5-sonnet-latest' },
+    );
+
+    const rawBody = (spy.mock.calls[0]?.[1] as RequestInit).body as string;
+    expect(rawBody).not.toContain(MARKER);
+  });
+});
+
 describe('AnthropicProvider — response parsing', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

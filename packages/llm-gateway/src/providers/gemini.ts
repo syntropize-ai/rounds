@@ -11,6 +11,7 @@ import type {
 } from '../types.js';
 import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { effortToBudgetTokens, getCapabilities } from './capabilities.js';
+import { stripCacheBoundary } from '../system-prompt-cache-boundary.js';
 
 const log = createLogger('gemini-provider');
 
@@ -175,8 +176,10 @@ export class GeminiProvider implements LLMProvider {
           .map((b) => (b as { type: 'text'; text: string }).text)
           .join('\n');
       };
+      // Gemini has no cache_control breakpoint primitive — strip the
+      // agent-core marker so it doesn't leak into the system instruction.
       body['systemInstruction'] = {
-        parts: [{ text: systemParts.map((s) => flattenContent(s.content)).join('\n') }],
+        parts: [{ text: stripCacheBoundary(systemParts.map((s) => flattenContent(s.content)).join('\n')) }],
       };
     }
 

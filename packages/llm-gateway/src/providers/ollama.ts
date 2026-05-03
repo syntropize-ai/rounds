@@ -11,6 +11,7 @@ import type {
 } from '../types.js';
 import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { ProviderCapabilityError } from './capabilities.js';
+import { stripCacheBoundary } from '../system-prompt-cache-boundary.js';
 
 const log = createLogger('ollama-provider');
 
@@ -110,7 +111,8 @@ function translateMessages(messages: CompletionMessage[]): OllamaMessage[] {
   const out: OllamaMessage[] = [];
   for (const m of messages) {
     if (typeof m.content === 'string') {
-      out.push({ role: m.role, content: m.content });
+      const content = m.role === 'system' ? stripCacheBoundary(m.content) : m.content;
+      out.push({ role: m.role, content });
       continue;
     }
     const blocks = m.content as ContentBlock[];
@@ -148,7 +150,8 @@ function translateMessages(messages: CompletionMessage[]): OllamaMessage[] {
       const textParts = blocks
         .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
         .map((b) => b.text);
-      out.push({ role: 'system', content: textParts.join('\n') });
+      // Ollama has no cache breakpoint primitive — strip the marker.
+      out.push({ role: 'system', content: stripCacheBoundary(textParts.join('\n')) });
     }
   }
   return out;

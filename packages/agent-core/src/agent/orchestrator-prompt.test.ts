@@ -6,8 +6,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt } from './orchestrator-prompt.js';
+import { buildSystemPrompt, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './orchestrator-prompt.js';
 import { makeTestIdentity } from './test-helpers.js';
+import type { Dashboard, DashboardMessage } from '@agentic-obs/common';
 
 function build(identityOpts: Parameters<typeof makeTestIdentity>[0] = {}) {
   return buildSystemPrompt(null, [], [], null, [], {
@@ -145,5 +146,61 @@ describe('buildSystemPrompt — T6.C role-conditional nudge', () => {
     const prompt = build({ orgRole: 'Admin' });
     expect(prompt).not.toContain(VIEWER_LINE);
     expect(prompt).not.toContain(EDITOR_LINE);
+  });
+});
+
+describe('buildSystemPrompt — actions framing + cache boundary', () => {
+  function makeDashboard(): Dashboard {
+    return {
+      id: 'dash-1',
+      type: 'metrics',
+      title: 'HTTP Monitoring',
+      description: '',
+      prompt: '',
+      userId: 'u-1',
+      status: 'ready',
+      panels: [],
+      variables: [],
+      refreshIntervalSec: 30,
+      datasourceIds: [],
+      useExistingMetrics: true,
+      createdAt: '2026-04-18T00:00:00.000Z',
+      updatedAt: '2026-04-18T00:00:00.000Z',
+    } as unknown as Dashboard;
+  }
+
+  it('emits the dynamic boundary exactly once in a static-only build', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+    });
+    const occurrences = prompt.split(SYSTEM_PROMPT_DYNAMIC_BOUNDARY).length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('places the boundary AFTER the actions section and BEFORE dynamic dashboard context', () => {
+    const dashboard = makeDashboard();
+    const history: DashboardMessage[] = [
+      { role: 'user', content: 'hi' } as unknown as DashboardMessage,
+    ];
+    const prompt = buildSystemPrompt(dashboard, history, [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+    });
+    const actionsIdx = prompt.indexOf('# Executing actions with care');
+    const boundaryIdx = prompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
+    const dashboardIdx = prompt.indexOf('# Current Dashboard Context');
+    expect(actionsIdx).toBeGreaterThan(-1);
+    expect(boundaryIdx).toBeGreaterThan(actionsIdx);
+    expect(dashboardIdx).toBeGreaterThan(boundaryIdx);
+  });
+
+  it('includes the actions section heading and remediation_plan_create framing', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+    });
+    expect(prompt).toContain('# Executing actions with care');
+    expect(prompt).toContain('remediation_plan_create');
   });
 });

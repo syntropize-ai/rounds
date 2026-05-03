@@ -19,4 +19,11 @@ describe('tool-schema-registry', () => {
       .map(([key, entry]) => `${key} != ${entry.schema.name}`);
     expect(mismatches).toEqual([]);
   });
+
+  it('remediation_plan_create description carries the LOW COST / REQUIRED / SKIP framing', () => {
+    const desc = TOOL_REGISTRY['remediation_plan_create']?.schema.description ?? '';
+    expect(desc).toContain('LOW COST');
+    expect(desc).toContain('REQUIRED AFTER INVESTIGATION');
+    expect(desc).toContain('SKIP only when');
+  });
 });

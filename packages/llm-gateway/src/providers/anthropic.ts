@@ -11,11 +11,32 @@ import type {
 import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { effortToBudgetTokens, getCapabilities, type SamplingParam } from './capabilities.js';
 import { buildApiKeyResolver } from '../api-key-helper.js';
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '../system-prompt-cache-boundary.js';
 
 const log = createLogger('anthropic-provider');
 
 const DEFAULT_MAX_TOKENS = 4096;
 const DEFAULT_API_VERSION = '2023-06-01';
+
+/**
+ * Convert a flattened system string into the Anthropic `system` field. If
+ * the boundary marker is present, split into [static-with-cache, dynamic]
+ * blocks; otherwise pass through as a string. Either way, strip the marker
+ * itself so it never reaches the model.
+ */
+function buildSystemField(systemText: string): string | Array<Record<string, unknown>> {
+  const idx = systemText.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
+  if (idx === -1) return systemText;
+  const staticPart = systemText.slice(0, idx).replace(/\n+$/, '');
+  const dynamicPart = systemText.slice(idx + SYSTEM_PROMPT_DYNAMIC_BOUNDARY.length).replace(/^\n+/, '');
+  const blocks: Array<Record<string, unknown>> = [
+    { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } },
+  ];
+  if (dynamicPart.length > 0) {
+    blocks.push({ type: 'text', text: dynamicPart });
+  }
+  return blocks;
+}
 
 /**
  * Endpoint flavor — controls the URL template and (for Bedrock) the body
@@ -226,9 +247,11 @@ export class AnthropicProvider implements LLMProvider {
     const capabilities = getCapabilities('anthropic', options.model ?? '');
     const sampling = pickSamplingParams(options, capabilities.samplingParams);
 
+    const systemText =
+      systemParts.length > 0 ? systemParts.map((m) => flattenContent(m.content)).join('\n') : undefined;
     const requestBody: Record<string, unknown> = {
       model: options.model,
-      system: systemParts.length > 0 ? systemParts.map((m) => flattenContent(m.content)).join('\n') : undefined,
+      system: systemText !== undefined ? buildSystemField(systemText) : undefined,
       // Translate to Anthropic wire shape. Internal ContentBlock carries
       // fields (e.g. tool_result.tool_name) that other providers need but
       // Anthropic/Bedrock reject as "Extra inputs". Whitelisting here is the

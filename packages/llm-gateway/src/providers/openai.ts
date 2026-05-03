@@ -12,6 +12,7 @@ import type {
 import { ProviderError, classifyProviderHttpError } from '../types.js';
 import { getCapabilities } from './capabilities.js';
 import { buildApiKeyResolver } from '../api-key-helper.js';
+import { stripCacheBoundary } from '../system-prompt-cache-boundary.js';
 
 const log = createLogger('openai-provider');
 
@@ -168,7 +169,10 @@ function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
   const out: OpenAIMessage[] = [];
   for (const m of messages) {
     if (typeof m.content === 'string') {
-      out.push({ role: m.role, content: m.content });
+      // Strip the cache-boundary marker from the system role text (other
+      // roles never carry the marker but the strip is a no-op when absent).
+      const content = m.role === 'system' ? stripCacheBoundary(m.content) : m.content;
+      out.push({ role: m.role, content });
       continue;
     }
 
@@ -220,11 +224,13 @@ function translateMessages(messages: CompletionMessage[]): OpenAIMessage[] {
         out.push({ role: 'user', content: textParts.join('\n') });
       }
     } else {
-      // system: flatten text blocks
+      // system: flatten text blocks. Strip the agent-core cache-boundary
+      // marker — OpenAI doesn't have a cache_control breakpoint primitive,
+      // so the marker would just be garbage text in the prompt.
       const textParts = (blocks as ContentBlock[])
         .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
         .map((b) => b.text);
-      out.push({ role: 'system', content: textParts.join('\n') });
+      out.push({ role: 'system', content: stripCacheBoundary(textParts.join('\n')) });
     }
   }
   return out;

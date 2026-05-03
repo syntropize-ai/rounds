@@ -3,6 +3,21 @@ import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import type { DatasourceConfig, OpsConnectorConfig } from './types.js'
 import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
 
+/**
+ * Boundary marker separating static (cacheable across sessions) content
+ * from session-dynamic content. Everything emitted BEFORE this marker in
+ * the prompt array is identical for every user/session in the org and
+ * can be cached server-side. Everything AFTER contains session-specific
+ * data (current dashboard, alert history, datasource list, ...) and must
+ * not be part of a shared cache key.
+ *
+ * Consumers in @agentic-obs/llm-gateway use this marker to set a
+ * cache_control breakpoint on the Anthropic prompt cache. Removing or
+ * relocating the marker silently degrades cache hit rate to zero —
+ * coordinate with anthropic.ts before changing this contract.
+ */
+export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY = '__OPENOBS_SYSTEM_PROMPT_DYNAMIC_BOUNDARY__'
+
 // ---------------------------------------------------------------------------
 // Section builders — modular, cacheable, individually testable
 // ---------------------------------------------------------------------------
@@ -79,6 +94,29 @@ Don't abandon a viable approach after one failure, but don't dig on a dead end e
 
 ## Investigations
 When the user asks "why is X high/slow/broken" or "investigate X": create an investigation record with \`investigation_create\`, then run a hypothesis-driven diagnosis — like a senior SRE writing an incident report. The report is primarily written analysis; panels are supporting evidence, not the main content. See the worked Investigation example below for the structure.`
+}
+
+function getActionsSection(): string {
+  return `# Executing actions with care
+Carefully consider the reversibility and blast radius of each tool call before invoking it. The tools below are categorized by how much can go wrong if you call them at the wrong moment.
+
+## Reversible / low-cost — call freely when they help
+- \`metrics_query\` / \`metrics_range_query\` / \`metrics_discover\` / \`metrics_validate\` / \`logs_search\` / \`changes_list_recent\` / \`web_search\` / \`alert_rule_history\` — pure reads. No state change, no operator-visible side effect.
+- \`investigation_create\` / \`investigation_add_section\` — accumulate a draft report in agent memory. Nothing is persisted to the operator-visible workspace until \`investigation_complete\` writes the final row.
+- \`remediation_plan_create\` / \`remediation_plan_create_rescue\` — create a plan record in \`pending_approval\` status. NO cluster mutations happen until a human opens the approval and clicks Approve. Treat creating a plan like saving a draft for review.
+- \`ops_run_command\` with \`intent="read"\` — kubectl get/describe/logs against an attached connector; no cluster state change.
+
+## Require explicit human approval before taking effect
+- \`ops_run_command\` with \`intent="execute_approved"\` — only valid AFTER a plan has been approved and the executor is running its steps. Never call this directly from an investigation or chat turn.
+- \`ops_run_command\` with \`intent="propose"\` — only valid as part of an authoring flow that immediately surfaces the proposal for human review. Prefer \`remediation_plan_create\` for anything coming out of an investigation.
+
+## Risky / hard to reverse — confirm with the user in plain text first
+- \`alert_rule_write\` with \`op="delete"\` — silently drops the rule and its firing history. Always confirm which rule the user means.
+- \`dashboard_remove_panels\` on a shared dashboard — other operators are looking at it.
+- \`dashboard_modify_panel\` that changes a query semantically (e.g. p95 → p50, different metric name) on a panel multiple users rely on.
+
+## Default to proposing a plan when the investigation finds an actionable fix
+When an investigation identifies a concrete root cause AND the fix is expressible as one or more kubectl commands AND an attached ops connector covers the target namespace: DEFAULT to calling \`remediation_plan_create\` after \`investigation_complete\`. The plan is a proposal, not an action — humans gate execution. Skip the plan only when (a) the user explicitly asked you to stop after diagnosis, (b) the fix needs credentials the configured connector lacks, or (c) the right next step isn't kubectl-shaped (data migration, code change, ask upstream).`
 }
 
 function getExamplesSection(): string {
@@ -543,6 +581,7 @@ export function buildSystemPrompt(
     identitySection,
     getSystemSection(),
     getDoingTasksSection(),
+    getActionsSection(),
     getExamplesSection(),
     getQueryKnowledgeSection(),
     getToneSection(),
@@ -556,5 +595,9 @@ export function buildSystemPrompt(
     getAlertRulesSection(alertRules, activeAlertRule, history),
   ]
 
-  return [...staticSections, ...dynamicSections].filter(Boolean).join('\n\n')
+  return [
+    ...staticSections,
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+    ...dynamicSections,
+  ].filter(Boolean).join('\n\n')
 }

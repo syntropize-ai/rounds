@@ -309,7 +309,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'remediation_plan_create',
       description:
-        'Propose a structured remediation plan after an investigation has identified a concrete, in-scope fix. Persists the plan in pending_approval status and creates a plan-level ApprovalRequest so a human can review the whole thing as one unit. Steps are NOT executed by this tool — execution happens after a human approves the plan.',
+        'Propose a structured remediation plan after an investigation has identified a concrete, in-scope fix.\n\nLOW COST: this tool does NOT execute anything. It creates a pending_approval plan record and a plan-level ApprovalRequest; a human must open the approval and click Approve before any plan step runs. Treat calling this tool as equivalent to saving a draft for review.\n\nREQUIRED AFTER INVESTIGATION when (a) the root cause is concrete, (b) the fix is expressible as one or more kubectl commands, and (c) an attached ops connector covers the target namespace. Do NOT skip the plan in these cases — over-cautious agents that "leave it to the operator" make the product worse than one that proposes liberally and lets the human approve or reject.\n\nSKIP only when the user explicitly asked you to stop after diagnosis, the fix needs credentials the configured connector lacks, or the right next step isn\'t kubectl-shaped (data migration, code change, ask upstream).',
       input_schema: {
         type: 'object',
         properties: {

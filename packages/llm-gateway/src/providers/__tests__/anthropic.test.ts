@@ -336,6 +336,78 @@ describe('AnthropicProvider — request body', () => {
     expect(body).not.toHaveProperty('temperature');
   });
 
+  it('uses adaptive thinking wire shape for Opus 4.7 (no budget_tokens; effort moves to output_config)', async () => {
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-opus-4-7',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete([{ role: 'user', content: 'hi' }], {
+      model: 'claude-opus-4-7',
+      thinking: { effort: 'high' },
+    });
+
+    const body = getRequestBody(spy);
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.thinking).not.toHaveProperty('budget_tokens');
+    expect(body.output_config).toEqual({ effort: 'high' });
+  });
+
+  it('uses adaptive shape for Bedrock cross-region Opus 4.7 inference profile', async () => {
+    // Same wire shape regardless of how the model id is wrapped — capability
+    // gating goes through the canonicalizer.
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'us.anthropic.claude-opus-4-7-v1:0',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete([{ role: 'user', content: 'hi' }], {
+      model: 'us.anthropic.claude-opus-4-7-20250101-v1:0',
+      thinking: { effort: 'medium' },
+    });
+
+    const body = getRequestBody(spy);
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'medium' });
+    expect(body).not.toHaveProperty('temperature');
+  });
+
+  it('keeps the budget_tokens thinking shape for Claude 3.7 Sonnet', async () => {
+    // 3.7 / 4.0–4.5 stay on the original wire — switching them to adaptive
+    // would 400 with the same "Extra inputs" error in reverse.
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'claude-3-7-sonnet-20250219',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete([{ role: 'user', content: 'hi' }], {
+      model: 'claude-3-7-sonnet-20250219',
+      thinking: { effort: 'low' },
+    });
+
+    const body = getRequestBody(spy);
+    expect(body.thinking).toMatchObject({ type: 'enabled' });
+    expect(body.thinking).toHaveProperty('budget_tokens');
+    expect(body).not.toHaveProperty('output_config');
+    // Older thinking-capable models still want temperature: 1
+    expect(body.temperature).toBe(1);
+  });
+
   it('omits temperature when thinking is enabled on a sampling-deprecated model', async () => {
     const spy = mockFetch(async () =>
       makeJsonResponse({
@@ -355,7 +427,8 @@ describe('AnthropicProvider — request body', () => {
 
     const body = getRequestBody(spy);
     expect(body).not.toHaveProperty('temperature');
-    expect(body.thinking).toMatchObject({ type: 'enabled' });
+    // Opus 4.7 uses adaptive thinking — no `enabled`, no budget_tokens.
+    expect(body.thinking).toEqual({ type: 'adaptive' });
   });
 });
 

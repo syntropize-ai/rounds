@@ -9,6 +9,14 @@ export interface ProviderCapabilities {
    * sending an unsupported parameter.
    */
   supportsThinking: boolean;
+  /**
+   * Does this model use Anthropic's *adaptive* thinking wire format?
+   * Opus 4.6+, Sonnet 4.6+ rejected `thinking: { type: 'enabled', budget_tokens }`
+   * — they expect `thinking: { type: 'adaptive' }` plus the effort hint moved
+   * to `output_config.effort`. Older thinking-capable models (3.7, 4.0–4.5)
+   * still want the budget form. Anthropic-only flag; ignored elsewhere.
+   */
+  supportsAdaptiveThinking: boolean;
   /** Can the model emit multiple tool_use blocks in a single turn? */
   supportsParallelTools: boolean;
   /**
@@ -63,6 +71,30 @@ function anthropicSupportsThinking(model: string): boolean {
 }
 
 /**
+ * Allowlist of models that use the *adaptive* thinking wire format. Mirrors
+ * `modelSupportsAdaptiveThinking()` in claude-code (utils/thinking.ts). The
+ * default for unknown thinking-capable models is **false** — the budget form
+ * was the original API and remains the safer wire shape until we positively
+ * know a new model is on adaptive. Bedrock will reject a budget-form request
+ * sent to an adaptive-only model with `Extra inputs are not permitted`, and
+ * vice-versa, so this gate has to be exact.
+ */
+function anthropicSupportsAdaptiveThinking(model: string): boolean {
+  const name = canonicalizeAnthropicModel(model);
+  // Known adaptive models. Add a new minor here when the model team confirms.
+  if (name.includes('claude-opus-4-7')) return true;
+  if (name.includes('claude-opus-4-6')) return true;
+  if (name.includes('claude-sonnet-4-6')) return true;
+  // Any 4.7+ minor / 5.x+ family on opus|sonnet|haiku — these are trained
+  // adaptive-only by default. Conservative because the model launch DRI in
+  // claude-code's thinking.ts notes "DO NOT default to false… we may silently
+  // degrade model quality."
+  if (/claude-(opus|sonnet|haiku)-4-([7-9]|\d{2,})/.test(name)) return true;
+  if (/claude-(opus|sonnet|haiku)-([5-9]|\d{2,})/.test(name)) return true;
+  return false;
+}
+
+/**
  * Anthropic deprecated sampling knobs (temperature/top_p/top_k) starting with
  * the Opus 4.7 line. Older models (3.x, 4.x through 4.6) still accept them.
  * Bedrock enforces this strictly; api.anthropic.com is currently lenient but
@@ -111,6 +143,7 @@ export function getCapabilities(
       return {
         supportsNativeTools: true,
         supportsThinking: anthropicSupportsThinking(model),
+        supportsAdaptiveThinking: anthropicSupportsAdaptiveThinking(model),
         supportsParallelTools: true,
         samplingParams: anthropicSamplingParams(model),
       };
@@ -118,6 +151,7 @@ export function getCapabilities(
       return {
         supportsNativeTools: true,
         supportsThinking: openaiSupportsReasoning(model),
+        supportsAdaptiveThinking: false,
         supportsParallelTools: true,
         // OpenAI reasoning models (o-series, gpt-5) reject temperature/top_p.
         samplingParams: openaiSupportsReasoning(model) ? NO_SAMPLING : ALL_SAMPLING,
@@ -126,6 +160,7 @@ export function getCapabilities(
       return {
         supportsNativeTools: true,
         supportsThinking: geminiSupportsThinking(model),
+        supportsAdaptiveThinking: false,
         supportsParallelTools: false,
         samplingParams: ALL_SAMPLING,
       };
@@ -136,6 +171,7 @@ export function getCapabilities(
       return {
         supportsNativeTools: true,
         supportsThinking: false,
+        supportsAdaptiveThinking: false,
         supportsParallelTools: false,
         samplingParams: ALL_SAMPLING,
       };
@@ -143,6 +179,7 @@ export function getCapabilities(
       return {
         supportsNativeTools: true,
         supportsThinking: false,
+        supportsAdaptiveThinking: false,
         supportsParallelTools: true,
         samplingParams: ALL_SAMPLING,
       };

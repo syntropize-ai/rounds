@@ -73,3 +73,38 @@ describe('getCapabilities — Anthropic thinking gating', () => {
     expect(getCapabilities('anthropic', model).supportsThinking).toBe(false);
   });
 });
+
+describe('getCapabilities — Anthropic adaptive thinking gating', () => {
+  it.each([
+    // Adaptive: Opus 4.6+, Sonnet 4.6+
+    'claude-opus-4-7',
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
+    'us.anthropic.claude-opus-4-7-20250101-v1:0',
+    'anthropic.claude-opus-4-6-v1:0',
+    'arn:aws:bedrock:us-east-1:123:inference-profile/us.anthropic.claude-sonnet-4-6-v1:0',
+    // Future minors / 5.x
+    'claude-opus-5-0',
+    'claude-haiku-4-8',
+  ])('uses adaptive thinking shape: %s', (model) => {
+    expect(getCapabilities('anthropic', model).supportsAdaptiveThinking).toBe(true);
+  });
+
+  it.each([
+    // Older thinking-capable models still on the budget shape
+    'claude-3-7-sonnet-20250219',
+    'claude-opus-4',
+    'claude-opus-4-1',
+    'claude-sonnet-4-5',
+    'claude-haiku-4-5',
+    'anthropic.claude-3-7-sonnet-20250219-v1:0',
+  ])('keeps the budget thinking shape: %s', (model) => {
+    expect(getCapabilities('anthropic', model).supportsAdaptiveThinking).toBe(false);
+  });
+
+  it('non-Anthropic providers always report false', () => {
+    expect(getCapabilities('openai', 'gpt-5').supportsAdaptiveThinking).toBe(false);
+    expect(getCapabilities('gemini', 'gemini-2.5-pro').supportsAdaptiveThinking).toBe(false);
+    expect(getCapabilities('ollama', 'llama3.2').supportsAdaptiveThinking).toBe(false);
+  });
+});

@@ -64,6 +64,7 @@ describe('OpsCommandRunnerService', () => {
         expiresAt: 'later',
       })),
       findById: vi.fn(),
+      list: vi.fn(),
       listPending: vi.fn(),
       approve: vi.fn(),
       reject: vi.fn(),

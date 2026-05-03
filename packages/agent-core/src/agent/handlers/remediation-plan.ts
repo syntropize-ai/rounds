@@ -19,7 +19,7 @@
  * surfaces it for approval.
  */
 
-import { checkKubectl } from '@agentic-obs/adapters';
+import { checkKubectl, parseKubectlArgv } from '@agentic-obs/adapters';
 import type {
   NewRemediationPlanStep,
   RemediationPlanStepKind,
@@ -176,6 +176,29 @@ async function createPlanCommon(
       // up in /api/approvals + the ActionCenter UI immediately. Rescue
       // plans do NOT — they're invoked on demand by an operator.
       if (rescueForPlanId === null && ctx.approvalRequests) {
+        // Multi-team scope tags (docs/design/approvals-multi-team-scope.md
+        // §3.6). The plan-level approval is what lands in /api/approvals,
+        // so it's the row that needs scope-narrowing for visibility. We
+        // pull connector + namespace from the first ops step; team is
+        // resolved upstream and (for now) not threaded through ctx — left
+        // null with a TODO. Without these tags multi-team customers see
+        // every cluster's plan-level approvals; this is the fix.
+        const firstOpsStep = parsed.find(
+          (s) => typeof (s.paramsJson as Record<string, unknown>)?.['argv'] !== 'undefined'
+            && typeof s.connectorId === 'string'
+            && s.connectorId.length > 0,
+        );
+        const opsConnectorId = firstOpsStep?.connectorId ?? null;
+        const targetNamespace = firstOpsStep
+          ? (parseKubectlArgv((firstOpsStep.paramsJson as { argv: string[] }).argv).namespace ?? null)
+          : null;
+        // TODO(approvals-multi-team): resolve requesterTeamId via ctx.
+        // Needs alertRule.investigation_id → folder → team chain wired
+        // through ctx (not currently exposed in agent-core). Tracked
+        // separately; null is the safe default — wildcard `approvals:*`
+        // grants still match.
+        const requesterTeamId: string | null = null;
+
         const submitted = await ctx.approvalRequests.submit({
           action: {
             type: 'plan',
@@ -190,6 +213,9 @@ async function createPlanCommon(
             // find the plan without re-parsing action.params.
             ...{ planId: plan.id } as Record<string, unknown>,
           },
+          opsConnectorId,
+          targetNamespace,
+          requesterTeamId,
         });
         await ctx.remediationPlans!.updatePlan(ctx.identity.orgId, plan.id, {
           approvalRequestId: submitted.id,

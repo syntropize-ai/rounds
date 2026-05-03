@@ -4,7 +4,7 @@
  * without spawning kubectl.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createTestDb, SqliteRemediationPlanRepository, SqliteApprovalRequestRepository } from '@agentic-obs/data-layer';
 import type { SqliteClient, NewRemediationPlan } from '@agentic-obs/data-layer';
 import type { ExecutionAdapter } from '@agentic-obs/adapters';
@@ -337,5 +337,145 @@ describe('PlanExecutorService — audit hook', () => {
     expect(calls[0]?.metadata['verb']).toBe('scale');
     expect(calls[1]?.outcome).toBe('failure');
     expect(calls[1]?.metadata['verb']).toBe('rollout');
+  });
+});
+
+/**
+ * T2.1 acceptance — when plan-executor creates a per-step ApprovalRequest it
+ * stamps the row with `ops_connector_id`, `target_namespace`, and
+ * `requester_team_id`, deriving them from the step's argv and the injected
+ * team resolver. NULL semantics per approvals-multi-team-scope §3.2 / §3.6.
+ */
+describe('PlanExecutorService — approval-row scope enrichment', () => {
+  let db: SqliteClient;
+  let plansRepo: SqliteRemediationPlanRepository;
+  let approvalsRepo: SqliteApprovalRequestRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    plansRepo = new SqliteRemediationPlanRepository(db);
+    approvalsRepo = new SqliteApprovalRequestRepository(db);
+  });
+
+  it('happy path: namespaced ops step + team-owned alert rule → all 3 fields populated', async () => {
+    const plan = await plansRepo.create(basePlan());
+    const resolveRequesterTeamId = vi.fn().mockResolvedValue('t-platform');
+    const svc = new PlanExecutorService({
+      plans: plansRepo,
+      approvals: approvalsRepo,
+      adapterFor: async () => fakeAdapter(),
+      resolveRequesterTeamId,
+    });
+    const outcome = await svc.approve('org_main', plan.id, false, ID);
+    if (outcome.kind !== 'paused_for_approval') throw new Error('expected paused');
+    const approval = await approvalsRepo.findById(outcome.approvalRequestId);
+    expect(approval?.opsConnectorId).toBe('k8s-prod');
+    expect(approval?.targetNamespace).toBe('app');
+    expect(approval?.requesterTeamId).toBe('t-platform');
+    expect(resolveRequesterTeamId).toHaveBeenCalledWith('org_main', 'inv-1');
+  });
+
+  it('cluster-scoped step (no -n flag): connector set, namespace NULL', async () => {
+    const plan = await plansRepo.create(
+      basePlan({
+        steps: [
+          {
+            kind: 'ops.run_command',
+            commandText: 'kubectl get nodes',
+            paramsJson: { argv: ['get', 'nodes'], connectorId: 'k8s-prod' },
+          },
+        ],
+      }),
+    );
+    const svc = new PlanExecutorService({
+      plans: plansRepo,
+      approvals: approvalsRepo,
+      adapterFor: async () => fakeAdapter(),
+      resolveRequesterTeamId: async () => 't-platform',
+    });
+    const outcome = await svc.approve('org_main', plan.id, false, ID);
+    if (outcome.kind !== 'paused_for_approval') throw new Error('expected paused');
+    const approval = await approvalsRepo.findById(outcome.approvalRequestId);
+    expect(approval?.opsConnectorId).toBe('k8s-prod');
+    expect(approval?.targetNamespace).toBeNull();
+    expect(approval?.requesterTeamId).toBe('t-platform');
+  });
+
+  it('non-ops step kind: both connector + namespace are NULL', async () => {
+    const plan = await plansRepo.create(
+      basePlan({
+        steps: [
+          {
+            kind: 'alert_rule_write',
+            commandText: 'pause noisy alert rule',
+            paramsJson: { ruleId: 'rule-1', state: 'paused' },
+          },
+        ],
+      }),
+    );
+    const svc = new PlanExecutorService({
+      plans: plansRepo,
+      approvals: approvalsRepo,
+      adapterFor: async () => fakeAdapter(),
+      resolveRequesterTeamId: async () => 't-platform',
+    });
+    const outcome = await svc.approve('org_main', plan.id, false, ID);
+    if (outcome.kind !== 'paused_for_approval') throw new Error('expected paused');
+    const approval = await approvalsRepo.findById(outcome.approvalRequestId);
+    expect(approval?.opsConnectorId).toBeNull();
+    expect(approval?.targetNamespace).toBeNull();
+    expect(approval?.requesterTeamId).toBe('t-platform');
+  });
+
+  it('chat-driven investigation (no alert rule): requester_team_id is NULL', async () => {
+    const plan = await plansRepo.create(basePlan());
+    const svc = new PlanExecutorService({
+      plans: plansRepo,
+      approvals: approvalsRepo,
+      adapterFor: async () => fakeAdapter(),
+      // resolver returns NULL when investigation isn't linked to a rule.
+      resolveRequesterTeamId: async () => null,
+    });
+    const outcome = await svc.approve('org_main', plan.id, false, ID);
+    if (outcome.kind !== 'paused_for_approval') throw new Error('expected paused');
+    const approval = await approvalsRepo.findById(outcome.approvalRequestId);
+    expect(approval?.opsConnectorId).toBe('k8s-prod');
+    expect(approval?.targetNamespace).toBe('app');
+    expect(approval?.requesterTeamId).toBeNull();
+  });
+
+  it('alert rule in folder without team binding: requester_team_id is NULL', async () => {
+    // Identical to the previous case from the executor's perspective — the
+    // resolver folds "no rule", "rule with no folder", and "folder with no
+    // team binding" all into a single `null` return. Pinning this case
+    // separately so a future refactor that introduces a sentinel (e.g.
+    // 'unknown') for the no-team-binding case fails loudly.
+    const plan = await plansRepo.create(basePlan());
+    const resolveRequesterTeamId = vi.fn().mockResolvedValue(null);
+    const svc = new PlanExecutorService({
+      plans: plansRepo,
+      approvals: approvalsRepo,
+      adapterFor: async () => fakeAdapter(),
+      resolveRequesterTeamId,
+    });
+    const outcome = await svc.approve('org_main', plan.id, false, ID);
+    if (outcome.kind !== 'paused_for_approval') throw new Error('expected paused');
+    const approval = await approvalsRepo.findById(outcome.approvalRequestId);
+    expect(approval?.requesterTeamId).toBeNull();
+    expect(resolveRequesterTeamId).toHaveBeenCalledTimes(1);
+  });
+
+  it('no resolver wired: requester_team_id is NULL (back-compat)', async () => {
+    const plan = await plansRepo.create(basePlan());
+    const svc = new PlanExecutorService({
+      plans: plansRepo,
+      approvals: approvalsRepo,
+      adapterFor: async () => fakeAdapter(),
+      // resolveRequesterTeamId omitted entirely.
+    });
+    const outcome = await svc.approve('org_main', plan.id, false, ID);
+    if (outcome.kind !== 'paused_for_approval') throw new Error('expected paused');
+    const approval = await approvalsRepo.findById(outcome.approvalRequestId);
+    expect(approval?.requesterTeamId).toBeNull();
   });
 });

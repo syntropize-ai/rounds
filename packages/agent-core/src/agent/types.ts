@@ -181,5 +181,18 @@ export interface ApprovalRequest {
 }
 
 export interface ApprovalRequestStore {
-  submit(params: { action: ApprovalAction; context: ApprovalContext; ttlMs?: number }): ApprovalRequest | Promise<ApprovalRequest>
+  submit(params: {
+    action: ApprovalAction;
+    context: ApprovalContext;
+    ttlMs?: number;
+    /**
+     * Optional scope tags so multi-team RBAC can narrow visibility per
+     * connector / namespace / team. NULL when the plan has no ops step
+     * (cluster-wide write) or no team-owning alert rule. See
+     * docs/design/approvals-multi-team-scope.md §3.6.
+     */
+    opsConnectorId?: string | null;
+    targetNamespace?: string | null;
+    requesterTeamId?: string | null;
+  }): ApprovalRequest | Promise<ApprovalRequest>
 }

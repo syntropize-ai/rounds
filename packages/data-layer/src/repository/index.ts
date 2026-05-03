@@ -13,6 +13,7 @@ export type {
   CaseFindAllOptions,
   IApprovalRepository,
   IApprovalRequestRepository,
+  ApprovalScopeFilter,
   IShareRepository,
   IShareLinkRepository,
   IDashboardRepository,

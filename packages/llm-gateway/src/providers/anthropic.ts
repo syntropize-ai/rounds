@@ -244,22 +244,43 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
 
-    // Extended thinking — only attach when the model supports it. Anthropic
-    // requires temperature=1 when thinking is enabled, so we override here
-    // (only when the model actually accepts a temperature knob; otherwise
-    // the API uses its own implicit value).
+    // Extended thinking — only attach when the model supports it. Two wire
+    // shapes exist:
+    //
+    //   • Adaptive (Opus 4.6+, Sonnet 4.6+): `thinking: { type: 'adaptive' }`
+    //     and the effort hint moves to `output_config.effort`. No
+    //     budget_tokens — the model decides. Bedrock REJECTS budget_tokens
+    //     for these models with `Extra inputs are not permitted`.
+    //
+    //   • Budget (3.7, 4.0–4.5): `thinking: { type: 'enabled', budget_tokens }`
+    //     — the original shape. `temperature` must be 1 if temperature is
+    //     supported at all (which on these older models, it is).
+    //
+    // The single chokepoint here keeps callers (agent layer) provider/model
+    // agnostic: they pass `thinking: { effort: 'low'|'medium'|'high' }` and
+    // the right wire shape lands at the right model.
     if (options.thinking && capabilities.supportsThinking) {
-      const budget = effortToBudgetTokens(options.thinking.effort);
-      requestBody.thinking = { type: 'enabled', budget_tokens: budget };
-      if (capabilities.samplingParams.has('temperature')) {
-        requestBody.temperature = 1;
+      if (capabilities.supportsAdaptiveThinking) {
+        requestBody.thinking = { type: 'adaptive' };
+        const existingOutputConfig =
+          (requestBody.output_config as Record<string, unknown> | undefined) ?? {};
+        requestBody.output_config = {
+          ...existingOutputConfig,
+          effort: options.thinking.effort,
+        };
       } else {
-        delete requestBody.temperature;
-      }
-      // budget_tokens must be < max_tokens; bump max_tokens if needed
-      const currentMax = (requestBody.max_tokens as number) ?? DEFAULT_MAX_TOKENS;
-      if (currentMax <= budget) {
-        requestBody.max_tokens = budget + DEFAULT_MAX_TOKENS;
+        const budget = effortToBudgetTokens(options.thinking.effort);
+        requestBody.thinking = { type: 'enabled', budget_tokens: budget };
+        if (capabilities.samplingParams.has('temperature')) {
+          requestBody.temperature = 1;
+        } else {
+          delete requestBody.temperature;
+        }
+        // budget_tokens must be < max_tokens; bump max_tokens if needed
+        const currentMax = (requestBody.max_tokens as number) ?? DEFAULT_MAX_TOKENS;
+        if (currentMax <= budget) {
+          requestBody.max_tokens = budget + DEFAULT_MAX_TOKENS;
+        }
       }
     }
 

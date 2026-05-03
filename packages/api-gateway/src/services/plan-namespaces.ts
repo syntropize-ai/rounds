@@ -50,7 +50,7 @@ export function extractPlanNamespaces(plan: RemediationPlan): PlanNamespaceSumma
   return { namespaces: [...namespaces].sort(), hasClusterScoped };
 }
 
-function readNamespaceFromArgv(argv: readonly string[]): string | null {
+export function readNamespaceFromArgv(argv: readonly string[]): string | null {
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i] ?? '';
     if (tok === '-n' || tok === '--namespace') {

@@ -664,6 +664,40 @@ const APPROVALS_OVERRIDER = def(
   ],
 );
 
+// Multi-team approval scopes (see approvals-multi-team-scope §3.5). The
+// catalog ships with `*` placeholders; admins narrow each grant to a specific
+// connector / namespace / team at bind time, matching how folder-scoped
+// fixed roles like `fixed:dashboards:writer` are bound to specific folders.
+const APPROVALS_CLUSTER_APPROVER = def(
+  'fixed:approvals:cluster_approver',
+  'Cluster approver',
+  'Read and approve cluster-operation approvals scoped to a single ops connector.',
+  'Approvals',
+  [
+    { action: ACTIONS.ApprovalsRead, scope: 'approvals:connector:*' },
+    { action: ACTIONS.ApprovalsApprove, scope: 'approvals:connector:*' },
+  ],
+);
+
+const APPROVALS_NAMESPACE_APPROVER = def(
+  'fixed:approvals:namespace_approver',
+  'Namespace approver',
+  'Read and approve cluster-operation approvals scoped to a single (connector, namespace) pair.',
+  'Approvals',
+  [
+    { action: ACTIONS.ApprovalsRead, scope: 'approvals:namespace:*:*' },
+    { action: ACTIONS.ApprovalsApprove, scope: 'approvals:namespace:*:*' },
+  ],
+);
+
+const APPROVALS_TEAM_VIEWER = def(
+  'fixed:approvals:team_viewer',
+  'Team approval viewer',
+  'Read approvals originated by a single team.',
+  'Approvals',
+  [{ action: ACTIONS.ApprovalsRead, scope: 'approvals:team:*' }],
+);
+
 const PLANS_READER = def(
   'fixed:plans:reader',
   'Plans reader',
@@ -803,6 +837,9 @@ export const FIXED_ROLE_DEFINITIONS: readonly FixedRoleDefinition[] =
     APPROVALS_READER,
     APPROVALS_APPROVER,
     APPROVALS_OVERRIDER,
+    APPROVALS_CLUSTER_APPROVER,
+    APPROVALS_NAMESPACE_APPROVER,
+    APPROVALS_TEAM_VIEWER,
     PLANS_READER,
     PLANS_APPROVER,
     PLANS_AUTO_EDITOR,

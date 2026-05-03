@@ -185,3 +185,41 @@ describe('SqliteApprovalRequestRepository.list', () => {
     expect(out.map((r) => r.id)).not.toContain('other-1');
   });
 });
+
+/**
+ * T2.1 acceptance — submit() persists the three scope columns when provided
+ * and writes NULL when omitted. See approvals-multi-team-scope §3.6.
+ */
+describe('SqliteApprovalRequestRepository.submit — scope enrichment', () => {
+  it('persists opsConnectorId / targetNamespace / requesterTeamId when provided', async () => {
+    const db = createTestDb();
+    const repo = new SqliteApprovalRequestRepository(db);
+    const submitted = await repo.submit({
+      action: { type: 'ops.run_command', targetService: 'k8s-prod', params: {} },
+      context: { requestedBy: 'agent', reason: 'scale up' },
+      opsConnectorId: 'k8s-prod',
+      targetNamespace: 'payments',
+      requesterTeamId: 't-payments',
+    });
+    expect(submitted.opsConnectorId).toBe('k8s-prod');
+    expect(submitted.targetNamespace).toBe('payments');
+    expect(submitted.requesterTeamId).toBe('t-payments');
+
+    const fetched = await repo.findById(submitted.id);
+    expect(fetched?.opsConnectorId).toBe('k8s-prod');
+    expect(fetched?.targetNamespace).toBe('payments');
+    expect(fetched?.requesterTeamId).toBe('t-payments');
+  });
+
+  it('omitted scope fields are persisted as NULL (back-compat)', async () => {
+    const db = createTestDb();
+    const repo = new SqliteApprovalRequestRepository(db);
+    const submitted = await repo.submit({
+      action: { type: 'ops.run_command', targetService: 'k8s-prod', params: {} },
+      context: { requestedBy: 'agent', reason: 'no enrichment' },
+    });
+    expect(submitted.opsConnectorId).toBeNull();
+    expect(submitted.targetNamespace).toBeNull();
+    expect(submitted.requesterTeamId).toBeNull();
+  });
+});

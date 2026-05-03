@@ -195,7 +195,17 @@ export type ApprovalScopeFilter =
 
 export interface IApprovalRequestRepository {
   findById(id: string): Promise<ApprovalRequest | undefined>;
-  submit(params: { action: ApprovalAction; context: ApprovalContext; ttlMs?: number }): Promise<ApprovalRequest>;
+  submit(params: {
+    action: ApprovalAction;
+    context: ApprovalContext;
+    ttlMs?: number;
+    /** See approvals-multi-team-scope §3.6. NULL when plan has no ops step. */
+    opsConnectorId?: string | null;
+    /** See approvals-multi-team-scope §3.6. NULL for cluster-scoped plans. */
+    targetNamespace?: string | null;
+    /** See approvals-multi-team-scope §3.6. NULL when no team-owned folder. */
+    requesterTeamId?: string | null;
+  }): Promise<ApprovalRequest>;
   listPending(): Promise<ApprovalRequest[]>;
   /**
    * Org-scoped list with optional per-row scope filter and status filter.

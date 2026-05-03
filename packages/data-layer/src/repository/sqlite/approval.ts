@@ -37,6 +37,9 @@ export class SqliteApprovalRequestRepository implements IApprovalRequestReposito
     action: ApprovalAction;
     context: ApprovalContext;
     ttlMs?: number;
+    opsConnectorId?: string | null;
+    targetNamespace?: string | null;
+    requesterTeamId?: string | null;
   }): Promise<ApprovalRequest> {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + (params.ttlMs ?? 86400000)).toISOString();
@@ -49,6 +52,9 @@ export class SqliteApprovalRequestRepository implements IApprovalRequestReposito
         status: 'pending',
         expiresAt,
         createdAt: now.toISOString(),
+        opsConnectorId: params.opsConnectorId ?? null,
+        targetNamespace: params.targetNamespace ?? null,
+        requesterTeamId: params.requesterTeamId ?? null,
       })
       .returning();
     return rowToRequest(row!);

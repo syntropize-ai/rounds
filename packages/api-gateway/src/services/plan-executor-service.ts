@@ -44,6 +44,7 @@ import type {
   RemediationPlan,
   RemediationPlanStep,
 } from '@agentic-obs/data-layer';
+import { readNamespaceFromArgv } from './plan-namespaces.js';
 
 const log = createLogger('plan-executor');
 
@@ -72,6 +73,19 @@ export interface PlanExecutorOptions {
    * verb in metadata. Boot wiring passes `authSub.audit`; tests omit.
    */
   audit?: AuditWriter;
+  /**
+   * Optional resolver: investigation id → owning team id, for the per-row
+   * `requester_team_id` enrichment (approvals-multi-team-scope §3.6). Wire
+   * this at boot from alertRule.investigationId → folderUid → folder team
+   * binding. Returns NULL when the investigation isn't linked to a rule, the
+   * rule has no folder, or the folder has no owning team. When the option
+   * is omitted entirely, every approval row's `requester_team_id` is NULL
+   * (back-compat for tests / installs that don't wire this yet).
+   */
+  resolveRequesterTeamId?: (
+    orgId: string,
+    investigationId: string,
+  ) => Promise<string | null>;
 }
 
 export type PlanExecutorOutcome =
@@ -304,6 +318,16 @@ export class PlanExecutorService {
       );
     }
     const params = readOpsRunCommandParams(next);
+    // Per-row scope enrichment (approvals-multi-team-scope §3.6). For per-step
+    // approvals the "first ops_run_command step" simply IS the step being
+    // gated; non-ops kinds → both connector + namespace are NULL.
+    const opsConnectorId = params?.connectorId ?? null;
+    const targetNamespace = params
+      ? readNamespaceFromArgv(params.argv)
+      : null;
+    const requesterTeamId = this.opts.resolveRequesterTeamId
+      ? await this.opts.resolveRequesterTeamId(orgId, plan.investigationId)
+      : null;
     const submitted = await this.opts.approvals.submit({
       action: {
         type: 'ops.run_command',
@@ -322,6 +346,9 @@ export class PlanExecutorService {
         // already accepts unknown context fields.
         ...{ planId: plan.id, stepOrdinal: next.ordinal } as Record<string, unknown>,
       },
+      opsConnectorId,
+      targetNamespace,
+      requesterTeamId,
     });
     await this.opts.plans.updateStep(plan.id, next.ordinal, {
       approvalRequestId: submitted.id,

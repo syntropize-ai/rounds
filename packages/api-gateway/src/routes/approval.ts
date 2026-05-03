@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import type { ApiError } from '@agentic-obs/common';
-import { ac, ACTIONS } from '@agentic-obs/common';
-import type { IApprovalRequestRepository, IGatewayApprovalStore, IOpsConnectorRepository } from '@agentic-obs/data-layer';
+import type { ApiError, ResolvedPermission } from '@agentic-obs/common';
+import { ac, ACTIONS, approvalRowScopes, parseApprovalScope } from '@agentic-obs/common';
+import type { IApprovalRequestRepository, IGatewayApprovalStore, IOpsConnectorRepository, ApprovalScopeFilter } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
-import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { OpsCommandRunnerService } from '../services/ops-command-runner-service.js';
 
@@ -22,8 +21,15 @@ function legacyOrgRole(role: string | undefined): string {
 }
 
 export interface ApprovalRouterDeps {
+  /** Mutation surface (with onResolved pub/sub). */
   approvals: IGatewayApprovalStore;
-  approvalRequests?: IApprovalRequestRepository;
+  /**
+   * Read/list surface. Required: `GET /` calls `list(orgId, { scopeFilter })`,
+   * which `IGatewayApprovalStore` doesn't expose. Wired to the same underlying
+   * repo as `approvals` (the EventEmittingApprovalRepository wraps this one
+   * for the mutation pub/sub).
+   */
+  approvalRequests: IApprovalRequestRepository;
   opsConnectors?: IOpsConnectorRepository;
   /**
    * RBAC surface. `AccessControlSurface` is used (not the concrete service)
@@ -33,38 +39,134 @@ export interface ApprovalRouterDeps {
   ac: AccessControlSurface;
 }
 
+/**
+ * Build a per-row `ApprovalScopeFilter` from the user's `ApprovalsRead` grants.
+ *
+ * Returns:
+ *   - `{ kind: 'wildcard' }` if any grant resolves to `approvals:*`.
+ *   - Otherwise a `narrow` filter populated from the user's specific grants
+ *     (uid / connector / namespace / team). Empty narrow set → list returns
+ *     zero rows (T1.1's repo handles this).
+ *
+ * See approvals-multi-team-scope §3.3.
+ */
+function approvalsReadScopeFilter(
+  permissions: readonly ResolvedPermission[],
+): ApprovalScopeFilter {
+  const reads = permissions.filter((p) => p.action === ACTIONS.ApprovalsRead);
+  const uids = new Set<string>();
+  const connectors = new Set<string>();
+  const nsPairs: { connectorId: string; ns: string }[] = [];
+  const teams = new Set<string>();
+  for (const p of reads) {
+    const parsed = parseApprovalScope(p.scope);
+    if (!parsed) continue;
+    if (parsed.kind === 'wildcard') return { kind: 'wildcard' };
+    if (parsed.kind === 'uid') uids.add(parsed.id);
+    else if (parsed.kind === 'connector') connectors.add(parsed.connectorId);
+    else if (parsed.kind === 'namespace') nsPairs.push({ connectorId: parsed.connectorId, ns: parsed.ns });
+    else if (parsed.kind === 'team') teams.add(parsed.teamId);
+  }
+  return { kind: 'narrow', uids, connectors, nsPairs, teams };
+}
+
+/**
+ * True iff the user's permissions include `<action> on approvals:*`.
+ *
+ * Used to decide whether the wildcard scope is added to the per-row candidate
+ * list — see fail-closed invariant in approvals-multi-team-scope §3.4 / R1.
+ */
+function holdsApprovalsWildcard(
+  permissions: readonly ResolvedPermission[],
+  action: string,
+): boolean {
+  return permissions.some(
+    (p) =>
+      p.action === action &&
+      (p.scope === 'approvals:*' || p.scope === 'approvals:*:*' || p.scope === '*' || p.scope === ''),
+  );
+}
+
+/**
+ * Resolve whether the user can perform `action` on `row` per the per-row
+ * scope rules. Builds the row's candidate scopes via `approvalRowScopes`, then
+ * adds `approvals:*` ONLY if the user actually holds that wildcard grant.
+ *
+ * Critical: the naive "always include `approvals:*`" path is what the
+ * fail-closed invariant prohibits. See approvals-multi-team-scope §3.4 / R1.
+ */
+async function evalRowAccess(
+  acc: AccessControlSurface,
+  identity: AuthenticatedRequest['auth'],
+  permissions: readonly ResolvedPermission[],
+  action: string,
+  row: { id: string; opsConnectorId?: string | null; targetNamespace?: string | null; requesterTeamId?: string | null },
+): Promise<boolean> {
+  if (!identity) return false;
+  const candidates = approvalRowScopes(row);
+  if (holdsApprovalsWildcard(permissions, action)) {
+    candidates.push('approvals:*');
+  }
+  const evaluator = ac.any(...candidates.map((s: string) => ac.eval(action, s)));
+  return acc.evaluate(identity, evaluator);
+}
+
 export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
   const router = Router();
   const repo = deps.approvals;
-  const requirePermission = createRequirePermission(deps.ac);
+  const requests = deps.approvalRequests;
+  const accessControl = deps.ac;
 
-  // GET /api/approvals - list pending approvals
+  function authOr401(
+    req: Request,
+    res: Response,
+  ): AuthenticatedRequest['auth'] | null {
+    const auth = (req as AuthenticatedRequest).auth;
+    if (!auth) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+      return null;
+    }
+    return auth;
+  }
+
+  // GET /api/approvals — list approvals visible to the caller (per-row filter).
   router.get(
     '/',
     authMiddleware,
-    requirePermission(() => ac.eval(ACTIONS.ApprovalsRead, 'approvals:*')),
-    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        res.json(await repo.listPending());
+        const auth = authOr401(req, res);
+        if (!auth) return;
+        const perms = await accessControl.ensurePermissions(auth);
+        const scopeFilter = approvalsReadScopeFilter(perms);
+        const rows = await requests.list(auth.orgId, { scopeFilter });
+        res.json(rows);
       } catch (err) {
         next(err);
       }
     },
   );
 
-  // GET /api/approvals/:id - get single approval request
+  // GET /api/approvals/:id — detail with per-row scope check. Deny → 404
+  // (don't leak existence to a user who can't see this row).
   router.get(
     '/:id',
     authMiddleware,
-    requirePermission((req) =>
-      ac.eval(ACTIONS.ApprovalsRead, `approvals:uid:${req.params['id'] ?? ''}`),
-    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const record = await repo.findById(req.params['id'] ?? '');
+        const auth = authOr401(req, res);
+        if (!auth) return;
+        const id = req.params['id'] ?? '';
+        const record = await repo.findById(id);
+        const notFound: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
         if (!record) {
-          const err: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
-          res.status(404).json(err);
+          res.status(404).json(notFound);
+          return;
+        }
+        const perms = await accessControl.ensurePermissions(auth);
+        const allowed = await evalRowAccess(accessControl, auth, perms, ACTIONS.ApprovalsRead, record);
+        if (!allowed) {
+          res.status(404).json(notFound);
           return;
         }
         res.json(record);
@@ -74,40 +176,39 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
     },
   );
 
-  // POST /api/approvals/:id/approve - approve a pending request (Editor+ via
-  // `approvals:approve`).
+  // POST /api/approvals/:id/approve — Editor+ via per-row `approvals:approve`.
   router.post(
     '/:id/approve',
     authMiddleware,
-    requirePermission((req) =>
-      ac.eval(ACTIONS.ApprovalsApprove, `approvals:uid:${req.params['id'] ?? ''}`),
-    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const authReq = req as AuthenticatedRequest;
+        const auth = authOr401(req, res);
+        if (!auth) return;
         const id = req.params['id'] ?? '';
-        const resolvedBy = authReq.auth?.userId ?? 'unknown';
-        const resolvedByRoles = authReq.auth?.isServerAdmin
-          ? ['admin']
-          : [legacyOrgRole(authReq.auth?.orgRole)];
+        const record = await repo.findById(id);
+        const notFound: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
+        if (!record) {
+          res.status(404).json(notFound);
+          return;
+        }
+        const perms = await accessControl.ensurePermissions(auth);
+        const allowed = await evalRowAccess(accessControl, auth, perms, ACTIONS.ApprovalsApprove, record);
+        if (!allowed) {
+          res.status(404).json(notFound);
+          return;
+        }
 
+        const resolvedBy = auth.userId ?? 'unknown';
+        const resolvedByRoles = auth.isServerAdmin ? ['admin'] : [legacyOrgRole(auth.orgRole)];
         const updated = await repo.approve(id, resolvedBy, resolvedByRoles);
         if (!updated) {
-          const existing = await repo.findById(id);
-          if (!existing) {
-            const err: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
-            res.status(404).json(err);
-            return;
-          }
-
           const err: ApiError = {
             code: 'CONFLICT',
-            message: `Approval request is already ${existing.status} and cannot be approved`,
+            message: `Approval request is already ${record.status} and cannot be approved`,
           };
           res.status(409).json(err);
           return;
         }
-
         res.json(updated);
       } catch (err) {
         next(err);
@@ -115,40 +216,39 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
     },
   );
 
-  // POST /api/approvals/:id/reject - reject a pending request (Editor+ via
-  // `approvals:approve`; rejection is the symmetric side of approve).
+  // POST /api/approvals/:id/reject — symmetric `approvals:approve` gate.
   router.post(
     '/:id/reject',
     authMiddleware,
-    requirePermission((req) =>
-      ac.eval(ACTIONS.ApprovalsApprove, `approvals:uid:${req.params['id'] ?? ''}`),
-    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const authReq = req as AuthenticatedRequest;
+        const auth = authOr401(req, res);
+        if (!auth) return;
         const id = req.params['id'] ?? '';
-        const resolvedBy = authReq.auth?.userId ?? 'unknown';
-        const resolvedByRoles = authReq.auth?.isServerAdmin
-          ? ['admin']
-          : [legacyOrgRole(authReq.auth?.orgRole)];
+        const record = await repo.findById(id);
+        const notFound: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
+        if (!record) {
+          res.status(404).json(notFound);
+          return;
+        }
+        const perms = await accessControl.ensurePermissions(auth);
+        const allowed = await evalRowAccess(accessControl, auth, perms, ACTIONS.ApprovalsApprove, record);
+        if (!allowed) {
+          res.status(404).json(notFound);
+          return;
+        }
 
+        const resolvedBy = auth.userId ?? 'unknown';
+        const resolvedByRoles = auth.isServerAdmin ? ['admin'] : [legacyOrgRole(auth.orgRole)];
         const updated = await repo.reject(id, resolvedBy, resolvedByRoles);
         if (!updated) {
-          const existing = await repo.findById(id);
-          if (!existing) {
-            const err: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
-            res.status(404).json(err);
-            return;
-          }
-
           const err: ApiError = {
             code: 'CONFLICT',
-            message: `Approval request is already ${existing.status} and cannot be rejected`,
+            message: `Approval request is already ${record.status} and cannot be rejected`,
           };
           res.status(409).json(err);
           return;
         }
-
         res.json(updated);
       } catch (err) {
         next(err);
@@ -156,30 +256,35 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
     },
   );
 
-  // POST /api/approvals/:id/override - admin override; force-approve regardless
-  // of status (Admin-only via `approvals:override`).
+  // POST /api/approvals/:id/override — Admin force-approve via `approvals:override`.
   router.post(
     '/:id/override',
     authMiddleware,
-    requirePermission((req) =>
-      ac.eval(ACTIONS.ApprovalsOverride, `approvals:uid:${req.params['id'] ?? ''}`),
-    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const authReq = req as AuthenticatedRequest;
+        const auth = authOr401(req, res);
+        if (!auth) return;
         const id = req.params['id'] ?? '';
-        const resolvedBy = authReq.auth?.userId ?? 'unknown';
-        const resolvedByRoles = authReq.auth?.isServerAdmin
-          ? ['admin']
-          : [legacyOrgRole(authReq.auth?.orgRole)];
-
-        const updated = await repo.override(id, resolvedBy, resolvedByRoles);
-        if (!updated) {
-          const err: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
-          res.status(404).json(err);
+        const record = await repo.findById(id);
+        const notFound: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
+        if (!record) {
+          res.status(404).json(notFound);
+          return;
+        }
+        const perms = await accessControl.ensurePermissions(auth);
+        const allowed = await evalRowAccess(accessControl, auth, perms, ACTIONS.ApprovalsOverride, record);
+        if (!allowed) {
+          res.status(404).json(notFound);
           return;
         }
 
+        const resolvedBy = auth.userId ?? 'unknown';
+        const resolvedByRoles = auth.isServerAdmin ? ['admin'] : [legacyOrgRole(auth.orgRole)];
+        const updated = await repo.override(id, resolvedBy, resolvedByRoles);
+        if (!updated) {
+          res.status(404).json(notFound);
+          return;
+        }
         res.json(updated);
       } catch (err) {
         next(err);
@@ -187,25 +292,30 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
     },
   );
 
-  // POST /api/approvals/:id/execute - execute an already-approved operation.
-  // This is intentionally narrow today: only `ops.run_command` approval
-  // records are executable here, so Kubernetes fixes reuse the existing
-  // approvals table instead of inventing a parallel Ops approval system.
+  // POST /api/approvals/:id/execute — execute an already-approved op.
+  // Reuses the same per-row `approvals:approve` gate: a caller who can
+  // approve the row can also execute it (no additional scope dimension).
   router.post(
     '/:id/execute',
     authMiddleware,
-    requirePermission((req) =>
-      ac.eval(ACTIONS.ApprovalsApprove, `approvals:uid:${req.params['id'] ?? ''}`),
-    ),
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const authReq = req as AuthenticatedRequest;
-        const auth = authReq.auth;
-        if (!auth) {
-          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+        const auth = authOr401(req, res);
+        if (!auth) return;
+        const id = req.params['id'] ?? '';
+        const record = await repo.findById(id);
+        const notFound: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
+        if (!record) {
+          res.status(404).json(notFound);
           return;
         }
-        if (!deps.approvalRequests || !deps.opsConnectors) {
+        const perms = await accessControl.ensurePermissions(auth);
+        const allowed = await evalRowAccess(accessControl, auth, perms, ACTIONS.ApprovalsApprove, record);
+        if (!allowed) {
+          res.status(404).json(notFound);
+          return;
+        }
+        if (!deps.opsConnectors) {
           res.status(503).json({
             error: { code: 'NOT_CONFIGURED', message: 'approval execution is not configured' },
           });
@@ -215,7 +325,7 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
           connectors: deps.opsConnectors,
           approvals: deps.approvalRequests,
         }, auth.orgId);
-        const result = await runner.executeApprovedApproval(req.params['id'] ?? '', auth);
+        const result = await runner.executeApprovedApproval(id, auth);
         const status = result.decision === 'executed' ? 200 : 400;
         res.status(status).json(result);
       } catch (err) {

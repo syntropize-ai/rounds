@@ -75,11 +75,17 @@ export const approvals = pgTable(
     resolvedBy: text('resolved_by'),
     resolvedByRoles: jsonb('resolved_by_roles'),
     orgId: text('org_id').notNull().default('org_main'),
+    opsConnectorId: text('ops_connector_id'),
+    targetNamespace: text('target_namespace'),
+    requesterTeamId: text('requester_team_id'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
     index('pg_repo_approvals_status_idx').on(t.status),
     index('pg_repo_approvals_org_idx').on(t.orgId),
+    index('pg_repo_ix_approvals_connector').on(t.opsConnectorId),
+    index('pg_repo_ix_approvals_namespace').on(t.opsConnectorId, t.targetNamespace),
+    index('pg_repo_ix_approvals_team').on(t.requesterTeamId),
   ],
 );
 

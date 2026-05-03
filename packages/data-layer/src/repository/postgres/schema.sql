@@ -535,10 +535,16 @@ CREATE TABLE IF NOT EXISTS approvals (
   resolved_at       TEXT,
   resolved_by       TEXT,
   resolved_by_roles TEXT,
+  ops_connector_id  TEXT,
+  target_namespace  TEXT,
+  requester_team_id TEXT,
   created_at        TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS ix_approvals_org_id ON approvals(org_id);
+CREATE INDEX IF NOT EXISTS ix_approvals_org_id    ON approvals(org_id);
+CREATE INDEX IF NOT EXISTS ix_approvals_connector ON approvals(ops_connector_id);
+CREATE INDEX IF NOT EXISTS ix_approvals_namespace ON approvals(ops_connector_id, target_namespace);
+CREATE INDEX IF NOT EXISTS ix_approvals_team      ON approvals(requester_team_id);
 
 CREATE TABLE IF NOT EXISTS post_mortems (
   id              TEXT PRIMARY KEY,

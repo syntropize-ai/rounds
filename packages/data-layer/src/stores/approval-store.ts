@@ -31,6 +31,12 @@ export interface ApprovalRequest {
   resolvedBy?: string;
   /** Roles held by the user who approved/rejected this request */
   resolvedByRoles?: string[];
+  /** ops connector this approval gates (NULL for non-ops approvals). See approvals-multi-team-scope §3.2. */
+  opsConnectorId?: string | null;
+  /** kubernetes namespace (NULL for cluster-scoped plans). See approvals-multi-team-scope §3.2. */
+  targetNamespace?: string | null;
+  /** team that owns the originating investigation (NULL for SA / pre-multi-team). */
+  requesterTeamId?: string | null;
 }
 
 export interface SubmitApprovalParams {

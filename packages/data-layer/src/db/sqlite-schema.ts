@@ -161,12 +161,18 @@ export const approvals = sqliteTable(
     resolvedBy: text('resolved_by'),
     resolvedByRoles: text('resolved_by_roles', { mode: 'json' }),
     orgId: text('org_id').notNull().default('org_main'),
+    opsConnectorId: text('ops_connector_id'),
+    targetNamespace: text('target_namespace'),
+    requesterTeamId: text('requester_team_id'),
     createdAt: text('created_at').notNull(),
   },
   (t) => [
     index('approvals_status_idx').on(t.status),
     index('approvals_org_idx').on(t.orgId),
     index('approvals_created_at_idx').on(t.createdAt),
+    index('ix_approvals_connector').on(t.opsConnectorId),
+    index('ix_approvals_namespace').on(t.opsConnectorId, t.targetNamespace),
+    index('ix_approvals_team').on(t.requesterTeamId),
   ],
 );
 

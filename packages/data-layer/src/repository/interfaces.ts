@@ -43,7 +43,7 @@ import type {
   FeedbackStats,
   FeedTenantOptions,
 } from './types/feed.js';
-import type { ApprovalAction, ApprovalContext, ApprovalRequest } from '../stores/approval-store.js';
+import type { ApprovalAction, ApprovalContext, ApprovalRequest, ApprovalStatus } from '../stores/approval-store.js';
 import type { SharePermission, ShareLink as StoreShareLink } from '../stores/share-store.js';
 import type { Folder } from '../stores/folder-store.js';
 
@@ -176,10 +176,37 @@ export interface IApprovalRepository extends IRepository<ApprovalRecord> {
 
 // — Approval (gateway-level, matches ApprovalRequest shape)
 
+/**
+ * Per-row scope filter for `IApprovalRequestRepository.list`.
+ *
+ * `wildcard` → no scope WHERE narrowing (still filters by org_id and optional status).
+ * `narrow`   → row matches if any populated set covers it (id ∪ connector ∪ (connector,ns) ∪ team).
+ *              Empty `narrow` (no sets) → zero rows; never falls back to org-wide.
+ */
+export type ApprovalScopeFilter =
+  | { kind: 'wildcard' }
+  | {
+      kind: 'narrow';
+      uids?: ReadonlySet<string>;
+      connectors?: ReadonlySet<string>;
+      nsPairs?: ReadonlyArray<{ connectorId: string; ns: string }>;
+      teams?: ReadonlySet<string>;
+    };
+
 export interface IApprovalRequestRepository {
   findById(id: string): Promise<ApprovalRequest | undefined>;
   submit(params: { action: ApprovalAction; context: ApprovalContext; ttlMs?: number }): Promise<ApprovalRequest>;
   listPending(): Promise<ApprovalRequest[]>;
+  /**
+   * Org-scoped list with optional per-row scope filter and status filter.
+   *
+   * scopeFilter omitted → no narrowing (full org list).
+   * status omitted      → all statuses.
+   */
+  list(
+    orgId: string,
+    opts?: { scopeFilter?: ApprovalScopeFilter; status?: ApprovalStatus | ApprovalStatus[] },
+  ): Promise<ApprovalRequest[]>;
   approve(id: string, by: string, roles?: string[]): Promise<ApprovalRequest | undefined>;
   reject(id: string, by: string, roles?: string[]): Promise<ApprovalRequest | undefined>;
   override(id: string, by: string, roles?: string[]): Promise<ApprovalRequest | undefined>;

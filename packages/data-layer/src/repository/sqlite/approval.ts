@@ -1,10 +1,10 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { toJsonColumn } from '../json-column.js';
 import { approvals } from '../../db/sqlite-schema.js';
-import type { IApprovalRequestRepository } from '../interfaces.js';
-import type { ApprovalAction, ApprovalContext, ApprovalRequest } from '../../stores/approval-store.js';
+import type { ApprovalScopeFilter, IApprovalRequestRepository } from '../interfaces.js';
+import type { ApprovalAction, ApprovalContext, ApprovalRequest, ApprovalStatus } from '../../stores/approval-store.js';
 
 type ApprovalRow = typeof approvals.$inferSelect;
 
@@ -19,6 +19,9 @@ function rowToRequest(row: ApprovalRow): ApprovalRequest {
     resolvedAt: row.resolvedAt ?? undefined,
     resolvedBy: row.resolvedBy ?? undefined,
     resolvedByRoles: (row.resolvedByRoles as string[]) ?? undefined,
+    opsConnectorId: row.opsConnectorId,
+    targetNamespace: row.targetNamespace,
+    requesterTeamId: row.requesterTeamId,
   };
 }
 
@@ -59,6 +62,16 @@ export class SqliteApprovalRequestRepository implements IApprovalRequestReposito
     return rows.map(rowToRequest).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
+  async list(
+    orgId: string,
+    opts?: { scopeFilter?: ApprovalScopeFilter; status?: ApprovalStatus | ApprovalStatus[] },
+  ): Promise<ApprovalRequest[]> {
+    const where = buildListWhere(orgId, opts);
+    if (where === 'EMPTY') return [];
+    const rows = await this.db.select().from(approvals).where(where);
+    return rows.map(rowToRequest).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
   async approve(id: string, by: string, roles?: string[]): Promise<ApprovalRequest | undefined> {
     const existing = await this.findById(id);
     if (!existing || existing.status !== 'pending') return undefined;
@@ -95,4 +108,62 @@ export class SqliteApprovalRequestRepository implements IApprovalRequestReposito
       .returning();
     return row ? rowToRequest(row) : undefined;
   }
+}
+
+/**
+ * Build the WHERE for `list()`. Returns a drizzle SQL clause, or the sentinel
+ * `'EMPTY'` when the scope filter is `narrow` with all sets empty (caller
+ * should short-circuit to zero rows — never fall back to org-wide).
+ *
+ * NULL semantics: connector-only / namespace-pair / team grants do NOT match
+ * rows where the corresponding column is NULL. We rely on standard SQL `IN`
+ * semantics (NULL `IN (...)` → unknown → not selected), which holds for both
+ * sqlite and postgres.
+ */
+function buildListWhere(
+  orgId: string,
+  opts?: { scopeFilter?: ApprovalScopeFilter; status?: ApprovalStatus | ApprovalStatus[] },
+): SQL | 'EMPTY' {
+  const conds: SQL[] = [eq(approvals.orgId, orgId)];
+
+  const status = opts?.status;
+  if (status !== undefined) {
+    if (Array.isArray(status)) {
+      if (status.length === 0) return 'EMPTY';
+      conds.push(inArray(approvals.status, status));
+    } else {
+      conds.push(eq(approvals.status, status));
+    }
+  }
+
+  const filter = opts?.scopeFilter;
+  if (filter && filter.kind === 'narrow') {
+    const ors: SQL[] = [];
+    if (filter.uids && filter.uids.size > 0) {
+      ors.push(inArray(approvals.id, [...filter.uids]));
+    }
+    if (filter.connectors && filter.connectors.size > 0) {
+      ors.push(inArray(approvals.opsConnectorId, [...filter.connectors]));
+    }
+    if (filter.nsPairs && filter.nsPairs.length > 0) {
+      // Tuple-IN works on both sqlite and postgres but drizzle has no helper —
+      // emit it as raw SQL with a parameterized list.
+      const pairOrs = filter.nsPairs.map(
+        (p) =>
+          sql`(${approvals.opsConnectorId} = ${p.connectorId} AND ${approvals.targetNamespace} = ${p.ns})`,
+      );
+      const joined = pairOrs.reduce<SQL | undefined>(
+        (acc, x) => (acc ? sql`${acc} OR ${x}` : x),
+        undefined,
+      );
+      if (joined) ors.push(sql`(${joined})`);
+    }
+    if (filter.teams && filter.teams.size > 0) {
+      ors.push(inArray(approvals.requesterTeamId, [...filter.teams]));
+    }
+    if (ors.length === 0) return 'EMPTY';
+    conds.push(or(...ors)!);
+  }
+
+  return and(...conds)!;
 }

@@ -14,7 +14,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
-import { ensureSafeUrl } from '../utils/url-validator.js';
+import { postWebhook, buildTestWebhookBody } from '../services/notification-senders/index.js';
 
 export interface NotificationsRouterDeps {
   notificationStore?: INotificationRepository;
@@ -26,10 +26,6 @@ export interface NotificationsRouterDeps {
    * forwards to the real service once the auth subsystem finishes wiring.
    */
   ac: AccessControlSurface;
-}
-
-function extractWebhookUrl(settings: Record<string, string> | undefined): string {
-  return settings?.url ?? settings?.webhookUrl ?? '';
 }
 
 export function createNotificationsRouter(deps: NotificationsRouterDeps): Router {
@@ -117,34 +113,13 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
           || integration.type === 'discord'
           || integration.type === 'teams'
         ) {
-          const url = extractWebhookUrl(integration.settings);
-          try {
-            const safeUrl = await ensureSafeUrl(url);
-            const payload = {
-              text: `Test notification from OpenObs - contact point "${cp.name}" is working correctly.`,
-              username: 'Agentic Obs',
-            };
-            const resp = await fetch(safeUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-              signal: AbortSignal.timeout(10_000),
-            });
-
-            results.push({
-              integrationUid: integration.id,
-              type: integration.type,
-              success: resp.ok,
-              message: resp.ok ? 'Test notification sent successfully' : `HTTP ${resp.status}`,
-            });
-          } catch (err) {
-            results.push({
-              integrationUid: integration.id,
-              type: integration.type,
-              success: false,
-              message: err instanceof Error ? err.message : 'Unknown error',
-            });
-          }
+          const result = await postWebhook(integration, buildTestWebhookBody(cp.name));
+          results.push({
+            integrationUid: integration.id,
+            type: integration.type,
+            success: result.ok,
+            message: result.ok ? 'Test notification sent successfully' : result.message,
+          });
         } else if (integration.type === 'email' || integration.type === 'pagerduty' || integration.type === 'opsgenie' || integration.type === 'telegram') {
           results.push({
             integrationUid: integration.id,

@@ -121,6 +121,23 @@ export const muteTimings = pgTable('mute_timings', {
   updatedAt: text('updated_at').notNull(),
 });
 
+export const notificationDispatch = pgTable(
+  'notification_dispatch',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    contactPointId: text('contact_point_id').notNull(),
+    groupKey: text('group_key').notNull(),
+    lastSentAt: text('last_sent_at').notNull(),
+    sentCount: integer('sent_count').notNull(),
+  },
+  (t) => [
+    uniqueIndex('ux_notification_dispatch_key').on(t.fingerprint, t.contactPointId, t.groupKey),
+    index('idx_notification_dispatch_lookup').on(t.orgId, t.fingerprint, t.contactPointId),
+  ],
+);
+
 export const folders = pgTable(
   'folders',
   {

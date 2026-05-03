@@ -79,6 +79,9 @@ import { SqliteRemediationPlanRepository } from './sqlite/remediation-plan.js';
 import { PostgresRemediationPlanRepository } from './postgres/remediation-plan.js';
 import type { IRemediationPlanRepository } from './types/remediation-plan.js';
 import type { IChangeSourceRepository } from './types/change-source.js';
+import type { INotificationDispatchRepository } from './types/notification-dispatch.js';
+import { SqliteNotificationDispatchRepository } from './sqlite/notification-dispatch.js';
+import { PostgresNotificationDispatchRepository } from './postgres/notification-dispatch.js';
 
 /**
  * Complete repository bundle available behind every persistence backend.
@@ -113,6 +116,7 @@ export interface RepositoryBundle {
   opsConnectors: IOpsConnectorRepository;
   changeSources: IChangeSourceRepository;
   remediationPlans: IRemediationPlanRepository;
+  notificationDispatch: INotificationDispatchRepository;
 }
 
 export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
@@ -139,6 +143,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     opsConnectors: new OpsConnectorRepository(db),
     changeSources: new SqliteChangeSourceRepository(db),
     remediationPlans: new SqliteRemediationPlanRepository(db),
+    notificationDispatch: new SqliteNotificationDispatchRepository(db),
   };
 }
 
@@ -167,6 +172,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     opsConnectors: new PostgresOpsConnectorRepository(db),
     changeSources: new PostgresChangeSourceRepository(queryClient),
     remediationPlans: new PostgresRemediationPlanRepository(db),
+    notificationDispatch: new PostgresNotificationDispatchRepository(db),
   };
 }
 

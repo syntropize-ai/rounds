@@ -24,10 +24,11 @@ import {
   type MetricQueryFn,
 } from '../services/alert-evaluator-service.js';
 import {
-  AutoInvestigationDispatcher,
+  AutoInvestigationConsumer,
   buildSaIdentityResolverFromRepos,
   type SaIdentityResolver,
-} from '../services/auto-investigation-dispatcher.js';
+  type ConsumerInvestigationStore,
+} from '../services/auto-investigation-consumer.js';
 import { LeaderLock } from '../services/leader-lock.js';
 import {
   resolvePrometheusDatasource,
@@ -37,6 +38,7 @@ import type { SetupConfigService } from '../services/setup-config-service.js';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
 import type {
   IApiKeyRepository,
+  IEventBus,
   IOrgUserRepository,
   IUserRepository,
 } from '@agentic-obs/common';
@@ -127,14 +129,20 @@ export interface MountAlertsDeps {
    */
   subscribeRuleChanges?: (cb: () => void) => void;
   /**
-   * Investigation repository. When provided, AutoInvestigationDispatcher
-   * uses it to finalize the row created by the agent's
-   * `investigation_create` tool — flipping status to `completed` /
-   * `failed` if the model didn't call `investigation_complete`, and
-   * linking the investigation back to the alert rule. Narrow shape kept
-   * inline so we accept any superset (sqlite / postgres / gateway-ext).
+   * Investigation repository. When provided, AutoInvestigationConsumer
+   * uses it for the persistent dedup check (look up the rule's prior
+   * investigation by id) and to finalize the row created by the agent's
+   * `investigation_create` tool. Narrow shape kept inline so we accept
+   * any superset (sqlite / postgres / gateway-ext).
    */
-  investigations?: import('../services/auto-investigation-dispatcher.js').DispatcherInvestigationStore;
+  investigations?: ConsumerInvestigationStore;
+  /**
+   * Event bus the consumer subscribes to for `alert.fired`. Optional
+   * for now — without it, the auto-investigation consumer is skipped
+   * entirely. T4 wires this in server.ts; until then existing callers
+   * keep working with auto-investigation off.
+   */
+  eventBus?: IEventBus;
   /**
    * QueryClient used to back the leader lock. When provided AND
    * `ALERT_EVALUATOR_HA=true`, the evaluator only runs while it holds
@@ -152,12 +160,12 @@ export interface MountAlertsDeps {
  */
 export async function startAlerts(deps: MountAlertsDeps): Promise<{
   evaluator: AlertEvaluatorService | null;
-  dispatcher: AutoInvestigationDispatcher | null;
+  consumer: AutoInvestigationConsumer | null;
   stop: () => void;
 }> {
   if (!envFlag('ALERT_EVALUATOR_ENABLED', true)) {
     log.info('alert evaluator disabled by ALERT_EVALUATOR_ENABLED=false');
-    return { evaluator: null, dispatcher: null, stop: () => undefined };
+    return { evaluator: null, consumer: null, stop: () => undefined };
   }
 
   let leaderLock: LeaderLock | undefined;
@@ -183,28 +191,36 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
     rules: deps.rules,
     query: buildMetricQueryFn(deps.setupConfig),
     ...(leaderLock ? { leaderLock } : {}),
+    ...(deps.eventBus ? { eventBus: deps.eventBus } : {}),
   });
 
-  // Wire the AutoInvestigationDispatcher (P8) to the evaluator's
-  // alert.fired stream BEFORE starting the evaluator, so a tick that
-  // fires on the first scheduling pass can't race past the subscription.
+  // Wire the AutoInvestigationConsumer (P8) to the bus's `alert.fired`
+  // topic BEFORE starting the evaluator, preserving the listener-before-
+  // emitter discipline: even if T4's evaluator publishes synchronously
+  // on its first tick, the consumer is already subscribed.
   // Gates:
   //   - AUTO_INVESTIGATION_ENABLED (default true)
   //   - deps.runner provided by server.ts
+  //   - deps.eventBus provided by server.ts (T4)
+  //   - deps.investigations provided (needed for dedup + finalize)
   //   - either deps.authRepos (production) or deps.resolveSaIdentity
   //     (tests) so we can resolve an SA identity per event.
   // The legacy AUTO_INVESTIGATION_SA_TOKEN env var is honoured as an
   // advanced override — when set, every run uses that plaintext token
   // through the existing validateAndLookup path. Operators on the new
-  // path do not need to set it; the dispatcher reads the live api_key
+  // path do not need to set it; the consumer reads the live api_key
   // table on each fire.
-  let dispatcher: AutoInvestigationDispatcher | null = null;
-  const dispatcherOn = envFlag('AUTO_INVESTIGATION_ENABLED', true);
+  let consumer: AutoInvestigationConsumer | null = null;
+  const consumerOn = envFlag('AUTO_INVESTIGATION_ENABLED', true);
   const envOverrideToken = process.env['AUTO_INVESTIGATION_SA_TOKEN'];
-  if (!dispatcherOn) {
-    log.info('auto-investigation dispatcher disabled by AUTO_INVESTIGATION_ENABLED=false');
+  if (!consumerOn) {
+    log.info('auto-investigation consumer disabled by AUTO_INVESTIGATION_ENABLED=false');
   } else if (!deps.runner) {
-    log.warn('background-runner deps not provided — auto-investigation dispatcher NOT started');
+    log.warn('background-runner deps not provided — auto-investigation consumer NOT started');
+  } else if (!deps.eventBus) {
+    log.warn('event bus not wired — auto-investigation consumer NOT started');
+  } else if (!deps.investigations) {
+    log.warn('investigations repo not wired — auto-investigation consumer NOT started');
   } else {
     let resolveSaIdentity: SaIdentityResolver | undefined = deps.resolveSaIdentity;
     if (!resolveSaIdentity && envOverrideToken && deps.runner) {
@@ -229,19 +245,19 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
     }
     if (!resolveSaIdentity) {
       log.warn(
-        'auth repos not provided to startAlerts — auto-investigation dispatcher NOT started. ' +
-        'Pass `authRepos` so the dispatcher can resolve the openobs SA identity per event.',
+        'auth repos not provided to startAlerts — auto-investigation consumer NOT started. ' +
+        'Pass `authRepos` so the consumer can resolve the openobs SA identity per event.',
       );
     } else {
-      dispatcher = new AutoInvestigationDispatcher({
-        alertEvents: evaluator,
+      consumer = new AutoInvestigationConsumer({
+        bus: deps.eventBus,
         runner: deps.runner,
         resolveSaIdentity,
-        ...(deps.investigations ? { investigations: deps.investigations } : {}),
         alertRules: deps.rules,
+        investigations: deps.investigations,
       });
-      dispatcher.subscribe();
-      log.info('auto-investigation dispatcher subscribed to alert.fired');
+      consumer.start();
+      log.info('auto-investigation consumer subscribed to alert.fired on bus');
     }
   }
 
@@ -260,9 +276,9 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
 
   return {
     evaluator,
-    dispatcher,
+    consumer,
     stop: () => {
-      dispatcher?.unsubscribe();
+      consumer?.stop();
       evaluator.stop();
     },
   };

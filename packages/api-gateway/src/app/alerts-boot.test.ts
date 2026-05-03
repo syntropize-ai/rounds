@@ -1,12 +1,22 @@
 /**
- * Tests for the alerts-boot wiring — evaluator startup gate + dispatcher
+ * Tests for the alerts-boot wiring — evaluator startup gate + consumer
  * gate matrix.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
+import { InMemoryEventBus } from '@agentic-obs/common/events';
 import type { SetupConfigService } from '../services/setup-config-service.js';
+import type { ConsumerInvestigationStore } from '../services/auto-investigation-consumer.js';
 import { startAlerts } from './alerts-boot.js';
+
+function fakeInvestigations(): ConsumerInvestigationStore {
+  return {
+    findById: async () => null,
+    findByWorkspace: async () => [],
+    updateStatus: async () => null,
+  };
+}
 
 function fakeRepo(): IAlertRuleRepository {
   return {
@@ -53,11 +63,11 @@ describe('startAlerts', () => {
     process.env['ALERT_EVALUATOR_ENABLED'] = 'false';
     const handle = await startAlerts({ rules: fakeRepo(), setupConfig: fakeSetupConfig() });
     expect(handle.evaluator).toBeNull();
-    expect(handle.dispatcher).toBeNull();
+    expect(handle.consumer).toBeNull();
     handle.stop();
   });
 
-  it('starts evaluator but skips dispatcher when no resolver/authRepos provided', async () => {
+  it('starts evaluator but skips consumer when no resolver/authRepos provided', async () => {
     const handle = await startAlerts({
       rules: fakeRepo(),
       setupConfig: fakeSetupConfig(),
@@ -65,13 +75,15 @@ describe('startAlerts', () => {
         saTokens: { validateAndLookup: async () => null },
         makeOrchestrator: () => ({}) as never,
       },
+      eventBus: new InMemoryEventBus(),
+      investigations: fakeInvestigations(),
     });
     expect(handle.evaluator).not.toBeNull();
-    expect(handle.dispatcher).toBeNull();
+    expect(handle.consumer).toBeNull();
     handle.stop();
   });
 
-  it('skips dispatcher when AUTO_INVESTIGATION_ENABLED=false even with resolver + runner', async () => {
+  it('skips consumer when AUTO_INVESTIGATION_ENABLED=false even with resolver + runner', async () => {
     process.env['AUTO_INVESTIGATION_ENABLED'] = 'false';
     const handle = await startAlerts({
       rules: fakeRepo(),
@@ -81,13 +93,15 @@ describe('startAlerts', () => {
         saTokens: { validateAndLookup: async () => null },
         makeOrchestrator: () => ({}) as never,
       },
+      eventBus: new InMemoryEventBus(),
+      investigations: fakeInvestigations(),
     });
     expect(handle.evaluator).not.toBeNull();
-    expect(handle.dispatcher).toBeNull();
+    expect(handle.consumer).toBeNull();
     handle.stop();
   });
 
-  it('starts dispatcher when resolver + runner + flag are all set', async () => {
+  it('skips consumer when eventBus is not wired', async () => {
     delete process.env['AUTO_INVESTIGATION_ENABLED'];
     const handle = await startAlerts({
       rules: fakeRepo(),
@@ -97,9 +111,28 @@ describe('startAlerts', () => {
         saTokens: { validateAndLookup: async () => null },
         makeOrchestrator: () => ({}) as never,
       },
+      investigations: fakeInvestigations(),
     });
     expect(handle.evaluator).not.toBeNull();
-    expect(handle.dispatcher).not.toBeNull();
+    expect(handle.consumer).toBeNull();
+    handle.stop();
+  });
+
+  it('starts consumer when resolver + runner + bus + investigations + flag are all set', async () => {
+    delete process.env['AUTO_INVESTIGATION_ENABLED'];
+    const handle = await startAlerts({
+      rules: fakeRepo(),
+      setupConfig: fakeSetupConfig(),
+      resolveSaIdentity: async () => null,
+      runner: {
+        saTokens: { validateAndLookup: async () => null },
+        makeOrchestrator: () => ({}) as never,
+      },
+      eventBus: new InMemoryEventBus(),
+      investigations: fakeInvestigations(),
+    });
+    expect(handle.evaluator).not.toBeNull();
+    expect(handle.consumer).not.toBeNull();
     handle.stop();
   });
 });

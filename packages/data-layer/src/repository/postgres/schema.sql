@@ -750,6 +750,21 @@ CREATE TABLE IF NOT EXISTS mute_timings (
   updated_at     TEXT NOT NULL
 );
 
+-- T3: per-(fingerprint, contactPoint, groupKey) dispatch tracking for
+-- group/repeat windows on alert notifications.
+CREATE TABLE IF NOT EXISTS notification_dispatch (
+  id               TEXT PRIMARY KEY,
+  org_id           TEXT NOT NULL,
+  fingerprint      TEXT NOT NULL,
+  contact_point_id TEXT NOT NULL,
+  group_key        TEXT NOT NULL,
+  last_sent_at     TEXT NOT NULL,
+  sent_count       INTEGER NOT NULL,
+  UNIQUE (fingerprint, contact_point_id, group_key)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_dispatch_lookup
+  ON notification_dispatch (org_id, fingerprint, contact_point_id);
+
 -- ============================================================================
 -- Ops connectors (Kubernetes etc.)
 -- ============================================================================

@@ -67,6 +67,12 @@ export type {
 } from './types/change-source.js';
 
 export type {
+  INotificationDispatchRepository,
+  NotificationDispatchRow,
+  UpsertDispatchInput,
+} from './types/notification-dispatch.js';
+
+export type {
   IRemediationPlanRepository,
   ListRemediationPlansOptions,
   NewRemediationPlan,

@@ -9,3 +9,4 @@ export * from './create-event.js';
 export * from './memory.js';
 export * from './redis.js';
 export * from './factory.js';
+export * from './fingerprint.js';

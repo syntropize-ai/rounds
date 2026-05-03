@@ -353,6 +353,26 @@ export const muteTimings = sqliteTable(
   },
 );
 
+// — notification dispatch tracking (T3): one row per
+// (fingerprint, contactPointId, groupKey) used to gate group / repeat windows.
+
+export const notificationDispatch = sqliteTable(
+  'notification_dispatch',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    contactPointId: text('contact_point_id').notNull(),
+    groupKey: text('group_key').notNull(),
+    lastSentAt: text('last_sent_at').notNull(),
+    sentCount: integer('sent_count').notNull(),
+  },
+  (t) => [
+    uniqueIndex('ux_notification_dispatch_key').on(t.fingerprint, t.contactPointId, t.groupKey),
+    index('idx_notification_dispatch_lookup').on(t.orgId, t.fingerprint, t.contactPointId),
+  ],
+);
+
 // — workspaces
 
 export const workspaces = sqliteTable(

@@ -25,6 +25,13 @@
 
 import { EventEmitter } from 'node:events';
 import { createLogger } from '@agentic-obs/common/logging';
+import {
+  EventTypes,
+  computeAlertFingerprint,
+  createEvent,
+  type IEventBus,
+  type AlertFiredEventPayload,
+} from '@agentic-obs/common/events';
 import type { LeaderLock } from './leader-lock.js';
 import type {
   AlertOperator,
@@ -107,6 +114,17 @@ export interface AlertEvaluatorOptions {
    * rebuild. Defaults to 250 ms.
    */
   refreshDebounceMs?: number;
+  /**
+   * Bus for publishing `alert.fired` events to consumers (auto-investigation
+   * dispatcher, notification consumer, etc.). When provided, every fire is
+   * published to `EventTypes.ALERT_FIRED` with the full
+   * `AlertFiredEventPayload` shape (orgId + fingerprint included). The
+   * legacy `EventEmitter.emit('alert.fired', …)` is also fired for
+   * test compatibility.
+   */
+  eventBus?: IEventBus;
+  /** Org id to stamp on bus events. Defaults to `'org_main'`. */
+  orgId?: string;
 }
 
 /**
@@ -166,6 +184,8 @@ export class AlertEvaluatorService extends EventEmitter {
   private readonly leaderHeartbeatMs: number;
   private readonly refreshIntervalMs: number;
   private readonly refreshDebounceMs: number;
+  private readonly eventBus?: IEventBus;
+  private readonly orgId: string;
   private leaderTimer?: NodeJS.Timeout;
   private refreshTimer?: NodeJS.Timeout;
   private debounceTimer?: NodeJS.Timeout;
@@ -216,6 +236,8 @@ export class AlertEvaluatorService extends EventEmitter {
       opts.refreshIntervalMs ?? (Number(process.env['ALERT_EVALUATOR_REFRESH_MS']) || 60_000),
     );
     this.refreshDebounceMs = Math.max(0, opts.refreshDebounceMs ?? 250);
+    this.eventBus = opts.eventBus;
+    this.orgId = opts.orgId ?? 'org_main';
   }
 
   /**
@@ -392,6 +414,10 @@ export class AlertEvaluatorService extends EventEmitter {
 
       const updated = await this.rules.transition(fresh.id, next, value);
       if (next === 'firing' && updated) {
+        const labels = updated.labels ?? {};
+        const firedAt = now.toISOString();
+        // Local emit kept for in-process test consumers; the bus publish
+        // below is the production fan-out path.
         this.emit('alert.fired', {
           ruleId: updated.id,
           ruleName: updated.name,
@@ -399,9 +425,27 @@ export class AlertEvaluatorService extends EventEmitter {
           value,
           threshold: updated.condition.threshold,
           operator: updated.condition.operator,
-          labels: updated.labels ?? {},
-          firedAt: now.toISOString(),
+          labels,
+          firedAt,
         } satisfies AlertFiredPayload);
+        if (this.eventBus) {
+          const payload: AlertFiredEventPayload = {
+            ruleId: updated.id,
+            ruleName: updated.name,
+            orgId: this.orgId,
+            severity: updated.severity,
+            value,
+            threshold: updated.condition.threshold,
+            operator: updated.condition.operator,
+            labels,
+            firedAt,
+            fingerprint: computeAlertFingerprint(updated.id, labels),
+          };
+          await this.eventBus.publish(
+            EventTypes.ALERT_FIRED,
+            createEvent(EventTypes.ALERT_FIRED, payload),
+          );
+        }
       }
     } finally {
       this.inFlightRules.delete(id);

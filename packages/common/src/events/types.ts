@@ -42,6 +42,9 @@ export const EventTypes = {
   // Feed events
   FEED_ITEM_CREATED: 'feed.item.created',
   FEED_ITEM_READ: 'feed.item.read',
+
+  // Alert lifecycle
+  ALERT_FIRED: 'alert.fired',
 } as const;
 
 export type EventType = (typeof EventTypes)[keyof typeof EventTypes];
@@ -79,4 +82,17 @@ export interface FeedItemEventPayload {
   itemId: string;
   type: string;
   investigationId?: string;
+}
+
+export interface AlertFiredEventPayload {
+  ruleId: string;
+  ruleName: string;
+  orgId: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  value: number;
+  threshold: number;
+  operator: string;
+  labels: Record<string, string>;
+  firedAt: string; // ISO timestamp — canonical fire time
+  fingerprint: string; // sha256 hex of `${ruleId}|${sortedLabels}` — used by consumers as idempotency key
 }

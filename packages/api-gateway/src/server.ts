@@ -38,6 +38,8 @@ import { buildAuthSubsystem, mountAuthRoutes } from './app/auth-routes.js';
 import { mountRbacRoutes } from './app/rbac-routes.js';
 import { mountDomainRoutes } from './app/domain-routes.js';
 import { startAlerts } from './app/alerts-boot.js';
+import { createEventBusFromEnv } from '@agentic-obs/common/events';
+import { NotificationConsumer } from './services/notification-consumer.js';
 import { EventEmittingAlertRuleRepository } from '@agentic-obs/data-layer';
 import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
 import { GitHubChangeSourceRegistry } from './services/github-change-source-service.js';
@@ -198,6 +200,13 @@ export async function createApp(): Promise<Application> {
   );
   const githubChangeSources = new GitHubChangeSourceRegistry(persistence.repos.changeSources);
 
+  // Event bus — Redis when REDIS_URL is set, in-memory otherwise. Both
+  // the AutoInvestigationConsumer and the NotificationConsumer subscribe
+  // to `alert.fired` here; the AlertEvaluator publishes to it on every
+  // rule transition into firing.
+  const eventBus = createEventBusFromEnv();
+  app.locals['eventBus'] = eventBus;
+
   // Background-agent runner — shared by both the auto-investigation
   // dispatcher (alert.fired -> agent run) and the manual Investigate
   // button on alert rules. Built once so both paths use the same
@@ -248,7 +257,20 @@ export async function createApp(): Promise<Application> {
       eventAlertRuleStore.onChange(() => cb());
     },
     runner: backgroundRunner,
+    eventBus,
   });
+
+  // Notification fan-out (slack / webhook / discord / teams) — subscribes
+  // to `alert.fired` on the same bus. Routing tree + group/repeat windows
+  // are read live, so policy edits in the UI take effect on the next fire
+  // without restarting.
+  const notificationConsumer = new NotificationConsumer({
+    bus: eventBus,
+    notifications: persistence.repos.notifications,
+    notificationDispatch: persistence.repos.notificationDispatch,
+  });
+  notificationConsumer.start();
+  app.locals['notificationConsumer'] = notificationConsumer;
 
   app.locals['websocketGatewayDeps'] = {
     auth: {

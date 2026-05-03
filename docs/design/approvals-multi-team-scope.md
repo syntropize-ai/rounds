@@ -1,6 +1,6 @@
 # Approvals Multi-Team Scope
 
-Status: **Draft for sign-off**
+Status: **Shipped** (T1.1 #155, T2.1+T2.2 #156, T3.1+T3.2 #157)
 Owner: TBD
 Last updated: 2026-05-03
 
@@ -66,16 +66,16 @@ namespace."
 
 ### 3.2 Schema
 
-Add to `approval_request` table (sqlite + postgres + drizzle):
+Add to `approvals` table (sqlite + postgres + drizzle):
 
 ```sql
-ALTER TABLE approval_request ADD COLUMN ops_connector_id  TEXT NULL;
-ALTER TABLE approval_request ADD COLUMN target_namespace  TEXT NULL;
-ALTER TABLE approval_request ADD COLUMN requester_team_id TEXT NULL;
+ALTER TABLE approvals ADD COLUMN ops_connector_id  TEXT NULL;
+ALTER TABLE approvals ADD COLUMN target_namespace  TEXT NULL;
+ALTER TABLE approvals ADD COLUMN requester_team_id TEXT NULL;
 
-CREATE INDEX idx_approval_request_connector ON approval_request(ops_connector_id);
-CREATE INDEX idx_approval_request_namespace ON approval_request(ops_connector_id, target_namespace);
-CREATE INDEX idx_approval_request_team      ON approval_request(requester_team_id);
+CREATE INDEX ix_approvals_connector ON approvals(ops_connector_id);
+CREATE INDEX ix_approvals_namespace ON approvals(ops_connector_id, target_namespace);
+CREATE INDEX ix_approvals_team      ON approvals(requester_team_id);
 ```
 
 **NULL semantics:**

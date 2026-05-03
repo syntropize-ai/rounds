@@ -101,6 +101,62 @@ describe('seedAutoInvestigationSaIfNeeded', () => {
     expect(repaired?.role).toBe('Editor');
   });
 
+  // Regression test for the boot-ordering bug: when auth-routes ran the SA
+  // seed BEFORE rbac-routes had a chance to seed the fixed-role catalog, the
+  // `fixed_ops_commands_runner` role didn't exist yet and the assignment
+  // silently failed (logged + swallowed). The fix is to seed RBAC inside
+  // runAuthMigration before calling seedAutoInvestigationSaIfNeeded.
+  describe('boot ordering: SA seed must run after rbac seed', () => {
+    it('without prior rbac seed, the fixed role assignment fails (and SA has no ops-commands-runner)', async () => {
+      // Fresh DB with NO seedRbacForOrg call beforehand — only the org row
+      // exists. This mirrors the buggy boot order.
+      const freshDb = createTestDb();
+      await seedDefaultOrg(freshDb);
+      const u = new UserRepository(freshDb);
+      const ou = new OrgUserRepository(freshDb);
+      const r = new RoleRepository(freshDb);
+      const p = new PermissionRepository(freshDb);
+      const ur = new UserRoleRepository(freshDb);
+      const tr = new TeamRoleRepository(freshDb);
+      const rs = new RoleService(r, p, ur, tr);
+
+      const id = await seedAutoInvestigationSaIfNeeded({ users: u, orgUsers: ou, roles: rs });
+      expect(id).not.toBeNull();
+      // SA exists, but the fixed role couldn't be assigned because it wasn't seeded.
+      const assigned = await ur.listByUser(id!, 'org_main');
+      const matchingRoles: string[] = [];
+      for (const row of assigned) {
+        const role = await r.findById(row.roleId);
+        if (role?.name === OPS_COMMANDS_RUNNER_ROLE_NAME) matchingRoles.push(role.name);
+      }
+      expect(matchingRoles).toEqual([]);
+    });
+
+    it('with rbac seed first (the fixed boot order), the SA gets the ops-commands-runner role', async () => {
+      const freshDb = createTestDb();
+      await seedDefaultOrg(freshDb);
+      // The fix in auth-routes::runAuthMigration: seed RBAC before SA seed.
+      await seedRbacForOrg(freshDb, 'org_main');
+      const u = new UserRepository(freshDb);
+      const ou = new OrgUserRepository(freshDb);
+      const r = new RoleRepository(freshDb);
+      const p = new PermissionRepository(freshDb);
+      const ur = new UserRoleRepository(freshDb);
+      const tr = new TeamRoleRepository(freshDb);
+      const rs = new RoleService(r, p, ur, tr);
+
+      const id = await seedAutoInvestigationSaIfNeeded({ users: u, orgUsers: ou, roles: rs });
+      expect(id).not.toBeNull();
+      const assigned = await ur.listByUser(id!, 'org_main');
+      const matchingRoles: string[] = [];
+      for (const row of assigned) {
+        const role = await r.findById(row.roleId);
+        if (role?.name === OPS_COMMANDS_RUNNER_ROLE_NAME) matchingRoles.push(role.name);
+      }
+      expect(matchingRoles).toEqual([OPS_COMMANDS_RUNNER_ROLE_NAME]);
+    });
+  });
+
   it('refuses to overwrite a non-SA user with login=openobs', async () => {
     await users.create({
       email: 'real@example.com',

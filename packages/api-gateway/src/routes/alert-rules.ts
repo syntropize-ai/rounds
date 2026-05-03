@@ -4,6 +4,8 @@ import type { AlertRule, AlertSilence, NotificationPolicy } from '@agentic-obs/c
 import { getErrorMessage, ac, ACTIONS } from '@agentic-obs/common';
 import type { IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
 import { defaultAlertRuleStore } from '@agentic-obs/data-layer';
+import { runBackgroundAgent, type BackgroundRunnerDeps } from '@agentic-obs/agent-core';
+import { createLogger } from '@agentic-obs/common/logging';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
@@ -11,6 +13,8 @@ import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { AlertRuleService } from '../services/alert-rule-service.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
+
+const log = createLogger('alert-rules-route');
 
 /**
  * Resolve the current request's org id. Prefers `req.auth.orgId` populated by
@@ -38,6 +42,14 @@ export interface AlertRulesRouterDeps {
    * — the holder forwards to the real service once it's built.
    */
   ac: AccessControlSurface;
+  /**
+   * Background agent runner. When provided, the manual `/:id/investigate`
+   * route spawns an orchestrator run as the logged-in user after creating
+   * the investigation row, mirroring the auto-investigation dispatcher's
+   * flow. Without it the route still creates the row but no agent runs
+   * (the legacy half-finished behavior).
+   */
+  runner?: BackgroundRunnerDeps;
 }
 
 export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
@@ -414,6 +426,12 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
           return;
         }
 
+        const identity = (req as AuthenticatedRequest).auth;
+        if (!identity) {
+          res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required' } });
+          return;
+        }
+
         const question = `Investigate alert "${rule.name}": ${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold}`;
         // Scope the investigation to the rule's workspace so the operator
         // viewing it from the same workspace can read it back. Falling back
@@ -423,12 +441,37 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         const investigation = await deps.investigationStore.create({
           question,
           sessionId: `inv_alert_${Date.now()}`,
-          userId: 'alert-system',
+          // Run as the user who clicked Investigate so audit + tool
+          // permissions match what they can do anywhere else.
+          userId: identity.userId,
           workspaceId,
         });
 
-        // Investigation orchestration now handled by the dashboard agent via chat
         await store.update(rule.id, { investigationId: investigation.id });
+
+        // Spawn the orchestrator in the background under the clicker's
+        // identity. We respond immediately so the UI can subscribe to the
+        // investigation SSE stream; the agent advances status as it runs.
+        // Errors are isolated — they're logged but don't fail the HTTP
+        // response (Task C handles forced terminal-status fallback).
+        if (deps.runner) {
+          const runner = deps.runner;
+          void (async () => {
+            try {
+              await runBackgroundAgent(runner, { identity, message: question });
+            } catch (err) {
+              log.error(
+                { err: err instanceof Error ? err.message : String(err), ruleId: rule.id, investigationId: investigation.id },
+                'manual investigate: background agent failed',
+              );
+            }
+          })();
+        } else {
+          log.warn(
+            { ruleId: rule.id, investigationId: investigation.id },
+            'manual investigate: no background runner wired — investigation row created but no agent will run',
+          );
+        }
 
         res.json({ investigationId: investigation.id, existing: false });
       } catch (err) {

@@ -24,6 +24,7 @@ import type { AuthSubsystem } from '../auth/auth-manager.js';
 import { migrateAuthToDbIfNeeded } from '../migrations/auth-to-db.js';
 import { seedAdminIfNeeded } from '../auth/seed-admin.js';
 import { seedAutoInvestigationSaIfNeeded } from '../auth/seed-auto-investigation-sa.js';
+import { seedRbacForOrg } from '@agentic-obs/data-layer';
 import { createAuthRouter } from '../routes/auth.js';
 import { createUserRouter } from '../routes/user.js';
 import { createAdminRouter } from '../routes/admin.js';
@@ -82,6 +83,24 @@ async function runAuthMigration(
         'seed admin fallback failed',
       );
     }
+  }
+
+  // Seed the global fixed-role catalog before the SA seed so the
+  // `fixed:ops.commands:runner` role exists when
+  // `seedAutoInvestigationSaIfNeeded` tries to assign it. `mountRbacRoutes`
+  // also calls `seedRbacForOrg` later — that call becomes a no-op (the
+  // seed is idempotent). Failures here are non-fatal: mountRbacRoutes will
+  // retry, and the SA assignment below already logs+swallows its own error.
+  try {
+    await seedRbacForOrg(db, 'org_main', {
+      roles: rbacRepos.roles,
+      permissions: rbacRepos.permissions,
+    });
+  } catch (err) {
+    log.error(
+      { err: err instanceof Error ? err.message : err },
+      'pre-SA rbac seed failed; auto-investigation SA role assignment may fail until rbac seed runs',
+    );
   }
 
   // Idempotently seed the auto-investigation SA. Runs after the admin

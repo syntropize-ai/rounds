@@ -162,10 +162,17 @@ describe('AutoInvestigationDispatcher', () => {
     }
 
     function mkRepos(invs: ReturnType<typeof mkInv>[]) {
-      const updateStatus = vi.fn().mockResolvedValue(null);
+      const updateStatus = vi.fn().mockImplementation(async (id: string, status: string) => {
+        const row = invs.find((r) => r.id === id);
+        if (row) (row as { status: string }).status = status;
+        return null;
+      });
       const ruleUpdate = vi.fn().mockResolvedValue(null);
       const investigations = {
         findByWorkspace: vi.fn().mockResolvedValue(invs),
+        findById: vi.fn().mockImplementation(async (id: string) => {
+          return invs.find((r) => r.id === id) ?? null;
+        }),
         updateStatus,
       } as unknown as import('@agentic-obs/data-layer').IInvestigationRepository;
       const alertRules = {

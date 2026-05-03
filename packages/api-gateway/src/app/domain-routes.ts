@@ -57,6 +57,7 @@ import type { AuthSubsystem } from '../auth/auth-manager.js';
 import type { AuthRepositories } from './auth-routes.js';
 import type { Persistence } from './persistence.js';
 import type { GitHubChangeSourceRegistry } from '../services/github-change-source-service.js';
+import type { BackgroundRunnerDeps } from '@agentic-obs/agent-core';
 
 export interface MountDomainRoutesDeps {
   app: Application;
@@ -77,6 +78,12 @@ export interface MountDomainRoutesDeps {
    */
   eventAlertRuleStore?: EventEmittingAlertRuleRepository;
   githubChangeSources?: GitHubChangeSourceRegistry;
+  /**
+   * Background-agent runner. When provided, the manual Investigate button
+   * on alert rules spawns an orchestrator run as the clicking user.
+   * Without it the row is created but no agent runs.
+   */
+  runner?: BackgroundRunnerDeps;
 }
 
 export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
@@ -231,6 +238,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     reportStore: repos.investigationReports,
     setupConfig,
     ac: accessControl,
+    ...(deps.runner ? { runner: deps.runner } : {}),
   }));
   // /api/folders is mounted in rbac-routes.ts (T7.1).
   app.use('/api/search', createSearchRouter({

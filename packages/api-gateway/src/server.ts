@@ -198,6 +198,22 @@ export async function createApp(): Promise<Application> {
   );
   const githubChangeSources = new GitHubChangeSourceRegistry(persistence.repos.changeSources);
 
+  // Background-agent runner — shared by both the auto-investigation
+  // dispatcher (alert.fired -> agent run) and the manual Investigate
+  // button on alert rules. Built once so both paths use the same
+  // orchestrator factory + SA token resolver.
+  const backgroundRunner = {
+    saTokens: bundle.apiKeyService,
+    makeOrchestrator: buildBackgroundOrchestratorFactory({
+      persistence,
+      setupConfig,
+      accessControl,
+      audit: bundle.authSub.audit,
+      folderRepository: sharedFolderRepo,
+      githubChangeSources,
+    }),
+  };
+
   // -- W6 business routes + bootstrap-aware mounts ----------------------
   mountDomainRoutes({
     app,
@@ -211,6 +227,7 @@ export async function createApp(): Promise<Application> {
     queryRateLimiter,
     eventAlertRuleStore,
     githubChangeSources,
+    runner: backgroundRunner,
   });
 
   // Start the periodic alert evaluator (Phase 0.5 boot path). Behind
@@ -230,17 +247,7 @@ export async function createApp(): Promise<Application> {
     subscribeRuleChanges: (cb) => {
       eventAlertRuleStore.onChange(() => cb());
     },
-    runner: {
-      saTokens: bundle.apiKeyService,
-      makeOrchestrator: buildBackgroundOrchestratorFactory({
-        persistence,
-        setupConfig,
-        accessControl,
-        audit: bundle.authSub.audit,
-        folderRepository: sharedFolderRepo,
-        githubChangeSources,
-      }),
-    },
+    runner: backgroundRunner,
   });
 
   app.locals['websocketGatewayDeps'] = {

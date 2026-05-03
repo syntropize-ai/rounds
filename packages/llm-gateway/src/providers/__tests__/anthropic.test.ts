@@ -313,6 +313,29 @@ describe('AnthropicProvider — request body', () => {
     expect(body.temperature).toBe(0.2);
   });
 
+  it('omits temperature for Bedrock cross-region Opus 4.7 inference profile id', async () => {
+    // The user's actual Bedrock id; previous regex (`^claude-…`) failed to
+    // match this and silently let temperature through, re-triggering the
+    // 400 these capabilities exist to prevent.
+    const spy = mockFetch(async () =>
+      makeJsonResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+        model: 'us.anthropic.claude-opus-4-7-20250101-v1:0',
+        stop_reason: 'end_turn',
+      }),
+    );
+
+    const provider = makeProvider();
+    await provider.complete([{ role: 'user', content: 'hi' }], {
+      model: 'us.anthropic.claude-opus-4-7-20250101-v1:0',
+      temperature: 0.2,
+    });
+
+    const body = getRequestBody(spy);
+    expect(body).not.toHaveProperty('temperature');
+  });
+
   it('omits temperature when thinking is enabled on a sampling-deprecated model', async () => {
     const spy = mockFetch(async () =>
       makeJsonResponse({

@@ -107,4 +107,31 @@ describe('SqliteChatSessionRepository', () => {
       ).map((c) => c.id),
     ).toEqual(['ctx-b']);
   });
+
+  it('treats duplicate resource context writes as idempotent', async () => {
+    await sessions.create({ id: 's-a', orgId: 'org-1', ownerUserId: 'user-a' });
+    const first = await contexts.create({
+      id: 'ctx-a',
+      sessionId: 's-a',
+      orgId: 'org-1',
+      ownerUserId: 'user-a',
+      resourceType: 'dashboard',
+      resourceId: 'dash-1',
+      relation: 'viewed_with_chat',
+      createdAt: '2026-05-01T00:00:00.000Z',
+    });
+    const second = await contexts.create({
+      id: 'ctx-duplicate',
+      sessionId: 's-a',
+      orgId: 'org-1',
+      ownerUserId: 'user-a',
+      resourceType: 'dashboard',
+      resourceId: 'dash-1',
+      relation: 'viewed_with_chat',
+      createdAt: '2026-05-01T00:01:00.000Z',
+    });
+
+    expect(second).toEqual(first);
+    expect(await contexts.listBySession('s-a')).toHaveLength(1);
+  });
 });

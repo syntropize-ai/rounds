@@ -44,26 +44,57 @@ function resourceWhere(scope: ChatSessionContextResourceScope) {
   );
 }
 
+function contextUniqueWhere(context: Parameters<IChatSessionContextRepository['create']>[0]) {
+  return and(
+    eq(chatSessionContexts.sessionId, context.sessionId),
+    eq(chatSessionContexts.orgId, context.orgId),
+    eq(chatSessionContexts.ownerUserId, context.ownerUserId),
+    eq(chatSessionContexts.resourceType, context.resourceType),
+    eq(chatSessionContexts.resourceId, context.resourceId),
+    eq(chatSessionContexts.relation, context.relation),
+  );
+}
+
+function isDuplicateKeyError(err: unknown): boolean {
+  const code =
+    err && typeof err === 'object' && 'code' in err
+      ? (err as { code?: unknown }).code
+      : undefined;
+  const cause = err && typeof err === 'object' && 'cause' in err ? (err as { cause?: unknown }).cause : undefined;
+  const message = `${String(err)} ${String(cause)}`.toLowerCase();
+  return code === '23505' || message.includes('duplicate key value violates unique constraint');
+}
+
 export class PostgresChatSessionContextRepository implements IChatSessionContextRepository {
   constructor(private readonly db: any) {}
 
   async create(
     context: Parameters<IChatSessionContextRepository['create']>[0],
   ): Promise<ChatSessionContext> {
-    const [row] = await this.db
-      .insert(chatSessionContexts)
-      .values({
-        id: context.id ?? `chatctx_${randomUUID()}`,
-        sessionId: context.sessionId,
-        orgId: context.orgId,
-        ownerUserId: context.ownerUserId,
-        resourceType: context.resourceType,
-        resourceId: context.resourceId,
-        relation: context.relation,
-        createdAt: context.createdAt ?? new Date().toISOString(),
-      })
-      .returning();
-    return rowToContext(row!);
+    try {
+      const [row] = await this.db
+        .insert(chatSessionContexts)
+        .values({
+          id: context.id ?? `chatctx_${randomUUID()}`,
+          sessionId: context.sessionId,
+          orgId: context.orgId,
+          ownerUserId: context.ownerUserId,
+          resourceType: context.resourceType,
+          resourceId: context.resourceId,
+          relation: context.relation,
+          createdAt: context.createdAt ?? new Date().toISOString(),
+        })
+        .returning();
+      return rowToContext(row!);
+    } catch (err) {
+      if (!isDuplicateKeyError(err)) throw err;
+      const [existing] = await this.db
+        .select()
+        .from(chatSessionContexts)
+        .where(contextUniqueWhere(context));
+      if (existing) return rowToContext(existing);
+      throw err;
+    }
   }
 
   async listBySession(

@@ -621,6 +621,7 @@ CREATE TABLE IF NOT EXISTS chat_session_contexts (
 
 CREATE INDEX IF NOT EXISTS ix_chat_session_contexts_session ON chat_session_contexts(session_id);
 CREATE INDEX IF NOT EXISTS ix_chat_session_contexts_owner_resource ON chat_session_contexts(org_id, owner_user_id, resource_type, resource_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_session_contexts_unique ON chat_session_contexts(session_id, resource_type, resource_id, relation);
 
 CREATE TABLE IF NOT EXISTS chat_messages (
   id         TEXT PRIMARY KEY,

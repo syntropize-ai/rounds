@@ -516,6 +516,11 @@ export function useChat(): UseChatResult {
           sessionId,
           error: res.error,
         });
+        if (is404) {
+          sessionIdRef.current = '';
+          setCurrentSessionId('');
+          lastLoadSessionIdRef.current = null;
+        }
         setLoadError(is404 ? 'not-found' : 'network');
         return;
       }

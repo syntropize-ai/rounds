@@ -558,7 +558,7 @@ export class ChatService {
       {
         sessionId: resolvedSessionId,
         dashboardId,
-        message: message.slice(0, 80),
+        messageLength: message.length,
       },
       'starting session orchestrator',
     );

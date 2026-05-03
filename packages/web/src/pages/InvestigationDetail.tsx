@@ -1,10 +1,7 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import InvestigationReportView from '../components/InvestigationReportView.js';
-import type { ConclusionData } from '../components/ConclusionPanel.js';
-import ChatPanel from '../components/ChatPanel.js';
-import type { ChatEvent } from '../hooks/useDashboardChat.js';
 import type {
   InvestigationReport as IReport,
   InvestigationReportSection,
@@ -40,7 +37,6 @@ interface Hypothesis {
 interface FullInvestigation {
   id: string;
   intent: string;
-  sessionId: string;
   status: InvestigationStatus;
   plan: InvestigationPlan;
   hypotheses: Hypothesis[];
@@ -59,133 +55,6 @@ import { getInvestigationStatusStyle } from '../constants/status-styles.js';
 
 function statusDescription(status: string): string {
   return getInvestigationStatusStyle(status).description;
-}
-
-let eventCounter = 0;
-function makeEventId() {
-  return `inv_evt_${++eventCounter}`;
-}
-
-// Convert investigation state changes into ChatEvents for the ChatPanel
-
-function buildChatEvents(
-  investigation: FullInvestigation,
-  conclusion: ConclusionData | null,
-): ChatEvent[] {
-  const events: ChatEvent[] = [];
-
-  // Initial user message — the investigation question
-  events.push({
-    id: makeEventId(),
-    kind: 'message',
-    message: {
-      id: 'user_0',
-      role: 'user',
-      content: investigation.intent,
-      timestamp: investigation.createdAt,
-    },
-  });
-
-  // Planning phase
-  if (investigation.plan?.objective) {
-    events.push({
-      id: makeEventId(),
-      kind: 'thinking',
-      content: `Planning: ${investigation.plan.objective}`,
-    });
-  }
-
-  // Plan steps as tool calls
-  if (investigation.plan?.steps?.length) {
-    for (const step of investigation.plan.steps) {
-      if (step.status === 'pending') continue;
-
-      events.push({
-        id: makeEventId(),
-        kind: 'tool_call',
-        tool: step.type || 'query',
-        content: step.description,
-      });
-
-      if (step.status === 'completed') {
-        events.push({
-          id: makeEventId(),
-          kind: 'tool_result',
-          tool: step.type || 'query',
-          content: `Step completed: ${step.description}`,
-          success: true,
-        });
-      } else if (step.status === 'failed') {
-        events.push({
-          id: makeEventId(),
-          kind: 'tool_result',
-          tool: step.type || 'query',
-          content: `Step failed: ${step.description}`,
-          success: false,
-        });
-      }
-    }
-  }
-
-  // Evidence collected
-  if (investigation.evidence?.length > 0) {
-    events.push({
-      id: makeEventId(),
-      kind: 'thinking',
-      content: `Collected ${investigation.evidence.length} piece${investigation.evidence.length > 1 ? 's' : ''} of evidence`,
-    });
-  }
-
-  // Analysis / status update
-  if (
-    investigation.status === 'explaining' ||
-    investigation.status === 'acting' ||
-    investigation.status === 'verifying'
-  ) {
-    events.push({
-      id: makeEventId(),
-      kind: 'thinking',
-      content: statusDescription(investigation.status),
-    });
-  }
-
-  // Conclusion as assistant message
-  if (conclusion) {
-    let msg = conclusion.summary;
-    if (conclusion.rootCause) {
-      msg += `\n\n**Root Cause:** ${conclusion.rootCause}`;
-    }
-    if (conclusion.recommendedActions?.length) {
-      msg +=
-        '\n\n**Recommended Actions:**\n' +
-        conclusion.recommendedActions
-          .map((a) => `- ${typeof a === 'string' ? a : a.label}`)
-          .join('\n');
-    }
-    events.push({
-      id: makeEventId(),
-      kind: 'message',
-      message: {
-        id: 'conclusion',
-        role: 'assistant',
-        content: msg,
-        timestamp: investigation.updatedAt,
-      },
-    });
-  } else if (investigation.status === 'failed') {
-    events.push({
-      id: makeEventId(),
-      kind: 'error',
-      content: 'Investigation failed. The AI could not complete the analysis.',
-    });
-  }
-
-  // Done event if terminal
-  if (isTerminal(investigation.status)) {
-    events.push({ id: makeEventId(), kind: 'done' });
-  }
-
-  return events;
 }
 
 // Live progress view while investigation is running
@@ -313,12 +182,9 @@ export default function InvestigationDetail() {
   const [investigation, setInvestigation] = useState<FullInvestigation | null>(
     null,
   );
-  const [conclusion, setConclusion] = useState<ConclusionData | null>(null);
   const [report, setReport] = useState<IReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [agentEvents, setAgentEvents] = useState<ChatEvent[]>([]);
-  const [agentGenerating, setAgentGenerating] = useState(false);
 
   // Chat history is bound by the URL (`?chat=...`) and loaded in Layout.
 
@@ -341,13 +207,6 @@ export default function InvestigationDetail() {
       }>(`/investigations/${id}/report`);
       if (!rRes.error && rRes.data?.summary) {
         setReport({ summary: rRes.data.summary, sections: rRes.data.sections });
-      }
-      // Fetch conclusion for chat panel
-      const cRes = await apiClient.get<{ conclusion: ConclusionData }>(
-        `/investigations/${id}/conclusion`,
-      );
-      if (!cRes.error && cRes.data?.conclusion) {
-        setConclusion(cRes.data.conclusion);
       }
     }
   }, [id]);
@@ -373,153 +232,7 @@ export default function InvestigationDetail() {
     return () => clearInterval(timer);
   }, [investigation, fetchInvestigation]);
 
-  // Build chat events from investigation state
-  const baseChatEvents = useMemo(() => {
-    if (!investigation) return [];
-    eventCounter = 0;
-    return buildChatEvents(investigation, conclusion);
-  }, [investigation, conclusion]);
-
-  const chatEvents = useMemo(
-    () => [...baseChatEvents, ...agentEvents],
-    [baseChatEvents, agentEvents],
-  );
-
-  const isGenerating =
-    (investigation ? !isTerminal(investigation.status) : false) ||
-    agentGenerating;
-
-  // Handle follow-up messages from ChatPanel
-  const handleSendMessage = useCallback(
-    async (content: string) => {
-      if (!id) return;
-      const userEventId = crypto.randomUUID();
-      setAgentEvents((prev) => [
-        ...prev,
-        {
-          id: userEventId,
-          kind: 'message',
-          message: {
-            id: userEventId,
-            role: 'user',
-            content,
-            timestamp: new Date().toISOString(),
-          },
-        },
-      ]);
-      setAgentGenerating(true);
-
-      // Investigation follow-ups go through the canonical chat-service endpoint
-      // with `pageContext.kind = 'investigation'` so the orchestrator knows
-      // which investigation to scope tools against. Continue the active
-      // personal chat from the URL/global context when one exists.
-      await apiClient
-        .postStream(
-          `/chat`,
-          {
-            message: content,
-            ...(globalChat.currentSessionId
-              ? { sessionId: globalChat.currentSessionId }
-              : {}),
-            pageContext: { kind: 'investigation', id },
-          },
-          (eventType: string, rawData: string) => {
-            let parsed: Record<string, unknown> = {};
-            try {
-              parsed = JSON.parse(rawData) as Record<string, unknown>;
-            } catch {
-              parsed = { content: rawData };
-            }
-
-            const eventId = crypto.randomUUID();
-
-            if (eventType === 'thinking') {
-              setAgentEvents((prev) => [
-                ...prev,
-                {
-                  id: eventId,
-                  kind: 'thinking',
-                  content: (parsed.content as string) ?? 'Thinking...',
-                },
-              ]);
-              return;
-            }
-
-            if (eventType === 'reply') {
-              setAgentEvents((prev) => [
-                ...prev,
-                {
-                  id: eventId,
-                  kind: 'message',
-                  message: {
-                    id: eventId,
-                    role: 'assistant',
-                    content: (parsed.content as string) ?? '',
-                    timestamp: new Date().toISOString(),
-                  },
-                },
-              ]);
-              return;
-            }
-
-            if (eventType === 'error') {
-              setAgentEvents((prev) => [
-                ...prev,
-                {
-                  id: eventId,
-                  kind: 'error',
-                  content: (parsed.message as string) ?? 'Something went wrong',
-                },
-              ]);
-              setAgentGenerating(false);
-              return;
-            }
-
-            if (eventType === 'done') {
-              if (
-                typeof parsed.navigate === 'string' &&
-                parsed.navigate !== `/investigations/${id}`
-              ) {
-                const target = new URL(parsed.navigate, window.location.origin);
-                const sessionId =
-                  typeof parsed.sessionId === 'string'
-                    ? parsed.sessionId
-                    : globalChat.currentSessionId;
-                if (sessionId) target.searchParams.set('chat', sessionId);
-                const path = `${target.pathname}${target.search}${target.hash}`;
-                if (parsed.intent === 'dashboard') {
-                  navigate(path, { state: { initialPrompt: content } });
-                } else {
-                  navigate(path);
-                }
-                return;
-              }
-              setAgentEvents((prev) => [
-                ...prev,
-                { id: eventId, kind: 'done' },
-              ]);
-              setAgentGenerating(false);
-            }
-          },
-        )
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : 'Network error';
-          setAgentEvents((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              kind: 'error',
-              content: message,
-            },
-          ]);
-          setAgentGenerating(false);
-        })
-        .finally(() => {
-          setAgentGenerating(false);
-        });
-    },
-    [id, globalChat.currentSessionId, navigate],
-  );
+  const isGenerating = investigation ? !isTerminal(investigation.status) : false;
 
   if (loading) {
     return (

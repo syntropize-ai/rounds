@@ -1,0 +1,75 @@
+# node-exporter: classic node-level metrics. Provides comprehensive
+# coverage of:
+#   - gauges: node_memory_MemAvailable_bytes, node_load1, node_filesystem_avail_bytes
+#   - counters: node_cpu_seconds_total, node_network_receive_bytes_total, node_disk_io_time_seconds_total
+#   - histograms: node_scrape_collector_duration_seconds_bucket
+#
+# Single deployment (not DaemonSet) to keep the kind cluster light;
+# we only need representative metrics, not per-node coverage. The
+# container reads /proc/1 by default, which on kind reflects the node
+# control-plane container (sufficient for testing dashboards).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-exporter
+  namespace: openobs-e2e
+  labels:
+    app: node-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+    spec:
+      containers:
+        - name: node-exporter
+          image: quay.io/prometheus/node-exporter:v1.8.2
+          args:
+            - --path.rootfs=/host
+            - --collector.disable-defaults
+            - --collector.cpu
+            - --collector.loadavg
+            - --collector.meminfo
+            - --collector.filesystem
+            - --collector.netdev
+            - --collector.diskstats
+          ports:
+            - name: metrics
+              containerPort: 9100
+          volumeMounts:
+            - name: host
+              mountPath: /host
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+      volumes:
+        - name: host
+          hostPath:
+            path: /
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: openobs-e2e
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    app: node-exporter
+  ports:
+    - port: 9100
+      targetPort: 9100
+      name: metrics

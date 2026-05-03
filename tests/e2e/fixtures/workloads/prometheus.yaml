@@ -88,6 +88,12 @@ spec:
     metadata:
       labels:
         app: prometheus
+      annotations:
+        # Self-scrape: prometheus's own /metrics exposes counters,
+        # gauges, AND summaries (e.g. prometheus_target_interval_length_seconds),
+        # giving the e2e cluster coverage of all Prometheus metric types.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
     spec:
       serviceAccountName: prometheus
       containers:

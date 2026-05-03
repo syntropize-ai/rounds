@@ -47,6 +47,19 @@ function resolveDatasourceScope(args: Record<string, unknown>): string {
 }
 
 /**
+ * Dashboard mutation tools no longer take `dashboardId` as a parameter — the
+ * id lives on `ctx.activeDashboardId`, set by `dashboard_create` /
+ * `dashboard_clone`. When the active id is missing the handler returns a
+ * clear "call dashboard_create first" error and never reaches a side effect,
+ * so the gate falls back to wildcard rather than minting a deny sentinel —
+ * an unusable id wouldn't tighten the gate, only confuse the failure mode.
+ */
+function resolveDashboardScope(ctx: ActionContext): string {
+  const id = ctx.activeDashboardId;
+  return id ? `dashboards:uid:${id}` : 'dashboards:uid:*';
+}
+
+/**
  * Every tool the orchestrator (or any specialized agent) can call that
  * produces a server-side effect MUST be listed here. The list-invariant test
  * in tool-permissions.test.ts will fail if the agent registry contains a
@@ -70,36 +83,12 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
       'dashboards:create',
       `folders:uid:${String(args.folderUid ?? '*')}`,
     ),
-  'dashboard_add_panels': (args: Record<string, unknown>) =>
-    ac.eval(
-      'dashboards:write',
-      `dashboards:uid:${String(args.dashboardId ?? '*')}`,
-    ),
-  'dashboard_remove_panels': (args: Record<string, unknown>) =>
-    ac.eval(
-      'dashboards:write',
-      `dashboards:uid:${String(args.dashboardId ?? '*')}`,
-    ),
-  'dashboard_modify_panel': (args: Record<string, unknown>) =>
-    ac.eval(
-      'dashboards:write',
-      `dashboards:uid:${String(args.dashboardId ?? '*')}`,
-    ),
-  'dashboard_set_title': (args: Record<string, unknown>) =>
-    ac.eval(
-      'dashboards:write',
-      `dashboards:uid:${String(args.dashboardId ?? '*')}`,
-    ),
-  'dashboard_add_variable': (args: Record<string, unknown>) =>
-    ac.eval(
-      'dashboards:write',
-      `dashboards:uid:${String(args.dashboardId ?? '*')}`,
-    ),
-  'dashboard_rearrange': (args: Record<string, unknown>) =>
-    ac.eval(
-      'dashboards:write',
-      `dashboards:uid:${String(args.dashboardId ?? '*')}`,
-    ),
+  'dashboard_add_panels': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  'dashboard_remove_panels': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  'dashboard_modify_panel': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  'dashboard_set_title': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  'dashboard_add_variable': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  'dashboard_rearrange': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
 
   // -- Folder tools ---------------------------------------------------------
   'folder_create': (args: Record<string, unknown>) =>

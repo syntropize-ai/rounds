@@ -44,6 +44,11 @@ export async function handleInvestigationCreate(
       );
 
       createdId = investigation.id;
+      // Mark this investigation as the active one for the session.
+      // `add_section` and `complete` read from here; the LLM no longer
+      // has to copy the id back through tool params (which it sometimes
+      // truncated, silently re-keying sections to a phantom map slot).
+      ctx.activeInvestigationId = createdId;
       observationText = `Created investigation "${question.slice(0, 60)}" (id: ${investigation.id}).`;
       return observationText;
     },
@@ -72,8 +77,10 @@ export async function handleInvestigationAddSection(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const investigationId = String(args.investigationId ?? '');
-  if (!investigationId) return 'Error: "investigationId" is required.';
+  const investigationId = ctx.activeInvestigationId;
+  if (!investigationId) {
+    return 'Error: no active investigation. Call investigation_create first.';
+  }
 
   const rawType = args.type ?? 'text';
   if (rawType !== 'text' && rawType !== 'evidence') {
@@ -216,8 +223,10 @@ export async function handleInvestigationComplete(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const investigationId = String(args.investigationId ?? '');
-  if (!investigationId) return 'Error: "investigationId" is required.';
+  const investigationId = ctx.activeInvestigationId;
+  if (!investigationId) {
+    return 'Error: no active investigation. Call investigation_create first.';
+  }
   const summary = String(args.summary ?? '');
   if (!summary) return 'Error: "summary" is required.';
 
@@ -262,6 +271,8 @@ export async function handleInvestigationComplete(
 
       // Clean up accumulated sections
       ctx.investigationSections.delete(investigationId);
+      // Clear active id so the next investigation_create starts a fresh one.
+      ctx.activeInvestigationId = null;
 
       // Navigate to the investigation page
       ctx.setNavigateTo(`/investigations/${investigationId}`);

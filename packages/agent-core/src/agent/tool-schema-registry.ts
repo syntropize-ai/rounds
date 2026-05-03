@@ -448,18 +448,17 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'dashboard_add_panels',
       description:
-        'Add one or more panels to a dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Validate complex queries with metrics_validate first. Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.',
+        'Add one or more panels to the active dashboard. Call dashboard_create or dashboard_open first; this tool implicitly targets that dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Validate complex queries with metrics_validate first. Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.',
       input_schema: {
         type: 'object',
         properties: {
-          dashboardId: { type: 'string', description: 'Target dashboard id (from dashboard_create or dashboard_list)' },
           panels: {
             type: 'array',
             description: 'Panel configs. Each: { title, visualization, queries: [{refId, expr, datasourceId, legendFormat?, instant?}], unit?, ... }. datasourceId is REQUIRED per query.',
             items: { type: 'object' },
           },
         },
-        required: ['dashboardId', 'panels'],
+        required: ['panels'],
       },
     },
   },
@@ -467,18 +466,17 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     category: 'always-on',
     schema: {
       name: 'dashboard_remove_panels',
-      description: 'Remove one or more panels from a dashboard by id. Verify panel ids from the Dashboard State context first.',
+      description: 'Remove one or more panels from the active dashboard by id. Verify panel ids from the Dashboard State context first.',
       input_schema: {
         type: 'object',
         properties: {
-          dashboardId: { type: 'string', description: 'Target dashboard id' },
           panelIds: {
             type: 'array',
             description: 'Ids of panels to remove',
             items: { type: 'string' },
           },
         },
-        required: ['dashboardId', 'panelIds'],
+        required: ['panelIds'],
       },
     },
   },
@@ -487,19 +485,18 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'dashboard_modify_panel',
       description:
-        'Patch fields on an existing panel (title, queries, visualization, unit, thresholds, …). Provide only the keys to change; everything else on the panel is preserved.',
+        'Patch fields on an existing panel of the active dashboard (title, queries, visualization, unit, thresholds, …). Provide only the keys to change; everything else on the panel is preserved.',
       input_schema: {
         type: 'object',
         properties: {
-          dashboardId: { type: 'string', description: 'Target dashboard id' },
-          panelId: { type: 'string', description: 'Panel id to modify' },
+          panelId: { type: 'string', description: 'Panel id to modify (from the Dashboard State context)' },
           title: { type: 'string', description: 'Optional new title' },
           description: { type: 'string', description: 'Optional new description' },
           visualization: { type: 'string', description: 'Optional visualization change (time_series, stat, gauge, ...)' },
           queries: { type: 'array', description: 'Optional replacement query list', items: { type: 'object' } },
           unit: { type: 'string', description: 'Optional value unit (seconds, bytes, percentunit, reqps, ...)' },
         },
-        required: ['dashboardId', 'panelId'],
+        required: ['panelId'],
       },
     },
   },
@@ -507,15 +504,14 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     category: 'always-on',
     schema: {
       name: 'dashboard_set_title',
-      description: 'Update the dashboard title and (optionally) description. Use for renaming an existing dashboard.',
+      description: 'Update the active dashboard\'s title and (optionally) description. Use for renaming an existing dashboard.',
       input_schema: {
         type: 'object',
         properties: {
-          dashboardId: { type: 'string', description: 'Target dashboard id' },
           title: { type: 'string', description: 'New title' },
           description: { type: 'string', description: 'Optional new description' },
         },
-        required: ['dashboardId', 'title'],
+        required: ['title'],
       },
     },
   },
@@ -524,11 +520,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'dashboard_add_variable',
       description:
-        'Add a template variable ($variable) to a dashboard for drill-down. Only use when the user explicitly asks for filtering by a label.',
+        'Add a template variable ($variable) to the active dashboard for drill-down. Only use when the user explicitly asks for filtering by a label.',
       input_schema: {
         type: 'object',
         properties: {
-          dashboardId: { type: 'string', description: 'Target dashboard id' },
           name: { type: 'string', description: 'Variable name (without the leading $)' },
           label: { type: 'string', description: 'Display label shown in the UI (defaults to name)' },
           type: {
@@ -540,7 +535,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           multi: { type: 'boolean', description: 'Allow multi-select' },
           includeAll: { type: 'boolean', description: 'Include an "All" option' },
         },
-        required: ['dashboardId', 'name'],
+        required: ['name'],
       },
     },
   },
@@ -583,11 +578,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'investigation_add_section',
       description:
-        'Append a section to an investigation report. type="text" is narrative analysis (substantial paragraphs); type="evidence" attaches a panel snapshot for a key finding. Text sections are the main content; evidence panels support them.',
+        'Append a section to the active investigation report. Call investigation_create first; this tool implicitly targets that record. type="text" is narrative analysis (substantial paragraphs); type="evidence" attaches a panel snapshot for a key finding.',
       input_schema: {
         type: 'object',
         properties: {
-          investigationId: { type: 'string', description: 'Id from investigation_create' },
           type: {
             type: 'string',
             enum: ['text', 'evidence'],
@@ -599,7 +593,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             description: 'Required for type=evidence: panel config with title, visualization, queries. The system auto-captures a data snapshot.',
           },
         },
-        required: ['investigationId', 'type', 'content'],
+        required: ['type', 'content'],
       },
     },
   },
@@ -608,14 +602,13 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'investigation_complete',
       description:
-        'Finalize the investigation, save the report, and navigate to it. MUST be called at the end of every investigation — without it, all sections are lost.',
+        'Finalize the active investigation, save the report, and navigate to it. MUST be called at the end of every investigation — without it, all sections are lost. Implicitly targets the investigation_create record from this session.',
       input_schema: {
         type: 'object',
         properties: {
-          investigationId: { type: 'string', description: 'Id from investigation_create' },
           summary: { type: 'string', description: 'One-paragraph executive summary of the conclusion' },
         },
-        required: ['investigationId', 'summary'],
+        required: ['summary'],
       },
     },
   },

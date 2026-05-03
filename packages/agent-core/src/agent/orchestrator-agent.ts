@@ -123,6 +123,15 @@ export class OrchestratorAgent {
    * sections into each other when investigation ids collide.
    */
   private readonly investigationSections = new Map<string, InvestigationReportSection[]>()
+  /**
+   * Active investigation id for this session. Implicit context for
+   * investigation_add_section / investigation_complete so the LLM doesn't
+   * have to round-trip the id through tool params. Held in a ref so the
+   * action ctx (built fresh each step) can read/write the same slot.
+   */
+  private readonly activeInvestigationIdRef: { current: string | null } = { current: null }
+  /** Same pattern for the active dashboard id (set by dashboard_create / _clone). */
+  private readonly activeDashboardIdRef: { current: string | null } = { current: null }
   readonly sessionId: string
 
   constructor(private deps: OrchestratorDeps, sessionId?: string) {
@@ -229,6 +238,13 @@ export class OrchestratorAgent {
       this.emitAgentEvent(this.makeAgentEvent('agent.failed', { reason: 'Dashboard not found' }));
       throw new Error(`Dashboard ${dashboardId} not found`)
     }
+    // Pin the page-context dashboard as the active target so dashboard.*
+    // mutation tools can drop the dashboardId parameter. The model never
+    // had to copy long uuids back through tool params on the truncation
+    // path that motivated this design — see _context.ts.
+    if (dashboard) {
+      this.activeDashboardIdRef.current = dashboard.id
+    }
 
     // Conversation history is keyed on the chat session, not the dashboard.
     // The chat-service writes every user/assistant turn into chat_messages
@@ -311,6 +327,8 @@ export class OrchestratorAgent {
       pushConversationAction: (action) => this.pendingConversationActions.push(action),
       setNavigateTo: (path) => { this.pendingNavigateTo = path },
       investigationSections: this.investigationSections,
+      activeInvestigationIdRef: this.activeInvestigationIdRef,
+      activeDashboardIdRef: this.activeDashboardIdRef,
     })
     return this.actionRunner.execute(step, ctx)
   }

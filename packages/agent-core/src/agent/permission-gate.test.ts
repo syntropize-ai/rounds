@@ -25,6 +25,8 @@ function makeCtx(allowAll = true): ActionContext {
     pushConversationAction: () => {},
     setNavigateTo: () => {},
     investigationSections: new Map(),
+    activeInvestigationId: null,
+    activeDashboardId: null,
   } as ActionContext;
 }
 

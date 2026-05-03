@@ -93,9 +93,9 @@ User: "Create a dashboard for HTTP monitoring"
   2. web_search(query: "http service monitoring RED method")
   3. metrics_discover(sourceId: "prom-prod", kind: "names", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
   4. metrics_discover(sourceId: "prom-prod", kind: "metadata", metric: "http_requests_total") → counter
-  5. dashboard_create(title: "HTTP Service Monitoring") → dashboardId: abc-123
+  5. dashboard_create(title: "HTTP Service Monitoring") → dashboard becomes the active target for follow-up tools
   6. metrics_validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total[5m]))") → Valid (repeat per query)
-  7. dashboard_add_panels(dashboardId: "abc-123", panels: [request rate stat, error rate gauge, p95 latency time_series])
+  7. dashboard_add_panels(panels: [request rate stat, error rate gauge, p95 latency time_series])
   8. final reply (plain text): "Created HTTP Monitoring dashboard with 3 panels: request rate, error rate, p95 latency."
 </example>
 
@@ -103,8 +103,8 @@ User: "Create a dashboard for HTTP monitoring"
 <example>
 User: "Create a monitoring dashboard for our new Redis deployment"
   1. web_search(query: "redis prometheus exporter metrics") → redis_connected_clients, redis_used_memory_bytes, redis_commands_processed_total, ...
-  2. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter") → dashboardId: def-456
-  3. dashboard_add_panels(dashboardId: "def-456", panels: [connected clients stat, memory usage time_series, command rate time_series])
+  2. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter")
+  3. dashboard_add_panels(panels: [connected clients stat, memory usage time_series, command rate time_series])
   4. final reply (plain text): "Created Redis dashboard with 3 panels. Expects metrics from redis_exporter — deploy it alongside Redis."
 </example>
 
@@ -121,7 +121,7 @@ User: "Analyze the request rate by handler data"
 <example>
 User: "Change the latency panel to show p99 instead of p95"
   1. metrics_validate(sourceId: "prom-prod", query: "histogram_quantile(0.99, ...)") → Valid
-  2. dashboard_modify_panel(dashboardId: "...", panelId: "panel-id-from-context", title: "Latency p99", queries: [{refId: "A", expr: "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"}])
+  2. dashboard_modify_panel(panelId: "panel-id-from-context", title: "Latency p99", queries: [{refId: "A", expr: "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"}])
   3. final reply (plain text): "Changed latency panel from p95 to p99."
 </example>
 
@@ -176,7 +176,7 @@ User: "Why is p99 latency so high?"
   10. investigation_add_section(type: "text", content: "Breaking down by handler points the finger: /api/v1/query_range sits at 120ms p99 while every other handler is under 50ms. That one handler is the entire delta.")
   11. changes_list_recent(service: "api-gateway", window_minutes: 120) → no deploys in window
   12. investigation_add_section(type: "text", content: "No deploys in the last 2h, so this isn't a regression from a code change — most likely an expensive query pattern or upstream slowdown specific to /query_range. To pin it down, profile a slow request, check incoming PromQL complexity for that endpoint, and see whether the slowness tracks a particular tenant or query shape.")
-  13. investigation_complete(investigationId: "inv-789", summary: "p99 is driven by /api/v1/query_range alone (120ms vs <50ms others). No deploy correlation. Profile that handler and look at PromQL complexity per-tenant.")
+  13. investigation_complete(summary: "p99 is driven by /api/v1/query_range alone (120ms vs <50ms others). No deploy correlation. Profile that handler and look at PromQL complexity per-tenant.")
 </example>
 
 ## Proposing a Remediation Plan
@@ -366,9 +366,8 @@ function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: s
   }
 
   return `# Current Dashboard Context
-dashboardId: ${(dashboard as unknown as { id?: string }).id ?? 'unknown'}
 Title: ${dashboard.title}${timeRangeText}
-Use this dashboardId for all dashboard.* tool calls.
+This dashboard is the active target for dashboard.* tool calls — do not pass a dashboardId parameter.
 
 ## Panels (${dashboard.panels.length} total)
 ${panelsSummary}
@@ -425,7 +424,7 @@ function getAlertRulesSection(
 
 function getSessionModeSection(): string {
   return `# Session Mode
-Not scoped to a dashboard. Use dashboard_create to create one, then use the returned dashboardId for all mutations.`
+Not scoped to a dashboard. Call dashboard_create to start one — it becomes the active target for subsequent dashboard.* tools automatically.`
 }
 
 // ---------------------------------------------------------------------------

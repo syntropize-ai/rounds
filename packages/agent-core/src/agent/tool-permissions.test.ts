@@ -53,10 +53,20 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('dashboard_modify_panel scopes to the specific dashboard UID', () => {
-    const e = TOOL_PERMS['dashboard_modify_panel']!({ dashboardId: 'abc' }, makeCtx());
+  it('dashboard_modify_panel scopes to the active dashboard UID from ctx', () => {
+    const e = TOOL_PERMS['dashboard_modify_panel']!({}, makeCtx({ activeDashboardId: 'abc' }));
     expect((e as { string: () => string }).string()).toBe(
       'dashboards:write on dashboards:uid:abc',
+    );
+  });
+
+  it('dashboard_modify_panel falls back to wildcard when no active dashboard', () => {
+    // Handler emits "no active dashboard" before any side effect, so the
+    // gate's scope here doesn't matter for safety; we keep the wildcard so
+    // the failure mode stays "handler error" rather than "rbac denied".
+    const e = TOOL_PERMS['dashboard_modify_panel']!({}, makeCtx());
+    expect((e as { string: () => string }).string()).toBe(
+      'dashboards:write on dashboards:uid:*',
     );
   });
 

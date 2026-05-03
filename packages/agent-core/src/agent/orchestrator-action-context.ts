@@ -59,12 +59,23 @@ export interface OrchestratorActionRuntime {
   pushConversationAction(action: DashboardAction): void;
   setNavigateTo(path: string): void;
   investigationSections: Map<string, InvestigationReportSection[]>;
+  /**
+   * Mutable holder for the session's active investigation id. The agent
+   * owns the underlying state; the ctx exposes a getter/setter that reads
+   * and writes through this holder so handler mutations survive the
+   * `executeAction` boundary.
+   */
+  activeInvestigationIdRef: { current: string | null };
+  /** Same pattern, for the active dashboard id. */
+  activeDashboardIdRef: { current: string | null };
 }
 
 export function buildActionContext(
   deps: OrchestratorActionContextDeps,
   runtime: OrchestratorActionRuntime,
 ): ActionContext {
+  const invRef = runtime.activeInvestigationIdRef;
+  const dashRef = runtime.activeDashboardIdRef;
   return {
     gateway: deps.gateway,
     model: deps.model,
@@ -92,5 +103,9 @@ export function buildActionContext(
     pushConversationAction: runtime.pushConversationAction,
     setNavigateTo: runtime.setNavigateTo,
     investigationSections: runtime.investigationSections,
+    get activeInvestigationId() { return invRef.current; },
+    set activeInvestigationId(v: string | null) { invRef.current = v; },
+    get activeDashboardId() { return dashRef.current; },
+    set activeDashboardId(v: string | null) { dashRef.current = v; },
   };
 }

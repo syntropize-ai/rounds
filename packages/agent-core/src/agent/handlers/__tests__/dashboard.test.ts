@@ -33,6 +33,9 @@ describe('dashboard handlers', () => {
         }),
       );
       expect(observation).toContain('Created dashboard "My Dashboard"');
+      // Active id is set so the next add_panels / modify_panel call in the
+      // same ReAct loop can target this dashboard implicitly.
+      expect(ctx.activeDashboardId).toBe('dash-1');
       expect(ctx.setNavigateTo).toHaveBeenCalledWith('/dashboards/dash-1');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'tool_call', tool: 'dashboard_create' }),
@@ -66,11 +69,8 @@ describe('dashboard handlers', () => {
 
   describe('handleDashboardSetTitle', () => {
     it('delegates to actionExecutor and reports the new title', async () => {
-      const ctx = makeFakeActionContext();
-      const observation = await handleDashboardSetTitle(ctx, {
-        dashboardId: 'd1',
-        title: 'New Name',
-      });
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
+      const observation = await handleDashboardSetTitle(ctx, { title: 'New Name' });
       expect(ctx.actionExecutor.execute).toHaveBeenCalledWith('d1', [
         { type: 'set_title', title: 'New Name' },
       ]);
@@ -78,18 +78,24 @@ describe('dashboard handlers', () => {
     });
 
     it('returns a validation error when title is missing', async () => {
-      const ctx = makeFakeActionContext();
-      const observation = await handleDashboardSetTitle(ctx, { dashboardId: 'd1' });
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
+      const observation = await handleDashboardSetTitle(ctx, {});
       expect(observation).toMatch(/"title" is required/);
+      expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
+    });
+
+    it('errors when no active dashboard is set', async () => {
+      const ctx = makeFakeActionContext();
+      const observation = await handleDashboardSetTitle(ctx, { title: 'X' });
+      expect(observation).toMatch(/no active dashboard/);
       expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
     });
   });
 
   describe('handleDashboardAddPanels', () => {
     it('adds panels and streams a panel_added event for each', async () => {
-      const ctx = makeFakeActionContext();
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
       const observation = await handleDashboardAddPanels(ctx, {
-        dashboardId: 'd1',
         panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
       });
       expect(ctx.actionExecutor.execute).toHaveBeenCalledWith('d1', [
@@ -103,21 +109,26 @@ describe('dashboard handlers', () => {
     });
 
     it('returns an error when panels array is empty', async () => {
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
+      const observation = await handleDashboardAddPanels(ctx, { panels: [] });
+      expect(observation).toMatch(/"panels" array is required/);
+      expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
+    });
+
+    it('errors when no active dashboard is set', async () => {
       const ctx = makeFakeActionContext();
       const observation = await handleDashboardAddPanels(ctx, {
-        dashboardId: 'd1',
-        panels: [],
+        panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
       });
-      expect(observation).toMatch(/"panels" array is required/);
+      expect(observation).toMatch(/no active dashboard/);
       expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
     });
   });
 
   describe('handleDashboardRemovePanels', () => {
     it('removes the listed panels and streams panel_removed events', async () => {
-      const ctx = makeFakeActionContext();
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
       const observation = await handleDashboardRemovePanels(ctx, {
-        dashboardId: 'd1',
         panelIds: ['p1', 'p2'],
       });
       expect(observation).toBe('Removed 2 panel(s).');
@@ -130,9 +141,8 @@ describe('dashboard handlers', () => {
 
   describe('handleDashboardModifyPanel', () => {
     it('forwards the patch to actionExecutor and emits panel_modified', async () => {
-      const ctx = makeFakeActionContext();
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
       const observation = await handleDashboardModifyPanel(ctx, {
-        dashboardId: 'd1',
         panelId: 'p1',
         title: 'Renamed',
       });
@@ -146,9 +156,8 @@ describe('dashboard handlers', () => {
 
   describe('handleDashboardAddVariable', () => {
     it('adds the variable and emits a tool_result', async () => {
-      const ctx = makeFakeActionContext();
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
       const observation = await handleDashboardAddVariable(ctx, {
-        dashboardId: 'd1',
         name: 'env',
         type: 'custom',
       });

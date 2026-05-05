@@ -606,7 +606,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     extendedPrompt:
       `Interleave querying and writing: query → add_section(text) interpreting that result → query more → another section → drop in an evidence panel next to the prose that cites it. Do NOT batch all queries first then dump prose at the end — the report loses the actual reasoning shape.\n` +
       `type=evidence is reserved for the 2–4 panels that carry the conclusion; not "every panel I ran". Each evidence section earns its place next to the paragraph that interprets it.\n` +
-      `Headings are optional and free-form. Don't reflexively reach for "## Initial Assessment" / "## Hypothesis 1" — fit the heading (or absence) to what the paragraph actually says.`,
+      `Every text section MUST start with a short \`## heading\` that names the beat (e.g. \`## Symptom\`, \`## Ruling out load\`, \`## Hotspot: /foo\`). Without headings the rendered report collapses into one wall of text under "Summary" and the user can't tell sections apart. Headings are free-form — fit them to what the paragraph actually says, don't reflexively reach for "## Initial Assessment" / "## Hypothesis 1".`,
     schema: {
       name: 'investigation_add_section',
       description:

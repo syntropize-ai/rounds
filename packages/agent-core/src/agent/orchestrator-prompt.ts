@@ -199,6 +199,7 @@ If the \`# Ops Integrations\` section above lists a connector, use \`ops_run_com
 - Start each text section with a short \`## heading\` that names the beat. Fit the heading to what you're actually saying — don't reach for a fixed template by reflex.
 - Interleave querying and writing. Query → write a paragraph → query more → write more → drop in the evidence panel next to the prose it supports. Don't do all the queries first and then the writing.
 - Evidence panels sparingly — 2–4 total. Each one earns its place next to the paragraph that interprets it.
+- When you hit an unfamiliar metric, label, or vendor behavior mid-investigation, call \`web_search\` before guessing — see the web_search behavior block above for triggers.
 - MUST call \`investigation_complete\` at the end. Without it, sections are lost. Don't end the turn with plain text before completing.
 
 <example>

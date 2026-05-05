@@ -470,6 +470,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'dashboard_add_panels': {
     category: 'always-on',
+    extendedPrompt:
+      `Pre-flight before calling: if the dashboard targets a NAMED system (Redis, Kafka, Postgres, nginx, ...) AND no exporter metric names appear anywhere in the conversation context, call web_search FIRST to get the canonical exporter metric naming + a reference layout. Carve-out: skip web_search only when the exact metric names you're about to use are already quoted in the current conversation (user pasted them, an earlier metrics_discover returned them, etc.).\n` +
+      `Skipping the pre-flight is the dominant failure mode: training-data priors invent plausible-looking names → metrics_validate rejects → re-plan → wasted turns. The web_search round trip is one cheap read; the rebuild is several mutations.\n` +
+      `Validate every non-trivial query through metrics_validate before this call. Pre-deployment dashboards (metrics don't exist yet) skip metrics_validate but STILL benefit from the web_search step — that's where the canonical names come from.`,
     schema: {
       name: 'dashboard_add_panels',
       description:
@@ -730,6 +734,13 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'web_search': {
     category: 'always-on',
+    extendedPrompt:
+      `Cheap read — same cost class as metrics_discover. Spend it liberally; the model's training-data priors on metric names go stale.\n` +
+      `Positive triggers (call BEFORE the next tool):\n` +
+      `1. Named-system dashboard — user names a standard system (Redis, Kafka, Postgres, nginx, etcd, ...). Search for the canonical exporter + reference layout BEFORE constructing panel queries. Skip ONLY if the exact exporter metric names already appear in the conversation.\n` +
+      `2. Investigation hits an unfamiliar metric / label / vendor behavior — when you hit a name like \`redis_aof_rewrite_in_progress\` or \`kafka_consumergroup_lag\` and you can't say what it means in one line from context, search before guessing. Same for "is this a known upstream bug" hypotheses — vendor docs / GitHub issues are the disambiguator.\n` +
+      `3. Best-practice panel layout for an in-house service pattern (HTTP server, gRPC, queue consumer, batch job) when the worked example doesn't already cover it.\n` +
+      `Anti-pattern: skipping the search and inventing metric names from training-data priors. The downstream cost is dashboard_add_panels → metrics_validate failure → wasted turns; cheaper to web_search up front.`,
     schema: {
       name: 'web_search',
       description:

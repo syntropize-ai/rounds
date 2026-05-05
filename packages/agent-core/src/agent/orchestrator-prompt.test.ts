@@ -218,7 +218,7 @@ describe('buildSystemPrompt — # Tool Behaviors (per-tool extendedPrompt)', () 
     const prompt = buildSystemPrompt(null, [], [], null, [], {
       hasPrometheus: false,
       now: '2026-04-18T00:00:00.000Z',
-      allowedTools: ['datasources_list', 'metrics_query', 'web_search'],
+      allowedTools: ['datasources_list', 'metrics_query', 'logs_query'],
     });
     expect(prompt).not.toContain('# Tool Behaviors');
   });
@@ -243,6 +243,28 @@ describe('buildSystemPrompt — # Tool Behaviors (per-tool extendedPrompt)', () 
     expect(prompt).toContain('## remediation_plan_create');
     expect(prompt).toContain('## remediation_plan_create_rescue');
     expect(prompt).toContain('## ops_run_command');
+  });
+
+  it('emits a web_search behavior block with positive triggers when web_search is allowed', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+      allowedTools: ['web_search', 'metrics_query'],
+    });
+    expect(prompt).toContain('## web_search');
+    expect(prompt).toContain('Named-system dashboard');
+    expect(prompt).toContain('unfamiliar metric');
+  });
+
+  it('emits a dashboard_add_panels pre-flight block warning about training-data priors', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+      allowedTools: ['dashboard_add_panels', 'web_search'],
+    });
+    expect(prompt).toContain('## dashboard_add_panels');
+    expect(prompt).toContain('call web_search FIRST');
+    expect(prompt).toContain('training-data priors');
   });
 
   it('places the # Tool Behaviors section in the static block (before the dynamic boundary)', () => {

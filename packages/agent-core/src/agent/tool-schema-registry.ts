@@ -17,6 +17,17 @@ import type { ToolCategory } from './tool-search.js';
 export interface ToolRegistryEntry {
   category: ToolCategory;
   schema: ToolDefinition;
+  /**
+   * Optional per-tool behavior guidance emitted into the system prompt's
+   * static section (`# Tool Behaviors`) when the tool is in the agent's
+   * allowedTools. Use it for high-stakes tools where decision-time WHEN /
+   * WHEN-NOT triggers and anti-patterns reduce misuse. Keep tight: a few
+   * lines per tool. The schema `description` covers shape and is sent on
+   * every call; `extendedPrompt` is for the harder choice of *whether* to
+   * call. Inline this here rather than in a separate file — colocating
+   * with the schema keeps drift visible.
+   */
+  extendedPrompt?: string;
 }
 
 export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
@@ -278,6 +289,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'ops_run_command': {
     category: 'always-on',
+    extendedPrompt:
+      `intent="read" — kubectl get/describe/logs only. Safe during investigation; treat like a metrics query.\n` +
+      `intent="propose" — ad-hoc write proposal OUTSIDE an investigation flow (e.g. user directly says "scale web to 3"). From an investigation turn, prefer remediation_plan_create so the fix is gated under the plan approval UI rather than a one-off proposal.\n` +
+      `intent="execute_approved" — only after an approval has fired AND the executor is running plan steps. Never invoke this directly from a chat or investigation turn; the plan executor calls it for you.\n` +
+      `Anti-pattern: using intent="read" for a mutating verb (scale/apply/delete/patch). The connector rejects it — pick the right intent up front.`,
     schema: {
       name: 'ops_run_command',
       description:
@@ -306,6 +322,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'remediation_plan_create': {
     category: 'always-on',
+    extendedPrompt:
+      `DEFAULT next step after investigation_complete when ALL of: (a) root cause is concrete, (b) the fix is one or more kubectl commands, (c) an attached connector covers the target namespace. Refusing to file a plan in those cases makes the agent worse — humans gate execution at the approval UI, so over-cautious "leave it to the operator" is the wrong posture.\n` +
+      `Skip ONLY when: the user explicitly asked to stop after diagnosis; the fix needs credentials no configured connector has; the next step isn't kubectl-shaped (data migration, code change, ask upstream); the safe action is monitor + re-check.\n` +
+      `Do NOT call from a non-investigation turn. A direct "scale web to 3" in chat is a request, not an investigation outcome — use ops_run_command intent=propose.\n` +
+      `Step ordering: reads/verifications first, then writes, then a final \`kubectl rollout status\` (or equivalent) verification step where it makes sense. Halt-on-failure is the default; only set continueOnError=true on truly non-critical steps (notification, optional cleanup).`,
     schema: {
       name: 'remediation_plan_create',
       description:
@@ -347,6 +368,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'remediation_plan_create_rescue': {
     category: 'deferred',
+    extendedPrompt:
+      `Pair with the primary plan ONLY when each primary write step is reasonably reversible AND you know the exact undo (scale up→down, replicas, env-var flip, ConfigMap patch, image rollback to a known-good tag).\n` +
+      `Skip rescue for inherently irreversible primary steps (\`kubectl delete <unique resource>\`, manual data migration, schema change). A wrong undo is worse than no undo — silence beats fabrication.\n` +
+      `Rescue plans don't auto-approve and don't auto-run. They sit in storage; an operator triggers them from the UI only after the primary fails.`,
     schema: {
       name: 'remediation_plan_create_rescue',
       description:
@@ -545,6 +570,9 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'investigation_create': {
     category: 'always-on',
+    extendedPrompt:
+      `Trigger on diagnostic intents: "why is X" / "investigate X" / "diagnose X" / "排查 X" / "为什么 X 这么慢/高/坏". Do NOT trigger on read intents like "show me X", "what's the value of X", "list X" — those are queries, not investigations.\n` +
+      `Call this at the START of the diagnosis, BEFORE running discovery queries. Investigation sections should capture the actual reasoning trace; if you query first then create the record, the record only contains the writeup, not the live trail.`,
     schema: {
       name: 'investigation_create',
       description:
@@ -575,6 +603,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'investigation_add_section': {
     category: 'deferred',
+    extendedPrompt:
+      `Interleave querying and writing: query → add_section(text) interpreting that result → query more → another section → drop in an evidence panel next to the prose that cites it. Do NOT batch all queries first then dump prose at the end — the report loses the actual reasoning shape.\n` +
+      `type=evidence is reserved for the 2–4 panels that carry the conclusion; not "every panel I ran". Each evidence section earns its place next to the paragraph that interprets it.\n` +
+      `Headings are optional and free-form. Don't reflexively reach for "## Initial Assessment" / "## Hypothesis 1" — fit the heading (or absence) to what the paragraph actually says.`,
     schema: {
       name: 'investigation_add_section',
       description:
@@ -599,6 +631,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'investigation_complete': {
     category: 'deferred',
+    extendedPrompt:
+      `MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n` +
+      `The summary you pass here is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n` +
+      `Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.`,
     schema: {
       name: 'investigation_complete',
       description:
@@ -842,6 +878,26 @@ export function deferredToolNamesForAgent(allowedTools: readonly string[]): stri
   return allowedTools
     .filter((name) => !NON_LLM_TOOLS.has(name))
     .filter((name) => lookupEntry(name).category === 'deferred');
+}
+
+/**
+ * Concatenate the `extendedPrompt` blocks of every allowed tool that has
+ * one, into a `# Tool Behaviors` section. Returns '' if no allowed tool
+ * carries an extended prompt, so callers can `.filter(Boolean)` it out.
+ *
+ * Output is deterministic in `allowedTools` order so the result remains
+ * cacheable across a session — this section lives in the static block
+ * before SYSTEM_PROMPT_DYNAMIC_BOUNDARY.
+ */
+export function toolBehaviorsForAgent(allowedTools: readonly string[]): string {
+  const blocks = allowedTools
+    .filter((name) => !NON_LLM_TOOLS.has(name))
+    .map((name) => ({ name, entry: TOOL_REGISTRY[name] }))
+    .filter((x): x is { name: string; entry: ToolRegistryEntry } => !!x.entry?.extendedPrompt)
+    .map(({ name, entry }) => `## ${name}\n${entry.extendedPrompt!}`);
+
+  if (blocks.length === 0) return '';
+  return `# Tool Behaviors\nPer-tool decision guidance for the higher-stakes tools in your set. The schema description tells you the shape; this tells you when (and when not) to call.\n\n${blocks.join('\n\n')}`;
 }
 
 /** ToolDefinitions for a specific subset of deferred tools — used by the

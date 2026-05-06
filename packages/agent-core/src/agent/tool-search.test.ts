@@ -43,12 +43,20 @@ describe('searchTools — keyword search', () => {
     expect(result.map((d) => d.name).sort()).toEqual(['metrics_query', 'metrics_range_query']);
   });
 
-  it('requires every term to match', () => {
+  it('OR-matches any term and ranks tools matching MORE distinct terms first', () => {
+    // OR semantics: 'logs query' returns logs_query (matches both terms) FIRST,
+    // then metrics_query and metrics_range_query (each matches only "query").
+    // This is the regression fix — under the old AND semantics, only logs_query
+    // came back, hiding the metrics tools entirely.
     const result = searchTools('logs query', REGISTRY);
-    expect(result.map((d) => d.name)).toEqual(['logs_query']);
+    expect(result.map((d) => d.name)).toEqual([
+      'logs_query',           // matches both "logs" + "query" via name parts = 2 terms
+      'metrics_query',        // matches "query" via name parts = 1 term
+      'metrics_range_query',  // matches "query" via name parts = 1 term
+    ]);
   });
 
-  it('ranks name-hits above description-only hits', () => {
+  it('ranks name-hits above description-only hits when termsHit ties', () => {
     const result = searchTools('query', REGISTRY);
     // metrics_query, metrics_range_query, logs_query all hit name; alert_rule_list does not.
     expect(result.map((d) => d.name)).toEqual([
@@ -56,6 +64,39 @@ describe('searchTools — keyword search', () => {
       'metrics_query',
       'metrics_range_query',
     ]);
+  });
+
+  it('matches via tool-name parts even when the term is absent from the description', () => {
+    // The flagship regression case: 'complete investigation' should surface
+    // investigation_complete via name-part parsing. Under the old algorithm
+    // this returned 0 because "complete" appears in no description.
+    const investRegistry: Record<string, ToolDefinition> = {
+      investigation_create: def('investigation_create', 'Start a new investigation record.'),
+      investigation_complete: def('investigation_complete', 'Finalize the active investigation.'),
+      metrics_query: def('metrics_query', 'Run an instant PromQL query.'),
+    };
+    const result = searchTools('complete investigation', investRegistry);
+    // investigation_complete matches both "complete" (name part) and
+    // "investigation" (name part); investigation_create matches only one.
+    expect(result.map((d) => d.name)).toEqual([
+      'investigation_complete',
+      'investigation_create',
+    ]);
+  });
+
+  it('exact tool-name fast path returns just that tool', () => {
+    const result = searchTools('metrics_query', REGISTRY);
+    expect(result.map((d) => d.name)).toEqual(['metrics_query']);
+  });
+
+  it('word-boundary matching prevents false positives from substrings', () => {
+    const localRegistry: Record<string, ToolDefinition> = {
+      operate_thing: def('operate_thing', 'A tool that operates on something.'),
+      rate_limiter: def('rate_limiter', 'Limits the rate of requests.'),
+    };
+    // Term "rate" must NOT match "operate" via substring. Old algorithm did.
+    const result = searchTools('rate', localRegistry);
+    expect(result.map((d) => d.name)).toEqual(['rate_limiter']);
   });
 
   it('routes select: prefix to selectTools', () => {

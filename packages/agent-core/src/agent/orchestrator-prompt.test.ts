@@ -205,77 +205,18 @@ describe('buildSystemPrompt — actions framing + cache boundary', () => {
   });
 });
 
-describe('buildSystemPrompt — # Tool Behaviors (per-tool extendedPrompt)', () => {
-  it('omits the section when allowedTools is not provided', () => {
+describe('per-tool behavior guidance is now inlined into schema descriptions', () => {
+  // The previous "# Tool Behaviors" section was removed; each high-stakes
+  // tool now carries its own decision-time WHEN/WHEN-NOT/anti-pattern
+  // guidance directly in schema.description, so the model sees it adjacent
+  // to the tool definition rather than buried in the static prompt prefix.
+  // The system prompt itself no longer renders the "# Tool Behaviors"
+  // header — descriptions ride the native tool_use protocol.
+  it('does NOT render a "# Tool Behaviors" header in the system prompt', () => {
     const prompt = buildSystemPrompt(null, [], [], null, [], {
       hasPrometheus: false,
       now: '2026-04-18T00:00:00.000Z',
     });
     expect(prompt).not.toContain('# Tool Behaviors');
-  });
-
-  it('omits the section when allowedTools contains no tool with an extendedPrompt', () => {
-    const prompt = buildSystemPrompt(null, [], [], null, [], {
-      hasPrometheus: false,
-      now: '2026-04-18T00:00:00.000Z',
-      allowedTools: ['datasources_list', 'metrics_query', 'logs_query'],
-    });
-    expect(prompt).not.toContain('# Tool Behaviors');
-  });
-
-  it('emits per-tool blocks for the high-stakes tools that have one', () => {
-    const prompt = buildSystemPrompt(null, [], [], null, [], {
-      hasPrometheus: false,
-      now: '2026-04-18T00:00:00.000Z',
-      allowedTools: [
-        'metrics_query',
-        'investigation_create',
-        'investigation_add_section',
-        'investigation_complete',
-        'remediation_plan_create',
-        'remediation_plan_create_rescue',
-        'ops_run_command',
-      ],
-    });
-    expect(prompt).toContain('# Tool Behaviors');
-    expect(prompt).toContain('## investigation_create');
-    expect(prompt).toContain('## investigation_complete');
-    expect(prompt).toContain('## remediation_plan_create');
-    expect(prompt).toContain('## remediation_plan_create_rescue');
-    expect(prompt).toContain('## ops_run_command');
-  });
-
-  it('emits a web_search behavior block with positive triggers when web_search is allowed', () => {
-    const prompt = buildSystemPrompt(null, [], [], null, [], {
-      hasPrometheus: false,
-      now: '2026-04-18T00:00:00.000Z',
-      allowedTools: ['web_search', 'metrics_query'],
-    });
-    expect(prompt).toContain('## web_search');
-    expect(prompt).toContain('Named-system dashboard');
-    expect(prompt).toContain('unfamiliar metric');
-  });
-
-  it('emits a dashboard_add_panels pre-flight block warning about training-data priors', () => {
-    const prompt = buildSystemPrompt(null, [], [], null, [], {
-      hasPrometheus: false,
-      now: '2026-04-18T00:00:00.000Z',
-      allowedTools: ['dashboard_add_panels', 'web_search'],
-    });
-    expect(prompt).toContain('## dashboard_add_panels');
-    expect(prompt).toContain('call web_search FIRST');
-    expect(prompt).toContain('training-data priors');
-  });
-
-  it('places the # Tool Behaviors section in the static block (before the dynamic boundary)', () => {
-    const prompt = buildSystemPrompt(null, [], [], null, [], {
-      hasPrometheus: false,
-      now: '2026-04-18T00:00:00.000Z',
-      allowedTools: ['investigation_create'],
-    });
-    const behaviorsIdx = prompt.indexOf('# Tool Behaviors');
-    const boundaryIdx = prompt.indexOf(SYSTEM_PROMPT_DYNAMIC_BOUNDARY);
-    expect(behaviorsIdx).toBeGreaterThan(-1);
-    expect(boundaryIdx).toBeGreaterThan(behaviorsIdx);
   });
 });

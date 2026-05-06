@@ -20,10 +20,40 @@ describe('tool-schema-registry', () => {
     expect(mismatches).toEqual([]);
   });
 
-  it('remediation_plan_create description carries the LOW COST / REQUIRED / SKIP framing', () => {
+  it('remediation_plan_create description carries the LOW COST / DEFAULT / Skip framing', () => {
     const desc = TOOL_REGISTRY['remediation_plan_create']?.schema.description ?? '';
     expect(desc).toContain('LOW COST');
-    expect(desc).toContain('REQUIRED AFTER INVESTIGATION');
-    expect(desc).toContain('SKIP only when');
+    expect(desc).toContain('DEFAULT next step after investigation_complete');
+    expect(desc).toContain('Skip ONLY when');
+  });
+
+  // The eight high-stakes tools used to carry an `extendedPrompt` field
+  // emitted into a separate "# Tool Behaviors" prompt section. That field
+  // is gone — the guidance now lives in schema.description so it rides the
+  // native tool_use protocol adjacent to the tool definition.
+  // These assertions guard against accidental drop of the inlined content.
+  const INLINED_GUIDANCE: { tool: string; mustContain: string[] }[] = [
+    { tool: 'ops_run_command', mustContain: ['intent="read"', 'intent="propose"', 'intent="execute_approved"'] },
+    { tool: 'remediation_plan_create_rescue', mustContain: ['Pair with the primary plan ONLY', 'silence beats fabrication'] },
+    { tool: 'dashboard_add_panels', mustContain: ['PRE-FLIGHT', 'web_search FIRST', 'training-data priors'] },
+    { tool: 'investigation_create', mustContain: ['Trigger on diagnostic intents', 'BEFORE running discovery queries'] },
+    { tool: 'investigation_add_section', mustContain: ['Interleave querying and writing', 'short `## heading`'] },
+    { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded'] },
+    { tool: 'web_search', mustContain: ['Cheap read', 'Named-system dashboard', 'unfamiliar metric'] },
+  ];
+  for (const { tool, mustContain } of INLINED_GUIDANCE) {
+    it(`${tool} description retains its inlined behavior guidance`, () => {
+      const desc = TOOL_REGISTRY[tool]?.schema.description ?? '';
+      for (const phrase of mustContain) {
+        expect(desc, `${tool}: missing "${phrase}"`).toContain(phrase);
+      }
+    });
+  }
+
+  it('no entry carries the removed extendedPrompt field (drift guard)', () => {
+    const offenders = Object.entries(TOOL_REGISTRY)
+      .filter(([, entry]) => 'extendedPrompt' in entry)
+      .map(([name]) => name);
+    expect(offenders).toEqual([]);
   });
 });

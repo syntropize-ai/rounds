@@ -293,7 +293,6 @@ export class OrchestratorAgent {
       identity: this.deps.identity,
       permissionEscalationContact: this.deps.permissionEscalationContact,
       opsConnectors: this.deps.opsConnectors,
-      allowedTools: this.agentDef.allowedTools,
     })
 
     try {

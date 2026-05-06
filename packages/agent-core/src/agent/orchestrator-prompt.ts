@@ -2,7 +2,6 @@ import type { Dashboard, DashboardMessage, Identity } from '@agentic-obs/common'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import type { DatasourceConfig, OpsConnectorConfig } from './types.js'
 import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
-import { toolBehaviorsForAgent } from './tool-schema-registry.js'
 
 /**
  * Boundary marker separating static (cacheable across sessions) content
@@ -489,13 +488,6 @@ export interface SystemPromptOptions {
   /** Override for deterministic tests. Defaults to `new Date().toISOString()`. */
   now?: string
   opsConnectors?: OpsConnectorConfig[]
-  /**
-   * The agent's allowedTools. When provided, per-tool extendedPrompts from
-   * the registry are emitted as a `# Tool Behaviors` static section between
-   * actions and examples. Stays cacheable: the set is per-agent-type and
-   * doesn't change between turns of the same session.
-   */
-  allowedTools?: readonly string[]
 }
 
 /**
@@ -585,15 +577,12 @@ export function buildSystemPrompt(
     now,
   )
 
-  const toolBehaviors = options?.allowedTools ? toolBehaviorsForAgent(options.allowedTools) : ''
-
   const staticSections = [
     getIntroSection(),
     identitySection,
     getSystemSection(),
     getDoingTasksSection(),
     getActionsSection(),
-    toolBehaviors,
     getExamplesSection(),
     getQueryKnowledgeSection(),
     getToneSection(),

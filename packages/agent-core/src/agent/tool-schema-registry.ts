@@ -17,17 +17,6 @@ import type { ToolCategory } from './tool-search.js';
 export interface ToolRegistryEntry {
   category: ToolCategory;
   schema: ToolDefinition;
-  /**
-   * Optional per-tool behavior guidance emitted into the system prompt's
-   * static section (`# Tool Behaviors`) when the tool is in the agent's
-   * allowedTools. Use it for high-stakes tools where decision-time WHEN /
-   * WHEN-NOT triggers and anti-patterns reduce misuse. Keep tight: a few
-   * lines per tool. The schema `description` covers shape and is sent on
-   * every call; `extendedPrompt` is for the harder choice of *whether* to
-   * call. Inline this here rather than in a separate file — colocating
-   * with the schema keeps drift visible.
-   */
-  extendedPrompt?: string;
 }
 
 export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
@@ -289,15 +278,14 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'ops_run_command': {
     category: 'always-on',
-    extendedPrompt:
-      `intent="read" — kubectl get/describe/logs only. Safe during investigation; treat like a metrics query.\n` +
-      `intent="propose" — ad-hoc write proposal OUTSIDE an investigation flow (e.g. user directly says "scale web to 3"). From an investigation turn, prefer remediation_plan_create so the fix is gated under the plan approval UI rather than a one-off proposal.\n` +
-      `intent="execute_approved" — only after an approval has fired AND the executor is running plan steps. Never invoke this directly from a chat or investigation turn; the plan executor calls it for you.\n` +
-      `Anti-pattern: using intent="read" for a mutating verb (scale/apply/delete/patch). The connector rejects it — pick the right intent up front.`,
     schema: {
       name: 'ops_run_command',
       description:
-        'Run a Kubernetes/Ops command through a configured connector. Only use when the user asks to inspect or operate on cluster state and a connectorId is known. Read commands may run with intent="read"; write/mutating commands must use intent="propose" unless the user is executing an approved proposal.',
+        'Run a Kubernetes/Ops command through a configured connector. Only use when the user asks to inspect or operate on cluster state and a connectorId is known. Read commands may run with intent="read"; write/mutating commands must use intent="propose" unless the user is executing an approved proposal.\n\n' +
+        'intent="read" — kubectl get/describe/logs only. Safe during investigation; treat like a metrics query.\n' +
+        'intent="propose" — ad-hoc write proposal OUTSIDE an investigation flow (e.g. user directly says "scale web to 3"). From an investigation turn, prefer remediation_plan_create so the fix is gated under the plan approval UI rather than a one-off proposal.\n' +
+        'intent="execute_approved" — only after an approval has fired AND the executor is running plan steps. Never invoke this directly from a chat or investigation turn; the plan executor calls it for you.\n\n' +
+        'Anti-pattern: using intent="read" for a mutating verb (scale/apply/delete/patch). The connector rejects it — pick the right intent up front.',
       input_schema: {
         type: 'object',
         properties: {
@@ -322,15 +310,15 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'remediation_plan_create': {
     category: 'always-on',
-    extendedPrompt:
-      `DEFAULT next step after investigation_complete when ALL of: (a) root cause is concrete, (b) the fix is one or more kubectl commands, (c) an attached connector covers the target namespace. Refusing to file a plan in those cases makes the agent worse — humans gate execution at the approval UI, so over-cautious "leave it to the operator" is the wrong posture.\n` +
-      `Skip ONLY when: the user explicitly asked to stop after diagnosis; the fix needs credentials no configured connector has; the next step isn't kubectl-shaped (data migration, code change, ask upstream); the safe action is monitor + re-check.\n` +
-      `Do NOT call from a non-investigation turn. A direct "scale web to 3" in chat is a request, not an investigation outcome — use ops_run_command intent=propose.\n` +
-      `Step ordering: reads/verifications first, then writes, then a final \`kubectl rollout status\` (or equivalent) verification step where it makes sense. Halt-on-failure is the default; only set continueOnError=true on truly non-critical steps (notification, optional cleanup).`,
     schema: {
       name: 'remediation_plan_create',
       description:
-        'Propose a structured remediation plan after an investigation has identified a concrete, in-scope fix.\n\nLOW COST: this tool does NOT execute anything. It creates a pending_approval plan record and a plan-level ApprovalRequest; a human must open the approval and click Approve before any plan step runs. Treat calling this tool as equivalent to saving a draft for review.\n\nREQUIRED AFTER INVESTIGATION when (a) the root cause is concrete, (b) the fix is expressible as one or more kubectl commands, and (c) an attached ops connector covers the target namespace. Do NOT skip the plan in these cases — over-cautious agents that "leave it to the operator" make the product worse than one that proposes liberally and lets the human approve or reject.\n\nSKIP only when the user explicitly asked you to stop after diagnosis, the fix needs credentials the configured connector lacks, or the right next step isn\'t kubectl-shaped (data migration, code change, ask upstream).',
+        'Propose a structured remediation plan after an investigation has identified a concrete, in-scope fix.\n\n' +
+        'LOW COST: this tool does NOT execute anything. It creates a pending_approval plan record and a plan-level ApprovalRequest; a human must open the approval and click Approve before any plan step runs. Treat calling this tool as equivalent to saving a draft for review.\n\n' +
+        'DEFAULT next step after investigation_complete when ALL of: (a) root cause is concrete, (b) the fix is one or more kubectl commands, (c) an attached connector covers the target namespace. Refusing to file a plan in those cases makes the agent worse — humans gate execution at the approval UI, so over-cautious "leave it to the operator" is the wrong posture.\n\n' +
+        'Skip ONLY when: the user explicitly asked to stop after diagnosis; the fix needs credentials no configured connector has; the next step isn\'t kubectl-shaped (data migration, code change, ask upstream); the safe action is monitor + re-check.\n\n' +
+        'Do NOT call from a non-investigation turn. A direct "scale web to 3" in chat is a request, not an investigation outcome — use ops_run_command intent=propose.\n\n' +
+        'Step ordering: reads/verifications first, then writes, then a final `kubectl rollout status` (or equivalent) verification step where it makes sense. Halt-on-failure is the default; only set continueOnError=true on truly non-critical steps (notification, optional cleanup).',
       input_schema: {
         type: 'object',
         properties: {
@@ -368,14 +356,13 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'remediation_plan_create_rescue': {
     category: 'deferred',
-    extendedPrompt:
-      `Pair with the primary plan ONLY when each primary write step is reasonably reversible AND you know the exact undo (scale up→down, replicas, env-var flip, ConfigMap patch, image rollback to a known-good tag).\n` +
-      `Skip rescue for inherently irreversible primary steps (\`kubectl delete <unique resource>\`, manual data migration, schema change). A wrong undo is worse than no undo — silence beats fabrication.\n` +
-      `Rescue plans don't auto-approve and don't auto-run. They sit in storage; an operator triggers them from the UI only after the primary fails.`,
     schema: {
       name: 'remediation_plan_create_rescue',
       description:
-        'Propose a rescue/undo plan paired with a primary plan, to be invoked manually by an operator if the primary fails. Same shape as remediation_plan_create plus rescueForPlanId. Does NOT auto-create an ApprovalRequest; rescue plans are triggered on demand from the UI.',
+        'Propose a rescue/undo plan paired with a primary plan, to be invoked manually by an operator if the primary fails. Same shape as remediation_plan_create plus rescueForPlanId. Does NOT auto-create an ApprovalRequest; rescue plans are triggered on demand from the UI.\n\n' +
+        'Pair with the primary plan ONLY when each primary write step is reasonably reversible AND you know the exact undo (scale up→down, replicas, env-var flip, ConfigMap patch, image rollback to a known-good tag).\n\n' +
+        'Skip rescue for inherently irreversible primary steps (`kubectl delete <unique resource>`, manual data migration, schema change). A wrong undo is worse than no undo — silence beats fabrication.\n\n' +
+        'Rescue plans don\'t auto-approve and don\'t auto-run. They sit in storage; an operator triggers them from the UI only after the primary fails.',
       input_schema: {
         type: 'object',
         properties: {
@@ -470,14 +457,13 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'dashboard_add_panels': {
     category: 'always-on',
-    extendedPrompt:
-      `Pre-flight before calling: if the dashboard targets a NAMED system (Redis, Kafka, Postgres, nginx, ...) AND no exporter metric names appear anywhere in the conversation context, call web_search FIRST to get the canonical exporter metric naming + a reference layout. Carve-out: skip web_search only when the exact metric names you're about to use are already quoted in the current conversation (user pasted them, an earlier metrics_discover returned them, etc.).\n` +
-      `Skipping the pre-flight is the dominant failure mode: training-data priors invent plausible-looking names → metrics_validate rejects → re-plan → wasted turns. The web_search round trip is one cheap read; the rebuild is several mutations.\n` +
-      `Validate every non-trivial query through metrics_validate before this call. Pre-deployment dashboards (metrics don't exist yet) skip metrics_validate but STILL benefit from the web_search step — that's where the canonical names come from.`,
     schema: {
       name: 'dashboard_add_panels',
       description:
-        'Add one or more panels to the active dashboard. Call dashboard_create or dashboard_open first; this tool implicitly targets that dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Validate complex queries with metrics_validate first. Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.',
+        'Add one or more panels to the active dashboard. Call dashboard_create or dashboard_open first; this tool implicitly targets that dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.\n\n' +
+        'PRE-FLIGHT: if the dashboard targets a NAMED system (Redis, Kafka, Postgres, nginx, ...) AND no exporter metric names appear anywhere in the conversation context, call web_search FIRST to get the canonical exporter metric naming + a reference layout. Carve-out: skip web_search only when the exact metric names you\'re about to use are already quoted in the current conversation (user pasted them, an earlier metrics_discover returned them, etc.).\n\n' +
+        'Skipping the pre-flight is the dominant failure mode: training-data priors invent plausible-looking names → metrics_validate rejects → re-plan → wasted turns. The web_search round trip is one cheap read; the rebuild is several mutations.\n\n' +
+        'Validate every non-trivial query through metrics_validate before this call. Pre-deployment dashboards (metrics don\'t exist yet) skip metrics_validate but STILL benefit from the web_search step — that\'s where the canonical names come from.',
       input_schema: {
         type: 'object',
         properties: {
@@ -574,13 +560,12 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'investigation_create': {
     category: 'always-on',
-    extendedPrompt:
-      `Trigger on diagnostic intents: "why is X" / "investigate X" / "diagnose X" / "排查 X" / "为什么 X 这么慢/高/坏". Do NOT trigger on read intents like "show me X", "what's the value of X", "list X" — those are queries, not investigations.\n` +
-      `Call this at the START of the diagnosis, BEFORE running discovery queries. Investigation sections should capture the actual reasoning trace; if you query first then create the record, the record only contains the writeup, not the live trail.`,
     schema: {
       name: 'investigation_create',
       description:
-        'Start a new investigation record for a "why is X" question. Returns investigationId. Use when the user asks for diagnosis or root-cause analysis.',
+        'Start a new investigation record for a "why is X" question. Returns investigationId.\n\n' +
+        'Trigger on diagnostic intents: "why is X" / "investigate X" / "diagnose X" / "排查 X" / "为什么 X 这么慢/高/坏". Do NOT trigger on read intents like "show me X", "what\'s the value of X", "list X" — those are queries, not investigations.\n\n' +
+        'Call this at the START of the diagnosis, BEFORE running discovery queries. Investigation sections should capture the actual reasoning trace; if you query first then create the record, the record only contains the writeup, not the live trail.',
       input_schema: {
         type: 'object',
         properties: {
@@ -607,14 +592,13 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'investigation_add_section': {
     category: 'deferred',
-    extendedPrompt:
-      `Interleave querying and writing: query → add_section(text) interpreting that result → query more → another section → drop in an evidence panel next to the prose that cites it. Do NOT batch all queries first then dump prose at the end — the report loses the actual reasoning shape.\n` +
-      `type=evidence is reserved for the 2–4 panels that carry the conclusion; not "every panel I ran". Each evidence section earns its place next to the paragraph that interprets it.\n` +
-      `Every text section MUST start with a short \`## heading\` that names the beat (e.g. \`## Symptom\`, \`## Ruling out load\`, \`## Hotspot: /foo\`). Without headings the rendered report collapses into one wall of text under "Summary" and the user can't tell sections apart. Headings are free-form — fit them to what the paragraph actually says, don't reflexively reach for "## Initial Assessment" / "## Hypothesis 1".`,
     schema: {
       name: 'investigation_add_section',
       description:
-        'Append a section to the active investigation report. Call investigation_create first; this tool implicitly targets that record. type="text" is narrative analysis (substantial paragraphs); type="evidence" attaches a panel snapshot for a key finding.',
+        'Append a section to the active investigation report. Call investigation_create first; this tool implicitly targets that record. type="text" is narrative analysis (substantial paragraphs); type="evidence" attaches a panel snapshot for a key finding.\n\n' +
+        'Interleave querying and writing: query → add_section(text) interpreting that result → query more → another section → drop in an evidence panel next to the prose that cites it. Do NOT batch all queries first then dump prose at the end — the report loses the actual reasoning shape.\n\n' +
+        'type=evidence is reserved for the 2–4 panels that carry the conclusion; not "every panel I ran". Each evidence section earns its place next to the paragraph that interprets it.\n\n' +
+        'Every text section MUST start with a short `## heading` that names the beat (e.g. `## Symptom`, `## Ruling out load`, `## Hotspot: /foo`). Without headings the rendered report collapses into one wall of text under "Summary" and the user can\'t tell sections apart. Headings are free-form — fit them to what the paragraph actually says, don\'t reflexively reach for "## Initial Assessment" / "## Hypothesis 1".',
       input_schema: {
         type: 'object',
         properties: {
@@ -635,14 +619,13 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   'investigation_complete': {
     category: 'deferred',
-    extendedPrompt:
-      `MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n` +
-      `The summary you pass here is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n` +
-      `Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.`,
     schema: {
       name: 'investigation_complete',
       description:
-        'Finalize the active investigation, save the report, and navigate to it. MUST be called at the end of every investigation — without it, all sections are lost. Implicitly targets the investigation_create record from this session.',
+        'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session.\n\n' +
+        'MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n\n' +
+        'The summary you pass here is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
+        'Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.',
       input_schema: {
         type: 'object',
         properties: {
@@ -734,17 +717,15 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   'web_search': {
     category: 'always-on',
-    extendedPrompt:
-      `Cheap read — same cost class as metrics_discover. Spend it liberally; the model's training-data priors on metric names go stale.\n` +
-      `Positive triggers (call BEFORE the next tool):\n` +
-      `1. Named-system dashboard — user names a standard system (Redis, Kafka, Postgres, nginx, etcd, ...). Search for the canonical exporter + reference layout BEFORE constructing panel queries. Skip ONLY if the exact exporter metric names already appear in the conversation.\n` +
-      `2. Investigation hits an unfamiliar metric / label / vendor behavior — when you hit a name like \`redis_aof_rewrite_in_progress\` or \`kafka_consumergroup_lag\` and you can't say what it means in one line from context, search before guessing. Same for "is this a known upstream bug" hypotheses — vendor docs / GitHub issues are the disambiguator.\n` +
-      `3. Best-practice panel layout for an in-house service pattern (HTTP server, gRPC, queue consumer, batch job) when the worked example doesn't already cover it.\n` +
-      `Anti-pattern: skipping the search and inventing metric names from training-data priors. The downstream cost is dashboard_add_panels → metrics_validate failure → wasted turns; cheaper to web_search up front.`,
     schema: {
       name: 'web_search',
       description:
-        'Search the web for monitoring best practices, metric naming conventions, and dashboard patterns. Use proactively before creating dashboards, even on familiar stacks.',
+        'Search the web for monitoring best practices, metric naming conventions, and dashboard patterns. Cheap read — same cost class as metrics_discover. Spend it liberally; the model\'s training-data priors on metric names go stale.\n\n' +
+        'Call this BEFORE the next tool when ANY of:\n' +
+        '1. Named-system dashboard — user names a standard system (Redis, Kafka, Postgres, nginx, etcd, ...). Search for the canonical exporter + reference layout BEFORE constructing panel queries. Skip ONLY if the exact exporter metric names already appear in the conversation.\n' +
+        '2. Investigation hits an unfamiliar metric / label / vendor behavior — when you hit a name like `redis_aof_rewrite_in_progress` or `kafka_consumergroup_lag` and you can\'t say what it means in one line from context, search before guessing. Same for "is this a known upstream bug" hypotheses — vendor docs / GitHub issues are the disambiguator.\n' +
+        '3. Best-practice panel layout for an in-house service pattern (HTTP server, gRPC, queue consumer, batch job) when the worked example doesn\'t already cover it.\n\n' +
+        'Anti-pattern: skipping the search and inventing metric names from training-data priors. The downstream cost is dashboard_add_panels → metrics_validate failure → wasted turns; cheaper to web_search up front.',
       input_schema: {
         type: 'object',
         properties: {
@@ -889,26 +870,6 @@ export function deferredToolNamesForAgent(allowedTools: readonly string[]): stri
   return allowedTools
     .filter((name) => !NON_LLM_TOOLS.has(name))
     .filter((name) => lookupEntry(name).category === 'deferred');
-}
-
-/**
- * Concatenate the `extendedPrompt` blocks of every allowed tool that has
- * one, into a `# Tool Behaviors` section. Returns '' if no allowed tool
- * carries an extended prompt, so callers can `.filter(Boolean)` it out.
- *
- * Output is deterministic in `allowedTools` order so the result remains
- * cacheable across a session — this section lives in the static block
- * before SYSTEM_PROMPT_DYNAMIC_BOUNDARY.
- */
-export function toolBehaviorsForAgent(allowedTools: readonly string[]): string {
-  const blocks = allowedTools
-    .filter((name) => !NON_LLM_TOOLS.has(name))
-    .map((name) => ({ name, entry: TOOL_REGISTRY[name] }))
-    .filter((x): x is { name: string; entry: ToolRegistryEntry } => !!x.entry?.extendedPrompt)
-    .map(({ name, entry }) => `## ${name}\n${entry.extendedPrompt!}`);
-
-  if (blocks.length === 0) return '';
-  return `# Tool Behaviors\nPer-tool decision guidance for the higher-stakes tools in your set. The schema description tells you the shape; this tells you when (and when not) to call.\n\n${blocks.join('\n\n')}`;
 }
 
 /** ToolDefinitions for a specific subset of deferred tools — used by the

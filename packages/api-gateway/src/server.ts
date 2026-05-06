@@ -336,6 +336,32 @@ export async function startServer(port = 3000): Promise<void> {
   const wsDeps = app.locals['websocketGatewayDeps'] as WebSocketGatewayDeps | undefined;
   const { httpServer, gateway } = createWebSocketGateway(app, createEventBusFromEnv(), wsDeps);
 
+  // Friendly listen errors. Without an `error` handler, Node crashes the
+  // process with an unhandled-event stack trace on EADDRINUSE — bad UX for
+  // the common "I already have something on :3000" case. Catch the two
+  // listen errors a user can actually do something about and print a
+  // prescriptive one-liner instead of the raw trace.
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      process.stderr.write(
+        `\nopenobs: port ${port} is already in use.\n\n` +
+        `  • Kill what's holding it:   lsof -ti :${port} | xargs kill\n` +
+        `  • Or run on another port:   PORT=${port + 1} openobs\n\n`,
+      );
+      process.exit(1);
+    }
+    if (err.code === 'EACCES') {
+      process.stderr.write(
+        `\nopenobs: permission denied to bind port ${port}.\n` +
+        `Pick a port ≥1024 or run with elevated privileges.\n` +
+        `  PORT=8080 openobs\n\n`,
+      );
+      process.exit(1);
+    }
+    log.fatal({ err: err.message, code: err.code }, 'listen failed');
+    process.exit(1);
+  });
+
   httpServer.listen(port, () => {
     log.info({ port }, 'API gateway listening');
   });

@@ -12,7 +12,8 @@ Local CLIs on `$PATH`:
 - kind
 - kubectl
 - helm
-- chainsaw
+- Kyverno Chainsaw (`brew install kyverno/chainsaw/chainsaw`; Homebrew core
+  has a different `chainsaw` binary that does not support `chainsaw test`)
 - jq
 - node 20+ (and the repo's `npm install`)
 

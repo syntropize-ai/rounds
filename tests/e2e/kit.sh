@@ -102,6 +102,12 @@ cmd_run() {
 
   if [[ "${has_chainsaw}" -eq 1 ]]; then
     phase "chainsaw tests"
+    if ! command -v chainsaw >/dev/null 2>&1; then
+      die "chainsaw CLI not found; install Kyverno Chainsaw with: brew install kyverno/chainsaw/chainsaw"
+    fi
+    if ! chainsaw test --help >/dev/null 2>&1; then
+      die "chainsaw CLI on PATH does not support 'chainsaw test'; install Kyverno Chainsaw with: brew install kyverno/chainsaw/chainsaw"
+    fi
     chainsaw test "${E2E_ROOT}/chainsaw/tests"
   else
     warn "no chainsaw tests"

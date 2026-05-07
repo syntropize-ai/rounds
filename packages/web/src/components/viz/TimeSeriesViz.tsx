@@ -1027,6 +1027,10 @@ const LEGEND_CONTAINER_STYLE: CSSProperties = {
   maxHeight: '33%',
   overflowY: 'auto',
   flexShrink: 0,
+  // Match the chart's left/right gutter so the legend doesn't visually
+  // butt up against the panel edge. The table mode in particular had
+  // its color swatch column sitting at x=0 with no breathing room.
+  paddingInline: 8,
 };
 
 function pickStat(meta: SeriesMeta, stat: LegendStat): number | null {

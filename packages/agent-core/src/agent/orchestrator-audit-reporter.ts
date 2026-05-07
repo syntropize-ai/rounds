@@ -5,6 +5,7 @@ import type { AgentDefinition } from './agent-definition.js';
 import type { IAuditWriter, PermissionGateResult } from './types-permissions.js';
 
 const log = createLogger('orchestrator');
+const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
 
 /** Per-(userId, tool) rate-limit window for `agent.tool_called` audit rows. */
 const ALLOW_AUDIT_COOLDOWN_MS = 60_000;
@@ -107,7 +108,7 @@ function inferTargetId(tool: string, args: Record<string, unknown>): string | nu
   // (folderUid), update/delete operate on a specific rule (ruleId).
   if (tool === 'alert_rule_write') {
     const op = typeof args.op === 'string' ? args.op : '';
-    if (op === 'create') return pickString(args.folderUid);
+    if (op === 'create') return pickString(args.folderUid ?? DEFAULT_ALERT_RULE_FOLDER_UID);
     if (op === 'update' || op === 'delete') return pickString(args.ruleId);
     return null;
   }

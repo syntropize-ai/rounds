@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import type { AlertRule, AlertSilence, NotificationPolicy } from '@agentic-obs/common';
-import { getErrorMessage, ac, ACTIONS } from '@agentic-obs/common';
+import type { AlertRule, AlertSilence, NotificationPolicy, IFolderRepository } from '@agentic-obs/common';
+import {
+  ACTIONS,
+  ac,
+  getErrorMessage,
+} from '@agentic-obs/common';
 import type { IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
 import { defaultAlertRuleStore } from '@agentic-obs/data-layer';
 import { runBackgroundAgent, type BackgroundRunnerDeps } from '@agentic-obs/agent-core';
@@ -15,6 +19,8 @@ import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 
 const log = createLogger('alert-rules-route');
+const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
+const DEFAULT_ALERT_RULE_FOLDER_TITLE = 'Alerts';
 
 /**
  * Resolve the current request's org id. Prefers `req.auth.orgId` populated by
@@ -36,6 +42,7 @@ export interface AlertRulesRouterDeps {
   reportStore?: IInvestigationReportRepository;
   /** W2 / T2.4 — required for the `/generate` endpoint to reach the LLM config. */
   setupConfig: SetupConfigService;
+  folderRepository: IFolderRepository;
   /**
    * RBAC surface. `AccessControlSurface` is used (not the concrete service)
    * because this router is mounted outside the async auth IIFE in server.ts
@@ -57,6 +64,34 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   const router = Router();
   const alertRuleService = new AlertRuleService(store, deps.setupConfig);
   const requirePermission = createRequirePermission(deps.ac);
+
+  async function resolveAlertRuleFolderUid(
+    workspaceId: string,
+    userId: string | undefined,
+    requested?: string,
+  ): Promise<string> {
+    const folderUid = requested?.trim();
+    if (folderUid) return folderUid;
+
+    const existing = await deps.folderRepository.findByUid(workspaceId, DEFAULT_ALERT_RULE_FOLDER_UID);
+    if (existing) return existing.uid;
+
+    const created = await deps.folderRepository.create({
+      uid: DEFAULT_ALERT_RULE_FOLDER_UID,
+      orgId: workspaceId,
+      title: DEFAULT_ALERT_RULE_FOLDER_TITLE,
+      description: 'Default folder for alert rules created without an explicit folder.',
+      parentUid: null,
+      createdBy: userId ?? null,
+      updatedBy: userId ?? null,
+    });
+    return created.uid;
+  }
+
+  function requestFolderUid(req: Request): string {
+    const raw = (req.body as { folderUid?: unknown } | undefined)?.folderUid;
+    return typeof raw === 'string' ? raw.trim() : '';
+  }
 
   async function loadOwnedRule(req: Request, res: Response): Promise<AlertRule | null> {
     const rule = await store.findById(req.params['id'] ?? '');
@@ -87,22 +122,37 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
 
   router.post(
     '/generate',
-    requirePermission(() => ac.eval(ACTIONS.AlertRulesCreate, 'folders:*')),
+    requirePermission((req) => {
+      const folderUid = requestFolderUid(req) || DEFAULT_ALERT_RULE_FOLDER_UID;
+      return ac.eval(ACTIONS.AlertRulesCreate, `folders:uid:${folderUid}`);
+    }),
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const body = req.body as { prompt?: string };
+        const body = req.body as { prompt?: string; folderUid?: string };
         if (!body?.prompt || typeof body.prompt !== 'string' || body.prompt.trim() === '') {
           res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'prompt is required' } });
           return;
         }
 
         const workspaceId = resolveOrgId(req);
+        const folderUid = await resolveAlertRuleFolderUid(
+          workspaceId,
+          (req as AuthenticatedRequest).auth?.userId,
+          body.folderUid,
+        );
         const { rule } = await alertRuleService.generateFromPrompt(body.prompt.trim(), workspaceId);
         // Keep older stores/tests that derive scope from labels aligned with workspaceId.
-        if (workspaceId !== 'default') {
-          await store.update(rule.id, { workspaceId, labels: { ...rule.labels, workspaceId } });
+        const updatePatch: Partial<AlertRule> = {
+          folderUid,
+          ...(workspaceId !== 'default'
+            ? { workspaceId, labels: { ...rule.labels, workspaceId } }
+            : {}),
+        };
+        const scopedRule = await store.update(rule.id, updatePatch);
+        if (!scopedRule) {
+          throw new Error(`Generated alert rule disappeared before folder assignment: ${rule.id}`);
         }
-        res.status(201).json(rule);
+        res.status(201).json(scopedRule);
       } catch (err: unknown) {
         const message = getErrorMessage(err);
         if (message.includes('LLM not configured')) {
@@ -279,7 +329,10 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
 
   router.post(
     '/',
-    requirePermission(() => ac.eval(ACTIONS.AlertRulesCreate, 'folders:*')),
+    requirePermission((req) => {
+      const folderUid = requestFolderUid(req) || DEFAULT_ALERT_RULE_FOLDER_UID;
+      return ac.eval(ACTIONS.AlertRulesCreate, `folders:uid:${folderUid}`);
+    }),
     async (req: Request, res: Response) => {
       const body = req.body as Partial<AlertRule>;
       if (!body?.name || !body.condition) {
@@ -288,6 +341,11 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       }
 
       const workspaceId = resolveOrgId(req);
+      const folderUid = await resolveAlertRuleFolderUid(
+        workspaceId,
+        (req as AuthenticatedRequest).auth?.userId,
+        typeof body.folderUid === 'string' ? body.folderUid : undefined,
+      );
       type AlertRuleCreateInput = Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>;
       const createInput: AlertRuleCreateInput = {
         name: body.name,
@@ -300,6 +358,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         createdBy: body.createdBy ?? 'user',
         notificationPolicyId: body.notificationPolicyId,
         workspaceId,
+        folderUid,
       };
       const rule = await store.create(createInput);
 

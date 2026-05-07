@@ -24,6 +24,8 @@ import { ACTIONS, ac } from '@agentic-obs/common';
 import type { ActionContext } from './orchestrator-action-handlers.js';
 import type { ToolPermissionBuilder } from './types-permissions.js';
 
+const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
+
 /**
  * Resolve the datasource UID for a source-agnostic metrics / logs / changes
  * tool call. The LLM is now required to pass `sourceId` (see orchestrator
@@ -116,17 +118,18 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   // -- Alert rules ---------------------------------------------------------
   // alert_rule_write is the unified create/update/delete tool. The op
   // discriminator decides which RBAC action to evaluate:
-  //   - op=create   → alert.rules:create on folders:uid:<folderUid|*>
+  //   - op=create   → alert.rules:create on folders:uid:<folderUid|alerts>
   //   - op=update   → alert.rules:write  on folders:uid:<rule's folderUid|*>
   //   - op=delete   → alert.rules:delete on folders:uid:<rule's folderUid|*>
-  // create folderUid comes straight from the args; update/delete need an
-  // async lookup against the store to resolve the rule's folder.
+  // create folderUid comes from the args when present; otherwise it uses the
+  // default Alerts folder. update/delete need an async lookup against the store
+  // to resolve the rule's folder.
   'alert_rule_write': async (args: Record<string, unknown>, ctx: ActionContext) => {
     const op = typeof args.op === 'string' ? args.op : '';
     if (op === 'create') {
       return ac.eval(
         'alert.rules:create',
-        `folders:uid:${String(args.folderUid ?? '*')}`,
+        `folders:uid:${String(args.folderUid ?? DEFAULT_ALERT_RULE_FOLDER_UID)}`,
       );
     }
     if (op === 'update' || op === 'delete') {

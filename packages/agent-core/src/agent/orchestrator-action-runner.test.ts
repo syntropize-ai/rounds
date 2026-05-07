@@ -1,7 +1,7 @@
 /**
  * Tests for the schema-driven required-arg check in
  * PermissionWrappedActionRunner.execute. Covers the generic missing-arg path
- * and the alert_rule_write op=create folderUid auto-fill.
+ * and the alert_rule_write op=create default folder path.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -12,6 +12,8 @@ import type { ReActStep } from './react-loop.js';
 import { agentRegistry } from './agent-registry.js';
 import { makeFakeActionContext } from './handlers/_test-helpers.js';
 import type { ActionContext } from './handlers/_context.js';
+
+const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
 
 function makeRunner() {
   const sendEvent = vi.fn();
@@ -33,9 +35,9 @@ function makeRunner() {
 function fakeFolderRepo(folders: Array<{ uid: string; title: string; parentUid?: string | null }>) {
   return {
     list: vi.fn().mockResolvedValue({ items: folders, total: folders.length }),
-    create: vi.fn(),
+    create: vi.fn(async (input) => ({ id: input.uid, ...input, created: '', updated: '' })),
     findById: vi.fn(),
-    findByUid: vi.fn(),
+    findByUid: vi.fn(async (_orgId: string, uid: string) => folders.find((f) => f.uid === uid) ?? null),
     listAncestors: vi.fn(),
     listChildren: vi.fn(),
     update: vi.fn(),
@@ -64,9 +66,9 @@ describe('PermissionWrappedActionRunner — required-arg validation', () => {
     expect((auditReporter.writeToolAudit as ReturnType<typeof vi.fn>)).not.toHaveBeenCalledWith('allow', expect.anything(), expect.anything(), expect.anything());
   });
 
-  it('auto-fills folderUid for alert_rule_write op=create when exactly one folder is visible', async () => {
+  it('creates alert_rule_write op=create in the default Alerts folder when folderUid is omitted', async () => {
     const { runner } = makeRunner();
-    const folderRepo = fakeFolderRepo([{ uid: 'general', title: 'General', parentUid: null }]);
+    const folderRepo = fakeFolderRepo([]);
     const alertRuleAgent = {
       generate: vi.fn().mockResolvedValue({
         rule: {
@@ -101,27 +103,53 @@ describe('PermissionWrappedActionRunner — required-arg validation', () => {
     // The handler ran (created the rule) and the folderUid was filled silently.
     expect(observation).not.toMatch(/missing required argument/);
     expect(created.length).toBe(1);
-    expect(created[0]!.folderUid).toBe('general');
-    expect(folderRepo!.list).toHaveBeenCalled();
+    expect(created[0]!.folderUid).toBe(DEFAULT_ALERT_RULE_FOLDER_UID);
+    expect(folderRepo!.findByUid).toHaveBeenCalledWith('test-org', DEFAULT_ALERT_RULE_FOLDER_UID);
+    expect(folderRepo!.create).toHaveBeenCalledWith(expect.objectContaining({
+      uid: DEFAULT_ALERT_RULE_FOLDER_UID,
+      title: 'Alerts',
+    }));
   });
 
-  it('returns a folder-list clarifying message when alert_rule_write op=create has multiple folders', async () => {
+  it('uses an explicitly requested folder for alert_rule_write op=create', async () => {
     const { runner } = makeRunner();
     const folderRepo = fakeFolderRepo([
       { uid: 'prod', title: 'Production', parentUid: null },
       { uid: 'staging', title: 'Staging', parentUid: null },
     ]);
-    const ctx = makeFakeActionContext({ folderRepository: folderRepo });
+    const alertRuleAgent = {
+      generate: vi.fn().mockResolvedValue({
+        rule: {
+          name: 'High latency',
+          description: 'd',
+          condition: { query: 'up', operator: '>', threshold: 1, forDurationSec: 60 },
+          evaluationIntervalSec: 60,
+          severity: 'high',
+          labels: {},
+        },
+      }),
+    };
+    const created: Array<Record<string, unknown>> = [];
+    const ctx = makeFakeActionContext({
+      folderRepository: folderRepo,
+      alertRuleAgent: alertRuleAgent as unknown as ActionContext['alertRuleAgent'],
+      alertRuleStore: {
+        create: vi.fn(async (input: Record<string, unknown>) => {
+          created.push(input);
+          return { id: 'rule-1', ...input } as never;
+        }),
+      } as unknown as ActionContext['alertRuleStore'],
+    });
 
     const step: ReActStep = {
       thought: '',
       action: 'alert_rule_write',
-      args: { op: 'create', prompt: 'Alert when error rate > 5%' },
+      args: { op: 'create', prompt: 'Alert when error rate > 5%', folderUid: 'prod' },
     };
     const observation = await runner.execute(step, ctx);
 
-    expect(observation).toMatch(/requires "folderUid"/);
-    expect(observation).toContain('Production');
-    expect(observation).toContain('Staging');
+    expect(observation).not.toMatch(/missing required argument/);
+    expect(created[0]!.folderUid).toBe('prod');
+    expect(folderRepo!.create).not.toHaveBeenCalled();
   });
 });

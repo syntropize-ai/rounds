@@ -27,6 +27,8 @@ async function evalAlertRuleWrite(
 }
 
 const log = createLogger('handlers/alert');
+const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
+const DEFAULT_ALERT_RULE_FOLDER_TITLE = 'Alerts';
 
 // ---------------------------------------------------------------------------
 // Alert rule write — single tool with an `op` discriminator that replaces the
@@ -46,14 +48,7 @@ async function createAlertRule(
 ): Promise<string> {
   const prompt = String(args.prompt ?? args.goal ?? '');
   const dashboardId = String(args.dashboardId ?? '');
-  // folderUid is REQUIRED (matches the RBAC gate scope so authorization
-  // happens against the actual destination, not caller-supplied metadata
-  // that gets dropped). Without it the gate would be a no-op security
-  // theater. See tool-permissions.ts 'alert_rule_write' op=create branch.
-  const folderUid = typeof args.folderUid === 'string' ? args.folderUid.trim() : '';
-  if (!folderUid) {
-    return 'Error: alert_rule_write with op="create" requires "folderUid" — the folder that owns the rule. Without it the RBAC check would authorize against a value the rule never persists.';
-  }
+  const folderUid = await resolveAlertRuleFolderUid(ctx, args);
 
   const currentDash = dashboardId ? await ctx.store.findById(dashboardId) : undefined;
   const existingQueries = (currentDash?.panels ?? [])
@@ -156,6 +151,35 @@ async function createAlertRule(
     evaluationIntervalSec: Number(rule.evaluationIntervalSec ?? generated.evaluationIntervalSec),
   });
   return `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.`;
+}
+
+async function resolveAlertRuleFolderUid(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const requested = typeof args.folderUid === 'string' ? args.folderUid.trim() : '';
+  if (requested) return requested;
+
+  if (!ctx.folderRepository) {
+    throw new Error('Folder backend is required to create alert rules without an explicit folder.');
+  }
+
+  const existing = await ctx.folderRepository.findByUid(
+    ctx.identity.orgId,
+    DEFAULT_ALERT_RULE_FOLDER_UID,
+  );
+  if (existing) return existing.uid;
+
+  const created = await ctx.folderRepository.create({
+    uid: DEFAULT_ALERT_RULE_FOLDER_UID,
+    orgId: ctx.identity.orgId,
+    title: DEFAULT_ALERT_RULE_FOLDER_TITLE,
+    description: 'Default folder for alert rules created without an explicit folder.',
+    parentUid: null,
+    createdBy: ctx.identity.userId,
+    updatedBy: ctx.identity.userId,
+  });
+  return created.uid;
 }
 
 async function updateAlertRule(

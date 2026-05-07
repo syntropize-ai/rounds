@@ -142,6 +142,16 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
+  it('alert_rule_write op=create defaults to the Alerts folder when folderUid is omitted', async () => {
+    const result = await TOOL_PERMS['alert_rule_write']!(
+      { op: 'create' },
+      makeCtx(),
+    );
+    expect((result as { string: () => string }).string()).toBe(
+      'alert.rules:create on folders:uid:alerts',
+    );
+  });
+
   it('alert_rule_write op=update looks up the rule to derive folderUid', async () => {
     const ctx = makeCtx({
       alertRuleStore: {

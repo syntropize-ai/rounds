@@ -117,9 +117,8 @@ export class PermissionWrappedActionRunner {
     // --- Required-arg validation (schema-driven) ---
     // Detect missing required args before dispatching to the handler so we can
     // tell the user what's missing instead of letting the handler fail and the
-    // model retry blindly. For alert_rule_write op=create with a missing
-    // folderUid, attempt a silent auto-pick when exactly one folder is
-    // visible; otherwise return a clarifying message that lists the folders.
+    // model retry blindly. alert_rule_write op=create intentionally does not
+    // require folderUid; the handler owns the default Alerts folder rule.
     const missingObs = await checkRequiredArgs(action, args, ctx);
     if (missingObs !== null) {
       this.deps.sendEvent({
@@ -228,42 +227,15 @@ async function dispatchAction(
  * argument is missing — the runner surfaces that to the user as a tool_result
  * and short-circuits dispatch so the model doesn't retry blindly.
  *
- * Special case: `alert_rule_write` op=create requires `folderUid`. If exactly
- * one folder is visible we auto-fill silently (UX nicety — almost every
- * single-folder install hit this). Otherwise we return a list of folders so
- * the next user reply can pick one.
+ * Special case: `alert_rule_write` op=create can omit `folderUid`; the handler
+ * will place the rule in the org's default Alerts folder. A caller can still
+ * pass a concrete `folderUid` when the user explicitly asks for one.
  */
 async function checkRequiredArgs(
   action: string,
   args: Record<string, unknown>,
-  ctx: ActionContext,
+  _ctx: ActionContext,
 ): Promise<string | null> {
-  // alert_rule_write: try to fill folderUid before generic validation runs.
-  if (action === 'alert_rule_write' && args.op === 'create') {
-    const hasFolderUid = typeof args.folderUid === 'string' && args.folderUid.trim() !== '';
-    if (!hasFolderUid && ctx.folderRepository) {
-      try {
-        const page = await ctx.folderRepository.list({ orgId: ctx.identity.orgId, parentUid: null, limit: 50 });
-        const folders = page.items;
-        if (folders.length === 1) {
-          // Silent auto-pick — single folder, no ambiguity.
-          args.folderUid = folders[0]!.uid;
-        } else if (folders.length === 0) {
-          return 'alert_rule_write op="create" needs a folder, but no folders are configured. Create one with folder_create first, or ask the user where the rule should live.';
-        } else {
-          const list = folders
-            .slice(0, 10)
-            .map((f) => `- ${f.title} (uid=${f.uid})`)
-            .join('\n');
-          return `alert_rule_write op="create" requires "folderUid" and there are ${folders.length} folders to choose from. Use ask_user with these as options so the user picks one:\n${list}`;
-        }
-      } catch {
-        // Folder lookup failed — fall through to generic validation, which
-        // will tell the model folderUid is missing and let it ask the user.
-      }
-    }
-  }
-
   const entry = TOOL_REGISTRY[action];
   const required = entry?.schema.input_schema?.required ?? [];
   const missing = required.filter((name) => {

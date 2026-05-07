@@ -645,7 +645,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       name: 'alert_rule_write',
       description:
         'Create, update, or delete an alert rule — three verbs share one tool. Required: op. Per op:\n' +
-        ' - op="create": requires `prompt` (natural-language description). The rule generator produces PromQL, threshold, severity, labels. Query the current metric value first so the threshold is grounded in real data. Optional `dashboardId` reuses that dashboard\'s queries/variables.\n' +
+        ' - op="create": requires `prompt` (natural-language description). The rule generator produces PromQL, threshold, severity, labels. Query the current metric value first so the threshold is grounded in real data. Optional `dashboardId` reuses that dashboard\'s queries/variables. Optional `folderUid` only when the user explicitly names a folder; otherwise the rule lands in the default Alerts folder.\n' +
         ' - op="update": requires `ruleId`. Pass only the fields to change (threshold, operator, severity, forDurationSec, evaluationIntervalSec, query, name). Resolve "it"/"this alert" via Active Alert Rule Context.\n' +
         ' - op="delete": requires `ruleId`. Irreversible.',
       input_schema: {
@@ -658,7 +658,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
           ruleId: { type: 'string', description: 'Required for op=update / op=delete: id of the rule.' },
           prompt: { type: 'string', description: 'Required for op=create: natural-language description of the alert condition.' },
-          folderUid: { type: 'string', description: 'Required for op=create: the folder uid that owns the rule. Drives both RBAC scoping and where the rule lands. Use folder_list / folder_create first if unsure.' },
+          folderUid: { type: 'string', description: 'Optional for op=create: folder uid that owns the rule. Omit unless the user explicitly asks for a folder; omitted rules land in the default Alerts folder.' },
           dashboardId: { type: 'string', description: 'Optional for op=create: when set, the generator reuses dashboard queries/variables for consistency.' },
           threshold: { type: 'number', description: 'For op=update: new trigger threshold.' },
           operator: {

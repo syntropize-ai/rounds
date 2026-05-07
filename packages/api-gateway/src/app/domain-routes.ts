@@ -243,6 +243,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     feedStore: eventFeedStore,
     reportStore: repos.investigationReports,
     setupConfig,
+    folderRepository: sharedFolderRepo,
     ac: accessControl,
     ...(deps.runner ? { runner: deps.runner } : {}),
   }));

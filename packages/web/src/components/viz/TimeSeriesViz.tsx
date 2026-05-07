@@ -1146,10 +1146,18 @@ function LegendLayer({
             style={{
               // Each item declares its own min-width so flex-wrap lays them
               // out as tidy columns at narrow widths instead of jagged rows.
-              flex: '1 1 220px',
-              minWidth: 220,
+              // Reduced 220→160 so a single CJK series name (~50px) plus one
+              // stat ("Mean: 133.16 req/s" ~110px) fits without ellipsis at
+              // ~300px panel widths.
+              flex: '1 1 160px',
+              minWidth: 0,
               maxWidth: '100%',
               display: 'inline-flex',
+              // Wrap items inside the button so a too-narrow container moves
+              // the stat onto a second line under the name instead of
+              // squeezing the name to ellipsis. CJK names are ~2× the px-per-
+              // glyph of Latin so the squeeze hits non-Latin labels hard.
+              flexWrap: 'wrap',
               alignItems: 'center',
               gap: 8,
               padding: '2px 4px',
@@ -1176,11 +1184,13 @@ function LegendLayer({
             />
             <span
               style={{
-                flex: 1,
+                flex: '1 1 auto',
                 minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                // No ellipsis — the wrap on the parent button lets the stats
+                // drop to a second line so the name can stay whole. Allow
+                // CJK / long labels to wrap as a last resort instead of
+                // truncating mid-character.
+                overflowWrap: 'anywhere',
               }}
             >
               {meta.displayName}

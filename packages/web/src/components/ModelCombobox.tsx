@@ -115,6 +115,18 @@ export function ModelCombobox({
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
         className={inputClassName}
+        // Suppress browser password / contact / address autofill — this is a
+        // model-id picker, not a credential field. Chrome historically ignores
+        // bare `off` but respects "off" + a synthetic name; password managers
+        // (1Password, LastPass, Bitwarden) read the data-* hints.
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        name="model-id-picker"
+        data-1p-ignore="true"
+        data-lpignore="true"
+        data-form-type="other"
         aria-autocomplete="list"
         aria-expanded={open}
       />

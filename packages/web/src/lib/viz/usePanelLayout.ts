@@ -135,7 +135,6 @@ export function usePanelLayout(
     });
     ro.observe(el);
     return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref]);
 
   const sizeClass: PanelSizeClass =

@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.js';
 import { authApi, AuthApiError, type LoginProvider } from '../api/client.js';
-import { OpenObsLogo } from '../components/OpenObsLogo.js';
+import { RoundsLogo } from '../components/RoundsLogo.js';
 
 /**
  * Map backend error status + message to the operator-facing copy specified
@@ -116,7 +116,7 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-16 h-16 text-on-surface text-xl mb-4">
-            <OpenObsLogo className="w-9 h-9" />
+            <RoundsLogo className="w-9 h-9" />
           </div>
           <h1 className="text-2xl font-bold text-on-surface">OpenObs</h1>
           <p className="text-on-surface-variant mt-1">AI-native observability platform</p>

@@ -14,7 +14,7 @@ import React from 'react';
  * only spin both rings rigidly in the same direction, which is why the
  * animation lives inside the SVG via SMIL `<animateTransform>`.
  */
-export function OpenObsLogo({
+export function RoundsLogo({
   className = '',
   size = 28,
   animated = false,

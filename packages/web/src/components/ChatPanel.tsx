@@ -8,7 +8,7 @@ import { UserMessage, AssistantMessage, ErrorMessage } from './chat/MessageCompo
 import AgentActivityBlock from './chat/AgentActivityBlock.js';
 import AskUserPrompt from './chat/AskUserPrompt.js';
 import { DatasourceChoiceChip } from './chat/DatasourceChoiceChip.js';
-import { OpenObsLogo } from './OpenObsLogo.js';
+import { RoundsLogo } from './RoundsLogo.js';
 
 // Types
 
@@ -140,7 +140,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
 
       <div className="flex items-center justify-between px-4 py-4 border-b border-outline-variant shrink-0">
         <div className="flex items-center gap-3 flex-1">
-          <OpenObsLogo
+          <RoundsLogo
             className="w-7 h-7 text-on-surface"
             size={28}
             animated={isGenerating}

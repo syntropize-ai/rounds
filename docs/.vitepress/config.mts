@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitepress';
 
 export default defineConfig({
-  title: 'OpenObs',
-  description: 'Docs for OpenObs, the open-source AI SRE.',
+  title: 'Rounds',
+  description: 'Docs for Rounds — AI does rounds on your production. By Syntropize.',
   srcDir: '.',
   cleanUrls: true,
   lastUpdated: true,
@@ -11,16 +11,16 @@ export default defineConfig({
   ],
   themeConfig: {
     logo: {
-      light: '/openobs-logo.svg',
-      dark: '/openobs-logo-dark.svg',
+      light: '/rounds-logo.svg',
+      dark: '/rounds-logo-dark.svg',
     },
-    siteTitle: 'OpenObs',
+    siteTitle: 'Rounds',
     nav: [
       { text: 'Get Started', link: '/getting-started' },
       { text: 'Install', link: '/install/npm' },
       { text: 'Features', link: '/features/dashboards' },
       { text: 'Security', link: '/auth' },
-      { text: 'GitHub', link: 'https://github.com/openobs/openobs' },
+      { text: 'GitHub', link: 'https://github.com/syntropize/rounds' },
     ],
     sidebar: [
       {
@@ -74,14 +74,14 @@ export default defineConfig({
       },
     ],
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/openobs/openobs' },
+      { icon: 'github', link: 'https://github.com/syntropize/rounds' },
     ],
     search: {
       provider: 'local',
     },
     footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright (c) OpenObs',
+      message: 'Released under the AGPL-3.0-or-later License.',
+      copyright: 'Copyright (c) Syntropize',
     },
   },
 });

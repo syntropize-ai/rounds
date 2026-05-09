@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.js';
 import { useTheme } from '../contexts/ThemeContext.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
-import { OpenObsLogo } from './OpenObsLogo.js';
+import { RoundsLogo } from './RoundsLogo.js';
 import { OrgSwitcher } from './OrgSwitcher.js';
 import { apiClient, plansApi } from '../api/client.js';
 
@@ -412,7 +412,7 @@ export default function Navigation() {
         {expanded ? (
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="flex items-center justify-center w-10 h-10 text-on-surface shrink-0">
-              <OpenObsLogo className="w-7 h-7" />
+              <RoundsLogo className="w-7 h-7" />
             </div>
             <span className="text-sm font-bold text-on-surface truncate">OpenObs</span>
           </div>
@@ -425,7 +425,7 @@ export default function Navigation() {
           >
             <div className="relative flex items-center justify-center w-10 h-10 text-on-surface shrink-0 group-hover:bg-surface-high/60 transition-colors">
               <span className="transition-opacity duration-150 group-hover:opacity-0">
-                <OpenObsLogo className="w-7 h-7" />
+                <RoundsLogo className="w-7 h-7" />
               </span>
               <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover:opacity-100 text-on-surface">
                 <SidebarToggleIcon expanded={false} />

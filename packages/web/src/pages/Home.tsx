@@ -14,7 +14,7 @@ import {
   ErrorMessage,
 } from '../components/chat/MessageComponents.js';
 import AgentActivityBlock from '../components/chat/AgentActivityBlock.js';
-import { OpenObsLogo } from '../components/OpenObsLogo.js';
+import { RoundsLogo } from '../components/RoundsLogo.js';
 
 // Types
 
@@ -299,7 +299,7 @@ export default function Home() {
               animate="visible"
             >
               <div className="inline-flex items-center justify-center mb-5">
-                <OpenObsLogo className="w-12 h-12 text-on-surface" size={48} />
+                <RoundsLogo className="w-12 h-12 text-on-surface" size={48} />
               </div>
               <h1 className="text-[32px] md:text-[42px] font-medium tracking-normal mb-3 leading-tight text-on-surface">
                 How can OpenObs help?

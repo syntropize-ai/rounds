@@ -1,8 +1,8 @@
-{{- define "openobs.name" -}}
+{{- define "rounds.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "openobs.fullname" -}}
+{{- define "rounds.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -15,39 +15,39 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "openobs.chart" -}}
+{{- define "rounds.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" -}}
 {{- end -}}
 
-{{- define "openobs.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "openobs.name" . }}
+{{- define "rounds.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "rounds.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{- define "openobs.labels" -}}
-helm.sh/chart: {{ include "openobs.chart" . }}
-{{ include "openobs.selectorLabels" . }}
+{{- define "rounds.labels" -}}
+helm.sh/chart: {{ include "rounds.chart" . }}
+{{ include "rounds.selectorLabels" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{- define "openobs.serviceAccountName" -}}
+{{- define "rounds.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (include "openobs.fullname" .) .Values.serviceAccount.name -}}
+{{- default (include "rounds.fullname" .) .Values.serviceAccount.name -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "openobs.secretName" -}}
+{{- define "rounds.secretName" -}}
 {{- if .Values.existingSecret -}}
 {{- .Values.existingSecret -}}
 {{- else -}}
-{{- include "openobs.fullname" . -}}
+{{- include "rounds.fullname" . -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "openobs.corsOrigins" -}}
+{{- define "rounds.corsOrigins" -}}
 {{- if .Values.env.CORS_ORIGINS -}}
 {{- .Values.env.CORS_ORIGINS -}}
 {{- else if and .Values.ingress.enabled .Values.ingress.hosts -}}

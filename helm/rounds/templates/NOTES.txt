@@ -1,0 +1,22 @@
+1. Access Rounds:
+{{- if .Values.ingress.enabled }}
+  {{- range .Values.ingress.hosts }}
+  http{{ if gt (len $.Values.ingress.tls) 0 }}s{{ end }}://{{ .host }}/
+  {{- end }}
+{{- else if eq .Values.service.type "NodePort" }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "rounds.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if eq .Values.service.type "LoadBalancer" }}
+  kubectl get svc --namespace {{ .Release.Namespace }} {{ include "rounds.fullname" . }} --watch
+{{- else }}
+  # ClusterIP is private to the cluster. For local testing, use port-forward:
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "rounds.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT={{ .Values.service.targetPort }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward deployment/{{ include "rounds.fullname" . }} 3000:$CONTAINER_PORT
+  echo http://127.0.0.1:3000
+{{- end }}
+
+2. The chart serves the built React app and API from the same container.
+
+3. On first load, open Rounds in your browser and complete the setup wizard.

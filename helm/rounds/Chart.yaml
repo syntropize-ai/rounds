@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rounds
+description: Helm chart for Rounds — AI does rounds on your production. By Syntropize.
+type: application
+version: 0.1.0
+appVersion: "0.0.1"

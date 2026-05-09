@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/openobs/openobs
+  repository: ghcr.io/syntropize/rounds
   # Empty defaults to .Chart.AppVersion.
   tag: ""
   pullPolicy: IfNotPresent
@@ -40,7 +40,7 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: openobs.local
+    - host: rounds.local
       paths:
         - path: /
           pathType: Prefix
@@ -55,7 +55,7 @@ persistence:
     - ReadWriteOnce
   size: 10Gi
   storageClassName: ""
-  mountPath: /var/lib/openobs
+  mountPath: /var/lib/rounds
 
 resources: {}
 
@@ -67,7 +67,7 @@ env:
   NODE_ENV: production
   HOST: 0.0.0.0
   PORT: "3000"
-  DATA_DIR: /var/lib/openobs
+  DATA_DIR: /var/lib/rounds
   LOG_LEVEL: info
   LOG_FORMAT: json
   CORS_ORIGINS: ""

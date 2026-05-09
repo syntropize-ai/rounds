@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Build the `openobs` npm package.
+ * Build the `@syntropize/rounds` npm package.
  *
  * Produces a self-contained distribution in packages/cli/ containing:
  *
@@ -129,24 +129,24 @@ cpSync(webSrc, webDistDir, { recursive: true });
 
 // -- 5. Write a minimal README for the published package ------------------
 
-const readme = `# openobs
+const readme = `# Rounds
 
-AI-native observability platform. One command to run on your laptop:
+AI does rounds on your production. Self-hosted AI SRE — investigate, dashboard, alert, remediate.
 
 \`\`\`bash
-npx openobs
+npx @syntropize/rounds
 # or
-npm install -g openobs && openobs
+npm install -g @syntropize/rounds && rounds
 \`\`\`
 
 - Opens a browser to the setup wizard on first run
-- Auto-generates persistent crypto secrets in \`~/.openobs/\`
+- Auto-generates persistent crypto secrets in \`~/.rounds/\`
 - No configuration files required
 
 For Kubernetes deployment, see the Helm chart:
-\`helm install openobs oci://ghcr.io/openobs/charts/openobs\`.
+\`helm install rounds oci://ghcr.io/syntropize/charts/rounds\`.
 
-Source, docs, and issues: https://github.com/openobs/openobs
+Rounds is a product of Syntropize. Source, docs, and issues: https://github.com/syntropize/rounds
 `;
 const { writeFileSync } = await import('node:fs');
 writeFileSync(join(CLI, 'README.md'), readme);

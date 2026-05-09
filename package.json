@@ -1,5 +1,5 @@
 {
-  "name": "openobs",
+  "name": "rounds-monorepo",
   "version": "0.0.1",
   "private": true,
   "workspaces": [
@@ -15,12 +15,12 @@
     "format": "prettier --write \"packages/*/src/**/*.ts\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "docker:build": "docker build -t openobs:latest .",
+    "docker:build": "docker build -t rounds:latest .",
     "e2e:up": "bash tests/e2e/kit.sh up",
     "e2e:run": "bash tests/e2e/kit.sh run",
     "e2e:down": "bash tests/e2e/kit.sh down",
     "e2e:full": "bash tests/e2e/kit.sh full",
-    "helm:template": "helm template openobs ./helm/openobs",
+    "helm:template": "helm template rounds ./helm/rounds",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

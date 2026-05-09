@@ -52,14 +52,14 @@ jobs:
 
             **npm (laptop / single-host)**
             ```bash
-            npx openobs
-            # or: npm install -g openobs && openobs
+            npx @syntropize/rounds
+            # or: npm install -g @syntropize/rounds && rounds
             ```
 
             **Helm (Kubernetes)** — via OCI, no `repo add` needed:
             ```bash
-            helm install my-openobs \
-              oci://ghcr.io/${{ github.repository }}/charts/openobs \
+            helm install my-rounds \
+              oci://ghcr.io/${{ github.repository }}/charts/rounds \
               --version ${{ steps.ver.outputs.version }}
             ```
 
@@ -85,9 +85,9 @@ jobs:
         run: |
           V="${{ needs.release.outputs.version }}"
           # Helm
-          sed -i "s/^version: .*/version: $V/" helm/openobs/Chart.yaml
-          sed -i "s/^appVersion: .*/appVersion: \"$V\"/" helm/openobs/Chart.yaml
-          # npm (the published `openobs` package, packages/cli)
+          sed -i "s/^version: .*/version: $V/" helm/rounds/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: \"$V\"/" helm/rounds/Chart.yaml
+          # npm (the published `@syntropize/rounds` package, packages/cli)
           node -e "
             const fs = require('fs');
             const p = 'packages/cli/package.json';
@@ -102,7 +102,7 @@ jobs:
         run: |
           mkdir -p out/helm out/npm
           # Helm
-          helm package helm/openobs -d out/helm
+          helm package helm/rounds -d out/helm
           # npm — produces packages/cli/dist + web-dist via scripts/build-cli.mjs
           npm run dist
           (cd packages/cli && npm pack --pack-destination ../../out/npm)
@@ -132,7 +132,7 @@ jobs:
       - name: Push chart to OCI
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          helm push out/helm/openobs-*.tgz oci://ghcr.io/$OWNER/charts
+          helm push out/helm/rounds-*.tgz oci://ghcr.io/$OWNER/charts
 
   # ── 4. npm publish ─────────────────────────────────────────────────────
   npm-publish:
@@ -158,22 +158,22 @@ jobs:
         if: env.HAS_NPM_TOKEN == 'yes'
         run: |
           VERSION="${{ needs.package.outputs.version }}"
-          if npm view "openobs@$VERSION" version --silent >/dev/null 2>&1; then
+          if npm view "@syntropize/rounds@$VERSION" version --silent >/dev/null 2>&1; then
             echo "exists=yes" >> "$GITHUB_OUTPUT"
           else
             echo "exists=no" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish `openobs` to npm
+      - name: Publish `@syntropize/rounds` to npm
         if: env.HAS_NPM_TOKEN == 'yes' && steps.npm_version.outputs.exists == 'no'
-        run: npm publish out/npm/openobs-*.tgz --access public
+        run: npm publish out/npm/syntropize-rounds-*.tgz --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Note — npm version already exists
         if: env.HAS_NPM_TOKEN == 'yes' && steps.npm_version.outputs.exists == 'yes'
         run: |
-          echo "::warning title=npm publish skipped::openobs@${{ needs.package.outputs.version }} already exists on npm; npm versions are immutable."
+          echo "::warning title=npm publish skipped::@syntropize/rounds@${{ needs.package.outputs.version }} already exists on npm; npm versions are immutable."
 
       - name: Note — NPM_TOKEN not configured
         if: env.HAS_NPM_TOKEN == 'no'
@@ -194,7 +194,7 @@ jobs:
 
       - name: Rename npm release asset
         run: |
-          mv out/npm/openobs-*.tgz "out/npm/openobs-cli-${{ needs.package.outputs.version }}.tgz"
+          mv out/npm/syntropize-rounds-*.tgz "out/npm/rounds-${{ needs.package.outputs.version }}.tgz"
 
       - uses: softprops/action-gh-release@v2
         with:

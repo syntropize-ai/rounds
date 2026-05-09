@@ -27,14 +27,14 @@ RUN apk add --no-cache curl ca-certificates \
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000 \
-    DATA_DIR=/var/lib/openobs
+    DATA_DIR=/var/lib/rounds
 
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 
-VOLUME ["/var/lib/openobs"]
+VOLUME ["/var/lib/rounds"]
 
 EXPOSE 3000
 

@@ -16,10 +16,10 @@ jobs:
 
       - uses: azure/setup-helm@v4
 
-      - run: helm lint ./helm/openobs
+      - run: helm lint ./helm/rounds
 
       - name: Template renders without errors
         run: |
-          helm template openobs ./helm/openobs \
+          helm template rounds ./helm/rounds \
             --set secretEnv.JWT_SECRET=ci-test-secret-minimum-32-characters \
             --set secretEnv.LLM_API_KEY=sk-test > /dev/null

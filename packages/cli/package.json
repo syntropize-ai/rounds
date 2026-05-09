@@ -1,19 +1,19 @@
 {
-  "name": "openobs",
+  "name": "@syntropize/rounds",
   "version": "0.0.1",
-  "description": "AI-native observability platform — runs the full OpenObs stack (API + web UI) on your laptop with zero configuration.",
-  "keywords": ["observability", "monitoring", "ai", "prometheus", "dashboard", "alerting"],
+  "description": "Rounds — AI does rounds on your production. Self-hosted AI SRE: investigate, dashboard, alert, remediate.",
+  "keywords": ["sre", "ai-sre", "observability", "incident-response", "remediation", "ai-agent", "kubernetes"],
   "license": "AGPL-3.0-or-later",
-  "homepage": "https://github.com/openobs/openobs",
-  "bugs": "https://github.com/openobs/openobs/issues",
+  "homepage": "https://github.com/syntropize/rounds",
+  "bugs": "https://github.com/syntropize/rounds/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openobs/openobs.git",
+    "url": "https://github.com/syntropize/rounds.git",
     "directory": "packages/cli"
   },
   "type": "module",
   "bin": {
-    "openobs": "./bin/openobs.mjs"
+    "rounds": "./bin/rounds.mjs"
   },
   "files": [
     "bin",

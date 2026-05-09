@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "openobs.fullname" . }}
+  name: {{ include "rounds.fullname" . }}
   labels:
-    {{- include "openobs.labels" . | nindent 4 }}
+    {{- include "rounds.labels" . | nindent 4 }}
 data:
   NODE_ENV: {{ .Values.env.NODE_ENV | quote }}
   HOST: {{ .Values.env.HOST | quote }}
@@ -11,7 +11,7 @@ data:
   DATA_DIR: {{ .Values.env.DATA_DIR | quote }}
   LOG_LEVEL: {{ .Values.env.LOG_LEVEL | quote }}
   LOG_FORMAT: {{ .Values.env.LOG_FORMAT | quote }}
-  CORS_ORIGINS: {{ include "openobs.corsOrigins" . | quote }}
+  CORS_ORIGINS: {{ include "rounds.corsOrigins" . | quote }}
   LLM_PROVIDER: {{ .Values.env.LLM_PROVIDER | quote }}
   LLM_MODEL: {{ .Values.env.LLM_MODEL | quote }}
   DATABASE_POOL_SIZE: {{ .Values.env.DATABASE_POOL_SIZE | quote }}

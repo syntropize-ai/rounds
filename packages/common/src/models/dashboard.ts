@@ -187,6 +187,41 @@ export interface SavedInvestigationReport {
   createdAt: string;
 }
 
+/**
+ * Proposed-but-not-applied dashboard mutation.
+ *
+ * AI-driven edits to an existing (already-shared) dashboard are written here
+ * first instead of mutating panels/variables directly. The user reviews and
+ * accepts/rejects each entry before the change lands. See Task 09.
+ *
+ * Note: this is a separate surface from Task 06's RiskAwareConfirm — dashboard
+ * edits are low-risk and user-driven (`user_conversation` source per Task 05's
+ * matrix), so they don't need ActionGuard. The pattern is the same in spirit
+ * (preview before apply) but the affordance lives in the dashboard workspace,
+ * not the chat confirmation strip.
+ */
+export type PendingDashboardChangeOp =
+  | { kind: 'modify_panel'; panelId: string; patch: Partial<PanelConfig> }
+  | { kind: 'remove_panel'; panelId: string }
+  | { kind: 'add_variable'; variable: DashboardVariable }
+  | { kind: 'modify_variable'; name: string; patch: Partial<DashboardVariable> }
+  | { kind: 'remove_variable'; name: string };
+
+export interface PendingDashboardChange {
+  /** Stable id for this proposal; used by accept/reject UI to target one row. */
+  id: string;
+  /** ISO timestamp when the agent proposed this change. */
+  proposedAt: string;
+  /** `'agent'` for AI-proposed; otherwise the userId of the proposer. */
+  proposedBy: string;
+  /** Originating chat session id, when known — lets the chat panel link back. */
+  sessionId?: string;
+  /** Concise human-readable summary, e.g. "Change p1 title to Latency". */
+  summary: string;
+  /** Machine-readable patch — applied to the live dashboard on accept. */
+  op: PendingDashboardChangeOp;
+}
+
 export type DashboardSseEvent =
   | { type: 'thinking'; content: string }
   | { type: 'tool_call'; tool: string; args: Record<string, unknown>; displayText: string }
@@ -195,6 +230,7 @@ export type DashboardSseEvent =
   | { type: 'panel_removed'; panelId: string }
   | { type: 'panel_modified'; panelId: string; patch: Partial<PanelConfig> }
   | { type: 'variable_added'; variable: DashboardVariable }
+  | { type: 'pending_changes_proposed'; dashboardId: string; changes: PendingDashboardChange[] }
   | { type: 'investigation_report'; report: InvestigationReport }
   | { type: 'verification_report'; report: { status: string; targetKind: string; summary: string; issues: Array<{ code: string; severity: string; message: string; artifactKind: string; artifactId?: string }>; checksRun: string[] } }
   | { type: 'agent_event'; event: { type: string; agentType: string; timestamp: string; metadata?: Record<string, unknown> } }
@@ -239,6 +275,13 @@ export interface Dashboard {
   createdAt: string;
   updatedAt: string;
   error?: string;
+  /**
+   * AI-proposed modifications that have NOT been applied yet. Empty/undefined
+   * for dashboards with no outstanding proposals. The dashboard workspace UI
+   * surfaces these through PendingChangesBar; user must accept before the
+   * shared dashboard is mutated. See `PendingDashboardChange`.
+   */
+  pendingChanges?: PendingDashboardChange[];
 }
 
 // -- Chat session types

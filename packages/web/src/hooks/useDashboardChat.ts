@@ -30,6 +30,7 @@ export type ChatEventKind =
   | 'panel_removed'
   | 'panel_modified'
   | 'variable_added'
+  | 'pending_changes_proposed'
   | 'investigation_report'
   | 'ask_user'
   | 'ds_choice'
@@ -99,6 +100,16 @@ export interface ChatEvent {
   panelId?: string;
   // For variable events
   variable?: DashboardVariable;
+  // For 'pending_changes_proposed' — Task 09 batch of proposals for review.
+  pendingChanges?: Array<{
+    id: string;
+    proposedAt: string;
+    proposedBy: string;
+    sessionId?: string;
+    summary: string;
+    op: Record<string, unknown>;
+  }>;
+  dashboardId?: string;
   // For investigation report
   investigationReport?: InvestigationReport;
   // For "ask_user" — the question + clickable option buttons
@@ -292,6 +303,22 @@ export function useDashboardChat(
               return [...prev, variable];
             }));
             appendEvent({ id, kind: 'variable_added', variable });
+          }
+          break;
+        }
+
+        case 'pending_changes_proposed': {
+          // Task 09 — agent proposed modifications to a pre-existing dashboard.
+          // The page subscribes to this event kind to update its review bar.
+          const dashboardId = parsed.dashboardId as string | undefined;
+          const changes = parsed.changes as ChatEvent['pendingChanges'];
+          if (changes && Array.isArray(changes) && changes.length > 0) {
+            appendEvent({
+              id,
+              kind: 'pending_changes_proposed',
+              dashboardId,
+              pendingChanges: changes,
+            });
           }
           break;
         }

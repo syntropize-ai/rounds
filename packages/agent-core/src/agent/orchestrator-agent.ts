@@ -135,6 +135,9 @@ export class OrchestratorAgent {
   private readonly activeInvestigationIdRef: { current: string | null } = { current: null }
   /** Same pattern for the active dashboard id (set by dashboard_create / _clone). */
   private readonly activeDashboardIdRef: { current: string | null } = { current: null }
+  /** Task 09 — dashboards created in this session apply mutations directly;
+   *  pre-existing dashboards funnel modifications through pendingChanges. */
+  private readonly freshlyCreatedDashboards: Set<string> = new Set()
   private readonly dashboardBuildEvidence = {
     webSearchCount: 0,
     metricDiscoveryCount: 0,
@@ -337,6 +340,7 @@ export class OrchestratorAgent {
       investigationSections: this.investigationSections,
       activeInvestigationIdRef: this.activeInvestigationIdRef,
       activeDashboardIdRef: this.activeDashboardIdRef,
+      freshlyCreatedDashboards: this.freshlyCreatedDashboards,
       dashboardBuildEvidence: this.dashboardBuildEvidence,
     })
     return this.actionRunner.execute(step, ctx)

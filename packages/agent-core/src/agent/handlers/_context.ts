@@ -134,6 +134,13 @@ export interface ActionContext {
    */
   activeDashboardId: string | null;
   /**
+   * Dashboards CREATED in this session (vs. opened/loaded). Initial population
+   * of a fresh dashboard applies directly; modifications to dashboards that
+   * predate this session go through `pendingChanges` so the user reviews them
+   * before the shared dashboard is mutated. See Task 09 / dashboard handlers.
+   */
+  freshlyCreatedDashboards: Set<string>;
+  /**
    * Per-session dashboard build evidence. Read tools write into this, and
    * dashboard_add_panels checks it before mutating so dashboard creation stays
    * read/verify-first instead of relying only on prompt discipline.

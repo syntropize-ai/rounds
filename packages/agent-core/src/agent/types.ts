@@ -1,4 +1,4 @@
-import type { PanelConfig, DashboardVariable } from '@agentic-obs/common'
+import type { PanelConfig, DashboardVariable, PendingDashboardChange } from '@agentic-obs/common'
 
 // -- Injected dependency interfaces for stores consumed by dashboard agents.
 // Concrete implementations live in api-gateway (or data-layer); agents depend
@@ -22,6 +22,14 @@ export interface IDashboardAgentStore {
   updateStatus?(id: string, status: string, error?: string): unknown
   updatePanels(id: string, panels: PanelConfig[]): unknown
   updateVariables(id: string, variables: DashboardVariable[]): unknown
+  /**
+   * Queue AI-proposed modifications that need user review before applying.
+   * Receives a list to APPEND — implementations should merge with any
+   * existing pendingChanges rather than replace. Optional so legacy stores
+   * without a pending-changes column degrade to direct apply (the agent
+   * handlers fall back accordingly). See Task 09.
+   */
+  appendPendingChanges?(id: string, changes: PendingDashboardChange[]): unknown
 }
 
 /**

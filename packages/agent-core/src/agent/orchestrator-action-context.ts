@@ -71,6 +71,8 @@ export interface OrchestratorActionRuntime {
   activeInvestigationIdRef: { current: string | null };
   /** Same pattern, for the active dashboard id. */
   activeDashboardIdRef: { current: string | null };
+  /** Set of dashboard ids created in this session (vs. opened/loaded). */
+  freshlyCreatedDashboards: Set<string>;
   dashboardBuildEvidence: ActionContext['dashboardBuildEvidence'];
 }
 
@@ -112,6 +114,7 @@ export function buildActionContext(
     set activeInvestigationId(v: string | null) { invRef.current = v; },
     get activeDashboardId() { return dashRef.current; },
     set activeDashboardId(v: string | null) { dashRef.current = v; },
+    freshlyCreatedDashboards: runtime.freshlyCreatedDashboards,
     dashboardBuildEvidence: runtime.dashboardBuildEvidence,
   };
 }

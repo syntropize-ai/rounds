@@ -1,8 +1,49 @@
 import { randomUUID } from 'node:crypto';
 import { ac } from '@agentic-obs/common';
+import type { PendingDashboardChange, PendingDashboardChangeOp } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { applyLayout } from '../layout-engine.js';
+
+// ---------------------------------------------------------------------------
+// Pending-changes helper — Task 09
+//
+// Mutations targeting a dashboard the agent did NOT create in this session
+// are queued for user review instead of being applied directly. This protects
+// shared dashboards from silent AI overwrites. The agent_executor (Task 06's
+// RiskAwareConfirm) handles risky background-agent flows; this surface is the
+// dashboard-workspace equivalent for low-risk user-conversation edits.
+// ---------------------------------------------------------------------------
+
+function isFreshlyCreated(ctx: ActionContext, dashboardId: string): boolean {
+  return ctx.freshlyCreatedDashboards.has(dashboardId);
+}
+
+async function queuePending(
+  ctx: ActionContext,
+  dashboardId: string,
+  op: PendingDashboardChangeOp,
+  summary: string,
+): Promise<PendingDashboardChange> {
+  const change: PendingDashboardChange = {
+    id: randomUUID(),
+    proposedAt: new Date().toISOString(),
+    proposedBy: 'agent',
+    sessionId: ctx.sessionId,
+    summary,
+    op,
+  };
+  if (ctx.store.appendPendingChanges) {
+    await ctx.store.appendPendingChanges(dashboardId, [change]);
+  }
+  // SSE event so the chat panel can show pending changes inline.
+  ctx.sendEvent({
+    type: 'pending_changes_proposed',
+    dashboardId,
+    changes: [change],
+  });
+  return change;
+}
 
 // ---------------------------------------------------------------------------
 // Dashboard lifecycle
@@ -57,6 +98,10 @@ export async function handleDashboardCreate(
       // dashboard_add_panels / modify_panel / etc. calls in this ReAct loop
       // pick it up implicitly instead of taking a (truncatable) id param.
       ctx.activeDashboardId = createdId;
+      // Task 09 — initial population (add_panels, etc.) on a freshly-created
+      // dashboard applies directly; only mutations to pre-existing dashboards
+      // funnel through pendingChanges.
+      ctx.freshlyCreatedDashboards.add(createdId);
       observationText = `Created dashboard "${dashboard.title}" (id: ${dashboard.id}).`;
       return observationText;
     },
@@ -147,6 +192,7 @@ export async function handleDashboardClone(
       ctx.setNavigateTo(`/dashboards/${created.id}`);
       // The freshly cloned dashboard becomes the active one (same as create).
       ctx.activeDashboardId = created.id;
+      ctx.freshlyCreatedDashboards.add(created.id);
 
       const observation = `Cloned "${source.title}" (${clonedPanels.length} panel${clonedPanels.length === 1 ? '' : 's'}) to datasource ${targetDatasourceId}. New dashboard id: ${created.id}.`;
       ctx.emitAgentEvent(
@@ -349,6 +395,26 @@ export async function handleDashboardRemovePanels(
   if (panelIds.length === 0) return 'Error: "panelIds" array is required.';
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_remove_panels', args: { panelIds }, displayText: `Removing ${panelIds.length} panel(s)` });
+
+  // Task 09 — removing panels on a pre-existing (shared) dashboard goes to
+  // pendingChanges so the user reviews each removal before the dashboard is
+  // mutated. Freshly-created dashboards in this session apply directly.
+  if (!isFreshlyCreated(ctx, dashboardId)) {
+    const proposed: PendingDashboardChange[] = [];
+    for (const panelId of panelIds) {
+      const change = await queuePending(
+        ctx,
+        dashboardId,
+        { kind: 'remove_panel', panelId },
+        `Remove panel ${panelId}`,
+      );
+      proposed.push(change);
+    }
+    const observationText = `Proposed removal of ${panelIds.length} panel(s); pending user review.`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
+    return observationText;
+  }
+
   await ctx.actionExecutor.execute(dashboardId, [{ type: 'remove_panels', panelIds }]);
 
   const observationText = `Removed ${panelIds.length} panel(s).`;
@@ -389,6 +455,21 @@ export async function handleDashboardModifyPanel(
   }
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_modify_panel', args: { panelId, patch }, displayText: `Modifying panel ${panelId}` });
+
+  // Task 09 — modifying a panel on a pre-existing dashboard goes to
+  // pendingChanges (the dashboard may be shared; the user must accept).
+  if (!isFreshlyCreated(ctx, dashboardId)) {
+    await queuePending(
+      ctx,
+      dashboardId,
+      { kind: 'modify_panel', panelId, patch },
+      `Modify panel ${panelId}`,
+    );
+    const observationText = `Proposed modification of panel ${panelId}; pending user review.`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
+    return observationText;
+  }
+
   await ctx.actionExecutor.execute(dashboardId, [{ type: 'modify_panel', panelId, patch }]);
 
   const observationText = `Modified panel ${panelId}.`;
@@ -418,6 +499,22 @@ export async function handleDashboardAddVariable(
   if (!variable.name) return 'Error: variable "name" is required.';
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_add_variable', args: { name: variable.name }, displayText: `Adding variable: $${variable.name}` });
+
+  // Task 09 — variable changes on a pre-existing dashboard route through
+  // pendingChanges. Variables affect every panel's query, so silently mutating
+  // a shared dashboard's variable set would be especially disruptive.
+  if (!isFreshlyCreated(ctx, dashboardId)) {
+    await queuePending(
+      ctx,
+      dashboardId,
+      { kind: 'add_variable', variable },
+      `Add variable $${variable.name}`,
+    );
+    const observationText = `Proposed variable $${variable.name}; pending user review.`;
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
+    return observationText;
+  }
+
   await ctx.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }]);
 
   const observationText = `Added variable $${variable.name}.`;

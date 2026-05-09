@@ -30,5 +30,9 @@ export { GeminiProvider } from './providers/gemini.js';
 export type { GeminiConfig } from './providers/gemini.js';
 export { OllamaProvider } from './providers/ollama.js';
 export type { OllamaConfig } from './providers/ollama.js';
-export { buildApiKeyResolver, _resetApiKeyHelperCacheForTests } from './api-key-helper.js';
-export type { ApiKeyResolverOptions } from './api-key-helper.js';
+export {
+  buildApiKeyResolver,
+  ApiKeyHelperConfigError,
+  _resetApiKeyHelperCacheForTests,
+} from './api-key-helper.js';
+export type { ApiKeyResolverOptions, ApiKeyHelperConfig } from './api-key-helper.js';

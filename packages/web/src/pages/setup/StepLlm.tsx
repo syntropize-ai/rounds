@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { apiClient } from '../../api/client.js';
 import { llmBaseUrlPlaceholder } from '../../constants/placeholders.js';
+import { ModelCombobox } from '../../components/ModelCombobox.js';
 import { LLM_PROVIDERS } from './types.js';
 import type { LlmConfig, ModelInfo } from './types.js';
 
@@ -266,20 +267,14 @@ export function StepLlm({
         <div>
           <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">Default Model</label>
           <div className="flex gap-2 items-stretch min-w-0">
-            <input
-              list="step-llm-model-options"
+            <ModelCombobox
               value={config.model}
-              onChange={(e) => onChange({ model: e.target.value })}
+              onChange={(next) => onChange({ model: next })}
+              options={availableModels}
               placeholder="model id"
-              className="flex-1 min-w-0 w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)] truncate"
+              inputClassName="w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)] truncate"
+              className="flex-1 min-w-0"
             />
-            <datalist id="step-llm-model-options">
-              {availableModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </datalist>
             {provider.supportsModelFetch && (
               <button
                 type="button"

@@ -12,6 +12,7 @@ import {
 } from '../api/ops-api.js';
 import { githubChangeSourcesApi, type GitHubChangeSource } from '../api/github-change-sources-api.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import { ModelCombobox } from '../components/ModelCombobox.js';
 import { datasourceUrlPlaceholder, llmBaseUrlPlaceholder } from '../constants/placeholders.js';
 import { DATASOURCE_TYPES, datasourceInfo } from '../constants/datasource-types.js';
 import { LLM_PROVIDERS } from './setup/types.js';
@@ -1265,16 +1266,14 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
       <div>
         <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">Default Model</label>
         <div className="flex gap-2">
-          <input
-            list="llm-model-options"
+          <ModelCombobox
             value={config.model}
-            onChange={(e) => setConfig((prev) => ({ ...prev, model: e.target.value }))}
+            onChange={(next) => setConfig((prev) => ({ ...prev, model: next }))}
+            options={availableModels}
             placeholder="model id"
-            className={inputCls + ' flex-1'}
+            inputClassName={inputCls + ' w-full'}
+            className="flex-1 min-w-0"
           />
-          <datalist id="llm-model-options">
-            {availableModels.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-          </datalist>
           {provider.supportsModelFetch && (
             <button type="button" onClick={() => void handleFetchModels()} disabled={fetchingModels || (provider.needsKey && !config.apiKey)} className={btnSecondary + ' whitespace-nowrap'}>
               {fetchingModels ? 'Loading...' : 'Fetch Models'}

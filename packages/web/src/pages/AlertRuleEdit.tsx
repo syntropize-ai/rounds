@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
+import Skeleton from '../components/Skeleton.js';
 
 export type PreviewResult =
   | { kind: 'ok'; wouldHaveFired: number; sampleTimestamps: string[]; seriesCount: number; lookbackHours: number; reason?: 'no_series' }
@@ -151,8 +152,12 @@ export default function AlertRuleEdit() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16">
-        <span className="inline-block w-6 h-6 border-2 border-[var(--color-outline-variant)] border-t-[var(--color-primary)] rounded-full animate-spin" />
+      <div className="flex-1 overflow-y-auto bg-surface-lowest">
+        <div className="p-8 max-w-2xl mx-auto space-y-4" data-testid="alert-rule-edit-loading">
+          <Skeleton variant="report-section" />
+          <Skeleton variant="report-section" />
+          <Skeleton variant="report-section" />
+        </div>
       </div>
     );
   }

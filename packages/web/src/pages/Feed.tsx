@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiClient } from '../api/client.js';
 import FeedItem from '../components/FeedItem.js';
+import Skeleton from '../components/Skeleton.js';
 import type { FeedItemData } from '../components/FeedItem.js';
 import type { FeedSeverity } from '../components/FeedItem.js';
 
@@ -209,18 +210,9 @@ export default function Feed() {
         )}
 
         {loading && items.length === 0 && (
-          <div className="space-y-3">
+          <div className="space-y-3" data-testid="feed-loading">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="rounded-xl border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-4 animate-pulse">
-                <div className="flex gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-[var(--color-surface-high)]" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 bg-[var(--color-surface-high)] rounded w-3/4" />
-                    <div className="h-3 bg-[var(--color-surface-high)] rounded w-1/2" />
-                    <div className="h-3 bg-[var(--color-surface-high)] rounded w-5/6" />
-                  </div>
-                </div>
-              </div>
+              <Skeleton key={i} variant="card" />
             ))}
           </div>
         )}

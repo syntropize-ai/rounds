@@ -5,6 +5,7 @@ import ConfirmDialog from '../components/ConfirmDialog.js';
 import type { PanelConfig } from '../components/DashboardPanelCard.js';
 import { relativeTime } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
+import Skeleton from '../components/Skeleton.js';
 
 // Types
 
@@ -341,8 +342,10 @@ export default function Dashboards() {
 
         {/* Loading */}
         {loadingList && (
-          <div className="flex justify-center py-16">
-            <span className="inline-block w-6 h-6 border-2 border-outline border-t-primary rounded-full animate-spin" />
+          <div className="space-y-0 border border-outline-variant bg-surface-container" data-testid="dashboards-loading">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} variant="row" className="border-b border-outline-variant last:border-b-0" />
+            ))}
           </div>
         )}
 

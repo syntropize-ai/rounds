@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import type { SavedInvestigationReport, InvestigationReportSection } from '@agentic-obs/common';
+import type { Provenance, SavedInvestigationReport, InvestigationReportSection } from '@agentic-obs/common';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { toJsonColumn } from '../json-column.js';
 import { investigationReports } from '../../db/sqlite-schema.js';
@@ -8,6 +8,7 @@ import type { IInvestigationReportRepository } from '../interfaces.js';
 type DbRow = typeof investigationReports.$inferSelect;
 
 function rowToReport(row: DbRow): SavedInvestigationReport {
+  const provenance = (row.provenance as Provenance | null) ?? undefined;
   return {
     id: row.id,
     dashboardId: row.dashboardId,
@@ -15,6 +16,7 @@ function rowToReport(row: DbRow): SavedInvestigationReport {
     summary: row.summary,
     sections: (row.sections as InvestigationReportSection[]) ?? [],
     createdAt: row.createdAt,
+    ...(provenance ? { provenance } : {}),
   };
 }
 
@@ -28,6 +30,7 @@ export class SqliteInvestigationReportRepository implements IInvestigationReport
       .from(investigationReports)
       .where(eq(investigationReports.id, report.id));
 
+    const provenanceCol = report.provenance ? toJsonColumn(report.provenance) : null;
     if (existing.length > 0) {
       await this.db
         .update(investigationReports)
@@ -36,6 +39,7 @@ export class SqliteInvestigationReportRepository implements IInvestigationReport
           goal: report.goal,
           summary: report.summary,
           sections: toJsonColumn(report.sections),
+          provenance: provenanceCol,
         })
         .where(eq(investigationReports.id, report.id));
     } else {
@@ -46,6 +50,7 @@ export class SqliteInvestigationReportRepository implements IInvestigationReport
         summary: report.summary,
         sections: toJsonColumn(report.sections),
         createdAt: report.createdAt,
+        provenance: provenanceCol,
       });
     }
   }

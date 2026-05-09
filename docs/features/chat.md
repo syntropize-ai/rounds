@@ -1,13 +1,15 @@
 # Chat & agents
 
-The chat panel is how you operate OpenObs. Behind it is a multi-agent system: the **orchestrator** picks the right tool for each turn, the **alert-rule agent** handles alert lifecycle, and the **investigation agent** runs structured incident workflows across telemetry and cluster state.
+The chat panel is how you operate OpenObs as an **AI SRE**. Behind it is a multi-agent system: the **orchestrator** picks the right tool for each turn, the **alert-rule agent** handles alert lifecycle, and the **investigation agent** runs structured incident workflows across telemetry and (when configured) cluster state.
+
+The agent talks SRE: incidents, metrics, logs, traces, dashboards, alerts, runbooks, remediations. Internally those map to "connectors" and "tools" — but you don't need that vocabulary to use the product. Connector terminology only shows up where it actually matters: settings, capabilities, and the auto-remediation reference docs.
 
 ## What you can do
 
 - **Ask anything** — "what dashboards do I have", "create one for HTTP latency", "investigate the 5xx spike at 9am"
 - **Operate dashboards by conversation** — create, explain, clone, modify, rearrange, or delete dashboards without hand-editing JSON
 - **Investigate production symptoms** — ask why latency, errors, saturation, or alerts changed; the agent can query metrics, logs, changes, and Kubernetes when configured
-- **Approve risky actions** — read-only tools can run during investigation; mutating cluster operations are routed through approval requests
+- **Approve risky actions in-chat** — read-only tools run inline; mutating actions surface as **Run / Confirm / Apply** with a risk note, evidence, and a one-line summary of what will change. No formal `ApprovalRequest` is created unless a permission gate or the GuardedAction risk model demands one. (Background-agent runs use a separate Approve / Reject / Modify path — see [Auto-remediation](/operations/auto-remediation).)
 - **Stream the agent's thinking** — every step (tool call, result, decision) renders live in the panel as it happens
 - **Multi-tool turns** — the agent can run several tools in parallel in one turn (e.g. 4 quantile queries at once) for speed
 - **Continue across sessions** — chats persist; reopen a thread to continue

@@ -92,7 +92,7 @@ export class TeamMemberRepository implements ITeamMemberRepository {
         tm.permission, tm.created, tm.updated,
         u.email, u.name, u.login, u.is_service_account
       FROM team_member tm
-      INNER JOIN user u ON u.id = tm.user_id
+      INNER JOIN users u ON u.id = tm.user_id
       WHERE tm.team_id = ${teamId}
       ORDER BY u.login
     `);

@@ -4,6 +4,19 @@ Configure OpenObs to automatically investigate firing alerts, propose
 remediation plans, and execute approved plans against a Kubernetes
 cluster.
 
+This page covers the **background-agent** approval path: the agent runs
+unattended (no human in the chat) when an alert fires, so every
+mutating step requires a formal **Approve / Reject / Modify** decision
+delivered to the owning team / on-call. This is intentionally heavier
+than the inline **Run / Confirm / Apply** flow used when you ask the
+agent to do something interactively in chat — see
+[Chat & agents](/features/chat) and [The OpenObs SRE loop](/features/operator-loop)
+for that path.
+
+Kubernetes is the first ops connector to ship plan execution. GitHub PR,
+CI/CD, and Argo / Flux remediations are planned and will plug into the
+same `RemediationPlan` + approval model.
+
 The pipeline:
 
 ```

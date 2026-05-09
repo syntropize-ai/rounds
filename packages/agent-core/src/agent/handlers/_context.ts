@@ -12,6 +12,7 @@ import type {
   Identity,
   IFolderRepository,
   InvestigationReportSection,
+  Provenance,
 } from '@agentic-obs/common';
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { AdapterRegistry, IWebSearchAdapter } from '../../adapters/index.js';
@@ -26,6 +27,7 @@ import type {
   OpsConnectorConfig,
   ApprovalRequestStore,
   RemediationPlanStore,
+  AgentConfigService,
 } from '../types.js';
 import type { ActionExecutor } from '../action-executor.js';
 import type { AlertRuleAgent } from '../alert-rule-agent.js';
@@ -78,6 +80,13 @@ export interface ActionContext {
    * ApprovalRequest is created (the UI's plans page can still show them).
    */
   approvalRequests?: ApprovalRequestStore;
+  /**
+   * AI-first configuration surface used by the `datasource_configure`,
+   * `ops_connector_configure`, and `system_setting_configure` tools.
+   * Optional — when absent those tools return a "not configured"
+   * observation; the existing manual Settings UI is unaffected either way.
+   */
+  configService?: AgentConfigService;
   sendEvent: (event: DashboardSseEvent) => void;
   sessionId: string;
 
@@ -105,6 +114,16 @@ export interface ActionContext {
    */
   investigationSections: Map<string, InvestigationReportSection[]>;
   /**
+   * Per-investigation provenance accumulator. Populated by `investigation_create`
+   * (model + runId + start time) and incremented by `investigation_add_section`
+   * (toolCalls + evidenceCount). `investigation_complete` finalises latencyMs and
+   * persists the row alongside the report. Cost is not tracked here — Task 04's
+   * `llm_audit` table is the source of truth and the UI joins by sessionId when
+   * it needs cost. Optional shape mirrors `Provenance` so the UI degrades when
+   * fields are missing.
+   */
+  investigationProvenance: Map<string, Provenance & { startedAt?: number }>;
+  /**
    * Active investigation id for this session. Set by `investigation_create`,
    * cleared by `investigation_complete`. `add_section` and `complete` read
    * from here instead of taking the id as a tool parameter — earlier the
@@ -125,6 +144,13 @@ export interface ActionContext {
    * silent corruption.
    */
   activeDashboardId: string | null;
+  /**
+   * Dashboards CREATED in this session (vs. opened/loaded). Initial population
+   * of a fresh dashboard applies directly; modifications to dashboards that
+   * predate this session go through `pendingChanges` so the user reviews them
+   * before the shared dashboard is mutated. See Task 09 / dashboard handlers.
+   */
+  freshlyCreatedDashboards: Set<string>;
   /**
    * Per-session dashboard build evidence. Read tools write into this, and
    * dashboard_add_panels checks it before mutating so dashboard creation stays

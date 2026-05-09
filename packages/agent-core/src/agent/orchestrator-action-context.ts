@@ -4,6 +4,7 @@ import type {
   Identity,
   IFolderRepository,
   InvestigationReportSection,
+  Provenance,
 } from '@agentic-obs/common';
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
 import type { AdapterRegistry, IWebSearchAdapter } from '../adapters/index.js';
@@ -22,6 +23,7 @@ import type {
   IInvestigationReportStore,
   IInvestigationStore,
   RemediationPlanStore,
+  AgentConfigService,
 } from './types.js';
 import type { IAccessControlService } from './types-permissions.js';
 
@@ -45,6 +47,8 @@ export interface OrchestratorActionContextDeps {
   remediationPlans?: RemediationPlanStore;
   /** P4 — used to auto-emit a plan-level ApprovalRequest on plan creation. */
   approvalRequests?: ApprovalRequestStore;
+  /** Task 07 — AI-first configuration tools (datasource / connector / settings). */
+  configService?: AgentConfigService;
   sendEvent: (event: DashboardSseEvent) => void;
   identity: Identity;
   accessControl: IAccessControlService;
@@ -59,6 +63,7 @@ export interface OrchestratorActionRuntime {
   pushConversationAction(action: DashboardAction): void;
   setNavigateTo(path: string): void;
   investigationSections: Map<string, InvestigationReportSection[]>;
+  investigationProvenance: Map<string, Provenance & { startedAt?: number }>;
   /**
    * Mutable holder for the session's active investigation id. The agent
    * owns the underlying state; the ctx exposes a getter/setter that reads
@@ -68,6 +73,8 @@ export interface OrchestratorActionRuntime {
   activeInvestigationIdRef: { current: string | null };
   /** Same pattern, for the active dashboard id. */
   activeDashboardIdRef: { current: string | null };
+  /** Set of dashboard ids created in this session (vs. opened/loaded). */
+  freshlyCreatedDashboards: Set<string>;
   dashboardBuildEvidence: ActionContext['dashboardBuildEvidence'];
 }
 
@@ -93,6 +100,7 @@ export function buildActionContext(
     opsConnectors: deps.opsConnectors,
     remediationPlans: deps.remediationPlans,
     approvalRequests: deps.approvalRequests,
+    configService: deps.configService,
     sendEvent: deps.sendEvent,
     sessionId: runtime.sessionId,
     identity: deps.identity,
@@ -104,10 +112,12 @@ export function buildActionContext(
     pushConversationAction: runtime.pushConversationAction,
     setNavigateTo: runtime.setNavigateTo,
     investigationSections: runtime.investigationSections,
+    investigationProvenance: runtime.investigationProvenance,
     get activeInvestigationId() { return invRef.current; },
     set activeInvestigationId(v: string | null) { invRef.current = v; },
     get activeDashboardId() { return dashRef.current; },
     set activeDashboardId(v: string | null) { dashRef.current = v; },
+    freshlyCreatedDashboards: runtime.freshlyCreatedDashboards,
     dashboardBuildEvidence: runtime.dashboardBuildEvidence,
   };
 }

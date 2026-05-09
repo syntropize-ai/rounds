@@ -1,7 +1,57 @@
-import { ac } from '@agentic-obs/common';
+import { ac, type AlertOperator } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { ActionContext } from './_context.js';
 import { withWorkspaceScope } from './_shared.js';
+
+/**
+ * Backtest a freshly-generated alert rule against the default metrics
+ * datasource for the session. Returns a one-line preview summary or `null`
+ * when no metrics datasource is registered (caller silently omits — no
+ * fabrication).
+ *
+ * Inlined here rather than imported from api-gateway because handlers must
+ * not depend on the gateway service layer (cycle). The math is intentionally
+ * trivial: count time points in the lookback window where the predicate is
+ * true. Mirrors `previewAlertCondition` in alert-evaluator-service.ts but
+ * uses the agent's local AdapterRegistry.
+ */
+async function previewForAgent(
+  ctx: ActionContext,
+  cond: { query: string; operator: AlertOperator; threshold: number },
+): Promise<{ wouldHaveFired: number; seriesCount: number; lookbackHours: number } | null> {
+  const metricsSources = ctx.adapters.list({ signalType: 'metrics' });
+  const chosen = metricsSources.find((d) => d.isDefault) ?? metricsSources[0];
+  if (!chosen) return null;
+  const adapter = ctx.adapters.metrics(chosen.id);
+  if (!adapter) return null;
+
+  const lookbackHours = 24;
+  const end = new Date();
+  const start = new Date(end.getTime() - lookbackHours * 3_600_000);
+  let series: Awaited<ReturnType<typeof adapter.rangeQuery>>;
+  try {
+    series = await adapter.rangeQuery(cond.query, start, end, '60s');
+  } catch {
+    return null;
+  }
+  let wouldHaveFired = 0;
+  for (const s of series) {
+    for (const [, raw] of s.values) {
+      const v = Number(raw);
+      if (!Number.isFinite(v)) continue;
+      const hit =
+        cond.operator === '>' ? v > cond.threshold
+        : cond.operator === '>=' ? v >= cond.threshold
+        : cond.operator === '<' ? v < cond.threshold
+        : cond.operator === '<=' ? v <= cond.threshold
+        : cond.operator === '==' ? v === cond.threshold
+        : cond.operator === '!=' ? v !== cond.threshold
+        : false;
+      if (hit) wouldHaveFired += 1;
+    }
+  }
+  return { wouldHaveFired, seriesCount: series.length, lookbackHours };
+}
 
 /**
  * Resolve the folder-scoped RBAC evaluator for a single alert rule.
@@ -150,7 +200,25 @@ async function createAlertRule(
     forDurationSec: Number(rc.forDurationSec ?? 0),
     evaluationIntervalSec: Number(rule.evaluationIntervalSec ?? generated.evaluationIntervalSec),
   });
-  return `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.`;
+  // Preview / backtest summary — best-effort. Omitted entirely when no
+  // metrics datasource is wired so we don't fabricate numbers.
+  let previewText = '';
+  try {
+    const preview = await previewForAgent(ctx, {
+      query: String(rc.query ?? ''),
+      operator: String(rc.operator ?? '>') as AlertOperator,
+      threshold: Number(rc.threshold ?? 0),
+    });
+    if (preview) {
+      previewText = ` Preview: would have fired ${preview.wouldHaveFired} time(s) across ${preview.seriesCount} series in the last ${preview.lookbackHours}h.`;
+    }
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'alert preview failed; omitting from tool result',
+    );
+  }
+  return `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.${previewText}`;
 }
 
 async function resolveAlertRuleFolderUid(

@@ -8,7 +8,7 @@ import type {
   DashboardSseEvent,
   Identity,
 } from '@agentic-obs/common';
-import { createLlmGateway } from '../routes/llm-factory.js';
+import { createLlmGateway, createDbAuditSink } from '../routes/llm-factory.js';
 import {
   DashboardOrchestratorAgent as OrchestratorAgent,
   shouldCompact,
@@ -24,6 +24,7 @@ import {
   toAgentDatasources,
 } from './dashboard-service.js';
 import { OpsCommandRunnerService } from './ops-command-runner-service.js';
+import { createAgentConfigService } from './agent-config-adapter.js';
 import { DuckDuckGoSearchAdapter } from '@agentic-obs/adapters';
 
 // Web-search adapter is configuration-free for the default DuckDuckGo
@@ -43,6 +44,7 @@ import type {
   IChatSessionEventRepository,
   IOpsConnectorRepository,
   IApprovalRequestRepository,
+  ILlmAuditRepository,
 } from '@agentic-obs/data-layer';
 import type { GitHubChangeSourceRegistry } from './github-change-source-service.js';
 
@@ -224,6 +226,8 @@ export interface ChatServiceDeps {
   setupConfig: SetupConfigService;
   /** In-process change sources such as GitHub webhooks. */
   githubChangeSources?: GitHubChangeSourceRegistry;
+  /** Task 04 — when set, LLM gateway audit rows are persisted here. */
+  llmAuditStore?: ILlmAuditRepository;
 }
 
 /**
@@ -390,7 +394,10 @@ export class ChatService {
       );
     };
 
-    const gateway = createLlmGateway(llm);
+    const auditSink = this.deps.llmAuditStore
+      ? createDbAuditSink(this.deps.llmAuditStore)
+      : undefined;
+    const gateway = createLlmGateway(llm, undefined, auditSink);
     const model = llm.model;
     const adapters = buildAdapterRegistry(
       datasources,
@@ -410,6 +417,16 @@ export class ChatService {
         : undefined;
     const opsConnectors = opsCommandRunner
       ? await opsCommandRunner.listConnectors()
+      : undefined;
+
+    // Task 07 — AI-first configuration tools. Available whenever the gateway
+    // has both setupConfig and an opsConnectors repository (the same surface
+    // the manual Settings UI uses).
+    const configService = this.deps.opsConnectorStore
+      ? createAgentConfigService({
+          setupConfig: this.deps.setupConfig,
+          opsConnectors: this.deps.opsConnectorStore,
+        })
       : undefined;
 
     // Parse relative time range (e.g., "1h", "6h", "24h", "7d") to absolute
@@ -528,6 +545,7 @@ export class ChatService {
         // datasources.pin/unpin and we read it back across messages.
         sessionDatasourcePins: getSessionDatasourcePins(resolvedSessionId),
         ...(opsCommandRunner ? { opsCommandRunner, opsConnectors } : {}),
+        ...(configService ? { configService } : {}),
         // P4 — agent can propose remediation plans when these stores are wired.
         ...(this.deps.remediationPlanStore
           ? { remediationPlans: this.deps.remediationPlanStore }

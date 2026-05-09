@@ -186,6 +186,32 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
       ac.eval(ACTIONS.InstanceConfigWrite),
     ),
 
+  // -- AI-first configuration tools (Task 07) ------------------------------
+  // These mirror the RBAC the manual Settings UI uses: a caller able to
+  // configure a datasource / connector / instance setting via the UI is the
+  // same caller able to do so via conversation.
+  'datasource_configure': (args: Record<string, unknown>) =>
+    ac.any(
+      ac.eval(
+        ACTIONS.DatasourcesWrite,
+        typeof args.id === 'string' && args.id !== ''
+          ? `datasources:uid:${args.id}`
+          : 'datasources:*',
+      ),
+      ac.eval(ACTIONS.InstanceConfigWrite),
+    ),
+  'ops_connector_configure': (args: Record<string, unknown>) =>
+    ac.any(
+      ac.eval(
+        ACTIONS.OpsConnectorsWrite,
+        typeof args.id === 'string' && args.id !== ''
+          ? `ops.connectors:id:${args.id}`
+          : 'ops.connectors:*',
+      ),
+      ac.eval(ACTIONS.InstanceConfigWrite),
+    ),
+  'system_setting_configure': () => ac.eval(ACTIONS.InstanceConfigWrite),
+
   // -- Web / knowledge ------------------------------------------------------
   'web_search': () => ac.eval('chat:use'),
 };

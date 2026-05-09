@@ -9,8 +9,8 @@
 <h1 align="center">OpenObs</h1>
 
 <p align="center">
-  <strong>An open-source AI SRE loop for modern operations.</strong><br />
-  Build dashboards, create alerts, investigate incidents, and approve fixes from natural language.
+  <strong>An open-source AI SRE.</strong><br />
+  Build dashboards, create alerts, investigate incidents, and approve remediations from natural language.
 </p>
 
 <p align="center">
@@ -57,9 +57,12 @@ Try:
 ## What can it do?
 
 - **Observe** — create, edit, clone, explain, and delete dashboards from natural language.
-- **Detect** — create and tune alert rules through chat.
-- **Investigate** — use metrics, logs, recent changes, and Kubernetes context when configured.
-- **Act safely** — recommend fixes and route mutating cluster actions through approval.
+- **Detect** — create and tune alert rules through chat, with preview and backtest before save.
+- **Investigate** — correlate metrics, logs, recent changes, and (when connected) Kubernetes state, with citations on every claim.
+- **Remediate safely** — propose fixes; user-driven actions confirm in chat (Run / Confirm / Apply), background-agent actions go through formal approval (Approve / Reject / Modify) with owner / on-call notification.
+- **Configure by chat** — add datasources, ops connectors, and low-risk org settings through the agent (gated by RBAC and the GuardedAction risk model).
+
+Kubernetes is the first deep production workflow. Planned integrations include Prometheus alerting rules, Loki log routing, GitHub deploys, Jira / PagerDuty incident sync, CI/CD systems, and database read connectors — these are clearly marked as PLANNED in the docs and not promised by the current release.
 
 Learn more in the [docs](https://docs.openobs.com).
 
@@ -112,4 +115,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, code style, and 
 
 ## License
 
-[MIT](./LICENSE)
+[AGPL-3.0-or-later](./LICENSE)

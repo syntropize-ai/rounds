@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import Navigation from './Navigation.js';
 import GlobalSearch from './GlobalSearch.js';
 import ChatPanel from './ChatPanel.js';
+import DemoBanner from './DemoBanner.js';
 import { ChatProvider, useGlobalChat } from '../contexts/ChatContext.js';
 
 function LayoutInner() {
@@ -86,6 +87,7 @@ function LayoutInner() {
     <div className="flex h-screen">
       <Navigation />
       <main className="flex-1 overflow-y-auto bg-surface-lowest">
+        <DemoBanner />
         <Outlet />
       </main>
       {showChat && (

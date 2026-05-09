@@ -1,0 +1,31 @@
+{
+  "id": "demo-investigation-api-latency",
+  "title": "API latency spike on /checkout",
+  "summary": "p99 latency on POST /checkout climbed to 2.45s while CPU on api-server-0 hit 92%. Investigation traces the spike to a saturated worker pool.",
+  "scenario": "api-latency-spike",
+  "rootCause": "api-server-0 CPU saturation (92%) caused queueing on /checkout requests, pushing p99 latency to 2.45s.",
+  "evidence": [
+    {
+      "kind": "metric",
+      "label": "p99 latency on /checkout",
+      "query": "api_request_latency_seconds{route=\"/checkout\",quantile=\"0.99\"}",
+      "value": 2.45,
+      "unit": "seconds"
+    },
+    {
+      "kind": "metric",
+      "label": "CPU on api-server-0",
+      "query": "cpu_usage_percent{pod=\"api-server-0\"}",
+      "value": 92.0,
+      "unit": "percent"
+    },
+    {
+      "kind": "metric",
+      "label": "5xx error rate on /checkout",
+      "query": "error_rate_total{route=\"/checkout\",status=\"500\"}",
+      "value": 0.8,
+      "unit": "err/s"
+    }
+  ],
+  "recommendation": "Scale api-server replicas from 1 to 3, or set a CPU autoscaler with target 70%."
+}

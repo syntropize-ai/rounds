@@ -61,3 +61,9 @@ export { handleFolderCreate, handleFolderList } from './folder.js';
 export { handleOpsRunCommand } from './ops.js';
 
 export { handleRemediationPlanCreate, handleRemediationPlanCreateRescue } from './remediation-plan.js';
+
+export {
+  handleDatasourceConfigure,
+  handleOpsConnectorConfigure,
+  handleSystemSettingConfigure,
+} from './config.js';

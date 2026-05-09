@@ -58,6 +58,9 @@ agentRegistry.register({
     'alert_rule_write', 'alert_rule_list', 'alert_rule_history',
     // Navigation
     'navigate',
+    // AI-first configuration (Task 07) — conversation-driven setup. Manual
+    // Settings UI keeps working; these tools call the same service surface.
+    'datasource_configure', 'ops_connector_configure', 'system_setting_configure',
     // Lazy tool loading — fetches deferred schemas on demand
     'tool_search',
   ],

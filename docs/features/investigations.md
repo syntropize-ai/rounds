@@ -7,8 +7,9 @@ Ask OpenObs to figure out what's wrong. The investigation agent collects evidenc
 - **Trigger from a symptom** — "Investigate the spike in 5xx errors at 14:30 UTC" or "Why is checkout latency up?"
 - **Auto-correlate with deployment events** — the agent pulls `changes.list_recent` to check whether anything shipped near the incident window.
 - **Multi-signal evidence** — agent queries metrics, logs, recent changes, and Kubernetes state when configured; cites every datapoint in the report.
-- **Recommend fixes** — if the likely cause is environmental, the agent can propose a cluster remediation.
-- **Approval-gated remediation** — mutating Kubernetes commands become approval requests before execution.
+- **Cited evidence** — every claim in the report is anchored to a specific query, log line, or change event so reviewers can verify it. The provenance header on each AI-written section names the model, prompt version, and evidence set used.
+- **Recommend fixes** — if the likely cause is environmental, the agent can propose a remediation. Today this is a Kubernetes plan; planned integrations (GitHub PR, CI/CD rollback, Argo / Flux re-sync) will let the same loop produce non-K8s remediations.
+- **Approval-gated remediation** — interactive runs surface mutating steps inline as **Run / Confirm / Apply**. Background-agent runs (auto-investigation off a firing alert) emit a `RemediationPlan` with **Approve / Reject / Modify** controls and notify the owning team / on-call. See [Auto-remediation](/operations/auto-remediation) for the background flow.
 - **Read the report** — sectioned write-up: Summary → Symptoms → Hypotheses → Evidence → Conclusion → Recommended actions.
 - **Continue the conversation** — ask follow-up questions inside the investigation thread; the agent has the full evidence loaded.
 

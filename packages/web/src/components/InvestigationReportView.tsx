@@ -1,6 +1,11 @@
-import React from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
+import type { Citation } from '@agentic-obs/common';
 import type { InvestigationReport, InvestigationReportSection } from '../hooks/useDashboardChat.js';
 import DashboardPanelCard from './DashboardPanelCard.js';
+import ProvenanceHeader from './provenance/ProvenanceHeader.js';
+import CitationChip from './provenance/CitationChip.js';
+import EvidenceDrawer from './provenance/EvidenceDrawer.js';
+import { parseCitations } from './provenance/citation-parser.js';
 
 interface Props {
   report: InvestigationReport;
@@ -8,9 +13,44 @@ interface Props {
   onClose?: () => void;
 }
 
+interface CitationContext {
+  byRef: Map<string, Citation>;
+  onClick: (ref: string) => void;
+}
+
+const CitationCtx = React.createContext<CitationContext | null>(null);
+
 /* ── Inline markdown ── */
 
 function InlineMarkdown({ text }: { text: string }) {
+  const citationCtx = React.useContext(CitationCtx);
+  // Citation pass runs first so the bold/code passes never see `[m1]` —
+  // chips drop straight into the output and bold/code is applied only to
+  // the surrounding text runs. Markdown features (links, code spans, bold)
+  // are preserved because chips only consume the bracketed citation tokens.
+  const runs = parseCitations(text);
+  const out: React.ReactNode[] = [];
+  let chipKey = 0;
+  for (const run of runs) {
+    if (run.type === 'citation') {
+      const citation = citationCtx?.byRef.get(run.ref);
+      out.push(
+        <CitationChip
+          key={`c-${chipKey++}`}
+          ref_={run.ref}
+          kind={run.kind}
+          {...(citation ? { citation } : {})}
+          {...(citationCtx ? { onClick: citationCtx.onClick } : {})}
+        />,
+      );
+    } else {
+      out.push(<InlineMarkdownRun key={`r-${chipKey++}`} text={run.text} />);
+    }
+  }
+  return <>{out}</>;
+}
+
+function InlineMarkdownRun({ text }: { text: string }) {
   const parts: React.ReactNode[] = [];
   let remaining = text;
   let key = 0;
@@ -161,45 +201,80 @@ function TextSection({ section }: { section: InvestigationReportSection }) {
 /* ── Main component ── */
 
 export default function InvestigationReportView({ report, title }: Props) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [highlightedRef, setHighlightedRef] = useState<string | null>(null);
+
+  const citations = report.provenance?.citations ?? [];
+  const citationCtxValue = useMemo<CitationContext>(() => {
+    const byRef = new Map<string, Citation>();
+    for (const c of citations) byRef.set(c.ref, c);
+    return {
+      byRef,
+      onClick: (ref) => {
+        setHighlightedRef(ref);
+        setDrawerOpen(true);
+      },
+    };
+  }, [citations]);
+
+  const onViewRunLog = useCallback(() => setDrawerOpen(true), []);
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-12 py-10 max-w-4xl mx-auto space-y-8">
+    <CitationCtx.Provider value={citationCtxValue}>
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-12 py-10 max-w-4xl mx-auto space-y-8">
 
-          {/* Header */}
-          <header className="space-y-4">
-            <div className="flex items-center gap-3">
-              <span className="px-2 py-0.5 rounded bg-error/10 text-error text-[10px] font-bold tracking-widest uppercase">
-                Investigation Report
-              </span>
-            </div>
+            {/* Provenance header (Task 10) — only when the saved report
+                carries provenance. Pre-Task-10 reports keep the old layout. */}
+            {report.provenance && (
+              <ProvenanceHeader
+                provenance={report.provenance}
+                {...(citations.length > 0 ? { onViewRunLog } : {})}
+              />
+            )}
 
-            <h1 className="text-4xl font-extrabold font-[Manrope] tracking-tight text-on-surface leading-tight">
-              {title ?? report.summary}
-            </h1>
-          </header>
+            {/* Header */}
+            <header className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="px-2 py-0.5 rounded bg-error/10 text-error text-[10px] font-bold tracking-widest uppercase">
+                  Investigation Report
+                </span>
+              </div>
 
-          {/* Summary */}
-          <section className="space-y-3">
-            <h3 className="text-xl font-bold font-[Manrope] text-on-surface flex items-center gap-2">
-              <span className="w-1.5 h-6 bg-primary rounded-full" />
-              Summary
-            </h3>
-            <p className="text-[15px] text-on-surface-variant leading-relaxed pl-4 border-l-2 border-primary/40">
-              {report.summary}
-            </p>
-          </section>
+              <h1 className="text-4xl font-extrabold font-[Manrope] tracking-tight text-on-surface leading-tight">
+                {title ?? report.summary}
+              </h1>
+            </header>
 
-          {/* Sections */}
-          {report.sections.map((section, i) =>
-            section.type === 'evidence' ? (
-              <EvidenceSection key={i} section={section} />
-            ) : (
-              <TextSection key={i} section={section} />
-            ),
-          )}
+            {/* Summary */}
+            <section className="space-y-3">
+              <h3 className="text-xl font-bold font-[Manrope] text-on-surface flex items-center gap-2">
+                <span className="w-1.5 h-6 bg-primary rounded-full" />
+                Summary
+              </h3>
+              <p className="text-[15px] text-on-surface-variant leading-relaxed pl-4 border-l-2 border-primary/40">
+                {report.summary}
+              </p>
+            </section>
+
+            {/* Sections */}
+            {report.sections.map((section, i) =>
+              section.type === 'evidence' ? (
+                <EvidenceSection key={i} section={section} />
+              ) : (
+                <TextSection key={i} section={section} />
+              ),
+            )}
+          </div>
         </div>
+        <EvidenceDrawer
+          citations={citations}
+          highlightedRef={highlightedRef}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+        />
       </div>
-    </div>
+    </CitationCtx.Provider>
   );
 }

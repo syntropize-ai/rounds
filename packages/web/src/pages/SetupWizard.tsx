@@ -58,9 +58,9 @@ function StepWelcome({ onNext }: { onNext: () => void }) {
         </span>
       </div>
       <h1 className="text-3xl font-bold text-on-surface mb-2">Welcome to OpenObs</h1>
-      <p className="text-lg text-on-surface-variant font-medium mb-2">AI-native observability platform</p>
+      <p className="text-lg text-on-surface-variant font-medium mb-2">An open-source AI SRE</p>
       <p className="text-on-surface-variant max-w-2xl mx-auto mb-10">
-        Automatically investigate incidents, correlate signals, and generate runbooks, powered by LLMs.
+        Investigate incidents, build dashboards, tune alerts, and approve remediations from one chat-driven loop. Kubernetes is the first deep workflow; more integrations are on the way.
       </p>
       <p className="text-sm text-on-surface-variant mb-10">Let's get you set up in 2 minutes.</p>
       <button

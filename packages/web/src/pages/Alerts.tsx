@@ -10,6 +10,7 @@ import {
   type InvestigationIndicator,
 } from './alerts-investigation-status.js';
 import { getInvestigationStatusStyle } from '../constants/status-styles.js';
+import StatusPill from '../components/StatusPill.js';
 
 // Types
 
@@ -64,20 +65,24 @@ function nextEval(rule: AlertRule): string {
 }
 
 
-const STATE_STYLES: Record<AlertRuleState, { dot: string; text: string; bg: string; label: string }> = {
-  firing: { dot: 'bg-[#EF4444] animate-pulse', text: 'text-[#EF4444]', bg: 'bg-[#EF4444]/10', label: 'Firing' },
-  pending: { dot: 'bg-[#F59E0B] animate-pulse', text: 'text-[#F59E0B]', bg: 'bg-[#F59E0B]/10', label: 'Pending' },
-  normal: { dot: 'bg-[#22C55E]', text: 'text-[#22C55E]', bg: 'bg-[#22C55E]/10', label: 'Normal' },
-  resolved: { dot: 'bg-[#22C55E]', text: 'text-[var(--color-on-surface-variant)]', bg: 'bg-[#22C55E]/10', label: 'Resolved' },
-  disabled: { dot: 'bg-[var(--color-outline)]', text: 'text-[var(--color-outline)]', bg: 'bg-[var(--color-outline)]/10', label: 'Disabled' },
+// Visual labels for the AlertRuleState pill. Colors come from
+// `<StatusPill kind="state" />`; this map only carries display text + the
+// `disabled` fallback (StatusPill doesn't model disabled — alert rules
+// can be disabled, but other state-driven UI never is).
+const STATE_LABEL: Record<AlertRuleState, string> = {
+  firing: 'Firing',
+  pending: 'Pending',
+  normal: 'Normal',
+  resolved: 'Resolved',
+  disabled: 'Disabled',
 };
 
-const SEVERITY_STYLES: Record<AlertSeverity, string> = {
-  critical: 'bg-[#EF4444]/10 text-[#EF4444] border-[#EF4444]/20',
-  high: 'bg-[#F97316]/10 text-[#F97316] border-[#F97316]/20',
-  medium: 'bg-[#F59E0B]/10 text-[#F59E0B] border-[#F59E0B]/20',
-  low: 'bg-[var(--color-surface-high)] text-[var(--color-on-surface-variant)] border-[var(--color-outline-variant)]',
-};
+// Tone color used for the row-level border accent on firing/pending rows.
+function rowAccent(state: AlertRuleState): string {
+  if (state === 'firing') return 'var(--color-state-firing)';
+  if (state === 'pending') return 'var(--color-state-pending)';
+  return '';
+}
 
 
 // Spinner used to signal an in-progress investigation
@@ -122,12 +127,7 @@ function InvestigationSummaryChip({ indicator }: { indicator: InvestigationIndic
   }
   if (indicator.kind === 'failed') {
     return (
-      <span
-        title="Investigation failed"
-        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#EF4444]/10 text-[#EF4444] shrink-0"
-      >
-        Failed
-      </span>
+      <StatusPill kind="severity" value="critical" label="Failed" className="shrink-0" />
     );
   }
   // completed (no plan): subdued
@@ -172,19 +172,25 @@ function AlertRuleRow({
   pendingPlanId?: string;
   indicator: InvestigationIndicator;
 }) {
-  const stateStyle = STATE_STYLES[rule.state];
   const isDisabled = rule.state === 'disabled';
   const dashboardId = rule.labels?.dashboardId;
   const isInvestigating = indicator.kind === 'in_progress';
+  const accentColor = rowAccent(rule.state);
+  const accentPulse = rule.state === 'firing' && isInvestigating;
 
   return (
-    <div className={`rounded-xl border transition-all ${
-      rule.state === 'firing'
-        ? `bg-[var(--color-surface-highest)] border-[#EF4444]/30${isInvestigating ? ' animate-pulse' : ''}`
-        : rule.state === 'pending'
-        ? 'bg-[var(--color-surface-highest)] border-[#F59E0B]/30'
-        : 'bg-[var(--color-surface-highest)] border-[var(--color-outline-variant)] hover:border-[#36364E]'
-    } ${isDisabled ? 'opacity-60' : ''}`}>
+    <div
+      className={`rounded-xl border transition-all bg-[var(--color-surface-highest)] ${
+        accentColor
+          ? ''
+          : 'border-[var(--color-outline-variant)] hover:border-[var(--color-outline)]'
+      } ${accentPulse ? 'animate-pulse' : ''} ${isDisabled ? 'opacity-60' : ''}`}
+      style={
+        accentColor
+          ? { borderColor: `color-mix(in srgb, ${accentColor} 30%, transparent)` }
+          : undefined
+      }
+    >
       {/* Summary row (always visible) */}
       <button
         onClick={onToggleExpand}
@@ -196,9 +202,19 @@ function AlertRuleRow({
         </svg>
 
         {/* State badge */}
-        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${stateStyle.bg} ${stateStyle.text} shrink-0`}>
-          {stateStyle.label}
-        </span>
+        {rule.state === 'disabled' ? (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[var(--color-surface-high)] text-[var(--color-outline)] shrink-0">
+            {STATE_LABEL.disabled}
+          </span>
+        ) : (
+          <StatusPill
+            kind="state"
+            value={rule.state}
+            label={STATE_LABEL[rule.state]}
+            size="md"
+            className="shrink-0"
+          />
+        )}
 
         {/* Name */}
         <span className="text-sm font-medium text-[var(--color-on-surface)] truncate flex-1">
@@ -209,9 +225,7 @@ function AlertRuleRow({
         <InvestigationSummaryChip indicator={indicator} />
 
         {/* Severity */}
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase border ${SEVERITY_STYLES[rule.severity]} shrink-0`}>
-          {rule.severity}
-        </span>
+        <StatusPill kind="severity" value={rule.severity} className="shrink-0" />
 
         {/* Next evaluation */}
         <span className="text-[10px] text-[var(--color-outline)] min-w-max">
@@ -225,7 +239,7 @@ function AlertRuleRow({
           {/* Query */}
           <div className="mt-3">
             <span className="text-[10px] text-[var(--color-outline)] uppercase tracking-wider font-medium">Condition</span>
-            <p className="mt-1 text-sm text-[var(--color-on-surface-variant)] font-mono bg-[#0B0B14] rounded-md px-3 py-2 break-all">
+            <p className="mt-1 text-sm text-[var(--color-on-surface-variant)] font-mono bg-[var(--color-surface-lowest)] rounded-md px-3 py-2 break-all">
               {rule.condition.query.includes(String(rule.condition.threshold))
                 ? rule.condition.query
                 : `${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold}`}
@@ -254,7 +268,19 @@ function AlertRuleRow({
             </div>
             <div className="bg-[var(--color-surface-high)] rounded-lg px-3 py-2">
               <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide">State</span>
-              <div className={`text-sm font-medium mt-0.5 ${stateStyle.text}`}>{stateStyle.label}</div>
+              <div
+                className="text-sm font-medium mt-0.5"
+                style={{
+                  color:
+                    rule.state === 'disabled'
+                      ? 'var(--color-outline)'
+                      : rule.state === 'resolved'
+                      ? 'var(--color-on-surface-variant)'
+                      : `var(--color-state-${rule.state})`,
+                }}
+              >
+                {STATE_LABEL[rule.state]}
+              </div>
             </div>
           </div>
 
@@ -355,9 +381,9 @@ function AlertRuleRow({
                 type="button"
                 onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
                 title="Investigation failed"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#EF4444]/10 text-[#EF4444] hover:bg-[#EF4444]/20 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-severity-critical/10 text-severity-critical hover:bg-severity-critical/20 transition-colors"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#EF4444]" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-severity-critical" />
                 Investigation failed
               </button>
             )}
@@ -403,7 +429,7 @@ function AlertRuleRow({
               <button
                 type="button"
                 onClick={onDelete}
-                className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-outline)] hover:text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors"
+                className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-outline)] hover:text-severity-critical hover:bg-severity-critical/10 transition-colors"
               >
                 Delete
               </button>
@@ -724,9 +750,7 @@ export default function Alerts() {
               <div key={group.key || '__all'}>
                 {group.label && (
                   <div className="flex items-center gap-3 mb-2 mt-2">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase ${SEVERITY_STYLES[group.key as AlertSeverity]}`}>
-                      {group.label}
-                    </span>
+                    <StatusPill kind="severity" value={group.key} label={group.label} size="md" />
                     <div className="flex-1 h-px bg-[var(--color-surface-high)]" />
                     <span className="text-[11px] text-[var(--color-outline)]">{group.rules.length} rule{group.rules.length === 1 ? '' : 's'}</span>
                   </div>

@@ -164,6 +164,62 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     },
   );
 
+  // -- POST /api/alert-rules/preview - backtest a candidate condition
+  // IMPORTANT: must be before /:id routes
+  router.post(
+    '/preview',
+    requirePermission(() => ac.eval(ACTIONS.AlertRulesRead, 'folders:*')),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const body = req.body as {
+          query?: unknown;
+          threshold?: unknown;
+          comparator?: unknown;
+          operator?: unknown;
+          lookbackHours?: unknown;
+          datasourceId?: unknown;
+        };
+        const query = typeof body.query === 'string' ? body.query.trim() : '';
+        const operatorRaw = typeof body.comparator === 'string'
+          ? body.comparator
+          : typeof body.operator === 'string' ? body.operator : '';
+        const threshold = typeof body.threshold === 'number' ? body.threshold : Number(body.threshold);
+        const lookbackHours = typeof body.lookbackHours === 'number' ? body.lookbackHours : undefined;
+        const datasourceId = typeof body.datasourceId === 'string' ? body.datasourceId : undefined;
+
+        if (!query) {
+          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'query is required' } });
+          return;
+        }
+        if (!Number.isFinite(threshold)) {
+          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'threshold must be a number' } });
+          return;
+        }
+        if (!['>', '>=', '<', '<=', '==', '!='].includes(operatorRaw)) {
+          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'comparator must be one of >, >=, <, <=, ==, !=' } });
+          return;
+        }
+
+        const orgId = resolveOrgId(req);
+        const result = await alertRuleService.previewCondition(
+          {
+            query,
+            operator: operatorRaw as Parameters<typeof alertRuleService.previewCondition>[0]['operator'],
+            threshold,
+            ...(lookbackHours !== undefined ? { lookbackHours } : {}),
+            ...(datasourceId !== undefined ? { datasourceId } : {}),
+          },
+          orgId,
+        );
+        // Structured error (HTTP 200) on missing capability — caller renders an
+        // explainer rather than a 500.
+        res.status(200).json(result);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   // -- Alert Rules CRUD
 
   router.get(

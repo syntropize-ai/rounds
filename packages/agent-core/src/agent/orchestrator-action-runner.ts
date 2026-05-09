@@ -42,6 +42,9 @@ import {
   handleOpsRunCommand,
   handleRemediationPlanCreate,
   handleRemediationPlanCreateRescue,
+  handleDatasourceConfigure,
+  handleOpsConnectorConfigure,
+  handleSystemSettingConfigure,
 } from './orchestrator-action-handlers.js';
 import type { ToolAuditReporter } from './orchestrator-audit-reporter.js';
 
@@ -210,6 +213,11 @@ async function dispatchAction(
     // Remediation plans (P4)
     case 'remediation_plan_create': return handleRemediationPlanCreate(ctx, args);
     case 'remediation_plan_create_rescue': return handleRemediationPlanCreateRescue(ctx, args);
+    // AI-first configuration tools (Task 07) — datasource / connector /
+    // low-risk org settings via conversation. Manual Settings UI keeps working.
+    case 'datasource_configure': return handleDatasourceConfigure(ctx, args);
+    case 'ops_connector_configure': return handleOpsConnectorConfigure(ctx, args);
+    case 'system_setting_configure': return handleSystemSettingConfigure(ctx, args);
     // Web search
     case 'web_search': return handleWebSearch(ctx, args);
     // `tool_search` is intercepted by ReActLoop before dispatch — it

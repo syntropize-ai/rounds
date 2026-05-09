@@ -158,6 +158,110 @@ export function decideTransition(
   return null;
 }
 
+/**
+ * Backtest input for {@link previewAlertCondition}. Pure data — no datasource
+ * resolution; the caller resolves the metrics adapter.
+ */
+export interface PreviewAlertInput {
+  query: string;
+  operator: AlertOperator;
+  threshold: number;
+  /** Lookback window in hours; clamped to [1, 168]. */
+  lookbackHours?: number;
+  /** Step passed to rangeQuery (e.g. '60s'). Defaults to '60s'. */
+  step?: string;
+  /** Cap on returned sample timestamps. Defaults to 20. */
+  maxSamples?: number;
+}
+
+export type PreviewAlertResult =
+  | {
+      kind: 'ok';
+      wouldHaveFired: number;
+      sampleTimestamps: string[];
+      seriesCount: number;
+      lookbackHours: number;
+      reason?: 'no_series';
+    }
+  | { kind: 'missing_capability'; reason: string };
+
+/** Minimal metrics-adapter shape this helper depends on. */
+interface RangeQuerier {
+  rangeQuery(
+    expr: string,
+    start: Date,
+    end: Date,
+    step: string,
+  ): Promise<Array<{ metric: Record<string, string>; values: Array<[number, string]> }>>;
+}
+
+/**
+ * Backtest an alert condition over the recent past. Counts how many sample
+ * points across all returned series would have satisfied the predicate, and
+ * returns up to `maxSamples` representative timestamps.
+ *
+ * Surgical contract: NO state-machine semantics (`forDurationSec`, debounce)
+ * are simulated here — this is a coarse "would the predicate have been true"
+ * count, sufficient for the UI/AI preview pane. Modeling forDuration would
+ * require per-series time-aware sliding windows; out of scope for v1 preview.
+ */
+export async function previewAlertCondition(
+  metrics: RangeQuerier | undefined | null,
+  input: PreviewAlertInput,
+  now: Date = new Date(),
+): Promise<PreviewAlertResult> {
+  if (!metrics) {
+    return { kind: 'missing_capability', reason: 'no_metrics_datasource' };
+  }
+  const lookbackHours = Math.max(1, Math.min(168, input.lookbackHours ?? 24));
+  const end = now;
+  const start = new Date(end.getTime() - lookbackHours * 3_600_000);
+  const step = input.step ?? '60s';
+  const maxSamples = Math.max(1, input.maxSamples ?? 20);
+
+  let series: Array<{ metric: Record<string, string>; values: Array<[number, string]> }>;
+  try {
+    series = await metrics.rangeQuery(input.query, start, end, step);
+  } catch (err) {
+    return {
+      kind: 'missing_capability',
+      reason: `query_failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (!series || series.length === 0) {
+    return {
+      kind: 'ok',
+      wouldHaveFired: 0,
+      sampleTimestamps: [],
+      seriesCount: 0,
+      lookbackHours,
+      reason: 'no_series',
+    };
+  }
+
+  const matches: number[] = [];
+  let wouldHaveFired = 0;
+  for (const s of series) {
+    for (const [tsSec, raw] of s.values) {
+      const v = Number(raw);
+      if (!Number.isFinite(v)) continue;
+      if (evaluatePredicate(input.operator, v, input.threshold)) {
+        wouldHaveFired += 1;
+        if (matches.length < maxSamples) matches.push(tsSec);
+      }
+    }
+  }
+
+  return {
+    kind: 'ok',
+    wouldHaveFired,
+    sampleTimestamps: matches.map((sec) => new Date(sec * 1000).toISOString()),
+    seriesCount: series.length,
+    lookbackHours,
+  };
+}
+
 /** Pure predicate evaluator. */
 export function evaluatePredicate(operator: AlertOperator, value: number, threshold: number): boolean {
   switch (operator) {

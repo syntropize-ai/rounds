@@ -155,4 +155,114 @@ describe('investigation handlers', () => {
 
     expect(ctx.activeInvestigationId).toBe('inv_new');
   });
+
+  // ── Provenance (Task 10) ────────────────────────────────────────────────
+
+  it('seeds provenance on create and accumulates tool calls / evidence / citations', async () => {
+    const created = {
+      id: 'inv_p1',
+      sessionId: 'ses_1',
+      userId: 'agent',
+      intent: 'why',
+      structuredIntent: {} as Investigation['structuredIntent'],
+      plan: { entity: '', objective: '', steps: [], stopConditions: [] },
+      status: 'investigating' as const,
+      hypotheses: [],
+      actions: [],
+      evidence: [],
+      symptoms: [],
+      workspaceId: 'test-org',
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+    };
+    const store = {
+      create: vi.fn(async () => created),
+      findById: vi.fn(async () => created),
+      findAll: vi.fn(),
+      updateStatus: vi.fn(),
+      updatePlan: vi.fn(),
+      updateResult: vi.fn(),
+    };
+    const ctx = makeFakeActionContext({ investigationStore: store });
+    await handleInvestigationCreate(ctx, { question: 'why' });
+
+    const prov = ctx.investigationProvenance.get('inv_p1');
+    expect(prov).toBeDefined();
+    expect(prov!.runId).toBe('inv_p1');
+    expect(prov!.model).toBe('test-model');
+    expect(prov!.toolCalls).toBe(0);
+
+    await handleInvestigationAddSection(ctx, {
+      type: 'text',
+      content: '## Symptom\nLatency spike confirmed [m1] and OOM in logs [l1].',
+    });
+    await handleInvestigationAddSection(ctx, {
+      type: 'evidence',
+      content: 'CPU saturation [m1]',
+      panel: { title: 'CPU', visualization: 'time_series', queries: [] },
+    });
+
+    const after = ctx.investigationProvenance.get('inv_p1')!;
+    expect(after.toolCalls).toBe(2);
+    expect(after.evidenceCount).toBe(1);
+    // Citations dedup by ref — m1 referenced twice → counted once.
+    expect(after.citations?.map((c) => c.ref).sort()).toEqual(['l1', 'm1']);
+    expect(after.citations?.find((c) => c.ref === 'm1')?.kind).toBe('metric');
+    expect(after.citations?.find((c) => c.ref === 'l1')?.kind).toBe('log');
+  });
+
+  it('persists provenance on the saved report at completion', async () => {
+    const created = {
+      id: 'inv_p2',
+      sessionId: 'ses_1',
+      userId: 'agent',
+      intent: 'why',
+      structuredIntent: {} as Investigation['structuredIntent'],
+      plan: { entity: '', objective: '', steps: [], stopConditions: [] },
+      status: 'investigating' as const,
+      hypotheses: [],
+      actions: [],
+      evidence: [],
+      symptoms: [],
+      workspaceId: 'test-org',
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+    };
+    const store = {
+      create: vi.fn(async () => created),
+      findById: vi.fn(async () => created),
+      findAll: vi.fn(),
+      updateStatus: vi.fn(),
+      updatePlan: vi.fn(),
+      updateResult: vi.fn(),
+    };
+    const reportStore = { save: vi.fn() };
+    const ctx = makeFakeActionContext({
+      investigationStore: store,
+      investigationReportStore: reportStore,
+    });
+
+    await handleInvestigationCreate(ctx, { question: 'why' });
+    await handleInvestigationAddSection(ctx, {
+      type: 'text',
+      content: 'Spike [m1].',
+    });
+    await handleInvestigationComplete(ctx, { summary: 'CPU saturation' });
+
+    expect(reportStore.save).toHaveBeenCalledOnce();
+    const saved = (reportStore.save.mock.calls[0] ?? [])[0];
+    expect(saved.provenance).toBeDefined();
+    expect(saved.provenance.runId).toBe('inv_p2');
+    expect(saved.provenance.toolCalls).toBe(1);
+    expect(saved.provenance.evidenceCount).toBe(0);
+    expect(saved.provenance.citations).toHaveLength(1);
+    expect(saved.provenance.citations[0].ref).toBe('m1');
+    // latencyMs is computed from startedAt — should be a finite, non-negative number.
+    expect(typeof saved.provenance.latencyMs).toBe('number');
+    expect(saved.provenance.latencyMs).toBeGreaterThanOrEqual(0);
+    // startedAt is internal bookkeeping and must not leak into the saved row.
+    expect(saved.provenance.startedAt).toBeUndefined();
+    // Provenance map is cleaned up after persistence.
+    expect(ctx.investigationProvenance.has('inv_p2')).toBe(false);
+  });
 });

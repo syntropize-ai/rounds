@@ -1,6 +1,6 @@
 # Getting Started
 
-Get OpenObs running in under five minutes.
+OpenObs is an **AI SRE** that lives next to your existing telemetry and operations tools. Get it running in under five minutes — no schema changes, no second copy of your data.
 
 ## 1. Install
 
@@ -28,12 +28,14 @@ For more detail, see [Install with npm](/install/npm) or [Install with Helm](/in
 
 The web UI runs on `http://localhost:5173` (npm install) or whatever Ingress / port-forward you configured for the Kubernetes deployment.
 
-The setup wizard walks you through the first three steps:
+The setup wizard walks you through the minimum needed to start asking questions:
 
 1. **Create your administrator account** (name, email, password — minimum 12 characters)
-2. **Configure an LLM provider** — paste an Anthropic, OpenAI, or Gemini API key, or point at a local Ollama server
-3. **Add a datasource** — Prometheus, VictoriaMetrics, Loki, or any compatible backend
-4. **Optionally add Kubernetes access** — connect a cluster so investigations can inspect pods, events, rollouts, and safe read-only state
+2. **Configure an LLM provider** — paste an Anthropic, OpenAI, or Gemini API key, point at a local Ollama server, or supply an `apiKeyHelper` script for short-lived / vault-issued credentials
+3. **Add a metrics datasource** — Prometheus, VictoriaMetrics, Mimir, Thanos, Cortex, or any Prometheus-API-compatible backend
+4. **Optionally add Loki** for log search and a **Kubernetes ops connector** so investigations can inspect pods, events, rollouts, and prepare approval-gated remediations
+
+You don't have to do step 3 or 4 in the wizard — once OpenObs is running, you can also **add datasources, ops connectors, and low-risk org settings by chatting with the agent** ("connect my prod Prometheus at http://..."). The agent collects what it needs, previews the change, and applies it under your RBAC and the GuardedAction risk model.
 
 ## 3. Try a prompt
 
@@ -47,7 +49,10 @@ Then try an investigation prompt:
 
 > *Why is checkout latency high right now?*
 
-If metrics, logs, and Kubernetes connectors are configured, OpenObs will query telemetry, inspect cluster state, write a report, and recommend next actions. Mutating cluster actions are not executed directly; they become approval requests.
+If metrics, logs, and a Kubernetes connector are configured, OpenObs will query telemetry, inspect cluster state, write a report with citations on every claim, and recommend next actions. Mutating cluster actions are never executed silently:
+
+- When **you** ask the agent to do something risky, it surfaces a **Run / Confirm / Apply** prompt inline in chat.
+- When the agent is running **unattended** (auto-investigation triggered by a firing alert), the proposed fix is delivered as a `RemediationPlan` with formal **Approve / Reject / Modify** controls; the owning team / on-call is notified.
 
 ## Common first prompts
 

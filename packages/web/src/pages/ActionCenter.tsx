@@ -16,6 +16,7 @@ import {
   writeFiltersToParams,
   type ApprovalFilters,
 } from './action-center-filters.js';
+import StatusPill from '../components/StatusPill.js';
 
 // Types
 
@@ -74,18 +75,13 @@ function actionRisk(type: string): RiskLevel {
   return 'low';
 }
 
-const RISK_STYLES: Record<RiskLevel, string> = {
-  low: 'bg-[var(--color-surface-high)] text-on-surface-variant',
-  medium: 'bg-[#F59E0B]/10 text-[#F59E0B]',
-  high: 'bg-[#F97316]/10 text-[#F97316]',
-  critical: 'bg-[#EF4444]/10 text-[#EF4444]',
-};
-
-const STATUS_STYLES: Record<ApprovalStatus, string> = {
-  pending: 'bg-[#F59E0B]/10 text-[#F59E0B]',
-  approved: 'bg-[#22C55E]/10 text-[#22C55E]',
-  rejected: 'bg-[#EF4444]/10 text-[#EF4444]',
-  expired: 'bg-[var(--color-surface-high)] text-[var(--color-outline)]',
+// Status pill tones for ApprovalStatus values that need a coloured chip;
+// `expired` falls back to a neutral surface chip.
+const APPROVAL_STATUS_TONE: Record<ApprovalStatus, 'pending' | 'resolved' | 'firing' | null> = {
+  pending: 'pending',
+  approved: 'resolved',
+  rejected: 'firing',
+  expired: null,
 };
 
 // Action Card
@@ -110,12 +106,19 @@ function ActionCard({ request, processing, onApprove, onReject, canApprove }: Ac
           <span className="font-mono text-sm font-semibold text-on-surface">
             {request.action.type}
           </span>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${RISK_STYLES[risk]}`}>
-            {risk}
-          </span>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${STATUS_STYLES[request.status]}`}>
-            {request.status}
-          </span>
+          <StatusPill kind="risk" value={risk} size="md" />
+          {APPROVAL_STATUS_TONE[request.status] === null ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-[var(--color-surface-high)] text-[var(--color-outline)]">
+              {request.status}
+            </span>
+          ) : (
+            <StatusPill
+              kind="state"
+              value={APPROVAL_STATUS_TONE[request.status] as 'pending' | 'resolved' | 'firing'}
+              label={request.status}
+              size="md"
+            />
+          )}
         </div>
         <span className="text-xs text-[var(--color-outline)] shrink-0">{relativeTime(request.createdAt)}</span>
       </div>
@@ -419,21 +422,21 @@ export default function ActionCenter() {
 
       {/* Summary badges */}
       <div className="flex gap-3">
-        <div className="bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded-lg px-4 py-2 text-center">
-          <div className="text-2xl font-bold text-[#F59E0B]">{pending.length}</div>
-          <div className="text-xs text-[#F59E0B]/70">Pending</div>
+        <div className="bg-state-pending/10 border border-state-pending/20 rounded-lg px-4 py-2 text-center">
+          <div className="text-2xl font-bold text-state-pending">{pending.length}</div>
+          <div className="text-xs text-state-pending/70">Pending</div>
         </div>
-        <div className="bg-[#22C55E]/10 border border-[#22C55E]/20 rounded-lg px-4 py-2 text-center">
-          <div className="text-2xl font-bold text-[#22C55E]">
+        <div className="bg-state-resolved/10 border border-state-resolved/20 rounded-lg px-4 py-2 text-center">
+          <div className="text-2xl font-bold text-state-resolved">
             {resolved.filter(r => r.status === 'approved').length}
           </div>
-          <div className="text-xs text-[#22C55E]/70">Approved</div>
+          <div className="text-xs text-state-resolved/70">Approved</div>
         </div>
-        <div className="bg-[#EF4444]/10 border border-[#EF4444]/20 rounded-lg px-4 py-2 text-center">
-          <div className="text-2xl font-bold text-[#EF4444]">
+        <div className="bg-state-firing/10 border border-state-firing/20 rounded-lg px-4 py-2 text-center">
+          <div className="text-2xl font-bold text-state-firing">
             {resolved.filter(r => r.status === 'rejected').length}
           </div>
-          <div className="text-xs text-[#EF4444]/70">Rejected</div>
+          <div className="text-xs text-state-firing/70">Rejected</div>
         </div>
       </div>
 
@@ -452,12 +455,12 @@ export default function ActionCenter() {
           >
             {t}
             {t === 'pending' && pending.length > 0 && (
-              <span className="ml-1.5 bg-[#F59E0B]/20 text-[#F59E0B] text-xs font-semibold px-1.5 py-0.5 rounded-full">
+              <span className="ml-1.5 bg-state-pending/20 text-state-pending text-xs font-semibold px-1.5 py-0.5 rounded-full">
                 {pending.length}
               </span>
             )}
             {t === 'plans' && plans.length > 0 && (
-              <span className="ml-1.5 bg-[#F59E0B]/20 text-[#F59E0B] text-xs font-semibold px-1.5 py-0.5 rounded-full">
+              <span className="ml-1.5 bg-state-pending/20 text-state-pending text-xs font-semibold px-1.5 py-0.5 rounded-full">
                 {plans.length}
               </span>
             )}
@@ -502,12 +505,12 @@ export default function ActionCenter() {
 
       {/* Action error toast */}
       {actionError && (
-        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-[#EF4444]/10 border border-[#EF4444]/20 text-sm text-[#EF4444]">
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-severity-critical/10 border border-severity-critical/20 text-sm text-severity-critical">
           <span>{actionError}</span>
           <button
             type="button"
             onClick={() => setActionError(null)}
-            className="ml-3 text-[#EF4444]/70 hover:text-[#EF4444] font-semibold"
+            className="ml-3 text-severity-critical/70 hover:text-severity-critical font-semibold"
           >
             x
           </button>
@@ -515,12 +518,12 @@ export default function ActionCenter() {
       )}
 
       {actionInfo && (
-        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-[#22C55E]/10 border border-[#22C55E]/20 text-sm text-[#22C55E]">
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-state-resolved/10 border border-state-resolved/20 text-sm text-state-resolved">
           <span>{actionInfo}</span>
           <button
             type="button"
             onClick={() => setActionInfo(null)}
-            className="ml-3 text-[#22C55E]/70 hover:text-[#22C55E] font-semibold"
+            className="ml-3 text-state-resolved/70 hover:text-state-resolved font-semibold"
           >
             x
           </button>
@@ -533,7 +536,7 @@ export default function ActionCenter() {
           <span className="inline-block w-5 h-5 border-2 border-[var(--color-outline-variant)] border-t-[var(--color-primary)] rounded-full animate-spin" />
         </div>
       ) : error ? (
-        <div className="px-4 py-3 rounded-xl bg-[#EF4444]/10 border border-[#EF4444]/20 text-sm text-[#EF4444]">
+        <div className="px-4 py-3 rounded-xl bg-severity-critical/10 border border-severity-critical/20 text-sm text-severity-critical">
           {error}
         </div>
       ) : tab === 'plans' ? (

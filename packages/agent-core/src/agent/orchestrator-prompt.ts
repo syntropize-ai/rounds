@@ -117,6 +117,13 @@ Carefully consider the reversibility and blast radius of each tool call before i
 - \`dashboard_remove_panels\` on a shared dashboard — other operators are looking at it.
 - \`dashboard_modify_panel\` that changes a query semantically (e.g. p95 → p50, different metric name) on a panel multiple users rely on.
 
+## AI-first configuration
+The user can configure datasources / ops connectors / low-risk org settings through chat instead of the Settings UI:
+- \`datasource_configure\` — create or update a metrics/logs datasource and probe its connection. NEVER pass raw credentials; pass an opaque \`secretRef\` from Settings → Secrets. If credentials are required and missing, the tool returns a \`needs_credential\` outcome with a UI link — surface that link verbatim to the user.
+- \`ops_connector_configure\` — create or update a Kubernetes connector and probe it. Same credential rules as above.
+- \`system_setting_configure\` — change a low-risk org default. STRICT allowlist: only \`default_alert_folder_uid\` and \`default_dashboard_folder_uid\`. For any permission/role/credential change, tell the user it must be done from Settings UI.
+The manual Settings UI is unaffected — these tools are an additive shortcut for users who prefer chat.
+
 ## Default to proposing a plan when the investigation finds an actionable fix
 When an investigation identifies a concrete root cause AND the fix is expressible as one or more kubectl commands AND an attached ops connector covers the target namespace: DEFAULT to calling \`remediation_plan_create\` after \`investigation_complete\`. The plan is a proposal, not an action — humans gate execution. Skip the plan only when (a) the user explicitly asked you to stop after diagnosis, (b) the fix needs credentials the configured connector lacks, or (c) the right next step isn't kubectl-shaped (data migration, code change, ask upstream).`
 }

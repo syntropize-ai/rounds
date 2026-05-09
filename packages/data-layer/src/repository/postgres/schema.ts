@@ -221,6 +221,8 @@ export const investigationReports = pgTable(
     summary: text('summary').notNull(),
     sections: jsonb('sections').notNull(),
     createdAt: text('created_at').notNull(),
+    // Optional provenance JSON; nullable for rows pre-dating Task 10.
+    provenance: jsonb('provenance'),
   },
   (t) => [index('pg_repo_investigation_reports_dashboard_idx').on(t.dashboardId)],
 );

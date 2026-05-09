@@ -32,8 +32,30 @@ function loadSchemaSql(): string {
 export async function applyPostgresSchema(db: DbClient): Promise<void> {
   const statements = splitSqlStatements(loadSchemaSql());
   await db.transaction(async (tx) => {
+    // One-shot rename for instances created before the `user` -> `users`
+    // rename. Runs inside the same tx as the CREATE TABLE IF NOT EXISTS so
+    // either both happen or neither does.
+    await renameLegacyUserTable(tx);
     for (const stmt of statements) {
       await tx.execute(sql.raw(stmt));
     }
   });
+}
+
+async function renameLegacyUserTable(tx: {
+  execute: (q: ReturnType<typeof sql>) => Promise<unknown>;
+}): Promise<void> {
+  // pg_tables is only populated for the current search_path; both legacy
+  // `user` and the new `users` are created in the default schema, so this is
+  // sufficient.
+  await tx.execute(sql.raw(`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'user')
+         AND NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'users') THEN
+        EXECUTE 'ALTER TABLE "user" RENAME TO users';
+      END IF;
+    END
+    $$;
+  `));
 }

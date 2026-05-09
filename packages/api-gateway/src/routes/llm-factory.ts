@@ -6,9 +6,54 @@ import {
   OllamaProvider,
   LLMGateway,
   type LLMProvider,
+  type AuditSink,
+  type AuditEntry,
 } from '@agentic-obs/llm-gateway';
 import type { InstanceLlmConfig, LlmApiFormat } from '@agentic-obs/common';
+import type { ILlmAuditRepository } from '@agentic-obs/data-layer';
+import { createLogger } from '@agentic-obs/common/logging';
 import { llmCallsTotal, llmLatency, llmTokensTotal } from '../metrics.js';
+
+const auditLog = createLogger('llm-audit-sink');
+
+/**
+ * Adapt the data-layer `ILlmAuditRepository` to the gateway's `AuditSink`
+ * shape. Errors are logged-and-swallowed because audit-write failures must
+ * never break a live LLM call. The decoupling rule (llm-gateway never
+ * imports data-layer) is preserved by this adapter living in api-gateway.
+ */
+export function createDbAuditSink(repo: ILlmAuditRepository): AuditSink {
+  return {
+    async record(entry: AuditEntry): Promise<void> {
+      try {
+        await repo.insert({
+          id: entry.id,
+          requestedAt: entry.requestedAt,
+          provider: entry.provider,
+          model: entry.model,
+          promptHash: entry.promptHash,
+          inputTokens: entry.inputTokens,
+          outputTokens: entry.outputTokens,
+          totalTokens: entry.totalTokens,
+          cachedTokens: entry.cachedTokens ?? null,
+          costUsd: entry.costUsd,
+          latencyMs: entry.latencyMs,
+          success: entry.success,
+          errorKind: entry.errorKind ?? null,
+          abortReason: entry.abortReason ?? null,
+          orgId: entry.orgId ?? null,
+          userId: entry.userId ?? null,
+          sessionId: entry.sessionId ?? null,
+        });
+      } catch (err) {
+        auditLog.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'failed to persist llm_audit row',
+        );
+      }
+    },
+  };
+}
 
 /**
  * Minimal shape accepted by the factory. The repository-shaped
@@ -167,11 +212,19 @@ function createForCorpGateway(
 
 /**
  * Create an LLMGateway from the user's setup config.
+ *
+ * `auditSink` is optional: when provided, audit rows persist to the database;
+ * when omitted, the gateway uses its in-memory default (lost on restart).
  */
-export function createLlmGateway(cfg: LlmFactoryConfig, maxRetries = 2): LLMGateway {
+export function createLlmGateway(
+  cfg: LlmFactoryConfig,
+  maxRetries = 2,
+  auditSink?: AuditSink,
+): LLMGateway {
   return new LLMGateway({
     primary: createLlmProvider(cfg),
     maxRetries,
+    ...(auditSink ? { auditSink } : {}),
     metricsObserver: {
       recordSuccess(event) {
         llmCallsTotal.inc({ provider: event.provider, model: event.model, status: 'success' });

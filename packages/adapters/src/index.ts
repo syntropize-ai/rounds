@@ -20,6 +20,7 @@ export type {
 
 // -- Canonical concrete implementations --
 export { PrometheusMetricsAdapter } from './prometheus/metrics-adapter.js';
+export { MockMetricsAdapter } from './prometheus/mock-metrics-adapter.js';
 export { LokiLogsAdapter } from './loki/logs-adapter.js';
 export { DuckDuckGoSearchAdapter } from './web-search/duckduckgo-adapter.js';
 

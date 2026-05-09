@@ -1,0 +1,16 @@
+{
+  "name": "demo-cpu-high",
+  "description": "Pod CPU > 80% — fires on the demo fixture's api-server-0 (92%).",
+  "expr": "cpu_usage_percent > 80",
+  "threshold": 80,
+  "for": "1m",
+  "severity": "critical",
+  "labels": {
+    "team": "demo",
+    "scenario": "api-latency-spike"
+  },
+  "annotations": {
+    "summary": "API server pod CPU is above 80%",
+    "runbook": "Try the preset investigation: API latency spike"
+  }
+}

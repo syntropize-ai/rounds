@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress';
 
 export default defineConfig({
   title: 'OpenObs',
-  description: 'Docs for OpenObs, the AI-native observability platform.',
+  description: 'Docs for OpenObs, the open-source AI SRE.',
   srcDir: '.',
   cleanUrls: true,
   lastUpdated: true,

@@ -9,7 +9,7 @@ describe('applySchema()', () => {
     applySchema(db);
 
     const expected = [
-      'org', 'user', 'user_auth', 'user_auth_token',
+      'org', 'users', 'user_auth', 'user_auth_token',
       'org_user', 'team', 'team_member', 'api_key',
       'role', 'permission', 'builtin_role', 'user_role', 'team_role',
       'folder', 'dashboard_acl', 'preferences', 'quota', 'audit_log',
@@ -40,6 +40,42 @@ describe('applySchema()', () => {
     const colNames = new Set(cols.map((c) => c.name));
     expect(colNames).toContain('org_id');
     expect(colNames).toContain('folder_uid');
+  });
+
+  it('renames legacy `user` table to `users` for pre-rename instances', () => {
+    const db = createSqliteClient({ path: ':memory:', wal: false });
+    // Simulate a pre-rename database with the old `user` table and one row.
+    db.run(sql.raw(`
+      CREATE TABLE user (
+        id TEXT PRIMARY KEY,
+        version INTEGER NOT NULL DEFAULT 0,
+        email TEXT NOT NULL, name TEXT NOT NULL, login TEXT NOT NULL,
+        password TEXT, salt TEXT, rands TEXT, company TEXT,
+        org_id TEXT NOT NULL,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        email_verified INTEGER NOT NULL DEFAULT 0,
+        theme TEXT, help_flags1 INTEGER NOT NULL DEFAULT 0,
+        is_disabled INTEGER NOT NULL DEFAULT 0,
+        is_service_account INTEGER NOT NULL DEFAULT 0,
+        created TEXT NOT NULL, updated TEXT NOT NULL, last_seen_at TEXT
+      )
+    `));
+    db.run(sql`
+      INSERT INTO user (id, email, name, login, org_id, created, updated)
+      VALUES ('u1', 'a@b.c', 'Alice', 'alice', 'org_main', 'now', 'now')
+    `);
+
+    applySchema(db);
+
+    const tables = new Set(
+      db
+        .all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type='table'`)
+        .map((r) => r.name),
+    );
+    expect(tables.has('users')).toBe(true);
+    expect(tables.has('user')).toBe(false);
+    const rows = db.all<{ id: string }>(sql`SELECT id FROM users`);
+    expect(rows.map((r) => r.id)).toEqual(['u1']);
   });
 
   it('is idempotent — second applySchema() is a no-op', () => {

@@ -15,11 +15,21 @@ import TimeRangePicker from '../components/TimeRangePicker.js';
 import RefreshControl from '../components/RefreshControl.js';
 import FolderDialog from '../components/FolderDialog.js';
 import ExportMenu from '../components/ExportMenu.js';
+import PendingChangesBar from '../components/PendingChangesBar.js';
+import type { PendingChangeSummary } from '../components/PendingChangesBar.js';
 import { PermissionsDialog } from '../components/permissions/index.js';
 import type { PanelConfig } from '../components/DashboardPanelCard.js';
 import type { DashboardVariable } from '../hooks/useDashboardChat.js';
 
 // Types
+
+interface PendingChange {
+  id: string;
+  proposedAt: string;
+  proposedBy: string;
+  summary: string;
+  op: Record<string, unknown>;
+}
 
 interface Dashboard {
   id: string;
@@ -33,6 +43,7 @@ interface Dashboard {
   createdAt: string;
   updatedAt?: string;
   folder?: string;
+  pendingChanges?: PendingChange[];
 }
 
 // Main
@@ -88,6 +99,11 @@ export default function DashboardWorkspace() {
   const [titleDraft, setTitleDraft] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFolderDialog, setShowFolderDialog] = useState(false);
+  // Task 09 — AI-proposed changes for an existing (shared) dashboard. Local
+  // state hydrates from the loaded dashboard and from SSE
+  // `pending_changes_proposed` events. Accept/discard mutate this list and
+  // (on accept) apply the operation to the live panels/variables.
+  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   // T9 / Wave 6 — wire PermissionsDialog into the dashboard toolbar so
   // operators can manage per-dashboard role/user/team ACLs from the UI.
   const [showPermissionsDialog, setShowPermissionsDialog] = useState(false);
@@ -138,6 +154,7 @@ export default function DashboardWorkspace() {
     } else {
       dashboardLoadedRef.current = true;
       setDashboard(res.data);
+      setPendingChanges((res.data.pendingChanges as PendingChange[] | undefined) ?? []);
     }
     setLoading(false);
   }, [id]);
@@ -203,6 +220,78 @@ export default function DashboardWorkspace() {
       void globalChat.sendMessage(initialPrompt);
     }
   }, [initialPrompt, dashboard, globalChat]);
+
+  // Task 09 — append SSE-proposed pending changes into local state. Each
+  // event id appears once thanks to the hook's monotonic event ids.
+  const seenPendingEventRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const evt of events) {
+      if (evt.kind !== 'pending_changes_proposed') continue;
+      if (seenPendingEventRef.current.has(evt.id)) continue;
+      seenPendingEventRef.current.add(evt.id);
+      const incoming = (evt.pendingChanges ?? []) as PendingChange[];
+      if (incoming.length === 0) continue;
+      setPendingChanges((prev) => {
+        const seenIds = new Set(prev.map((c) => c.id));
+        return [...prev, ...incoming.filter((c) => !seenIds.has(c.id))];
+      });
+    }
+  }, [events]);
+
+  const handleAcceptPending = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      const toApply = pendingChanges.filter((c) => ids.includes(c.id));
+      // Apply each op locally — same shape as ActionExecutor on the agent side.
+      // Acceptance is idempotent: removing a panel that's already gone is a
+      // no-op; modifying a non-existent panel id is also a no-op (filter
+      // returns the same array). This mirrors action-executor.ts semantics.
+      setPanels((prev) => {
+        let next = prev;
+        for (const c of toApply) {
+          const op = c.op as Record<string, unknown>;
+          if (op.kind === 'remove_panel') {
+            next = next.filter((p) => p.id !== op.panelId);
+          } else if (op.kind === 'modify_panel') {
+            const patch = op.patch as Partial<PanelConfig>;
+            next = next.map((p) =>
+              p.id === op.panelId ? { ...p, ...patch } : p,
+            );
+          }
+        }
+        return next;
+      });
+      setVariables((prev) => {
+        let next = prev;
+        for (const c of toApply) {
+          const op = c.op as Record<string, unknown>;
+          if (op.kind === 'add_variable') {
+            const v = op.variable as DashboardVariable;
+            if (!next.find((x) => x.name === v.name)) next = [...next, v];
+          }
+        }
+        return next;
+      });
+      setPendingChanges((prev) => prev.filter((c) => !ids.includes(c.id)));
+    },
+    [pendingChanges, setPanels, setVariables],
+  );
+
+  const handleDiscardPending = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setPendingChanges((prev) => prev.filter((c) => !ids.includes(c.id)));
+  }, []);
+
+  const pendingSummaries: PendingChangeSummary[] = React.useMemo(
+    () =>
+      pendingChanges.map((c) => ({
+        id: c.id,
+        proposedAt: c.proposedAt,
+        proposedBy: c.proposedBy,
+        summary: c.summary,
+      })),
+    [pendingChanges],
+  );
 
   // Reload dashboard once when generation completes (SSE done → isGenerating becomes false)
   const wasGeneratingRef = useRef(false);
@@ -660,6 +749,14 @@ export default function DashboardWorkspace() {
             variables={variables}
             onChange={handleVariableChange}
           />
+
+          {pendingSummaries.length > 0 && (
+            <PendingChangesBar
+              changes={pendingSummaries}
+              onAccept={handleAcceptPending}
+              onDiscard={handleDiscardPending}
+            />
+          )}
 
           {showReport && investigationReport ? (
             <InvestigationReportView

@@ -10,6 +10,7 @@ import {
   AlertEvaluatorService,
   decideTransition,
   evaluatePredicate,
+  previewAlertCondition,
   type AlertFiredPayload,
 } from './alert-evaluator-service.js';
 
@@ -381,5 +382,51 @@ describe('AlertEvaluatorService.tickAll + start/stop', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+
+describe("previewAlertCondition", () => {
+  it("returns missing_capability when metrics adapter is null", async () => {
+    const result = await previewAlertCondition(null, { query: "up", operator: ">", threshold: 0 });
+    expect(result).toEqual({ kind: "missing_capability", reason: "no_metrics_datasource" });
+  });
+
+  it("counts predicate matches across series and returns sample timestamps", async () => {
+    const t0 = 1_700_000_000;
+    const adapter = {
+      rangeQuery: vi.fn(async () => [
+        { metric: { __name__: "up" } as Record<string, string>, values: [[t0, "0.2"], [t0 + 60, "0.9"], [t0 + 120, "0.95"]] as Array<[number, string]> },
+        { metric: { __name__: "up", instance: "b" } as Record<string, string>, values: [[t0, "0.99"]] as Array<[number, string]> },
+      ]),
+    };
+    const result = await previewAlertCondition(adapter, { query: "up", operator: ">", threshold: 0.5, lookbackHours: 12 });
+    expect(result).toEqual({
+      kind: "ok",
+      wouldHaveFired: 3,
+      sampleTimestamps: [
+        new Date(t0 * 1000 + 60_000).toISOString(),
+        new Date(t0 * 1000 + 120_000).toISOString(),
+        new Date(t0 * 1000).toISOString(),
+      ],
+      seriesCount: 2,
+      lookbackHours: 12,
+    });
+  });
+
+  it("returns no_series reason when datasource yields zero series", async () => {
+    const adapter = { rangeQuery: vi.fn(async () => []) };
+    const result = await previewAlertCondition(adapter, { query: "up", operator: ">", threshold: 0 });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.wouldHaveFired).toBe(0);
+      expect(result.reason).toBe("no_series");
+    }
+  });
+
+  it("returns missing_capability when rangeQuery throws", async () => {
+    const adapter = { rangeQuery: vi.fn(async () => { throw new Error("boom"); }) };
+    const result = await previewAlertCondition(adapter, { query: "up", operator: ">", threshold: 0 });
+    expect(result.kind).toBe("missing_capability");
   });
 });

@@ -28,6 +28,7 @@ export {
   type NewRemediationPlanStep,
   type RemediationPlanStepKind,
   type RemediationPlanStore,
+  type AgentConfigService,
   // Compat aliases
   type IConversationStore as IDashboardConversationStore,
   type IAlertRuleStore as IDashboardAlertRuleStore,

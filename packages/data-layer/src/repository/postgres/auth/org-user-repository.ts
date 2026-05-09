@@ -98,7 +98,7 @@ export class OrgUserRepository implements IOrgUserRepository {
         ou.id, ou.org_id, ou.user_id, ou.role, ou.created, ou.updated,
         u.email, u.name, u.login, u.is_service_account
       FROM org_user ou
-      INNER JOIN user u ON u.id = ou.user_id
+      INNER JOIN users u ON u.id = ou.user_id
       ${whereClause}
       ORDER BY u.login
       LIMIT ${limit} OFFSET ${offset}
@@ -106,7 +106,7 @@ export class OrgUserRepository implements IOrgUserRepository {
     const totalRows = await pgAll<{ n: number }>(this.db, sql`
       SELECT COUNT(*) AS n
       FROM org_user ou
-      INNER JOIN user u ON u.id = ou.user_id
+      INNER JOIN users u ON u.id = ou.user_id
       ${whereClause}
     `);
     return { items: rows.map(rowToWithProfile), total: totalRows[0]?.n ?? 0 };

@@ -1,13 +1,33 @@
 import { randomUUID } from 'node:crypto';
 import { ac } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
 import type {
+  Citation,
   InvestigationReportSection,
   PanelConfig,
   PanelVisualization,
+  Provenance,
 } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { panelSize } from '../layout-engine.js';
+
+const log = createLogger('investigation-provenance');
+
+/**
+ * Match inline evidence citations like `[m1]`, `[l2]`, `[k3]`, `[c1]` —
+ * the prefixes encode kind (m=metric, l=log, k=k8s, c=change). Used to
+ * count citations in AI-generated section content for the provenance
+ * scaffold (Task 10). Roadmap explicitly says NOT to enforce a 95%
+ * citation rate yet — we just count and warn.
+ */
+const CITATION_RX = /\[([mlkc])(\d+)\]/g;
+const KIND_BY_PREFIX: Record<string, Citation['kind']> = {
+  m: 'metric',
+  l: 'log',
+  k: 'k8s',
+  c: 'change',
+};
 
 // ---------------------------------------------------------------------------
 // Investigation lifecycle
@@ -49,6 +69,19 @@ export async function handleInvestigationCreate(
       // has to copy the id back through tool params (which it sometimes
       // truncated, silently re-keying sections to a phantom map slot).
       ctx.activeInvestigationId = createdId;
+      // Seed the provenance accumulator with model + runId + start time.
+      // Cost / latency get filled in at completion (latency from startedAt;
+      // cost is left undefined here — the UI joins llm_audit by sessionId
+      // when it needs aggregate spend). See ActionContext docs for the
+      // full lifecycle.
+      ctx.investigationProvenance.set(createdId, {
+        model: ctx.model,
+        runId: createdId,
+        toolCalls: 0,
+        evidenceCount: 0,
+        citations: [],
+        startedAt: Date.now(),
+      });
       observationText = `Created investigation "${question.slice(0, 60)}" (id: ${investigation.id}).`;
       return observationText;
     },
@@ -214,6 +247,31 @@ export async function handleInvestigationAddSection(
   existing.push(section);
   ctx.investigationSections.set(investigationId, existing);
 
+  // Provenance bookkeeping (Task 10). Each add_section call is one tool
+  // call from the agent's perspective; evidence sections also bump the
+  // evidence counter. We harvest inline citations into the report-level
+  // citation list so the UI can render <CitationChip /> with summaries.
+  const prov = ctx.investigationProvenance.get(investigationId);
+  if (prov) {
+    prov.toolCalls = (prov.toolCalls ?? 0) + 1;
+    if (sectionType === 'evidence') {
+      prov.evidenceCount = (prov.evidenceCount ?? 0) + 1;
+    }
+    const sectionIndex = existing.length - 1;
+    const list = prov.citations ?? (prov.citations = []);
+    for (const m of content.matchAll(CITATION_RX)) {
+      const prefix = m[1]!;
+      const ref = `${prefix}${m[2]!}`;
+      if (list.some((c) => c.ref === ref)) continue;
+      list.push({
+        ref,
+        kind: KIND_BY_PREFIX[prefix]!,
+        summary: section.panel?.title ?? content.slice(0, 80),
+        sectionIndex,
+      });
+    }
+  }
+
   const observationText = `Added ${sectionType} section to investigation ${investigationId} (${existing.length} sections total).`;
   ctx.sendEvent({ type: 'tool_result', tool: 'investigation_add_section', summary: observationText, success: true });
   return observationText;
@@ -250,6 +308,31 @@ export async function handleInvestigationComplete(
 
       const sections = ctx.investigationSections.get(investigationId) ?? [];
 
+      // Finalise provenance: copy out a clean Provenance (drop `startedAt`
+      // bookkeeping field) and compute end-to-end latency. Cost is left
+      // undefined — UI will fall back to "—" or fetch from llm_audit.
+      const provState = ctx.investigationProvenance.get(investigationId);
+      let finalProvenance: Provenance | undefined;
+      if (provState) {
+        const { startedAt, ...rest } = provState;
+        finalProvenance = {
+          ...rest,
+          ...(startedAt ? { latencyMs: Date.now() - startedAt } : {}),
+        };
+        // Citation-rate warning scaffold (Task 10): we do NOT enforce a
+        // threshold yet — that destabilises generation and the roadmap
+        // explicitly defers it. Just log when the model produced evidence
+        // sections without inline references so we have a metric trail.
+        const evCount = finalProvenance.evidenceCount ?? 0;
+        const citCount = finalProvenance.citations?.length ?? 0;
+        if (evCount > 0 && citCount === 0) {
+          log.warn(
+            { investigationId, evidenceCount: evCount, citationCount: citCount },
+            'investigation has evidence sections but no inline citations',
+          );
+        }
+      }
+
       // Save the report
       await ctx.investigationReportStore.save({
         id: randomUUID(),
@@ -258,6 +341,7 @@ export async function handleInvestigationComplete(
         summary,
         sections,
         createdAt: new Date().toISOString(),
+        ...(finalProvenance ? { provenance: finalProvenance } : {}),
       });
 
       // Update investigation status if store supports it
@@ -269,8 +353,9 @@ export async function handleInvestigationComplete(
         }
       }
 
-      // Clean up accumulated sections
+      // Clean up accumulated sections + provenance
       ctx.investigationSections.delete(investigationId);
+      ctx.investigationProvenance.delete(investigationId);
       // Clear active id so the next investigation_create starts a fresh one.
       ctx.activeInvestigationId = null;
 

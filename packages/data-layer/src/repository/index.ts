@@ -92,3 +92,12 @@ export * from './sqlite/index.js';
 export * from './event-wrappers/index.js';
 export { createPostgresRepositories, createSqliteRepositories } from './factory.js';
 export type { RepositoryBundle, SqliteRepositories } from './factory.js';
+
+export { SqliteLlmAuditRepository } from './sqlite/llm-audit-repository.js';
+export { PostgresLlmAuditRepository } from './postgres/llm-audit-repository.js';
+export type {
+  ILlmAuditRepository,
+  LlmAuditRecord,
+  LlmAuditErrorKind,
+  NewLlmAuditRecord,
+} from './sqlite/llm-audit-repository.js';

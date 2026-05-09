@@ -1,5 +1,5 @@
 /**
- * TimeSeriesViz — a Grafana-quality time-series panel for prism.
+ * TimeSeriesViz — a Grafana-quality time-series panel for openobs.
  *
  * Accepts the legacy `SeriesInput` shape so existing callers can swap
  * `TimeSeriesChart` for this component with a single import change. Internally
@@ -96,7 +96,7 @@ export interface TimeSeriesVizProps {
   legendPlacement?: LegendPlacement;
   /**
    * Shared crosshair key. All TimeSeriesViz instances with the same key
-   * receive each other's cursor position. Defaults to `'prism-panels'` so
+   * receive each other's cursor position. Defaults to `'openobs-panels'` so
    * panels on the same page automatically sync.
    */
   syncKey?: string;
@@ -380,7 +380,7 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   //    instances; canvas-based panels (heatmap) publish via a custom event
   //    bus, and this hook moves the uPlot crosshair when one of those fires.
   useEffect(() => {
-    return subscribeCursor(syncKey ?? 'prism-panels', sourceId, (detail) => {
+    return subscribeCursor(syncKey ?? 'openobs-panels', sourceId, (detail) => {
       const plot = plotRef.current;
       if (!plot) return;
       // Mark this setCursor as externally driven so the setCursor hook
@@ -482,7 +482,7 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
         // to peers) re-publishes null/non-null and re-syncs the original
         // panel, leaving its crosshair stuck.
         if (!applyingExternalRef.current && isLocal) {
-          publishCursor({ ts: null, sourceId, syncKey: syncKey ?? 'prism-panels' });
+          publishCursor({ ts: null, sourceId, syncKey: syncKey ?? 'openobs-panels' });
         }
         return;
       }
@@ -523,7 +523,7 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
             ts,
             topPct,
             sourceId,
-            syncKey: syncKey ?? 'prism-panels',
+            syncKey: syncKey ?? 'openobs-panels',
           });
         }
       }
@@ -553,7 +553,7 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
         // overshoot the mouse on taller sibling panels. Our own window-bus
         // `topPct` handles Y proportionally instead.
         sync: {
-          key: syncKey ?? 'prism-panels',
+          key: syncKey ?? 'openobs-panels',
           setSeries: false,
           scales: ['x', null],
         },
@@ -611,7 +611,7 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
           setTooltip({ idx: -1, left: 0, top: 0, visible: false }),
         );
         setHasOwnCursor(false);
-        publishCursor({ ts: null, sourceId, syncKey: syncKey ?? 'prism-panels' });
+        publishCursor({ ts: null, sourceId, syncKey: syncKey ?? 'openobs-panels' });
       };
       over.addEventListener('pointerleave', onLeave);
     },

@@ -189,6 +189,21 @@ export const DashboardSchema = z
     createdAt: z.string(),
     updatedAt: z.string(),
     error: z.string().optional(),
+    // Task 09 — AI-proposed modifications awaiting user review.
+    pendingChanges: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            proposedAt: z.string(),
+            proposedBy: z.string(),
+            sessionId: z.string().optional(),
+            summary: z.string(),
+            op: z.record(z.unknown()),
+          })
+          .passthrough(),
+      )
+      .optional(),
   })
   .passthrough();
 

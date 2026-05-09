@@ -30,6 +30,8 @@ export type AgentToolName =
   | 'ops_run_command'
   // Datasource discovery (always-allowed, no RBAC)
   | 'datasources_list' | 'datasources_suggest' | 'datasources_pin' | 'datasources_unpin'
+  // AI-first configuration (Task 07) — datasource / connector / low-risk org settings
+  | 'datasource_configure' | 'ops_connector_configure' | 'system_setting_configure'
   // Knowledge & utility
   | 'web_search' | 'llm.complete'
   | 'verifier.run'

@@ -1,6 +1,17 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
+import Skeleton from '../components/Skeleton.js';
+
+export type PreviewResult =
+  | { kind: 'ok'; wouldHaveFired: number; sampleTimestamps: string[]; seriesCount: number; lookbackHours: number; reason?: 'no_series' }
+  | { kind: 'missing_capability'; reason: string };
+
+export type PreviewState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: PreviewResult }
+  | { status: 'error'; message: string };
 
 type AlertSeverity = 'critical' | 'high' | 'medium' | 'low';
 
@@ -73,6 +84,8 @@ export default function AlertRuleEdit() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewState>({ status: 'idle' });
+  const previewSeq = useRef(0);
 
   useEffect(() => {
     void apiClient.get<AlertRule>(`/alert-rules/${id}`).then((res) => {
@@ -81,6 +94,39 @@ export default function AlertRuleEdit() {
       setLoading(false);
     });
   }, [id]);
+
+  // Debounced preview / backtest — fires whenever the predicate inputs
+  // (query / operator / threshold) change. The sequence ref ignores stale
+  // responses if the user keeps editing while a request is in flight.
+  const previewKey = useMemo(() => {
+    if (!form) return null;
+    if (!form.query.trim() || !Number.isFinite(form.threshold)) return null;
+    return JSON.stringify({ q: form.query, op: form.operator, t: form.threshold });
+  }, [form]);
+
+  useEffect(() => {
+    if (!previewKey || !form) {
+      setPreview({ status: 'idle' });
+      return;
+    }
+    const seq = ++previewSeq.current;
+    setPreview({ status: 'loading' });
+    const handle = setTimeout(async () => {
+      const res = await apiClient.post<PreviewResult>('/alert-rules/preview', {
+        query: form.query,
+        comparator: form.operator,
+        threshold: Number(form.threshold),
+        lookbackHours: 24,
+      });
+      if (seq !== previewSeq.current) return;
+      if (res.error) {
+        setPreview({ status: 'error', message: res.error.message ?? 'Preview failed' });
+      } else {
+        setPreview({ status: 'success', data: res.data });
+      }
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [previewKey, form]);
 
   const handleSave = useCallback(async () => {
     if (!form) return;
@@ -106,8 +152,12 @@ export default function AlertRuleEdit() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16">
-        <span className="inline-block w-6 h-6 border-2 border-[var(--color-outline-variant)] border-t-[var(--color-primary)] rounded-full animate-spin" />
+      <div className="flex-1 overflow-y-auto bg-surface-lowest">
+        <div className="p-8 max-w-2xl mx-auto space-y-4" data-testid="alert-rule-edit-loading">
+          <Skeleton variant="report-section" />
+          <Skeleton variant="report-section" />
+          <Skeleton variant="report-section" />
+        </div>
       </div>
     );
   }
@@ -190,6 +240,8 @@ export default function AlertRuleEdit() {
             <textarea value={form.labelsText} onChange={(e) => set({ labelsText: e.target.value })} rows={3} placeholder="key=value (one per line)" className={inputCls + ' font-mono text-xs resize-y'} />
           </div>
 
+          <PreviewPane state={preview} threshold={form.threshold} />
+
           {error && <p className="text-xs text-[#EF4444]">{error}</p>}
 
           <div className="flex items-center gap-2 pt-3 border-t border-[var(--color-outline-variant)]/30">
@@ -201,6 +253,71 @@ export default function AlertRuleEdit() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface PreviewPaneProps {
+  state: PreviewState;
+  threshold: number;
+}
+
+/**
+ * Preview / backtest pane for the alert condition editor. Renders four
+ * mutually exclusive states:
+ *   - loading
+ *   - missing_capability (no metrics datasource configured)
+ *   - no_series / no_data (datasource present, query returned nothing)
+ *   - success (count + sparkline-like list of recent matches)
+ */
+export function PreviewPane({ state, threshold }: PreviewPaneProps): React.ReactElement | null {
+  if (state.status === 'idle') return null;
+
+  return (
+    <div
+      data-testid="alert-preview-pane"
+      className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-low)] p-3"
+    >
+      <div className="text-xs font-medium text-[var(--color-on-surface)] mb-2">Preview (last 24h)</div>
+      {state.status === 'loading' && (
+        <p data-testid="alert-preview-loading" className="text-xs text-[var(--color-on-surface-variant)]">
+          Backtesting condition...
+        </p>
+      )}
+      {state.status === 'error' && (
+        <p data-testid="alert-preview-error" className="text-xs text-[#EF4444]">
+          {state.message}
+        </p>
+      )}
+      {state.status === 'success' && state.data.kind === 'missing_capability' && (
+        <p data-testid="alert-preview-missing" className="text-xs text-[var(--color-on-surface-variant)]">
+          Preview unavailable: {state.data.reason === 'no_metrics_datasource'
+            ? 'no metrics datasource is configured.'
+            : state.data.reason}
+        </p>
+      )}
+      {state.status === 'success' && state.data.kind === 'ok' && state.data.reason === 'no_series' && (
+        <p data-testid="alert-preview-no-data" className="text-xs text-[var(--color-on-surface-variant)]">
+          No series returned by the query in the last {state.data.lookbackHours}h.
+        </p>
+      )}
+      {state.status === 'success' && state.data.kind === 'ok' && state.data.reason !== 'no_series' && (
+        <div data-testid="alert-preview-success">
+          <div className="text-sm text-[var(--color-on-surface)]">
+            <span data-testid="alert-preview-fired-count" className="font-semibold">
+              Would have fired {state.data.wouldHaveFired} time{state.data.wouldHaveFired === 1 ? '' : 's'}
+            </span>{' '}
+            in the last {state.data.lookbackHours}h across {state.data.seriesCount} series (threshold {threshold}).
+          </div>
+          {state.data.sampleTimestamps.length > 0 && (
+            <ul className="mt-2 text-[11px] text-[var(--color-on-surface-variant)] font-mono space-y-0.5 max-h-32 overflow-y-auto">
+              {state.data.sampleTimestamps.slice(0, 8).map((ts) => (
+                <li key={ts}>• {ts}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

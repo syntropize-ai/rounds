@@ -632,7 +632,10 @@ describe('OpenAIProvider — config', () => {
       providerId: 'openrouter',
       providerName: 'OpenRouter',
       apiKey: 'static-key',
-      apiKeyHelper: "node -e \"console.log('helper-key')\"",
+      apiKeyHelper: JSON.stringify({
+        command: 'node',
+        args: ['-e', "console.log('helper-key')"],
+      }),
       baseUrl: 'https://openrouter.ai/api/v1',
     });
 

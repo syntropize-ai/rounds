@@ -25,14 +25,16 @@ function makeCtx(allowAll = true): ActionContext {
     pushConversationAction: () => {},
     setNavigateTo: () => {},
     investigationSections: new Map(),
-    activeInvestigationId: null,
-    activeDashboardId: null,
+    investigationProvenance: new Map(),
+    freshlyCreatedDashboards: new Set<string>(),
     dashboardBuildEvidence: {
       webSearchCount: 0,
       metricDiscoveryCount: 0,
       validatedQueries: new Set<string>(),
     },
-  } as ActionContext;
+    activeInvestigationId: null,
+    activeDashboardId: null,
+  } as unknown as ActionContext;
 }
 
 const writeAgent: AgentDefinition = {

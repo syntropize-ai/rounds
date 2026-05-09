@@ -2,10 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import InvestigationReportView from '../components/InvestigationReportView.js';
-import type {
-  InvestigationReport as IReport,
-  InvestigationReportSection,
-} from '../hooks/useDashboardChat.js';
+import type { InvestigationReport as IReport } from '../hooks/useDashboardChat.js';
 import type { Evidence } from '@agentic-obs/common';
 import type { InvestigationStatus } from '../api/types.js';
 import { relativeTime } from '../utils/time.js';
@@ -201,12 +198,13 @@ export default function InvestigationDetail() {
 
     if (res.data.status === 'completed' || res.data.status === 'failed') {
       // Fetch the LLM-generated report
-      const rRes = await apiClient.get<{
-        summary: string;
-        sections: InvestigationReportSection[];
-      }>(`/investigations/${id}/report`);
+      const rRes = await apiClient.get<IReport>(`/investigations/${id}/report`);
       if (!rRes.error && rRes.data?.summary) {
-        setReport({ summary: rRes.data.summary, sections: rRes.data.sections });
+        setReport({
+          summary: rRes.data.summary,
+          sections: rRes.data.sections,
+          ...(rRes.data.provenance ? { provenance: rRes.data.provenance } : {}),
+        });
       }
     }
   }, [id]);

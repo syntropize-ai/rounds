@@ -1,5 +1,5 @@
 /**
- * Builds uPlot.Options + AlignedData from prism's DataFrame model.
+ * Builds uPlot.Options + AlignedData from openobs's DataFrame model.
  *
  * Usage:
  *   const { options, data } = new UPlotConfigBuilder({ height: 240 })

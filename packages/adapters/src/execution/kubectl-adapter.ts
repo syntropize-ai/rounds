@@ -67,6 +67,14 @@ export interface KubectlExecutionAdapterOptions {
   spawnFn?: KubectlSpawnFn;
   /** Hard timeout for one kubectl invocation, ms. Defaults to 60_000. */
   timeoutMs?: number;
+  /**
+   * Optional defense-in-depth pre-flight gate. When wired, the adapter
+   * calls `preGuard(argv)` before spawning kubectl. A non-null return
+   * value REJECTS the action — used to enforce that every write went
+   * through ActionGuard upstream. The adapter-local allowlist remains
+   * authoritative regardless of this hook.
+   */
+  preGuard?: (argv: readonly string[]) => Promise<string | null> | string | null;
 }
 
 /**
@@ -107,8 +115,9 @@ interface RunResult {
 }
 
 export class KubectlExecutionAdapter implements ExecutionAdapter {
-  private readonly opts: Required<Omit<KubectlExecutionAdapterOptions, 'spawnFn'>> & {
+  private readonly opts: Required<Omit<KubectlExecutionAdapterOptions, 'spawnFn' | 'preGuard'>> & {
     spawnFn: KubectlSpawnFn;
+    preGuard?: KubectlExecutionAdapterOptions['preGuard'];
   };
 
   constructor(opts: KubectlExecutionAdapterOptions) {
@@ -119,6 +128,7 @@ export class KubectlExecutionAdapter implements ExecutionAdapter {
       kubectlBinary: opts.kubectlBinary ?? 'kubectl',
       spawnFn: opts.spawnFn ?? (spawn as unknown as KubectlSpawnFn),
       timeoutMs: opts.timeoutMs ?? 60_000,
+      ...(opts.preGuard ? { preGuard: opts.preGuard } : {}),
     };
   }
 
@@ -168,6 +178,18 @@ export class KubectlExecutionAdapter implements ExecutionAdapter {
       };
     }
     const argv = takeArgv(action);
+    if (this.opts.preGuard) {
+      const reason = await this.opts.preGuard(argv);
+      if (reason !== null && reason !== undefined) {
+        return {
+          success: false,
+          output: '',
+          rollbackable: false,
+          executionId: randomUUID(),
+          error: `pre-guard rejected: ${reason}`,
+        };
+      }
+    }
     const r = await this.run(argv);
     return {
       success: r.exitCode === 0 && !r.timedOut,

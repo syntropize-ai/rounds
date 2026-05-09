@@ -50,8 +50,41 @@ export function splitSqlStatements(script: string): string[] {
  * already-built database is a no-op.
  */
 export function applySchema(db: SqliteClient): void {
+  // One-shot rename for instances created before the `user` -> `users` rename.
+  // Runs before CREATE TABLE IF NOT EXISTS so the existing data is preserved
+  // instead of a fresh empty `users` table appearing alongside it.
+  renameLegacyUserTable(db);
   const statements = splitSqlStatements(loadSchemaSql());
   for (const stmt of statements) {
     db.run(sql.raw(stmt));
+  }
+  // Additive migrations after CREATE TABLE IF NOT EXISTS — these handle
+  // columns added to existing tables on already-built databases. Each
+  // step is idempotent and inspects sqlite_master / pragma first.
+  addProvenanceColumnIfMissing(db);
+}
+
+function renameLegacyUserTable(db: SqliteClient): void {
+  const rows = db.all<{ name: string }>(
+    sql`SELECT name FROM sqlite_master WHERE type='table' AND name IN ('user','users')`,
+  );
+  const names = new Set(rows.map((r) => r.name));
+  if (names.has('user') && !names.has('users')) {
+    db.run(sql.raw('ALTER TABLE user RENAME TO users'));
+  }
+}
+
+/**
+ * Add the optional `provenance` JSON column to `investigation_reports` for
+ * databases created before Task 10. New columns are nullable so existing
+ * rows (no provenance to backfill) keep working — the UI's
+ * <ProvenanceHeader /> already degrades to "—" for null fields.
+ */
+function addProvenanceColumnIfMissing(db: SqliteClient): void {
+  const cols = db.all<{ name: string }>(
+    sql`PRAGMA table_info('investigation_reports')`,
+  );
+  if (!cols.some((c) => c.name === 'provenance')) {
+    db.run(sql.raw('ALTER TABLE investigation_reports ADD COLUMN provenance TEXT'));
   }
 }

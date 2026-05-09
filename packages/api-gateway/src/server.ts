@@ -319,6 +319,16 @@ export async function createApp(): Promise<Application> {
     },
   } satisfies WebSocketGatewayDeps;
 
+  // -- Demo mode (zero-credential preview) ------------------------------
+  // OPENOBS_DEMO=1 is the ONLY way to enable demo routes. The flag is
+  // read here, not inside the router module, so the router cannot be
+  // silently mounted by a stray import.
+  if (process.env['OPENOBS_DEMO'] === '1') {
+    const { createDemoRouter } = await import('./routes/demo.js');
+    app.use('/api/demo', createDemoRouter());
+    log.info('OPENOBS_DEMO=1 — demo routes mounted at /api/demo');
+  }
+
   // -- SPA fallback + 404 / error handlers (must be LAST) ---------------
   mountStaticAssets(app);
   app.use(notFoundHandler);

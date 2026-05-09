@@ -4,7 +4,7 @@
  * Each hue provides five shades, progressing from perceptually lightest
  * (`superLight`) through the canonical `base` tone to perceptually darkest
  * (`superDark`). Values were chosen by hand for balanced saturation and to
- * stay legible on the prism dark surface (#1a1e2e) without appearing neon.
+ * stay legible on the openobs dark surface (#1a1e2e) without appearing neon.
  *
  * Design notes:
  *  - `base` shades are the primary choice for series colors. They sit around

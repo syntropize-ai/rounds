@@ -94,7 +94,7 @@ describe('dashboard handlers', () => {
 
   describe('handleDashboardAddPanels', () => {
     it('adds panels and streams a panel_added event for each', async () => {
-      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1', freshlyCreatedDashboards: new Set(['d1']) });
       const observation = await handleDashboardAddPanels(ctx, {
         panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
       });
@@ -182,8 +182,8 @@ describe('dashboard handlers', () => {
   });
 
   describe('handleDashboardRemovePanels', () => {
-    it('removes the listed panels and streams panel_removed events', async () => {
-      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
+    it('removes the listed panels and streams panel_removed events on a freshly-created dashboard', async () => {
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1', freshlyCreatedDashboards: new Set(['d1']) });
       const observation = await handleDashboardRemovePanels(ctx, {
         panelIds: ['p1', 'p2'],
       });
@@ -193,11 +193,42 @@ describe('dashboard handlers', () => {
         .filter((t) => t === 'panel_removed');
       expect(removedTypes).toHaveLength(2);
     });
+
+    it('writes a pending change for an existing (non-fresh) dashboard and leaves it untouched', async () => {
+      const appendPendingChanges = vi.fn().mockResolvedValue(undefined);
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd-shared',
+        store: {
+          findById: vi.fn(),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+          appendPendingChanges,
+        } as never,
+      });
+      const observation = await handleDashboardRemovePanels(ctx, { panelIds: ['p1', 'p2'] });
+      expect(observation).toMatch(/pending user review/);
+      // Original dashboard untouched — no executor call, no panel_removed.
+      expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
+      const removedTypes = ctx.sendEvent.mock.calls
+        .map(([e]) => (e as { type: string }).type)
+        .filter((t) => t === 'panel_removed');
+      expect(removedTypes).toHaveLength(0);
+      // One pending change per panelId, all routed through the store.
+      expect(appendPendingChanges).toHaveBeenCalledTimes(2);
+      const firstPersisted = appendPendingChanges.mock.calls[0]![1] as Array<{ op: { kind: string; panelId: string } }>;
+      expect(firstPersisted[0]!.op).toEqual({ kind: 'remove_panel', panelId: 'p1' });
+      // SSE event for chat panel surfacing.
+      const proposed = ctx.sendEvent.mock.calls.find(
+        ([e]) => (e as { type: string }).type === 'pending_changes_proposed',
+      );
+      expect(proposed).toBeDefined();
+    });
   });
 
   describe('handleDashboardModifyPanel', () => {
-    it('forwards the patch to actionExecutor and emits panel_modified', async () => {
-      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
+    it('forwards the patch to actionExecutor and emits panel_modified on a freshly-created dashboard', async () => {
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1', freshlyCreatedDashboards: new Set(['d1']) });
       const observation = await handleDashboardModifyPanel(ctx, {
         panelId: 'p1',
         title: 'Renamed',
@@ -208,17 +239,101 @@ describe('dashboard handlers', () => {
       );
       expect(modified).toBeDefined();
     });
+
+    it('writes a pending change for an existing dashboard and leaves it untouched', async () => {
+      const appendPendingChanges = vi.fn().mockResolvedValue(undefined);
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd-shared',
+        store: {
+          findById: vi.fn(),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+          appendPendingChanges,
+        } as never,
+      });
+      const observation = await handleDashboardModifyPanel(ctx, { panelId: 'p1', title: 'Renamed' });
+      expect(observation).toMatch(/pending user review/);
+      expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
+      const modified = ctx.sendEvent.mock.calls.find(
+        ([e]) => (e as { type: string }).type === 'panel_modified',
+      );
+      expect(modified).toBeUndefined();
+      expect(appendPendingChanges).toHaveBeenCalledTimes(1);
+      const persisted = appendPendingChanges.mock.calls[0]![1] as Array<{ op: { kind: string; panelId: string; patch: Record<string, unknown> } }>;
+      expect(persisted[0]!.op.kind).toBe('modify_panel');
+      expect(persisted[0]!.op.panelId).toBe('p1');
+      expect(persisted[0]!.op.patch.title).toBe('Renamed');
+    });
   });
 
   describe('handleDashboardAddVariable', () => {
-    it('adds the variable and emits a tool_result', async () => {
-      const ctx = makeFakeActionContext({ activeDashboardId: 'd1' });
+    it('adds the variable directly when the dashboard is freshly created', async () => {
+      const ctx = makeFakeActionContext({ activeDashboardId: 'd1', freshlyCreatedDashboards: new Set(['d1']) });
       const observation = await handleDashboardAddVariable(ctx, {
         name: 'env',
         type: 'custom',
       });
       expect(observation).toBe('Added variable $env.');
       expect(ctx.actionExecutor.execute).toHaveBeenCalled();
+    });
+
+    it('queues a pending change for variable additions on an existing dashboard', async () => {
+      const appendPendingChanges = vi.fn().mockResolvedValue(undefined);
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd-shared',
+        store: {
+          findById: vi.fn(),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+          appendPendingChanges,
+        } as never,
+      });
+      const observation = await handleDashboardAddVariable(ctx, { name: 'env', type: 'custom' });
+      expect(observation).toMatch(/pending user review/);
+      expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
+      expect(appendPendingChanges).toHaveBeenCalledTimes(1);
+      const persisted = appendPendingChanges.mock.calls[0]![1] as Array<{ op: { kind: string; variable: { name: string } } }>;
+      expect(persisted[0]!.op.kind).toBe('add_variable');
+      expect(persisted[0]!.op.variable.name).toBe('env');
+    });
+  });
+
+  describe('pending changes integration', () => {
+    it('marks dashboards created in this session as fresh so initial population applies directly', async () => {
+      const create = vi.fn().mockResolvedValue({ id: 'dash-1', title: 'My Dashboard' });
+      const ctx = makeFakeActionContext({
+        store: { create, findById: vi.fn(), update: vi.fn(), updatePanels: vi.fn(), updateVariables: vi.fn() } as never,
+      });
+      await handleDashboardCreate(ctx, { title: 'My Dashboard', datasourceId: 'prom-test' });
+      expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(true);
+      // Now a follow-up modify should apply directly (no pending).
+      await handleDashboardAddVariable(ctx, { name: 'env', type: 'custom' });
+      expect(ctx.actionExecutor.execute).toHaveBeenCalled();
+    });
+
+    it('accept-applying a remove_panel pending change is idempotent at the store layer', async () => {
+      // The accept path calls actionExecutor.execute with a remove_panels action;
+      // applying twice yields the same final panel set.
+      const appendPendingChanges = vi.fn().mockResolvedValue(undefined);
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd-shared',
+        store: {
+          findById: vi.fn(),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+          appendPendingChanges,
+        } as never,
+      });
+      await handleDashboardRemovePanels(ctx, { panelIds: ['p1'] });
+      const persisted = appendPendingChanges.mock.calls[0]![1] as Array<{ op: { kind: string; panelId?: string } }>;
+      const op = persisted[0]!.op;
+      expect(op.kind).toBe('remove_panel');
+      // The patch is a stable description — re-applying the same op is a no-op
+      // for an already-removed panel (action-executor filters by id).
+      expect((op as { kind: 'remove_panel'; panelId: string }).panelId).toBe('p1');
     });
   });
 

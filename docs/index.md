@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: OpenObs
-  text: AI-native observability for modern operations
-  tagline: Build dashboards, create alerts, investigate incidents, and approve safe fixes from one operator loop.
+  text: An open-source AI SRE
+  tagline: Investigate incidents, build dashboards, tune alerts, and approve remediations from a single chat-driven SRE loop.
   actions:
     - theme: brand
       text: Get Started
@@ -15,11 +15,11 @@ hero:
 
 features:
   - title: Observe
-    details: Build and edit dashboards from your real metrics with natural language.
+    details: Build and edit dashboards from your real metrics with natural language. Pending changes preview before any save.
   - title: Detect
-    details: Create and tune alert rules grounded in your telemetry.
+    details: Create and tune alert rules with preview + backtest, grounded in your actual telemetry.
   - title: Investigate
-    details: Correlate metrics, logs, changes, and Kubernetes state when configured.
-  - title: Act safely
-    details: Route risky cluster fixes through approval instead of executing blindly.
+    details: Correlate metrics, logs, traces, recent changes, and (when configured) Kubernetes state. Every claim has a citation.
+  - title: Remediate safely
+    details: Chat-driven Run / Confirm / Apply for user-led actions; formal Approve / Reject / Modify for background-agent fixes, with the GuardedAction risk model gating writes.
 ---

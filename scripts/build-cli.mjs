@@ -108,6 +108,16 @@ for (const file of schemaFiles) {
 }
 log(`Copied ${schemaFiles.length} SQL schema files → packages/cli/dist/`);
 
+// -- 4b. Copy demo fixtures -------------------------------------------
+// The demo router resolves fixtures relative to its own module URL. After
+// bundling that's packages/cli/dist/server.mjs; mirroring the source-tree
+// `demo/fixtures/` here lets `loadFixture()` find them in either layout.
+const demoFixturesSrc = join(ROOT, 'demo', 'fixtures');
+if (existsSync(demoFixturesSrc)) {
+  cpSync(demoFixturesSrc, join(distDir, 'demo', 'fixtures'), { recursive: true });
+  log('Copied demo fixtures → packages/cli/dist/demo/fixtures/');
+}
+
 // -- 5. Copy web static bundle --------------------------------------------
 
 const webSrc = join(ROOT, 'packages', 'web', 'dist');

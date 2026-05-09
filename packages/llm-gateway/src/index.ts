@@ -19,7 +19,10 @@ export { ProviderError, classifyProviderHttpError } from './types.js';
 export type { ProviderCapabilities } from './providers/capabilities.js';
 export { getCapabilities, ProviderCapabilityError } from './providers/capabilities.js';
 export { LLMGateway } from './gateway.js';
-export type { GatewayConfig, TokenMetrics } from './gateway.js';
+export type { GatewayConfig, TokenMetrics, AuditContext } from './gateway.js';
+export { InMemoryAuditSink, AuditLogger } from './audit.js';
+export type { AuditSink, AuditEntry, AuditErrorKind } from './audit.js';
+export { computeCostUsd, lookupPricing } from './pricing.js';
 export { OpenAIProvider, OpenAICompatibleProvider } from './providers/openai.js';
 export type { OpenAIConfig, OpenAICompatibleConfig } from './providers/openai.js';
 export { AnthropicProvider } from './providers/anthropic.js';
@@ -30,5 +33,9 @@ export { GeminiProvider } from './providers/gemini.js';
 export type { GeminiConfig } from './providers/gemini.js';
 export { OllamaProvider } from './providers/ollama.js';
 export type { OllamaConfig } from './providers/ollama.js';
-export { buildApiKeyResolver, _resetApiKeyHelperCacheForTests } from './api-key-helper.js';
-export type { ApiKeyResolverOptions } from './api-key-helper.js';
+export {
+  buildApiKeyResolver,
+  ApiKeyHelperConfigError,
+  _resetApiKeyHelperCacheForTests,
+} from './api-key-helper.js';
+export type { ApiKeyResolverOptions, ApiKeyHelperConfig } from './api-key-helper.js';

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
+import Skeleton from '../components/Skeleton.js';
 import { relativeTime } from '../utils/time.js';
 import { getInvestigationStatusStyle } from '../constants/status-styles.js';
 import { useAuth } from '../contexts/AuthContext.js';
@@ -144,8 +145,10 @@ export default function Investigations() {
         </div>
 
         {loading && (
-          <div className="flex justify-center py-16">
-            <span className="inline-block h-6 w-6 rounded-full border-2 border-outline border-t-primary animate-spin" />
+          <div className="space-y-2.5" data-testid="investigations-loading">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} variant="row" />
+            ))}
           </div>
         )}
 

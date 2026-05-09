@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { Provenance } from '@agentic-obs/common';
 import { apiClient } from '../api/client.js';
 import type { PanelConfig } from '../components/DashboardPanelCard.js';
 
@@ -30,6 +31,7 @@ export type ChatEventKind =
   | 'panel_removed'
   | 'panel_modified'
   | 'variable_added'
+  | 'pending_changes_proposed'
   | 'investigation_report'
   | 'ask_user'
   | 'ds_choice'
@@ -83,6 +85,9 @@ export interface InvestigationReportSection {
 export interface InvestigationReport {
   summary: string;
   sections: InvestigationReportSection[];
+  /** Optional provenance metadata; when present the <ProvenanceHeader /> shows
+   *  model / runId / tool-call count / cost / latency for this report. */
+  provenance?: Provenance;
 }
 
 export interface ChatEvent {
@@ -99,6 +104,16 @@ export interface ChatEvent {
   panelId?: string;
   // For variable events
   variable?: DashboardVariable;
+  // For 'pending_changes_proposed' — Task 09 batch of proposals for review.
+  pendingChanges?: Array<{
+    id: string;
+    proposedAt: string;
+    proposedBy: string;
+    sessionId?: string;
+    summary: string;
+    op: Record<string, unknown>;
+  }>;
+  dashboardId?: string;
   // For investigation report
   investigationReport?: InvestigationReport;
   // For "ask_user" — the question + clickable option buttons
@@ -110,6 +125,13 @@ export interface ChatEvent {
   chooseReason?: string;
   confidence?: 'high' | 'medium' | 'low';
   alternatives?: DatasourceChoiceAlternative[];
+  // For tool_call/tool_result — optional payload for expandable step cards.
+  // All fields are graceful-absent: server may not yet emit them.
+  params?: Record<string, unknown>;
+  output?: string;
+  evidenceId?: string;
+  cost?: number;
+  durationMs?: number;
 }
 
 interface UseDashboardChatResult {
@@ -228,22 +250,34 @@ export function useDashboardChat(
         }
 
         case 'tool_call': {
+          const params =
+            parsed.args && typeof parsed.args === 'object' && !Array.isArray(parsed.args)
+              ? (parsed.args as Record<string, unknown>)
+              : undefined;
           appendEvent({
             id,
             kind: 'tool_call',
             tool: parsed.tool as string | undefined,
             content: (parsed.displayText as string) ?? (parsed.content as string) ?? '',
+            ...(params ? { params } : {}),
+            ...(typeof parsed.evidenceId === 'string' ? { evidenceId: parsed.evidenceId } : {}),
           });
           break;
         }
 
         case 'tool_result': {
+          const summary = (parsed.summary as string) ?? (parsed.content as string) ?? '';
+          const output = typeof parsed.output === 'string' ? parsed.output : undefined;
           appendEvent({
             id,
             kind: 'tool_result',
             tool: parsed.tool as string | undefined,
-            content: (parsed.summary as string) ?? (parsed.content as string) ?? '',
+            content: summary,
             success: parsed.success !== false,
+            ...(output ? { output } : {}),
+            ...(typeof parsed.evidenceId === 'string' ? { evidenceId: parsed.evidenceId } : {}),
+            ...(typeof parsed.cost === 'number' ? { cost: parsed.cost } : {}),
+            ...(typeof parsed.durationMs === 'number' ? { durationMs: parsed.durationMs } : {}),
           });
           break;
         }
@@ -292,6 +326,22 @@ export function useDashboardChat(
               return [...prev, variable];
             }));
             appendEvent({ id, kind: 'variable_added', variable });
+          }
+          break;
+        }
+
+        case 'pending_changes_proposed': {
+          // Task 09 — agent proposed modifications to a pre-existing dashboard.
+          // The page subscribes to this event kind to update its review bar.
+          const dashboardId = parsed.dashboardId as string | undefined;
+          const changes = parsed.changes as ChatEvent['pendingChanges'];
+          if (changes && Array.isArray(changes) && changes.length > 0) {
+            appendEvent({
+              id,
+              kind: 'pending_changes_proposed',
+              dashboardId,
+              pendingChanges: changes,
+            });
           }
           break;
         }

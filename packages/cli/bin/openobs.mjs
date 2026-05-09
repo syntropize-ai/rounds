@@ -19,11 +19,30 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // -- argv handling (--help / --version) --------------------------------
 
 const args = process.argv.slice(2);
+
+// -- `openobs demo` subcommand ----------------------------------------
+// Zero-credential preview mode. Sets OPENOBS_DEMO=1 and uses an isolated
+// DATA_DIR so the demo never collides with a real install. The flag is
+// read by the api-gateway's createApp(); without it no demo routes are
+// mounted.
+if (args[0] === 'demo') {
+  process.env.OPENOBS_DEMO = '1';
+  if (!process.env.DATA_DIR) {
+    process.env.DATA_DIR = join(homedir(), '.openobs-demo');
+  }
+  process.stdout.write(
+    '[openobs] starting in DEMO mode — fixture data only, no credentials required.\n' +
+    `[openobs] DATA_DIR = ${process.env.DATA_DIR}\n`,
+  );
+  // fall through to the normal launcher
+}
+
 if (args.includes('--help') || args.includes('-h')) {
   process.stdout.write(`openobs — AI-native observability platform
 
 Usage:
   openobs                 Start the server (opens browser on first start).
+  openobs demo            Start in zero-credential demo mode (fixture data).
   openobs --port=3000     Run on a specific port (default 3000).
   openobs --no-open       Do not open a browser.
   openobs --help          This help.

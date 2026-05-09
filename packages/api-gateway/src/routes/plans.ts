@@ -25,7 +25,26 @@ import type {
   IRemediationPlanRepository,
   RemediationPlanStatus,
 } from '@agentic-obs/data-layer';
+import type { ActionRisk, ActionSource, ConfirmationMode } from '@agentic-obs/common';
 import { authMiddleware } from '../middleware/auth.js';
+
+/**
+ * Source × risk → confirmationMode. Mirrors guardrails' pickConfirmationMode
+ * but inlined here to avoid pulling guardrails into api-gateway as a runtime
+ * dep just for this read-only lookup. Keep in sync with
+ * packages/guardrails/src/action-guard/action-guard.ts:pickConfirmationMode.
+ */
+function pickConfirmationMode(source: ActionSource, risk: ActionRisk): ConfirmationMode {
+  if (source === 'background_agent') {
+    return risk === 'high' || risk === 'critical' ? 'formal_approval' : 'none';
+  }
+  if (source === 'user_conversation' || source === 'manual_ui') {
+    if (risk === 'critical' || risk === 'high') return 'strong_user_confirm';
+    if (risk === 'medium') return 'user_confirm';
+    return 'none';
+  }
+  return 'none';
+}
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
@@ -115,6 +134,65 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
           return;
         }
         res.json(plan);
+      } catch (err) { next(err); }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // GET /api/plans/:id/confirmation
+  //
+  // Returns the (source, risk) → confirmationMode mapping for the plan in
+  // the supplied context. Lets the UI render the right confirmation
+  // surface (single-click vs. type-resource-name vs. formal approval)
+  // WITHOUT having to first create an ApprovalRequest row.
+  //
+  // Query: ?source=user_conversation|background_agent|manual_ui|system
+  //        ?risk=low|medium|high|critical
+  // Defaults: source=background_agent, risk=high (existing plan default).
+  // ---------------------------------------------------------------------
+  router.get(
+    '/:id/confirmation',
+    authMiddleware,
+    requirePermission((req) => ac.eval(ACTIONS.PlansRead, `plans:uid:${req.params['id'] ?? ''}`)),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const authReq = req as AuthenticatedRequest;
+        const orgId = authReq.auth?.orgId;
+        if (!orgId) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'org context required' } });
+          return;
+        }
+        const plan = await deps.plans.findByIdInOrg(orgId, req.params['id'] ?? '');
+        if (!plan) {
+          const err: ApiError = { code: 'NOT_FOUND', message: 'plan not found' };
+          res.status(404).json(err);
+          return;
+        }
+        const sources: ReadonlySet<ActionSource> = new Set([
+          'user_conversation',
+          'background_agent',
+          'manual_ui',
+          'system',
+        ]);
+        const risks: ReadonlySet<ActionRisk> = new Set(['low', 'medium', 'high', 'critical']);
+        const sourceQ = String(req.query['source'] ?? 'background_agent');
+        const riskQ = String(req.query['risk'] ?? 'high');
+        const source: ActionSource = sources.has(sourceQ as ActionSource)
+          ? (sourceQ as ActionSource)
+          : 'background_agent';
+        const risk: ActionRisk = risks.has(riskQ as ActionRisk)
+          ? (riskQ as ActionRisk)
+          : 'high';
+        const confirmationMode = pickConfirmationMode(source, risk);
+        // Caller-driven flow: when confirmationMode is user_confirm or
+        // strong_user_confirm we explicitly tell the UI NOT to create an
+        // ApprovalRequest — the confirm-in-chat path applies instead.
+        res.json({
+          source,
+          risk,
+          confirmationMode,
+          requiresApprovalRequest: confirmationMode === 'formal_approval',
+        });
       } catch (err) { next(err); }
     },
   );

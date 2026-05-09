@@ -1,5 +1,5 @@
 /**
- * Barrel entry for the prism chart data layer.
+ * Barrel entry for the openobs chart data layer.
  *
  * Consumers should import from `@/lib/data` (or the relative path
  * equivalent) rather than reaching into individual files, so the internal

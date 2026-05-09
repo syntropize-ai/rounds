@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import StatusPill from './StatusPill.js';
 
 export type FeedEventType = 'investigation_complete' | 'anomaly_detected' | 'change_impact';
 export type FeedSeverity = 'low' | 'medium' | 'high' | 'critical';
@@ -20,27 +21,30 @@ interface FeedItemProps {
   onMarkRead: (id: string) => void;
 }
 
+// Icon chip per feed event kind. `color` keys to severity / state tokens
+// rather than raw hex so the avatar shifts with the active theme.
 const TYPE_META: Record<FeedEventType, { icon: string; color: string; label: string }> = {
-  anomaly_detected: { icon: '!', color: 'bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/20', label: 'Anomaly' },
+  anomaly_detected: {
+    icon: '!',
+    color: 'bg-severity-critical/15 text-severity-critical border-severity-critical/20',
+    label: 'Anomaly',
+  },
   investigation_complete: {
     icon: 'i',
     color: 'bg-[var(--color-primary)]/15 text-[var(--color-primary)] border-[var(--color-primary)]/20',
     label: 'Investigation',
   },
-  change_impact: { icon: '~', color: 'bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/20', label: 'Change' },
+  change_impact: {
+    icon: '~',
+    color: 'bg-state-pending/15 text-state-pending border-state-pending/20',
+    label: 'Change',
+  },
 };
 
 const TYPE_LABELS: Record<FeedEventType, string> = {
   investigation_complete: 'Investigation',
   anomaly_detected: 'Anomaly',
   change_impact: 'Change',
-};
-
-const SEVERITY_COLORS: Record<FeedSeverity, string> = {
-  critical: 'bg-[#EF4444]/10 text-[#EF4444]',
-  high: 'bg-[#F97316]/10 text-[#F97316]',
-  medium: 'bg-[#F59E0B]/10 text-[#F59E0B]',
-  low: 'bg-[var(--color-surface-high)] text-[var(--color-on-surface-variant)]',
 };
 
 function formatRelativeTime(isoString: string): string {
@@ -63,7 +67,7 @@ export default function FeedItem({ item, onMarkRead }: FeedItemProps) {
       className={`relative rounded-xl border transition-all group ${
         isUnread
           ? 'bg-[var(--color-surface-highest)] border-[var(--color-outline-variant)] hover:border-[var(--color-primary)]/30'
-          : 'bg-[#0F0F1A] border-[#24243A] opacity-95 hover:opacity-100'
+          : 'bg-[var(--color-surface-low)] border-[var(--color-outline-variant)] opacity-95 hover:opacity-100'
       }`}
     >
       {isUnread && <div className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-[var(--color-primary)]" />}
@@ -78,9 +82,7 @@ export default function FeedItem({ item, onMarkRead }: FeedItemProps) {
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-sm font-medium truncate text-[var(--color-on-surface)]">{item.title}</span>
               {isUnread && <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-[var(--color-primary)]/10 text-[var(--color-primary)]">New</span>}
-              <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${SEVERITY_COLORS[item.severity]}`}>
-                {item.severity}
-              </span>
+              <StatusPill kind="severity" value={item.severity} className="shrink-0" />
             </div>
 
             <p className="text-xs text-[var(--color-on-surface-variant)] leading-relaxed line-clamp-2 mb-2">{item.summary}</p>

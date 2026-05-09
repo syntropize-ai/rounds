@@ -7,6 +7,7 @@ import type {
   Identity,
   IFolderRepository,
   InvestigationReportSection,
+  Provenance,
 } from '@agentic-obs/common'
 import type {
   IDashboardAgentStore,
@@ -19,6 +20,7 @@ import type {
   OpsConnectorConfig,
   ApprovalRequestStore,
   RemediationPlanStore,
+  AgentConfigService,
 } from './types.js'
 import type { AdapterRegistry, IWebSearchAdapter } from '../adapters/index.js'
 import type { LLMGateway } from '@agentic-obs/llm-gateway'
@@ -74,6 +76,8 @@ export interface OrchestratorDeps {
   remediationPlans?: RemediationPlanStore
   /** P4 — used to auto-emit a plan-level ApprovalRequest on plan creation. */
   approvalRequests?: ApprovalRequestStore
+  /** Task 07 — AI-first configuration tools (datasource / connector / settings). */
+  configService?: AgentConfigService
   sendEvent: (event: DashboardSseEvent) => void
   timeRange?: { start: string; end: string; clientTimezone?: string }
   maxTokenBudget?: number
@@ -123,6 +127,8 @@ export class OrchestratorAgent {
    * sections into each other when investigation ids collide.
    */
   private readonly investigationSections = new Map<string, InvestigationReportSection[]>()
+  /** Per-investigation provenance accumulator (Task 10). See ActionContext docs. */
+  private readonly investigationProvenance = new Map<string, Provenance & { startedAt?: number }>()
   /**
    * Active investigation id for this session. Implicit context for
    * investigation_add_section / investigation_complete so the LLM doesn't
@@ -132,6 +138,9 @@ export class OrchestratorAgent {
   private readonly activeInvestigationIdRef: { current: string | null } = { current: null }
   /** Same pattern for the active dashboard id (set by dashboard_create / _clone). */
   private readonly activeDashboardIdRef: { current: string | null } = { current: null }
+  /** Task 09 — dashboards created in this session apply mutations directly;
+   *  pre-existing dashboards funnel modifications through pendingChanges. */
+  private readonly freshlyCreatedDashboards: Set<string> = new Set()
   private readonly dashboardBuildEvidence = {
     webSearchCount: 0,
     metricDiscoveryCount: 0,
@@ -332,8 +341,10 @@ export class OrchestratorAgent {
       pushConversationAction: (action) => this.pendingConversationActions.push(action),
       setNavigateTo: (path) => { this.pendingNavigateTo = path },
       investigationSections: this.investigationSections,
+      investigationProvenance: this.investigationProvenance,
       activeInvestigationIdRef: this.activeInvestigationIdRef,
       activeDashboardIdRef: this.activeDashboardIdRef,
+      freshlyCreatedDashboards: this.freshlyCreatedDashboards,
       dashboardBuildEvidence: this.dashboardBuildEvidence,
     })
     return this.actionRunner.execute(step, ctx)

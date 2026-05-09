@@ -53,6 +53,52 @@
 
   /* Raised translucent surface. Avoid blur-heavy glass effects. */
   --color-glass: rgba(36, 43, 51, 0.92);
+
+  /* ---------------------------------------------------------------------
+     Semantic status tokens (dark theme).
+     Hex values pair with `/10` and `/15` Tailwind opacity utilities for
+     soft pill backgrounds, while solid forms are used for dots/borders.
+     Foreground/background pairs target WCAG AA contrast on the
+     `surface-highest` panel; the soft `/10` backgrounds are decorative
+     and the readable text uses the solid token color directly.
+     --------------------------------------------------------------------- */
+
+  /* Severity */
+  --color-severity-critical: #ef4444;
+  --color-severity-high: #f97316;
+  --color-severity-medium: #f59e0b;
+  --color-severity-low: #94a3b8;
+  --color-severity-info: #60a5fa;
+
+  /* Alert / rule state */
+  --color-state-firing: #ef4444;
+  --color-state-pending: #f59e0b;
+  --color-state-resolved: #22c55e;
+  --color-state-normal: #22c55e;
+
+  /* Risk (action-center) */
+  --color-risk-low: #94a3b8;
+  --color-risk-medium: #f59e0b;
+  --color-risk-high: #f97316;
+  --color-risk-critical: #ef4444;
+
+  /* Tool kinds (chat / plan tool chips) */
+  --color-tool-metric: #3b82f6;
+  --color-tool-log: #a855f7;
+  --color-tool-k8s: #22c55e;
+  --color-tool-change: #f59e0b;
+
+  /* Surface aliases for elevation steps used by cards/pills.
+     These map onto the existing surface ramp so adopters don't need to
+     remember which `surface-*` to use for the layer they're styling. */
+  --color-surface-1: var(--color-surface-low);
+  --color-surface-2: var(--color-surface-high);
+  --color-surface-3: var(--color-surface-highest);
+
+  /* Elevation shadows */
+  --shadow-elev-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-elev-2: 0 4px 12px -2px rgba(0, 0, 0, 0.55);
+  --shadow-elev-3: 0 12px 32px -6px rgba(0, 0, 0, 0.65);
 }
 
 /* ---------------------------------------------------------------------------
@@ -98,6 +144,37 @@
 
   /* Glass on light — barely-tinted white */
   --color-glass: rgba(255, 255, 255, 0.75);
+
+  /* Semantic status tokens (light theme).
+     Slightly darker hues for AA contrast on white panels. */
+  --color-severity-critical: #dc2626;
+  --color-severity-high: #ea580c;
+  --color-severity-medium: #d97706;
+  --color-severity-low: #64748b;
+  --color-severity-info: #2563eb;
+
+  --color-state-firing: #dc2626;
+  --color-state-pending: #d97706;
+  --color-state-resolved: #16a34a;
+  --color-state-normal: #16a34a;
+
+  --color-risk-low: #64748b;
+  --color-risk-medium: #d97706;
+  --color-risk-high: #ea580c;
+  --color-risk-critical: #dc2626;
+
+  --color-tool-metric: #2563eb;
+  --color-tool-log: #9333ea;
+  --color-tool-k8s: #16a34a;
+  --color-tool-change: #d97706;
+
+  --color-surface-1: var(--color-surface-low);
+  --color-surface-2: var(--color-surface-high);
+  --color-surface-3: var(--color-surface-highest);
+
+  --shadow-elev-1: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-elev-2: 0 4px 12px -2px rgba(15, 23, 42, 0.12);
+  --shadow-elev-3: 0 12px 32px -6px rgba(15, 23, 42, 0.18);
 }
 
 .setup-theme-light {

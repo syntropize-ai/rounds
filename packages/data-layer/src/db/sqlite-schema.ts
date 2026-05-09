@@ -493,6 +493,9 @@ export const investigationReports = sqliteTable(
     summary: text('summary').notNull(),
     sections: text('sections', { mode: 'json' }).notNull(),
     createdAt: text('created_at').notNull(),
+    // Optional provenance JSON (model, runId, toolCalls, cost, latency, citations).
+    // Nullable so rows pre-dating Task 10 keep working.
+    provenance: text('provenance', { mode: 'json' }),
   },
   (t) => [
     index('investigation_reports_dashboard_idx').on(t.dashboardId),

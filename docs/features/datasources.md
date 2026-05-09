@@ -1,6 +1,8 @@
-# Datasources
+# Datasources & connectors
 
-OpenObs reads metrics, logs, and change events from your existing infrastructure. Every dashboard panel, alert rule, and investigation query talks to a configured datasource — there's no second copy of the data.
+OpenObs reads metrics, logs, and change events from your existing infrastructure, and talks to ops systems (Kubernetes today, more planned) through **connectors**. Every dashboard panel, alert rule, and investigation query talks to a configured datasource — there's no second copy of the data.
+
+Datasources can be added through the setup wizard, the Settings page, the REST API, **or by chatting with the agent** (e.g. "connect my prod Prometheus at http://..."). The agent uses the AI-first config tools to validate the URL, test connectivity, and save under your RBAC.
 
 ## Supported backends
 
@@ -24,11 +26,24 @@ Any backend exposing the Prometheus HTTP API works.
 
 ### Change events
 
-| Source | Notes |
-|---|---|
-| **Manual entry** | UI for recording deploys, config flips, infra changes |
-| **GitHub releases** (planned) | Auto-import from release events |
-| **ArgoCD / Flux** (planned) | Watch for sync events |
+| Source | Status | Notes |
+|---|---|---|
+| **Manual entry** | Available | UI for recording deploys, config flips, infra changes |
+| **GitHub releases** | Planned | Auto-import from release events |
+| **ArgoCD / Flux** | Planned | Watch for sync events |
+| **CI/CD systems** | Planned | Build / deploy webhooks |
+
+### Ops connectors
+
+Ops connectors let OpenObs read state and (with approval) act on the systems running your workloads.
+
+| Connector | Status | Used for |
+|---|---|---|
+| **Kubernetes** (kubectl, allowlisted) | Available | Investigation reads + plan execution. See [Auto-remediation](/operations/auto-remediation). |
+| **GitHub PRs** | Planned | Open remediations as PRs instead of direct kubectl writes |
+| **Jira / PagerDuty / Opsgenie** | Planned | Incident sync + on-call routing |
+| **Database read connectors** | Planned | Slow-query logs, schema state |
+| **Distributed tracing** | Planned | Trace-aware investigation |
 
 ## How to use it
 

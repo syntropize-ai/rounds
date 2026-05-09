@@ -1,7 +1,7 @@
 /**
  * GaugeViz — a radial arc gauge with threshold color bands.
  *
- * Original SVG implementation for prism. The geometry is a 270° sweep
+ * Original SVG implementation for openobs. The geometry is a 270° sweep
  * centered at the bottom of the SVG: the arc starts at 135° (lower-left),
  * runs clockwise through 180° (left) / 270° (top) / 0° (right) and ends
  * at 45° (lower-right). Angles are stored in the "SVG polar" convention

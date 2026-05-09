@@ -598,7 +598,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         'Append a section to the active investigation report. Call investigation_create first; this tool implicitly targets that record. type="text" is narrative analysis (substantial paragraphs); type="evidence" attaches a panel snapshot for a key finding.\n\n' +
         'Interleave querying and writing: query → add_section(text) interpreting that result → query more → another section → drop in an evidence panel next to the prose that cites it. Do NOT batch all queries first then dump prose at the end — the report loses the actual reasoning shape.\n\n' +
         'type=evidence is reserved for the 2–4 panels that carry the conclusion; not "every panel I ran". Each evidence section earns its place next to the paragraph that interprets it.\n\n' +
-        'Every text section MUST start with a short `## heading` that names the beat (e.g. `## Symptom`, `## Ruling out load`, `## Hotspot: /foo`). Without headings the rendered report collapses into one wall of text under "Summary" and the user can\'t tell sections apart. Headings are free-form — fit them to what the paragraph actually says, don\'t reflexively reach for "## Initial Assessment" / "## Hypothesis 1".',
+        'Every text section MUST start with a short `## heading` that names the beat (e.g. `## Symptom`, `## Ruling out load`, `## Hotspot: /foo`). Without headings the rendered report collapses into one wall of text under "Summary" and the user can\'t tell sections apart. Headings are free-form — fit them to what the paragraph actually says, don\'t reflexively reach for "## Initial Assessment" / "## Hypothesis 1".\n\n' +
+        'When citing a piece of evidence inline, reference it with a short bracketed token: `[m1]` for the 1st metric panel, `[l1]` for a log finding, `[k1]` for k8s/cluster state, `[c1]` for a recent change. The UI renders these as clickable chips. Citations are encouraged, not required.',
       input_schema: {
         type: 'object',
         properties: {
@@ -645,7 +646,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       name: 'alert_rule_write',
       description:
         'Create, update, or delete an alert rule — three verbs share one tool. Required: op. Per op:\n' +
-        ' - op="create": requires `prompt` (natural-language description). The rule generator produces PromQL, threshold, severity, labels. Query the current metric value first so the threshold is grounded in real data. Optional `dashboardId` reuses that dashboard\'s queries/variables. Optional `folderUid` only when the user explicitly names a folder; otherwise the rule lands in the default Alerts folder.\n' +
+        ' - op="create": requires `prompt` (natural-language description). The rule generator produces PromQL, threshold, severity, labels. Query the current metric value first so the threshold is grounded in real data. Optional `dashboardId` reuses that dashboard\'s queries/variables. Optional `folderUid` only when the user explicitly names a folder; otherwise the rule lands in the default Alerts folder. When a metrics datasource is registered, the tool result includes a backtest preview ("would have fired N time(s) ... in the last 24h") computed against real data; when no metrics datasource is wired, the preview is omitted (no fabrication).\n' +
         ' - op="update": requires `ruleId`. Pass only the fields to change (threshold, operator, severity, forDurationSec, evaluationIntervalSec, query, name). Resolve "it"/"this alert" via Active Alert Rule Context.\n' +
         ' - op="delete": requires `ruleId`. Irreversible.',
       input_schema: {
@@ -771,6 +772,79 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
         },
         required: ['query'],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // AI-first configuration tools (Task 07).
+  //
+  // Let users configure datasources / ops connectors / low-risk org settings
+  // by conversation. Raw credentials NEVER appear in these schemas — pass an
+  // opaque `secretRef` (id of a secret already stored in Settings). The
+  // handlers reject `password` / `token` / `apiKey` as belt-and-braces.
+  // Manual Settings UI keeps working unchanged.
+  // -------------------------------------------------------------------------
+  'datasource_configure': {
+    category: 'deferred',
+    schema: {
+      name: 'datasource_configure',
+      description:
+        'Create or update a metrics/logs datasource by conversation, then test the connection. Pass `id` to update an existing one; omit for create. NEVER include raw credentials — pass an opaque `secretRef` (id of a secret created via Settings → Secrets) and the handler resolves it server-side. If a credential is required and not provided the response is a structured `needs_credential` outcome with a UI deep link to attach a secret. Use only when the user explicitly asks to add or change a datasource — for "what datasources exist" use datasources_list.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Optional id of an existing datasource to update. Omit to create a new one.' },
+          type: { type: 'string', enum: ['prometheus', 'victoria-metrics', 'loki', 'elasticsearch', 'clickhouse', 'tempo', 'jaeger', 'otel'], description: 'Backend type.' },
+          name: { type: 'string', description: 'Human-friendly name shown in the UI.' },
+          url: { type: 'string', description: 'Base URL of the backend (https://...). The server validates against SSRF rules.' },
+          secretRef: { type: 'string', description: 'Opaque id of a secret stored in Settings → Secrets. Do NOT pass raw credentials.' },
+          isDefault: { type: 'boolean', description: 'When true, mark this datasource as the org default for its signal type.' },
+          test: { type: 'boolean', description: 'When true (default), run a connection probe after the upsert and include the result in the observation.' },
+        },
+        required: ['type', 'name', 'url'],
+      },
+    },
+  },
+  'ops_connector_configure': {
+    category: 'deferred',
+    schema: {
+      name: 'ops_connector_configure',
+      description:
+        'Create or update a Kubernetes/Ops connector by conversation, then test the connection. Pass `id` to update; omit for create. NEVER include raw kubeconfig content or tokens — pass an opaque `secretRef` and the server resolves it. Returns a structured `needs_credential` outcome (with a UI deep link) when credentials are required but missing. Allowed namespaces and capabilities default to the empty list — both are advisory; the actual command guard runs server-side.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Optional id of an existing connector to update.' },
+          type: { type: 'string', enum: ['kubernetes'], description: 'Connector type. Only "kubernetes" is supported today.' },
+          name: { type: 'string', description: 'Human-friendly name.' },
+          environment: { type: 'string', description: 'Optional environment label (e.g. "prod", "stage").' },
+          secretRef: { type: 'string', description: 'Opaque id of a kubeconfig secret stored in Settings → Secrets.' },
+          allowedNamespaces: { type: 'array', items: { type: 'string' }, description: 'Optional list of namespaces this connector is permitted to act on.' },
+          capabilities: { type: 'array', items: { type: 'string' }, description: 'Optional list of capability slugs (e.g. ["k8s.read", "k8s.write"]).' },
+          test: { type: 'boolean', description: 'When true (default), probe the connector after upsert.' },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  'system_setting_configure': {
+    category: 'deferred',
+    schema: {
+      name: 'system_setting_configure',
+      description:
+        'Update a low-risk org setting by conversation. Strictly limited to non-sensitive defaults: "default_alert_folder_uid", "default_dashboard_folder_uid". Permission, role, and credential changes are NOT in scope and must be done from Settings UI. The handler rejects keys outside the allowlist with a clear error.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          key: {
+            type: 'string',
+            enum: ['default_alert_folder_uid', 'default_dashboard_folder_uid'],
+            description: 'Setting key. Allowlisted; other keys are rejected.',
+          },
+          value: { type: 'string', description: 'New value.' },
+        },
+        required: ['key', 'value'],
       },
     },
   },

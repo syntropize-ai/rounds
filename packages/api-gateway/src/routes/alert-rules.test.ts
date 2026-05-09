@@ -1,6 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+
+const promRangeQueryMock = vi.hoisted(() => vi.fn());
+vi.mock('@agentic-obs/adapters', async () => {
+  const actual = await vi.importActual<typeof import('@agentic-obs/adapters')>('@agentic-obs/adapters');
+  return {
+    ...actual,
+    PrometheusMetricsAdapter: class {
+      rangeQuery = promRangeQueryMock;
+    },
+  };
+});
 import type { AlertRule, GrafanaFolder, Identity, IFolderRepository } from '@agentic-obs/common';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
@@ -101,7 +112,11 @@ function makeFolderRepo(): IFolderRepository {
   };
 }
 
-function makeApp(store = makeStore(), folderRepository: IFolderRepository = makeFolderRepo()) {
+function makeApp(
+  store = makeStore(),
+  folderRepository: IFolderRepository = makeFolderRepo(),
+  setupConfig: Partial<SetupConfigService> = {},
+) {
   const accessControl: AccessControlSurface = {
     evaluate: vi.fn(async () => true),
     getUserPermissions: vi.fn(async () => []),
@@ -112,7 +127,7 @@ function makeApp(store = makeStore(), folderRepository: IFolderRepository = make
   app.use(express.json());
   app.use('/alert-rules', createAlertRulesRouter({
     alertRuleStore: store,
-    setupConfig: {} as SetupConfigService,
+    setupConfig: setupConfig as SetupConfigService,
     ac: accessControl,
     folderRepository,
   }));
@@ -181,5 +196,97 @@ describe('alert rules router ownership checks', () => {
       title: 'Alerts',
       orgId: 'org_a',
     }));
+  });
+});
+
+describe('POST /alert-rules/preview', () => {
+  beforeEach(() => {
+    authState.orgId = 'org_a';
+    promRangeQueryMock.mockReset();
+    vi.clearAllMocks();
+  });
+
+  function withProm(): Partial<SetupConfigService> {
+    return {
+      listDatasources: vi.fn(async () => [{
+        id: 'ds_prom',
+        type: 'prometheus',
+        name: 'prom',
+        url: 'http://prom:9090',
+        orgId: 'org_a',
+        isDefault: true,
+      } as never]),
+    };
+  }
+
+  it('returns wouldHaveFired and sample timestamps on happy path', async () => {
+    const t0 = 1_700_000_000;
+    promRangeQueryMock.mockResolvedValueOnce([
+      {
+        metric: { __name__: 'up', instance: 'a' },
+        values: [
+          [t0, '0.1'],     // below threshold
+          [t0 + 60, '0.9'], // above
+          [t0 + 120, '0.95'], // above
+        ],
+      },
+    ]);
+    const { app } = makeApp(makeStore(), makeFolderRepo(), withProm());
+
+    const res = await request(app)
+      .post('/alert-rules/preview')
+      .send({ query: 'up', comparator: '>', threshold: 0.5, lookbackHours: 24 });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      kind: 'ok',
+      wouldHaveFired: 2,
+      seriesCount: 1,
+      lookbackHours: 24,
+    });
+    expect(res.body.sampleTimestamps).toHaveLength(2);
+  });
+
+  it('returns missing_capability when no metrics datasource is configured', async () => {
+    const { app } = makeApp(makeStore(), makeFolderRepo(), {
+      listDatasources: vi.fn(async () => []),
+    });
+
+    const res = await request(app)
+      .post('/alert-rules/preview')
+      .send({ query: 'up', comparator: '>', threshold: 0 });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ kind: 'missing_capability', reason: 'no_metrics_datasource' });
+    expect(promRangeQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('returns no_series reason when query returns nothing in the lookback window', async () => {
+    promRangeQueryMock.mockResolvedValueOnce([]);
+    const { app } = makeApp(makeStore(), makeFolderRepo(), withProm());
+
+    const res = await request(app)
+      .post('/alert-rules/preview')
+      .send({ query: 'up', comparator: '>', threshold: 0 });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      kind: 'ok',
+      wouldHaveFired: 0,
+      sampleTimestamps: [],
+      seriesCount: 0,
+      lookbackHours: 24,
+      reason: 'no_series',
+    });
+  });
+
+  it('rejects invalid input with 400', async () => {
+    const { app } = makeApp(makeStore(), makeFolderRepo(), withProm());
+
+    const res = await request(app)
+      .post('/alert-rules/preview')
+      .send({ query: 'up', comparator: '??', threshold: 1 });
+
+    expect(res.status).toBe(400);
   });
 });

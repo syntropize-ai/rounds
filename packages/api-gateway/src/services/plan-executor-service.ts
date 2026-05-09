@@ -33,10 +33,11 @@
  */
 
 import { createLogger } from '@agentic-obs/common/logging';
-import type { Identity } from '@agentic-obs/common';
+import type { Identity, ProposedAction } from '@agentic-obs/common';
 import type {
   ExecutionAdapter,
 } from '@agentic-obs/adapters';
+import type { ActionGuard } from '@agentic-obs/guardrails';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import type {
   IApprovalRequestRepository,
@@ -86,6 +87,16 @@ export interface PlanExecutorOptions {
     orgId: string,
     investigationId: string,
   ) => Promise<string | null>;
+  /**
+   * Optional GuardedAction central gate. When wired, every step is
+   * evaluated by `guard.decide()` before adapter execution as
+   * defense-in-depth on top of the adapter-local allowlist. A `deny`
+   * decision marks the step failed without spawning the adapter; an
+   * `allow` decision proceeds (the per-step ApprovalRequest flow is the
+   * formal_approval surfacing — `decide()` here just confirms the gate
+   * is satisfied and writes an audit row).
+   */
+  guard?: ActionGuard;
 }
 
 export type PlanExecutorOutcome =
@@ -388,6 +399,32 @@ export class PlanExecutorService {
         await this.haltPlan(plan.orgId, plan.id, step.ordinal, reason);
       }
       return;
+    }
+
+    if (this.opts.guard) {
+      const proposed: ProposedAction = {
+        orgId: plan.orgId,
+        connectorId: params.connectorId,
+        capability: 'k8s.write',
+        verb: params.argv[0] ?? 'unknown',
+        params: { argv: params.argv },
+        // Plan steps come from already-approved plans, so by the time we
+        // reach executeStep the formal_approval (or autoEdit) gate has
+        // been satisfied upstream — source='system' avoids re-asking.
+        risk: 'high',
+        source: 'system',
+      };
+      const decision = await this.opts.guard.decide(proposed);
+      if (decision.kind === 'deny') {
+        await this.opts.plans.updateStep(plan.id, step.ordinal, {
+          status: 'failed',
+          errorText: `guard denied: ${decision.reason}`,
+        });
+        if (!step.continueOnError) {
+          await this.haltPlan(plan.orgId, plan.id, step.ordinal, decision.reason);
+        }
+        return;
+      }
     }
 
     const adapter = await this.opts.adapterFor(plan, step);

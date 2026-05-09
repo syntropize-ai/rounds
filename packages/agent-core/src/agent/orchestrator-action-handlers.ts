@@ -46,4 +46,7 @@ export {
   handleOpsRunCommand,
   handleRemediationPlanCreate,
   handleRemediationPlanCreateRescue,
+  handleDatasourceConfigure,
+  handleOpsConnectorConfigure,
+  handleSystemSettingConfigure,
 } from './handlers/index.js';

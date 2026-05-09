@@ -61,7 +61,7 @@ export class UserRepository implements IUserRepository {
     const id = input.id ?? uid();
     const now = nowIso();
     this.db.run(sql`
-      INSERT INTO user (
+      INSERT INTO users (
         id, version, email, name, login, password, salt, rands, company,
         org_id, is_admin, email_verified, theme, help_flags1, is_disabled,
         is_service_account, created, updated, last_seen_at
@@ -86,23 +86,23 @@ export class UserRepository implements IUserRepository {
   }
 
   async findById(id: string): Promise<User | null> {
-    const rows = this.db.all<UserRow>(sql`SELECT * FROM user WHERE id = ${id}`);
+    const rows = this.db.all<UserRow>(sql`SELECT * FROM users WHERE id = ${id}`);
     return rows[0] ? rowToUser(rows[0]) : null;
   }
 
   async findByLogin(login: string): Promise<User | null> {
-    const rows = this.db.all<UserRow>(sql`SELECT * FROM user WHERE login = ${login}`);
+    const rows = this.db.all<UserRow>(sql`SELECT * FROM users WHERE login = ${login}`);
     return rows[0] ? rowToUser(rows[0]) : null;
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    const rows = this.db.all<UserRow>(sql`SELECT * FROM user WHERE email = ${email}`);
+    const rows = this.db.all<UserRow>(sql`SELECT * FROM users WHERE email = ${email}`);
     return rows[0] ? rowToUser(rows[0]) : null;
   }
 
   async findByAuthInfo(authModule: string, authId: string): Promise<User | null> {
     const rows = this.db.all<UserRow>(sql`
-      SELECT u.* FROM user u
+      SELECT u.* FROM users u
       INNER JOIN user_auth ua ON ua.user_id = u.id
       WHERE ua.auth_module = ${authModule} AND ua.auth_id = ${authId}
       LIMIT 1
@@ -128,12 +128,12 @@ export class UserRepository implements IUserRepository {
       : sql``;
 
     const rows = this.db.all<UserRow>(sql`
-      SELECT * FROM user ${whereClause}
+      SELECT * FROM users ${whereClause}
       ORDER BY login
       LIMIT ${limit} OFFSET ${offset}
     `);
     const totalRows = this.db.all<{ n: number }>(sql`
-      SELECT COUNT(*) AS n FROM user ${whereClause}
+      SELECT COUNT(*) AS n FROM users ${whereClause}
     `);
     return { items: rows.map(rowToUser), total: totalRows[0]?.n ?? 0 };
   }
@@ -159,7 +159,7 @@ export class UserRepository implements IUserRepository {
       isServiceAccount: patch.isServiceAccount ?? existing.isServiceAccount,
     };
     this.db.run(sql`
-      UPDATE user SET
+      UPDATE users SET
         version = version + 1,
         email = ${m.email},
         name = ${m.name},
@@ -184,25 +184,25 @@ export class UserRepository implements IUserRepository {
   async delete(id: string): Promise<boolean> {
     const before = await this.findById(id);
     if (!before) return false;
-    this.db.run(sql`DELETE FROM user WHERE id = ${id}`);
+    this.db.run(sql`DELETE FROM users WHERE id = ${id}`);
     return true;
   }
 
   async setDisabled(id: string, disabled: boolean): Promise<void> {
     const now = nowIso();
     this.db.run(sql`
-      UPDATE user SET is_disabled = ${fromBool(disabled)}, updated = ${now}
+      UPDATE users SET is_disabled = ${fromBool(disabled)}, updated = ${now}
       WHERE id = ${id}
     `);
   }
 
   async updateLastSeen(id: string, at: string): Promise<void> {
-    this.db.run(sql`UPDATE user SET last_seen_at = ${at} WHERE id = ${id}`);
+    this.db.run(sql`UPDATE users SET last_seen_at = ${at} WHERE id = ${id}`);
   }
 
   async countServiceAccounts(orgId: string): Promise<number> {
     const rows = this.db.all<{ n: number }>(sql`
-      SELECT COUNT(*) AS n FROM user
+      SELECT COUNT(*) AS n FROM users
       WHERE org_id = ${orgId} AND is_service_account = 1
     `);
     return rows[0]?.n ?? 0;

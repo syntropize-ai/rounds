@@ -1,5 +1,5 @@
 /**
- * Core data model for prism's chart stack.
+ * Core data model for openobs's chart stack.
  *
  * A `DataFrame` is a columnar table: a set of named `Field`s, each a parallel
  * array of values of a single logical type. Time-series data is represented

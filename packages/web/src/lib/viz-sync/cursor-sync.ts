@@ -13,7 +13,7 @@
  * subscribes (which we currently don't, but the guard costs nothing).
  */
 
-const EVENT_NAME = 'prism:panel-cursor';
+const EVENT_NAME = 'openobs:panel-cursor';
 
 export interface CursorEventDetail {
   /** Timestamp in ms since epoch, or `null` to clear the crosshair. */

@@ -1,3 +1,4 @@
+import { redactParamsForAudit } from '@agentic-obs/common';
 import type { ChatEvent } from '../../hooks/useDashboardChat.js';
 
 // Block grouping
@@ -53,6 +54,28 @@ export interface StepRow {
   result?: { text: string; success: boolean };
   done: boolean;
   subStepCount: number;
+}
+
+/**
+ * Per-tool-call card (Task 11). One card per `tool_call` event, paired with
+ * its matching `tool_result` (when one arrives). Unlike `StepRow` these are
+ * NOT merged by phase — five `metrics_query` calls render five cards.
+ */
+export interface ToolCallCard {
+  id: string;
+  tool: string;
+  label: string;
+  /** 'running' until paired result, then 'done' or 'error' */
+  status: 'running' | 'done' | 'error';
+  /** Sanitized input args (secrets redacted). Undefined if event had no args. */
+  params?: Record<string, unknown>;
+  /** Full output text (server-provided; server may not emit yet). */
+  output?: string;
+  /** Result summary text (always present once result arrives). */
+  summary?: string;
+  evidenceId?: string;
+  cost?: number;
+  durationMs?: number;
 }
 
 export const USER_VISIBLE_TOOLS = new Set([
@@ -321,4 +344,57 @@ export function buildSteps(events: ChatEvent[]): { steps: StepRow[]; preStatus: 
   }
 
   return { steps, preStatus };
+}
+
+/**
+ * Build one card per user-visible tool_call event. Each card pairs to the
+ * NEXT matching tool_result for the same tool name (FIFO within a tool).
+ *
+ * This is intentionally per-call (not phase-merged) so users see every step
+ * the agent ran — five `metrics_query` calls produce five cards.
+ */
+export function buildToolCalls(events: ChatEvent[]): ToolCallCard[] {
+  const cards: ToolCallCard[] = [];
+  // For each tool name, queue of indices of cards still awaiting a result.
+  const pending = new Map<string, number[]>();
+
+  for (const evt of events) {
+    if (evt.kind === 'tool_call') {
+      const tool = evt.tool ?? 'unknown';
+      if (!USER_VISIBLE_TOOLS.has(tool)) continue;
+      const label = TOOL_LABELS[tool] ?? tool;
+      const card: ToolCallCard = {
+        id: evt.id,
+        tool,
+        label,
+        status: 'running',
+        ...(evt.params ? { params: redactParamsForAudit(evt.params) } : {}),
+        ...(evt.evidenceId ? { evidenceId: evt.evidenceId } : {}),
+      };
+      const idx = cards.push(card) - 1;
+      const queue = pending.get(tool) ?? [];
+      queue.push(idx);
+      pending.set(tool, queue);
+      continue;
+    }
+
+    if (evt.kind === 'tool_result') {
+      const tool = evt.tool ?? 'unknown';
+      if (!USER_VISIBLE_TOOLS.has(tool)) continue;
+      const queue = pending.get(tool);
+      if (!queue || queue.length === 0) continue;
+      const idx = queue.shift()!;
+      const card = cards[idx];
+      if (!card) continue;
+      card.status = evt.success === false ? 'error' : 'done';
+      if (evt.content) card.summary = evt.content;
+      if (evt.output) card.output = evt.output;
+      if (evt.evidenceId && !card.evidenceId) card.evidenceId = evt.evidenceId;
+      if (typeof evt.cost === 'number') card.cost = evt.cost;
+      if (typeof evt.durationMs === 'number') card.durationMs = evt.durationMs;
+      continue;
+    }
+  }
+
+  return cards;
 }

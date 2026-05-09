@@ -125,6 +125,13 @@ export interface ChatEvent {
   chooseReason?: string;
   confidence?: 'high' | 'medium' | 'low';
   alternatives?: DatasourceChoiceAlternative[];
+  // For tool_call/tool_result — optional payload for expandable step cards.
+  // All fields are graceful-absent: server may not yet emit them.
+  params?: Record<string, unknown>;
+  output?: string;
+  evidenceId?: string;
+  cost?: number;
+  durationMs?: number;
 }
 
 interface UseDashboardChatResult {
@@ -243,22 +250,34 @@ export function useDashboardChat(
         }
 
         case 'tool_call': {
+          const params =
+            parsed.args && typeof parsed.args === 'object' && !Array.isArray(parsed.args)
+              ? (parsed.args as Record<string, unknown>)
+              : undefined;
           appendEvent({
             id,
             kind: 'tool_call',
             tool: parsed.tool as string | undefined,
             content: (parsed.displayText as string) ?? (parsed.content as string) ?? '',
+            ...(params ? { params } : {}),
+            ...(typeof parsed.evidenceId === 'string' ? { evidenceId: parsed.evidenceId } : {}),
           });
           break;
         }
 
         case 'tool_result': {
+          const summary = (parsed.summary as string) ?? (parsed.content as string) ?? '';
+          const output = typeof parsed.output === 'string' ? parsed.output : undefined;
           appendEvent({
             id,
             kind: 'tool_result',
             tool: parsed.tool as string | undefined,
-            content: (parsed.summary as string) ?? (parsed.content as string) ?? '',
+            content: summary,
             success: parsed.success !== false,
+            ...(output ? { output } : {}),
+            ...(typeof parsed.evidenceId === 'string' ? { evidenceId: parsed.evidenceId } : {}),
+            ...(typeof parsed.cost === 'number' ? { cost: parsed.cost } : {}),
+            ...(typeof parsed.durationMs === 'number' ? { durationMs: parsed.durationMs } : {}),
           });
           break;
         }

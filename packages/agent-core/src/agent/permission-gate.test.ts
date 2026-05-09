@@ -34,7 +34,7 @@ function makeCtx(allowAll = true): ActionContext {
     },
     activeInvestigationId: null,
     activeDashboardId: null,
-  } as ActionContext;
+  } as unknown as ActionContext;
 }
 
 const writeAgent: AgentDefinition = {

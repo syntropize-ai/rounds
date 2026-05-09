@@ -396,8 +396,8 @@ describe("previewAlertCondition", () => {
     const t0 = 1_700_000_000;
     const adapter = {
       rangeQuery: vi.fn(async () => [
-        { metric: { __name__: "up" }, values: [[t0, "0.2"], [t0 + 60, "0.9"], [t0 + 120, "0.95"]] as Array<[number, string]> },
-        { metric: { __name__: "up", instance: "b" }, values: [[t0, "0.99"]] as Array<[number, string]> },
+        { metric: { __name__: "up" } as Record<string, string>, values: [[t0, "0.2"], [t0 + 60, "0.9"], [t0 + 120, "0.95"]] as Array<[number, string]> },
+        { metric: { __name__: "up", instance: "b" } as Record<string, string>, values: [[t0, "0.99"]] as Array<[number, string]> },
       ]),
     };
     const result = await previewAlertCondition(adapter, { query: "up", operator: ">", threshold: 0.5, lookbackHours: 12 });

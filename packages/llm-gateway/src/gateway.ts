@@ -4,7 +4,13 @@ import { createLogger } from '@agentic-obs/common/logging';
 import type { LLMProvider, LLMOptions, LLMResponse, CompletionMessage } from './types.js';
 import { ProviderError } from './types.js';
 import { ProviderCapabilityError } from './providers/capabilities.js';
-import { AuditLogger, type AuditEntry } from './audit.js';
+import {
+  InMemoryAuditSink,
+  type AuditEntry,
+  type AuditErrorKind,
+  type AuditSink,
+} from './audit.js';
+import { computeCostUsd } from './pricing.js';
 
 const log = createLogger('llm-gateway');
 
@@ -39,6 +45,29 @@ function shouldRetryError(error: unknown): { retry: boolean; delayMs?: number } 
   return { retry: false };
 }
 
+/**
+ * Bucket an error into a privacy-safe `AuditErrorKind`. Never propagates
+ * raw error messages into the audit row — only the enum-ish kind.
+ */
+function classifyAuditError(error: unknown): AuditErrorKind {
+  if (error instanceof Error && error.name === 'AbortError') return 'aborted';
+  if (error instanceof ProviderError) {
+    if (error.kind === 'auth') return 'auth';
+    if (error.kind === 'unsupported') return 'unknown';
+    if (error.kind === 'network') {
+      if (error.status === 429) return 'ratelimit';
+      if (error.status !== undefined && error.status >= 500) return 'server';
+      return 'network';
+    }
+    return 'unknown';
+  }
+  if (error instanceof Error) {
+    if (/timeout|ETIMEDOUT/i.test(error.message)) return 'timeout';
+    if (/ENOTFOUND|ECONNREFUSED|ECONNRESET|fetch failed/i.test(error.message)) return 'network';
+  }
+  return 'unknown';
+}
+
 export interface GatewayConfig {
   primary: LLMProvider;
   fallback?: LLMProvider;
@@ -48,6 +77,12 @@ export interface GatewayConfig {
   retryDelayMs?: number;
   /** Optional observer for process-local metrics. */
   metricsObserver?: LLMGatewayMetricsObserver;
+  /**
+   * Optional persistence sink for audit records. When omitted, an in-memory
+   * sink is used (process-local, lost on restart). api-gateway injects a
+   * DB-backed sink at startup.
+   */
+  auditSink?: AuditSink;
 }
 
 export interface TokenMetrics {
@@ -74,6 +109,17 @@ export interface LLMGatewayMetricsObserver {
   }): void;
 }
 
+/**
+ * Optional per-call audit context — orgId / userId / sessionId. Forwarded
+ * straight into the audit row so DB-backed sinks can attribute calls. Never
+ * carries content; only identifiers.
+ */
+export interface AuditContext {
+  orgId?: string;
+  userId?: string;
+  sessionId?: string;
+}
+
 export class LLMGateway {
   private readonly primary: LLMProvider;
   private readonly fallback: LLMProvider | undefined;
@@ -81,7 +127,13 @@ export class LLMGateway {
   private readonly retryDelayMs: number;
   private readonly metricsObserver: LLMGatewayMetricsObserver | undefined;
   private metrics: TokenMetrics;
-  private readonly audit = new AuditLogger();
+  private readonly auditSink: AuditSink;
+  /**
+   * In-memory tee retained for backward compatibility with `getAuditLog()`
+   * callers (admin UIs, tests). Always populated regardless of the
+   * configured persistence sink.
+   */
+  private readonly auditMemory = new InMemoryAuditSink();
 
   constructor(config: GatewayConfig) {
     this.primary = config.primary;
@@ -89,6 +141,7 @@ export class LLMGateway {
     this.maxRetries = config.maxRetries ?? 3;
     this.retryDelayMs = config.retryDelayMs ?? 200;
     this.metricsObserver = config.metricsObserver;
+    this.auditSink = config.auditSink ?? this.auditMemory;
     this.metrics = {
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
@@ -97,30 +150,36 @@ export class LLMGateway {
     };
   }
 
-  async complete(messages: CompletionMessage[], options: LLMOptions): Promise<LLMResponse> {
+  async complete(
+    messages: CompletionMessage[],
+    options: LLMOptions,
+    auditContext?: AuditContext,
+  ): Promise<LLMResponse> {
+    // Full sha256 digest — NOT truncated. Audit rows persist this so
+    // operators can correlate identical prompt shapes across calls without
+    // ever storing the prompt text itself.
     const promptHash = createHash('sha256')
       .update(JSON.stringify(messages))
-      .digest('hex')
-      .slice(0, 16);
+      .digest('hex');
 
     const startTime = Date.now();
 
     try {
       const response = await this.callWithRetry(this.primary, messages, options);
-      this.recordSuccess(response, promptHash, this.primary.name, startTime);
+      await this.recordSuccess(response, promptHash, this.primary.name, startTime, auditContext);
       return response;
     } catch (primaryError) {
       if (this.fallback) {
         try {
           const response = await this.callWithRetry(this.fallback, messages, options);
-          this.recordSuccess(response, promptHash, this.fallback.name, startTime);
+          await this.recordSuccess(response, promptHash, this.fallback.name, startTime, auditContext);
           return response;
         } catch (fallbackError) {
-          this.recordFailure(promptHash, this.fallback.name, startTime, fallbackError);
+          await this.recordFailure(promptHash, this.fallback.name, startTime, fallbackError, auditContext);
           throw fallbackError;
         }
       }
-      this.recordFailure(promptHash, this.primary.name, startTime, primaryError);
+      await this.recordFailure(promptHash, this.primary.name, startTime, primaryError, auditContext);
       throw primaryError;
     }
   }
@@ -181,30 +240,46 @@ export class LLMGateway {
     throw lastError;
   }
 
-  private recordSuccess(
+  private async recordSuccess(
     response: LLMResponse,
     promptHash: string,
     providerName: string,
     startTime: number,
-  ): void {
+    auditContext?: AuditContext,
+  ): Promise<void> {
     const latencyMs = Date.now() - startTime;
     this.metrics.totalPromptTokens += response.usage.promptTokens;
     this.metrics.totalCompletionTokens += response.usage.completionTokens;
     this.metrics.totalTokens += response.usage.totalTokens;
     this.metrics.callCount++;
 
-    this.audit.record({
+    const costUsd = computeCostUsd(
+      response.model,
+      response.usage.promptTokens,
+      response.usage.completionTokens,
+    );
+
+    const entry: AuditEntry = {
       id: randomUUID(),
-      timestamp: new Date(),
+      requestedAt: new Date(startTime).toISOString(),
       provider: providerName,
       model: response.model,
       promptHash,
-      promptTokens: response.usage.promptTokens,
-      completionTokens: response.usage.completionTokens,
+      inputTokens: response.usage.promptTokens,
+      outputTokens: response.usage.completionTokens,
       totalTokens: response.usage.totalTokens,
+      cachedTokens: null,
+      costUsd,
       latencyMs,
       success: true,
-    });
+      errorKind: null,
+      abortReason: null,
+      orgId: auditContext?.orgId ?? null,
+      userId: auditContext?.userId ?? null,
+      sessionId: auditContext?.sessionId ?? null,
+    };
+    await this.persistAudit(entry);
+
     this.metricsObserver?.recordSuccess?.({
       provider: providerName,
       model: response.model,
@@ -215,27 +290,40 @@ export class LLMGateway {
     });
   }
 
-  private recordFailure(
+  private async recordFailure(
     promptHash: string,
     providerName: string,
     startTime: number,
     error: unknown,
-  ): void {
+    auditContext?: AuditContext,
+  ): Promise<void> {
     const latencyMs = Date.now() - startTime;
+    const errorKind = classifyAuditError(error);
+    // Keep the metrics observer's free-text `error` field for in-process
+    // metrics dashboards, but never let it leak into the audit row.
     const message = getErrorMessage(error);
-    this.audit.record({
+
+    const entry: AuditEntry = {
       id: randomUUID(),
-      timestamp: new Date(),
+      requestedAt: new Date(startTime).toISOString(),
       provider: providerName,
       model: 'unknown',
       promptHash,
-      promptTokens: 0,
-      completionTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
       totalTokens: 0,
+      cachedTokens: null,
+      costUsd: null,
       latencyMs,
       success: false,
-      error: message,
-    });
+      errorKind,
+      abortReason: errorKind === 'aborted' ? 'caller_disconnect' : null,
+      orgId: auditContext?.orgId ?? null,
+      userId: auditContext?.userId ?? null,
+      sessionId: auditContext?.sessionId ?? null,
+    };
+    await this.persistAudit(entry);
+
     this.metricsObserver?.recordFailure?.({
       provider: providerName,
       model: 'unknown',
@@ -244,11 +332,32 @@ export class LLMGateway {
     });
   }
 
+  /**
+   * Write to the configured persistence sink AND mirror into the in-memory
+   * tee for legacy `getAuditLog()` consumers. Sink errors are swallowed —
+   * an audit-write failure must never break a live LLM call.
+   */
+  private async persistAudit(entry: AuditEntry): Promise<void> {
+    // Mirror unconditionally so getAuditLog() works even when a custom sink
+    // was injected.
+    if (this.auditSink !== this.auditMemory) {
+      await this.auditMemory.record(entry);
+    }
+    try {
+      await this.auditSink.record(entry);
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'audit sink failed — entry dropped',
+      );
+    }
+  }
+
   getMetrics(): TokenMetrics {
     return { ...this.metrics };
   }
 
   getAuditLog(): readonly AuditEntry[] {
-    return this.audit.getEntries();
+    return this.auditMemory.getEntries();
   }
 }

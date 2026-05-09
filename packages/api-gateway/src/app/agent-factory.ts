@@ -25,7 +25,7 @@ import {
   type IInvestigationStore,
 } from '@agentic-obs/agent-core';
 import { DuckDuckGoSearchAdapter } from '@agentic-obs/adapters';
-import { createLlmGateway } from '../routes/llm-factory.js';
+import { createLlmGateway, createDbAuditSink } from '../routes/llm-factory.js';
 import { OpsCommandRunnerService } from '../services/ops-command-runner-service.js';
 import {
   buildAdapterRegistry,
@@ -89,7 +89,11 @@ export function buildBackgroundOrchestratorFactory(
       throw new Error('LLM not configured — complete the Setup Wizard before running background investigations');
     }
     const datasources = await deps.setupConfig.listDatasources({ orgId: identity.orgId });
-    const gateway = createLlmGateway(llm);
+    // Task 04 — DB-backed audit sink. Persistence carries the llmAudit repo
+    // for both backends; falling back is fine for tests / minimal deployments.
+    const llmAuditRepo = deps.persistence.repos.llmAudit;
+    const auditSink = llmAuditRepo ? createDbAuditSink(llmAuditRepo) : undefined;
+    const gateway = createLlmGateway(llm, undefined, auditSink);
     const adapters = buildAdapterRegistry(
       datasources,
       deps.githubChangeSources ? await deps.githubChangeSources.listAdapters(identity.orgId) : [],

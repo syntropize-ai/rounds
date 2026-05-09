@@ -8,7 +8,7 @@ import type {
   DashboardSseEvent,
   Identity,
 } from '@agentic-obs/common';
-import { createLlmGateway } from '../routes/llm-factory.js';
+import { createLlmGateway, createDbAuditSink } from '../routes/llm-factory.js';
 import {
   DashboardOrchestratorAgent as OrchestratorAgent,
   shouldCompact,
@@ -43,6 +43,7 @@ import type {
   IChatSessionEventRepository,
   IOpsConnectorRepository,
   IApprovalRequestRepository,
+  ILlmAuditRepository,
 } from '@agentic-obs/data-layer';
 import type { GitHubChangeSourceRegistry } from './github-change-source-service.js';
 
@@ -224,6 +225,8 @@ export interface ChatServiceDeps {
   setupConfig: SetupConfigService;
   /** In-process change sources such as GitHub webhooks. */
   githubChangeSources?: GitHubChangeSourceRegistry;
+  /** Task 04 — when set, LLM gateway audit rows are persisted here. */
+  llmAuditStore?: ILlmAuditRepository;
 }
 
 /**
@@ -390,7 +393,10 @@ export class ChatService {
       );
     };
 
-    const gateway = createLlmGateway(llm);
+    const auditSink = this.deps.llmAuditStore
+      ? createDbAuditSink(this.deps.llmAuditStore)
+      : undefined;
+    const gateway = createLlmGateway(llm, undefined, auditSink);
     const model = llm.model;
     const adapters = buildAdapterRegistry(
       datasources,

@@ -892,3 +892,34 @@ CREATE TABLE IF NOT EXISTS remediation_plan_step (
 
 CREATE INDEX IF NOT EXISTS ix_remediation_plan_step_plan
   ON remediation_plan_step(plan_id);
+
+-- ============================================================================
+-- LLM call audit log (Task 04). See sqlite-schema.sql for the privacy contract.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS llm_audit (
+  id             TEXT PRIMARY KEY,
+  requested_at   TEXT NOT NULL,
+  provider       TEXT NOT NULL,
+  model          TEXT NOT NULL,
+  prompt_hash    TEXT NOT NULL,
+  input_tokens   INTEGER NOT NULL DEFAULT 0,
+  output_tokens  INTEGER NOT NULL DEFAULT 0,
+  total_tokens   INTEGER NOT NULL DEFAULT 0,
+  cached_tokens  INTEGER NULL,
+  cost_usd       DOUBLE PRECISION NULL,
+  latency_ms     INTEGER NOT NULL DEFAULT 0,
+  success        BOOLEAN NOT NULL DEFAULT FALSE,
+  error_kind     TEXT NULL,
+  abort_reason   TEXT NULL,
+  org_id         TEXT NULL,
+  user_id        TEXT NULL,
+  session_id     TEXT NULL,
+  created_at     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_llm_audit_requested_at ON llm_audit(requested_at);
+CREATE INDEX IF NOT EXISTS ix_llm_audit_org_id      ON llm_audit(org_id);
+CREATE INDEX IF NOT EXISTS ix_llm_audit_user_id     ON llm_audit(user_id);
+CREATE INDEX IF NOT EXISTS ix_llm_audit_session_id  ON llm_audit(session_id);
+CREATE INDEX IF NOT EXISTS ix_llm_audit_model       ON llm_audit(model);

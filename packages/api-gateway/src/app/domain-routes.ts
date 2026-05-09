@@ -236,6 +236,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     folderRepository: sharedFolderRepo,
     setupConfig,
     githubChangeSources: deps.githubChangeSources,
+    llmAuditStore: repos.llmAudit,
   }));
   app.use('/api/alert-rules', createAlertRulesRouter({
     alertRuleStore: eventAlertRuleStore,

@@ -8,13 +8,13 @@ import type { ActionContext } from './_context.js';
 const LOGS_QUERY_MAX_CHARS = 2000;
 
 function unknownLogsSource(sourceId: string): string {
-  return `Error: unknown logs datasource '${sourceId}'. Call datasources_list to see available sources.`;
+  return `Error: unknown logs connector '${sourceId}'. Call connectors_list to see available sources.`;
 }
 
 // TODO: migrate to withToolEventBoundary
 export async function handleLogsQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call connectors_list to see available sources.';
   const adapter = ctx.adapters.logs(sourceId);
   if (!adapter) return unknownLogsSource(sourceId);
   const query = String(args.query ?? '');
@@ -72,7 +72,7 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
 // TODO: migrate to withToolEventBoundary
 export async function handleLogsLabels(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call connectors_list to see available sources.';
   const adapter = ctx.adapters.logs(sourceId);
   if (!adapter) return unknownLogsSource(sourceId);
   ctx.sendEvent({ type: 'tool_call', tool: 'logs_labels', args: { sourceId }, displayText: `Listing log labels on ${sourceId}` });
@@ -91,7 +91,7 @@ export async function handleLogsLabels(ctx: ActionContext, args: Record<string, 
 // TODO: migrate to withToolEventBoundary
 export async function handleLogsLabelValues(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call connectors_list to see available sources.';
   const adapter = ctx.adapters.logs(sourceId);
   if (!adapter) return unknownLogsSource(sourceId);
   const label = String(args.label ?? '');

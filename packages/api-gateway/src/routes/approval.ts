@@ -2,11 +2,10 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { ApiError, ResolvedPermission } from '@agentic-obs/common';
 import { ac, ACTIONS, approvalRowScopes, parseApprovalScope } from '@agentic-obs/common';
-import type { IApprovalRequestRepository, IGatewayApprovalStore, IOpsConnectorRepository, ApprovalScopeFilter } from '@agentic-obs/data-layer';
+import type { IApprovalRequestRepository, IGatewayApprovalStore, ApprovalScopeFilter } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
-import { OpsCommandRunnerService } from '../services/ops-command-runner-service.js';
 
 /**
  * Stamp the caller's org role onto the approval record for audit. We keep the
@@ -30,7 +29,6 @@ export interface ApprovalRouterDeps {
    * for the mutation pub/sub).
    */
   approvalRequests: IApprovalRequestRepository;
-  opsConnectors?: IOpsConnectorRepository;
   /**
    * RBAC surface. `AccessControlSurface` is used (not the concrete service)
    * because this router is mounted outside the async auth IIFE in server.ts
@@ -286,48 +284,6 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
           return;
         }
         res.json(updated);
-      } catch (err) {
-        next(err);
-      }
-    },
-  );
-
-  // POST /api/approvals/:id/execute — execute an already-approved op.
-  // Reuses the same per-row `approvals:approve` gate: a caller who can
-  // approve the row can also execute it (no additional scope dimension).
-  router.post(
-    '/:id/execute',
-    authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-      try {
-        const auth = authOr401(req, res);
-        if (!auth) return;
-        const id = req.params['id'] ?? '';
-        const record = await repo.findById(id);
-        const notFound: ApiError = { code: 'NOT_FOUND', message: 'Approval request not found' };
-        if (!record) {
-          res.status(404).json(notFound);
-          return;
-        }
-        const perms = await accessControl.ensurePermissions(auth);
-        const allowed = await evalRowAccess(accessControl, auth, perms, ACTIONS.ApprovalsApprove, record);
-        if (!allowed) {
-          res.status(404).json(notFound);
-          return;
-        }
-        if (!deps.opsConnectors) {
-          res.status(503).json({
-            error: { code: 'NOT_CONFIGURED', message: 'approval execution is not configured' },
-          });
-          return;
-        }
-        const runner = new OpsCommandRunnerService({
-          connectors: deps.opsConnectors,
-          approvals: deps.approvalRequests,
-        }, auth.orgId);
-        const result = await runner.executeApprovedApproval(id, auth);
-        const status = result.decision === 'executed' ? 200 : 400;
-        res.status(status).json(result);
       } catch (err) {
         next(err);
       }

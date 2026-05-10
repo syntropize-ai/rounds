@@ -20,7 +20,7 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
       getFolderUid: async () => null,
     } as unknown as ActionContext['alertRuleStore'],
     adapters: new AdapterRegistry(),
-    allDatasources: [{ id: 'ds-prom', type: 'prometheus', name: 'Prom', url: 'http://x', isDefault: true }],
+    allConnectors: [{ id: 'ds-prom', type: 'prometheus', name: 'Prom', url: 'http://x', isDefault: true }],
     sendEvent: () => {},
     sessionId: 'sess-1',
     identity: { userId: 'u', orgId: 'o', orgRole: 'Admin', isServerAdmin: false, authenticatedBy: 'session' },
@@ -79,21 +79,21 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
   it('metrics_query maps sourceId to scope', () => {
     const e = TOOL_PERMS['metrics_query']!({ sourceId: 'prom-prod', query: 'up' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
-      'datasources:query on datasources:uid:prom-prod',
+      'connectors:query on connectors:id:prom-prod',
     );
   });
 
   it('metrics_query falls back to wildcard when sourceId is missing', () => {
     const e = TOOL_PERMS['metrics_query']!({ query: 'up' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
-      'datasources:query on datasources:uid:*',
+      'connectors:query on connectors:id:*',
     );
   });
 
-  it('logs_query derives the datasource scope from sourceId', () => {
+  it('logs_query derives the connector scope from sourceId', () => {
     const e = TOOL_PERMS['logs_query']!({ sourceId: 'loki-prod' }, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
-      'datasources:query on datasources:uid:loki-prod',
+      'connectors:query on connectors:id:loki-prod',
     );
   });
 
@@ -110,14 +110,14 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
       makeCtx(),
     );
     expect((e as { string: () => string }).string()).toBe(
-      'any(ops.commands:run on ops.connectors:id:kube-prod, instance.config:write)',
+      'any(ops.commands:run on connectors:id:kube-prod, instance.config:write)',
     );
   });
 
   it('ops_run_command falls back to wildcard connector scope when connectorId is missing', () => {
     const e = TOOL_PERMS['ops_run_command']!({}, makeCtx());
     expect((e as { string: () => string }).string()).toBe(
-      'any(ops.commands:run on ops.connectors:id:*, instance.config:write)',
+      'any(ops.commands:run on connectors:id:*, instance.config:write)',
     );
   });
 

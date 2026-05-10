@@ -1,5 +1,5 @@
 /**
- * Setup smoke — POST /api/ops/connectors/:id/test (Ref PR #120).
+ * Setup smoke — POST /api/connectors/:id/test (Ref PR #120).
  *
  * The seeded "e2e" in-cluster connector should probe successfully via
  * `kubectl version`. Reads the seeded connector id from .state.
@@ -38,7 +38,7 @@ describe('setup/ops-connector-test-connection', () => {
     let id = seededConnectorId();
     if (!id) {
       // Fallback: discover from list endpoint.
-      const list = await apiGet<ConnectorList>('/api/ops/connectors');
+      const list = await apiGet<ConnectorList>('/api/connectors');
       id = list.connectors.find((c) => c.name === 'e2e')?.id ?? null;
     }
     expect(id, 'seeded e2e connector id (.state/ops-connector-id)').toBeTruthy();
@@ -48,7 +48,7 @@ describe('setup/ops-connector-test-connection', () => {
     // categorized shape.
     let result: TestResp;
     try {
-      result = await apiPost<TestResp>(`/api/ops/connectors/${id}/test`, {});
+      result = await apiPost<TestResp>(`/api/connectors/${id}/test`, {});
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
         result = JSON.parse(err.bodyExcerpt) as TestResp;

@@ -7,7 +7,7 @@ uses the SQLite backend.
 ## Scope
 
 Postgres now has siblings for the same repository bundle that SQLite exposes:
-auth, RBAC, instance settings, datasources, dashboards, investigations, alerts,
+auth, RBAC, instance settings, connectors, dashboards, investigations, alerts,
 notifications, chat, feed, approvals, shares, and related domain data. The
 schema is applied by `schema-applier.ts` from `schema.sql` during startup.
 

@@ -3,7 +3,7 @@
  *
  * Mounts:
  *   - Common surface       — health, sessions, openapi, metrics, webhooks
- *   - Bootstrap-aware      — datasources, system, query (run pre-auth
+ *   - Bootstrap-aware      — connectors, system, query (run pre-auth
  *                            during the wizard window, then auth-gated)
  *   - W6 business routes   — investigations, feed, shared, meta, approvals,
  *                            notifications,
@@ -37,7 +37,7 @@ import { createMetaRouter } from '../routes/meta.js';
 import { createApprovalRouter } from '../routes/approval.js';
 import { mountPlans } from './plans-boot.js';
 import { createWebhookRouter } from '../routes/webhooks.js';
-import { createDatasourcesRouter } from '../routes/datasources.js';
+import { createConnectorsRouter } from '../routes/connectors.js';
 import { createQueryRouter } from '../routes/dashboard/query.js';
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
@@ -46,8 +46,6 @@ import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
 import { createChatRouter } from '../routes/chat.js';
-import { createOpsConnectorsRouter } from '../routes/ops-connectors.js';
-import { createGithubChangeSourcesRouter } from '../routes/github-change-sources.js';
 import { bootstrapAware } from '../middleware/bootstrap-aware.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { createOrgContextMiddleware } from '../middleware/org-context.js';
@@ -56,8 +54,8 @@ import type { AccessControlService } from '../services/accesscontrol-service.js'
 import type { AuthSubsystem } from '../auth/auth-manager.js';
 import type { AuthRepositories } from './auth-routes.js';
 import type { Persistence } from './persistence.js';
-import type { GitHubChangeSourceRegistry } from '../services/github-change-source-service.js';
 import type { BackgroundRunnerDeps } from '@agentic-obs/agent-core';
+import { isConnectorRepository } from '../services/connector-service.js';
 
 export interface MountDomainRoutesDeps {
   app: Application;
@@ -77,7 +75,6 @@ export interface MountDomainRoutesDeps {
    * see writes routed through any other wrapper.
    */
   eventAlertRuleStore?: EventEmittingAlertRuleRepository;
-  githubChangeSources?: GitHubChangeSourceRegistry;
   /**
    * Background-agent runner. When provided, the manual Investigate button
    * on alert rules spawns an orchestrator run as the clicking user.
@@ -112,29 +109,22 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   app.use('/api/openapi.json', openApiRouter);
   app.use('/api/webhooks', createWebhookRouter({ ac: accessControl }));
   app.use('/api/metrics', metricsRouter);
-  if (deps.githubChangeSources) {
-    app.use('/api/change-sources', createGithubChangeSourcesRouter({
-      registry: deps.githubChangeSources,
-      ac: accessControl,
-    }));
-  }
-
   // Relaxed rate limiter for dashboard query routes — must be on the
   // mount path BEFORE the bootstrap-aware auth chain.
   app.use('/api/query', queryRateLimiter);
 
   // -- Bootstrap-aware mounts (W2 / T2.5) -------------------------------
   //
-  // datasources / system / query are reachable unauthenticated during
+  // connectors / system / query are reachable unauthenticated during
   // the setup-wizard window; once `bootstrapped_at` is written by
   // `POST /api/setup/admin`, auth + permission become mandatory.
   const bootstrapAwareAuthOnly = bootstrapAware({
     setupConfig,
     authMiddleware,
     preBootstrapAllowlist: [
-      { method: 'POST', path: '/api/datasources' },
-      { method: 'POST', path: '/api/datasources/test' },
-      { method: 'PUT', path: /^\/api\/datasources\/[^/]+$/ },
+      { method: 'POST', path: '/api/connectors' },
+      { method: 'POST', path: /^\/api\/connectors\/[^/]+\/test$/ },
+      { method: 'PUT', path: /^\/api\/connectors\/[^/]+$/ },
       { method: 'PUT', path: '/api/system/llm' },
       { method: 'PUT', path: '/api/system/notifications' },
     ],
@@ -144,9 +134,14 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     ],
   });
   app.use(
-    '/api/datasources',
+    '/api/connectors',
     bootstrapAwareAuthOnly,
-    createDatasourcesRouter({ setupConfig, ac: accessControl }),
+    createConnectorsRouter({
+      connectors: connectorRepositoryOrUnavailable(repos),
+      secrets: optionalConnectorSecrets(repos),
+      policies: optionalConnectorPolicies(repos),
+      ac: accessControl,
+    }),
   );
   app.use(
     '/api/system',
@@ -193,7 +188,6 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   app.use('/api/approvals', createApprovalRouter({
     approvals: eventApprovalStore,
     approvalRequests: repos.approvals,
-    opsConnectors: repos.opsConnectors,
     ac: accessControl,
   }));
 
@@ -205,7 +199,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     plans: repos.remediationPlans,
     approvals: deps.approvalsForExecutor ?? repos.approvals,
     approvalEventStore: eventApprovalStore,
-    connectors: repos.opsConnectors,
+    connectors: repos.connectors,
     ac: accessControl,
     audit: authSub.audit,
   });
@@ -228,14 +222,12 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     chatMessageStore: repos.chatMessages,
     chatEventStore: repos.chatSessionEvents,
     chatSessionContextStore: repos.chatSessionContexts,
-    opsConnectorStore: repos.opsConnectors,
     approvalStore: repos.approvals,
     remediationPlanStore: repos.remediationPlans,
     accessControl,
     auditWriter: authSub.audit,
     folderRepository: sharedFolderRepo,
     setupConfig,
-    githubChangeSources: deps.githubChangeSources,
     llmAuditStore: repos.llmAudit,
   }));
   app.use('/api/alert-rules', createAlertRulesRouter({
@@ -263,14 +255,52 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     investigationReports: repos.investigationReports,
     ac: accessControl,
   }));
-  app.use(
-    '/api/ops/connectors',
-    authMiddleware,
-    userRateLimiter,
-    createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
-    createOpsConnectorsRouter({
-      connectors: repos.opsConnectors,
-      ac: accessControl,
-    }),
-  );
+}
+
+function connectorRepositoryOrUnavailable(repos: unknown): import('../services/connector-service.js').ConnectorRepository {
+  const candidate = readRepo(repos, 'connectors');
+  if (isConnectorRepository(candidate)) return candidate;
+  return {
+    async list() {
+      throw new Error('ConnectorRepository is not wired yet');
+    },
+    async get() {
+      throw new Error('ConnectorRepository is not wired yet');
+    },
+    async create() {
+      throw new Error('ConnectorRepository is not wired yet');
+    },
+    async update() {
+      throw new Error('ConnectorRepository is not wired yet');
+    },
+    async delete() {
+      throw new Error('ConnectorRepository is not wired yet');
+    },
+  };
+}
+
+function optionalConnectorSecrets(repos: unknown): import('../services/connector-service.js').ConnectorSecretStore | undefined {
+  const candidate = readRepo(repos, 'connectorSecrets');
+  if (!candidate || typeof candidate !== 'object') return undefined;
+  return typeof (candidate as { put?: unknown }).put === 'function'
+    ? candidate as import('../services/connector-service.js').ConnectorSecretStore
+    : undefined;
+}
+
+function optionalConnectorPolicies(repos: unknown): import('../services/connector-service.js').ConnectorPolicyRepository | undefined {
+  const candidate = readRepo(repos, 'connectorPolicies');
+  if (!candidate || typeof candidate !== 'object') return undefined;
+  const maybe = candidate as Partial<Record<keyof import('../services/connector-service.js').ConnectorPolicyRepository, unknown>>;
+  return typeof maybe.list === 'function' &&
+    typeof maybe.upsert === 'function' &&
+    typeof maybe.delete === 'function' &&
+    typeof maybe.isAllowed === 'function'
+    ? candidate as import('../services/connector-service.js').ConnectorPolicyRepository
+    : undefined;
+}
+
+function readRepo(repos: unknown, key: string): unknown {
+  return repos && typeof repos === 'object'
+    ? (repos as Record<string, unknown>)[key]
+    : undefined;
 }

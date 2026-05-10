@@ -266,27 +266,27 @@ export function buildOpsConnectorInput(value: OpsConnectorFormValue): OpsConnect
 
 export const opsApi = {
   async listConnectors(): Promise<OpsConnector[]> {
-    const res = await apiClient.get<{ connectors?: OpsConnector[] } | OpsConnector[]>('/ops/connectors');
+    const res = await apiClient.get<{ connectors?: OpsConnector[] } | OpsConnector[]>('/connectors');
     if (res.error) throw new Error(res.error.message ?? 'Failed to load Ops connectors');
     if (Array.isArray(res.data)) return res.data;
     return res.data?.connectors ?? [];
   },
 
   async createConnector(input: OpsConnectorInput): Promise<OpsConnector> {
-    const res = await apiClient.post<{ connector?: OpsConnector } | OpsConnector>('/ops/connectors', input);
+    const res = await apiClient.post<{ connector?: OpsConnector } | OpsConnector>('/connectors', input);
     if (res.error) throw new Error(res.error.message ?? 'Failed to create Ops connector');
     if ('connector' in res.data && res.data.connector) return res.data.connector;
     return res.data as OpsConnector;
   },
 
   async testConnector(id: string): Promise<OpsConnectorTestResult> {
-    const res = await apiClient.post<OpsConnectorTestResult>(`/ops/connectors/${encodeURIComponent(id)}/test`, {});
+    const res = await apiClient.post<OpsConnectorTestResult>(`/connectors/${encodeURIComponent(id)}/test`, {});
     if (res.error) throw new Error(res.error.message ?? 'Failed to test Ops connector');
     return res.data;
   },
 
   async deleteConnector(id: string): Promise<void> {
-    const res = await apiClient.delete<{ ok: boolean }>(`/ops/connectors/${encodeURIComponent(id)}`);
+    const res = await apiClient.delete<{ ok: boolean }>(`/connectors/${encodeURIComponent(id)}`);
     if (res.error) throw new Error(res.error.message ?? 'Failed to delete Ops connector');
   },
 };

@@ -18,7 +18,7 @@ import type { IChangesAdapter } from './changes-adapter.js';
 
 export type SignalType = 'metrics' | 'logs' | 'changes';
 
-export interface DatasourceInfo {
+export interface ConnectorInfo {
   id: string;
   name: string;
   /** Concrete backend identifier, e.g. 'prometheus' | 'victoria-metrics' | 'loki' | 'change-event'. */
@@ -29,7 +29,7 @@ export interface DatasourceInfo {
 }
 
 export interface AdapterEntry {
-  info: DatasourceInfo;
+  info: ConnectorInfo;
   metrics?: IMetricsAdapter;
   logs?: ILogsAdapter;
   changes?: IChangesAdapter;
@@ -39,12 +39,12 @@ export class AdapterRegistry {
   private readonly entries = new Map<string, AdapterEntry>();
 
   /**
-   * Register a new datasource. Throws if `entry.info.id` is already registered.
+   * Register a new connector. Throws if `entry.info.id` is already registered.
    */
   register(entry: AdapterEntry): void {
     const id = entry.info.id;
     if (this.entries.has(id)) {
-      throw new Error(`Datasource '${id}' is already registered`);
+      throw new Error(`Connector '${id}' is already registered`);
     }
     this.entries.set(id, entry);
   }
@@ -54,11 +54,11 @@ export class AdapterRegistry {
   }
 
   /**
-   * List registered DatasourceInfo values, sorted by `name` (ascending,
+   * List registered ConnectorInfo values, sorted by `name` (ascending,
    * locale-agnostic). Optionally filter by signal type.
    */
-  list(filter?: { signalType?: SignalType }): DatasourceInfo[] {
-    const infos: DatasourceInfo[] = [];
+  list(filter?: { signalType?: SignalType }): ConnectorInfo[] {
+    const infos: ConnectorInfo[] = [];
     for (const entry of this.entries.values()) {
       if (filter?.signalType && entry.info.signalType !== filter.signalType) {
         continue;

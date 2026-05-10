@@ -50,11 +50,11 @@ export {
 
 export { handleChangesListRecent } from './changes.js';
 export {
-  handleDatasourcesList,
-  handleDatasourcesSuggest,
-  handleDatasourcesPin,
-  handleDatasourcesUnpin,
-} from './datasources.js';
+  handleConnectorsList,
+  handleConnectorsSuggest,
+  handleConnectorsPin,
+  handleConnectorsUnpin,
+} from './connectors.js';
 export { handleWebSearch } from './web.js';
 export { handleNavigate } from './navigation.js';
 export { handleFolderCreate, handleFolderList } from './folder.js';
@@ -63,7 +63,12 @@ export { handleOpsRunCommand } from './ops.js';
 export { handleRemediationPlanCreate, handleRemediationPlanCreateRescue } from './remediation-plan.js';
 
 export {
-  handleDatasourceConfigure,
-  handleOpsConnectorConfigure,
-  handleSystemSettingConfigure,
+  handleConnectorList,
+  handleConnectorTemplateList,
+  handleConnectorDetect,
+  handleConnectorPropose,
+  handleConnectorApply,
+  handleConnectorTest,
+  handleSettingGet,
+  handleSettingSet,
 } from './config.js';

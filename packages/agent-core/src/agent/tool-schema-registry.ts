@@ -23,31 +23,31 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
   // Discovery
   // -------------------------------------------------------------------------
-  'datasources_list': {
+  'connectors_list': {
     category: 'always-on',
     schema: {
-      name: 'datasources_list',
+      name: 'connectors_list',
       description:
-        'Enumerate configured datasources (id, backend type, signal kind, isDefault flag). Use for "what data sources do I have" type questions. For PICKING a datasource to query against, prefer datasources_suggest — list is for browsing, suggest is for committing.',
+        'Enumerate configured connectors (id, backend type, signal kind, isDefault flag). Use for "what connectors do I have" type questions. For PICKING a connector to query against, prefer connectors_suggest — list is for browsing, suggest is for committing.',
       input_schema: {
         type: 'object',
         properties: {
           signalType: {
             type: 'string',
             enum: ['metrics', 'logs', 'changes'],
-            description: 'Filter by signal kind. Omit to see all datasources.',
+            description: 'Filter by signal kind. Omit to see all connectors.',
           },
         },
         required: [],
       },
     },
   },
-  'datasources_suggest': {
+  'connectors_suggest': {
     category: 'always-on',
     schema: {
-      name: 'datasources_suggest',
+      name: 'connectors_suggest',
       description:
-        'Pick a datasource for the current request. Pass the raw user message as userIntent — substring-matches name/environment/cluster, falls back to the isDefault row, surfaces AMBIGUOUS when multiple candidates and no hint. On AMBIGUOUS use ask_user with the returned alternatives as structured options. After picking (or user confirms), follow with datasources_pin so subsequent tool calls reuse the choice. Skip when only one datasource of the right type exists.',
+        'Pick a connector for the current request. Pass the raw user message as userIntent — substring-matches name/environment/cluster, falls back to the isDefault row, surfaces AMBIGUOUS when multiple candidates and no hint. On AMBIGUOUS use ask_user with the returned alternatives as structured options. After picking (or user confirms), follow with connectors_pin so subsequent tool calls reuse the choice. Skip when only one connector of the right type exists.',
       input_schema: {
         type: 'object',
         properties: {
@@ -64,26 +64,26 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'datasources_pin': {
+  'connectors_pin': {
     category: 'deferred',
     schema: {
-      name: 'datasources_pin',
+      name: 'connectors_pin',
       description:
-        'Stick a datasource to this session. Subsequent tools that need a datasource of the same backend type reuse it without re-suggesting. Use after the user picks one or confirms a high-confidence suggest match. Don\'t pin on cross-source compare requests — those need per-query overrides instead.',
+        'Stick a connector to this session. Subsequent tools that need a connector of the same backend type reuse it without re-suggesting. Use after the user picks one or confirms a high-confidence suggest match. Don\'t pin on cross-source compare requests — those need per-query overrides instead.',
       input_schema: {
         type: 'object',
         properties: {
-          datasourceId: { type: 'string', description: 'Datasource id to pin' },
+          connectorId: { type: 'string', description: 'Connector id to pin' },
           type: { type: 'string', description: 'Backend type slot (default "prometheus")' },
         },
-        required: ['datasourceId'],
+        required: ['connectorId'],
       },
     },
   },
-  'datasources_unpin': {
+  'connectors_unpin': {
     category: 'deferred',
     schema: {
-      name: 'datasources_unpin',
+      name: 'connectors_unpin',
       description:
         'Drop the session pin for a backend type. Use when the user explicitly asks to switch ("use staging instead", "换到 prod") — the next tool call will re-suggest from scratch.',
       input_schema: {
@@ -104,11 +104,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'metrics_query',
       description:
-        'Run an instant PromQL/MetricsQL query against a metrics datasource. Returns up to 20 series at a specific timestamp (defaults to now). When analyzing what a panel currently shows, pass `time` set to the panel time-window end so the instant value matches the panel rather than "now". Validate complex queries with metrics_validate first when adding panels.',
+        'Run an instant PromQL/MetricsQL query against a metrics connector. Returns up to 20 series at a specific timestamp (defaults to now). When analyzing what a panel currently shows, pass `time` set to the panel time-window end so the instant value matches the panel rather than "now". Validate complex queries with metrics_validate first when adding panels.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
+          sourceId: { type: 'string', description: 'Connector id from connectors_list' },
           query: { type: 'string', description: 'Backend-native query (PromQL for prometheus, MetricsQL for victoria-metrics)' },
           time: { type: 'string', description: 'Optional ISO-8601 evaluation timestamp. Default: now. Use the panel time-window end when analyzing a panel.' },
         },
@@ -125,7 +125,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
+          sourceId: { type: 'string', description: 'Connector id from connectors_list' },
           query: { type: 'string', description: 'Backend-native query expression' },
           start: { type: 'string', description: 'ISO-8601 start timestamp (use with end). When analyzing a panel, set to the panel time-window start.' },
           end: { type: 'string', description: 'ISO-8601 end timestamp (use with start). When analyzing a panel, set to the panel time-window end.' },
@@ -156,7 +156,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
+          sourceId: { type: 'string', description: 'Connector id from connectors_list' },
           kind: {
             type: 'string',
             enum: ['labels', 'values', 'series', 'metadata', 'names'],
@@ -192,7 +192,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources_list' },
+          sourceId: { type: 'string', description: 'Connector id from connectors_list' },
           query: { type: 'string', description: 'Backend-native query expression to validate' },
         },
         required: ['sourceId', 'query'],
@@ -212,7 +212,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources_list (signalType=logs)' },
+          sourceId: { type: 'string', description: 'Connector id from connectors_list (signalType=logs)' },
           query: { type: 'string', description: 'Backend-native logs query' },
           start: { type: 'string', description: 'ISO-8601 start timestamp (required)' },
           end: { type: 'string', description: 'ISO-8601 end timestamp (required)' },
@@ -226,11 +226,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     category: 'deferred',
     schema: {
       name: 'logs_labels',
-      description: 'List available log labels for a logs datasource. Use for discovery before constructing selectors.',
+      description: 'List available log labels for a logs connector. Use for discovery before constructing selectors.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources_list (signalType=logs)' },
+          sourceId: { type: 'string', description: 'Connector id from connectors_list (signalType=logs)' },
         },
         required: ['sourceId'],
       },
@@ -244,7 +244,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id from datasources_list (signalType=logs)' },
+          sourceId: { type: 'string', description: 'Connector id from connectors_list (signalType=logs)' },
           label: { type: 'string', description: 'Log label name' },
         },
         required: ['sourceId', 'label'],
@@ -260,11 +260,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'changes_list_recent',
       description:
-        'List recent change events (deploys, config rollouts, feature-flag flips, incidents). Use early in investigations to correlate anomalies with known changes. If sourceId is omitted, the first registered change-event datasource is used.',
+        'List recent change events (deploys, config rollouts, feature-flag flips, incidents). Use early in investigations to correlate anomalies with known changes. If sourceId is omitted, the first registered change-event connector is used.',
       input_schema: {
         type: 'object',
         properties: {
-          sourceId: { type: 'string', description: 'Datasource id (signalType=changes). Omit to use the first configured change source.' },
+          sourceId: { type: 'string', description: 'Connector id (signalType=changes). Omit to use the first configured change source.' },
           service: { type: 'string', description: 'Optional service filter — only events tagged with this service' },
           window_minutes: { type: 'number', description: 'Lookback window in minutes (default 60)' },
         },
@@ -334,7 +334,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
                 commandText: { type: 'string', description: 'Human-readable command, e.g. "kubectl scale deploy/web -n app --replicas=3". Surfaced verbatim to the approver.' },
                 paramsJson: {
                   type: 'object',
-                  description: 'Structured args. For ops.run_command, must include `argv` (kubectl argv WITHOUT the leading "kubectl") and `connectorId` (the ops_connectors row to run against).',
+                  description: 'Structured args. For ops.run_command, must include `argv` (kubectl argv WITHOUT the leading "kubectl") and `connectorId` (the connector row to run against).',
                   properties: {
                     argv: { type: 'array', items: { type: 'string' }, description: 'kubectl argv tokens.' },
                     connectorId: { type: 'string', description: 'ops connector id.' },
@@ -405,7 +405,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'dashboard_create',
       description:
-        'Create an empty dashboard. Returns dashboardId. Follow with dashboard_add_panels to populate it. Required before any other dashboard.* mutation when there is no current dashboard context. Requires a primary datasourceId — pick one via datasources_suggest first (or reuse the session pin if set).',
+        'Create an empty dashboard. Returns dashboardId. Follow with dashboard_add_panels to populate it. Required before any other dashboard.* mutation when there is no current dashboard context. Requires a primary datasourceId — pick one via connectors_suggest first (or reuse the session pin if set).',
       input_schema: {
         type: 'object',
         properties: {
@@ -415,7 +415,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           datasourceId: {
             type: 'string',
             description:
-              'Primary datasource id for this dashboard. Panels added without their own per-query datasourceId fall back to this. Get from datasources_list / datasources_suggest.',
+              'Primary connector id for this dashboard. Panels added without their own per-query datasourceId fall back to this. Get from connectors_list / connectors_suggest.',
           },
         },
         required: ['title', 'datasourceId'],
@@ -448,7 +448,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         type: 'object',
         properties: {
           sourceDashboardId: { type: 'string', description: 'Dashboard id to clone (from dashboard_list)' },
-          targetDatasourceId: { type: 'string', description: 'Datasource id assigned to every query in the new dashboard' },
+          targetDatasourceId: { type: 'string', description: 'Connector id assigned to every query in the new dashboard' },
           newTitle: { type: 'string', description: 'Optional title for the new dashboard. Defaults to "{sourceTitle} (cloned)"' },
         },
         required: ['sourceDashboardId', 'targetDatasourceId'],
@@ -544,7 +544,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           type: {
             type: 'string',
             enum: ['query', 'custom', 'datasource'],
-            description: 'Variable kind. "query" runs a label_values query; "custom" uses a static option list; "datasource" picks a datasource.',
+            description: 'Variable kind. "query" runs a label_values query; "custom" uses a static option list; "datasource" picks a connector.',
           },
           query: { type: 'string', description: 'For type=query: a label_values(metric, label) expression' },
           multi: { type: 'boolean', description: 'Allow multi-select' },
@@ -646,7 +646,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       name: 'alert_rule_write',
       description:
         'Create, update, or delete an alert rule — three verbs share one tool. Required: op. Per op:\n' +
-        ' - op="create": requires `spec` (fully structured alert rule). Build the spec in the main agent flow after metrics discovery/query validation. Do not pass a natural-language prompt and expect this tool to generate the rule. Optional `dashboardId` links the alert to a dashboard. Optional `folderUid` only when the user explicitly names a folder; otherwise the rule lands in the default Alerts folder. When a metrics datasource is registered, the tool result includes a backtest preview ("would have fired N time(s) ... in the last 24h") computed against real data; when no metrics datasource is wired, the preview is omitted (no fabrication).\n' +
+        ' - op="create": requires `spec` (fully structured alert rule). Build the spec in the main agent flow after metrics discovery/query validation. Do not pass a natural-language prompt and expect this tool to generate the rule. Optional `dashboardId` links the alert to a dashboard. Optional `folderUid` only when the user explicitly names a folder; otherwise the rule lands in the default Alerts folder. When a metrics connector is registered, the tool result includes a backtest preview ("would have fired N time(s) ... in the last 24h") computed against real data; when no metrics connector is wired, the preview is omitted (no fabrication).\n' +
         ' - op="update": requires `ruleId`. Pass only the fields to change (threshold, operator, severity, forDurationSec, evaluationIntervalSec, query, name). Resolve "it"/"this alert" via Active Alert Rule Context.\n' +
         ' - op="delete": requires `ruleId`. Irreversible.',
       input_schema: {
@@ -799,70 +799,137 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
 
   // -------------------------------------------------------------------------
-  // AI-first configuration tools (Task 07).
-  //
-  // Let users configure datasources / ops connectors / low-risk org settings
-  // by conversation. Raw credentials NEVER appear in these schemas — pass an
-  // opaque `secretRef` (id of a secret already stored in Settings). The
-  // handlers reject `password` / `token` / `apiKey` as belt-and-braces.
-  // Manual Settings UI keeps working unchanged.
+  // Connector-model setup and allowlisted settings.
   // -------------------------------------------------------------------------
-  'datasource_configure': {
-    category: 'deferred',
+  'connector_list': {
+    category: 'always-on',
     schema: {
-      name: 'datasource_configure',
+      name: 'connector_list',
       description:
-        'Create or update a metrics/logs datasource by conversation, then test the connection. Pass `id` to update an existing one; omit for create. NEVER include raw credentials — pass an opaque `secretRef` (id of a secret created via Settings → Secrets) and the handler resolves it server-side. If a credential is required and not provided the response is a structured `needs_credential` outcome with a UI deep link to attach a secret. Use only when the user explicitly asks to add or change a datasource — for "what datasources exist" use datasources_list.',
+        'List configured connectors. Filter by category, capability, or status when the user asks what is connected or when a workflow needs a connector with a specific capability.',
       input_schema: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'Optional id of an existing datasource to update. Omit to create a new one.' },
-          type: { type: 'string', enum: ['prometheus', 'victoria-metrics', 'loki', 'elasticsearch', 'clickhouse', 'tempo', 'jaeger', 'otel'], description: 'Backend type.' },
-          name: { type: 'string', description: 'Human-friendly name shown in the UI.' },
-          url: { type: 'string', description: 'Base URL of the backend (https://...). The server validates against SSRF rules.' },
-          secretRef: { type: 'string', description: 'Opaque id of a secret stored in Settings → Secrets. Do NOT pass raw credentials.' },
-          isDefault: { type: 'boolean', description: 'When true, mark this datasource as the org default for its signal type.' },
-          test: { type: 'boolean', description: 'When true (default), run a connection probe after the upsert and include the result in the observation.' },
+          category: { type: 'string', description: 'Optional category filter, e.g. observability, runtime, code, cicd, incident.' },
+          capability: { type: 'string', description: 'Optional capability filter, e.g. metrics.query, logs.query, runtime.scale, vcs.repo.read.' },
+          status: { type: 'string', enum: ['draft', 'active', 'failed', 'disabled'], description: 'Optional status filter.' },
         },
-        required: ['type', 'name', 'url'],
+        required: [],
       },
     },
   },
-  'ops_connector_configure': {
+  'connector_template_list': {
     category: 'deferred',
     schema: {
-      name: 'ops_connector_configure',
+      name: 'connector_template_list',
       description:
-        'Create or update a Kubernetes/Ops connector by conversation, then test the connection. Pass `id` to update; omit for create. NEVER include raw kubeconfig content or tokens — pass an opaque `secretRef` and the server resolves it. Returns a structured `needs_credential` outcome (with a UI deep link) when credentials are required but missing. Allowed namespaces and capabilities default to the empty list — both are advisory; the actual command guard runs server-side.',
+        'List connector templates the product knows how to create. Use before proposing a new connector so required fields and capabilities are explicit.',
       input_schema: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'Optional id of an existing connector to update.' },
-          type: { type: 'string', enum: ['kubernetes'], description: 'Connector type. Only "kubernetes" is supported today.' },
-          name: { type: 'string', description: 'Human-friendly name.' },
-          environment: { type: 'string', description: 'Optional environment label (e.g. "prod", "stage").' },
-          secretRef: { type: 'string', description: 'Opaque id of a kubeconfig secret stored in Settings → Secrets.' },
-          allowedNamespaces: { type: 'array', items: { type: 'string' }, description: 'Optional list of namespaces this connector is permitted to act on.' },
-          capabilities: { type: 'array', items: { type: 'string' }, description: 'Optional list of capability slugs (e.g. ["k8s.read", "k8s.write"]).' },
-          test: { type: 'boolean', description: 'When true (default), probe the connector after upsert.' },
+          category: { type: 'string', description: 'Optional category filter.' },
+          capability: { type: 'string', description: 'Optional capability filter.' },
         },
-        required: ['name'],
+        required: [],
       },
     },
   },
-  'system_setting_configure': {
+  'connector_detect': {
     category: 'deferred',
     schema: {
-      name: 'system_setting_configure',
+      name: 'connector_detect',
       description:
-        'Update a low-risk org setting by conversation. Strictly limited to non-sensitive defaults: "default_alert_folder_uid", "default_dashboard_folder_uid". Permission, role, and credential changes are NOT in scope and must be done from Settings UI. The handler rejects keys outside the allowlist with a clear error.',
+        'Probe the environment for connector candidates from templates. Returns candidate config fragments with confidence and source. Does not persist anything.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          template: { type: 'string', description: 'Optional template type to probe, e.g. prometheus, loki, kubernetes, github.' },
+        },
+        required: [],
+      },
+    },
+  },
+  'connector_propose': {
+    category: 'deferred',
+    schema: {
+      name: 'connector_propose',
+      description:
+        'Create a connector draft from a template, name, and non-secret config. NEVER include raw credentials, tokens, kubeconfigs, or passwords; secrets are uploaded through POST /api/connectors/:id/secret after the connector exists. Use connector_template_list first if required config fields are unclear.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          template: { type: 'string', description: 'Template type, e.g. prometheus, loki, kubernetes, github.' },
+          name: { type: 'string', description: 'Human-friendly connector name.' },
+          config: { type: 'object', description: 'Template-specific non-secret config, e.g. {url}, {org}, or {clusterName}.' },
+          scope: { type: 'object', description: 'Optional initial policy scope preview, e.g. namespaces, labels, repos, paths.' },
+          isDefault: { type: 'boolean', description: 'When true, mark as default for its connector type.' },
+        },
+        required: ['template', 'name', 'config'],
+      },
+    },
+  },
+  'connector_apply': {
+    category: 'deferred',
+    schema: {
+      name: 'connector_apply',
+      description:
+        'Persist a connector draft created by connector_propose. Returns connector id, status, and capabilities. If credentials are required, direct the user to Settings → Connectors to attach the secret.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          draftId: { type: 'string', description: 'Draft id returned by connector_propose.' },
+        },
+        required: ['draftId'],
+      },
+    },
+  },
+  'connector_test': {
+    category: 'deferred',
+    schema: {
+      name: 'connector_test',
+      description:
+        'Test an existing connector and return ok/error, latency, and verified capabilities.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          connectorId: { type: 'string', description: 'Connector id from connector_list or connector_apply.' },
+        },
+        required: ['connectorId'],
+      },
+    },
+  },
+  'setting_get': {
+    category: 'deferred',
+    schema: {
+      name: 'setting_get',
+      description:
+        'Read one allowlisted non-sensitive org setting. Permission, role, security, and credential settings are not readable through the agent.',
       input_schema: {
         type: 'object',
         properties: {
           key: {
             type: 'string',
-            enum: ['default_alert_folder_uid', 'default_dashboard_folder_uid'],
-            description: 'Setting key. Allowlisted; other keys are rejected.',
+            enum: ['default_alert_folder_uid', 'default_dashboard_folder_uid', 'notification_default_channel', 'auto_investigation_enabled'],
+            description: 'Allowlisted setting key.',
+          },
+        },
+        required: ['key'],
+      },
+    },
+  },
+  'setting_set': {
+    category: 'deferred',
+    schema: {
+      name: 'setting_set',
+      description:
+        'Update one allowlisted non-sensitive org setting. Medium-risk settings may still require confirmation by policy. Permission, role, security, and credential settings must go through Admin Center UI.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          key: {
+            type: 'string',
+            enum: ['default_alert_folder_uid', 'default_dashboard_folder_uid', 'notification_default_channel', 'auto_investigation_enabled'],
+            description: 'Allowlisted setting key.',
           },
           value: { type: 'string', description: 'New value.' },
         },
@@ -879,7 +946,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'ask_user',
       description:
-        'Ask the user a clarifying question. Ends the conversation. Use VERY sparingly — only when the request is genuinely ambiguous (e.g. multiple datasources of the same kind and intent unclear). For one-of-N decisions (e.g. "Which datasource?"), pass `options`. The user\'s reply will be the option id, prefixed with `option:` so you can distinguish it from free text.',
+        'Ask the user a clarifying question. Ends the conversation. Use VERY sparingly — only when the request is genuinely ambiguous (e.g. multiple connectors of the same kind and intent unclear). For one-of-N decisions (e.g. "Which connector?"), pass `options`. The user\'s reply will be the option id, prefixed with `option:` so you can distinguish it from free text.',
       input_schema: {
         type: 'object',
         properties: {

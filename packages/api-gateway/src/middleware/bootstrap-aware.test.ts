@@ -49,7 +49,7 @@ async function run(
   bootstrapped: boolean,
   method: string,
   path: string,
-  allowlist = [{ method: 'POST', path: '/api/datasources' }],
+  allowlist = [{ method: 'POST', path: '/api/connectors' }],
 ): Promise<{ nextCalled: boolean; authCalled: boolean; res: MockResponse }> {
   let nextCalled = false;
   let authCalled = false;
@@ -76,19 +76,19 @@ async function run(
 
 describe('bootstrapAware', () => {
   it('allows only explicit pre-bootstrap paths unauthenticated', async () => {
-    const allowed = await run(false, 'POST', '/api/datasources');
+    const allowed = await run(false, 'POST', '/api/connectors');
     expect(allowed.nextCalled).toBe(true);
     expect(allowed.authCalled).toBe(false);
     expect(allowed.res.locals['allowBootstrapUnauthenticated']).toBe(true);
 
-    const denied = await run(false, 'DELETE', '/api/datasources/ds_1');
+    const denied = await run(false, 'DELETE', '/api/connectors/ds_1');
     expect(denied.nextCalled).toBe(false);
     expect(denied.authCalled).toBe(false);
     expect(denied.res.statusCodeValue).toBe(401);
   });
 
   it('uses auth middleware after bootstrap', async () => {
-    const result = await run(true, 'POST', '/api/datasources');
+    const result = await run(true, 'POST', '/api/connectors');
     expect(result.nextCalled).toBe(true);
     expect(result.authCalled).toBe(true);
     expect(result.res.locals['allowBootstrapUnauthenticated']).toBeUndefined();

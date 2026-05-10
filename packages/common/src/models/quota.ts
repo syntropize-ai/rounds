@@ -7,7 +7,7 @@
 export type QuotaTarget =
   | 'dashboards'
   | 'users'
-  | 'datasources'
+  | 'connectors'
   | 'api_keys'
   | 'service_accounts'
   | 'folders'

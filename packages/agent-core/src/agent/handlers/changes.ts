@@ -16,13 +16,13 @@ export async function handleChangesListRecent(
     sourceId = firstChange?.id;
   }
   if (!sourceId) {
-    const msg = 'No change-event datasource configured. Call datasources_list to see available sources.';
+    const msg = 'No change-event connector configured. Call connectors_list to see available sources.';
     ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
     return msg;
   }
   const adapter = ctx.adapters.changes(sourceId);
   if (!adapter) {
-    const msg = `Error: unknown changes datasource '${sourceId}'. Call datasources_list to see available sources.`;
+    const msg = `Error: unknown changes connector '${sourceId}'. Call connectors_list to see available sources.`;
     ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
     return msg;
   }

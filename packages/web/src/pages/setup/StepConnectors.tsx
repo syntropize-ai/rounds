@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { apiClient } from '../../api/client.js';
 import { datasourceUrlPlaceholder } from '../../constants/placeholders.js';
 import { DATASOURCE_TYPES } from '../../constants/datasource-types.js';
-import type { DatasourceEntry } from './types.js';
+import type { ConnectorEntry } from './types.js';
 
 function newEntryId(): string {
   // Stable id per entry. crypto.randomUUID is available in all modern
@@ -13,17 +13,17 @@ function newEntryId(): string {
   return `ds-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function blankForm(): DatasourceEntry {
+function blankForm(): ConnectorEntry {
   // Default to prometheus — it's currently the only type with a backend
   // adapter wired. Other types are still selectable but disabled in the UI.
   return { id: newEntryId(), type: 'prometheus', name: '', url: '', apiKey: '' };
 }
 
-export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const [entries, setEntries] = useState<DatasourceEntry[]>([]);
+export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const [entries, setEntries] = useState<ConnectorEntry[]>([]);
   const [adding, setAdding] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
-  const [form, setForm] = useState<DatasourceEntry>(blankForm);
+  const [form, setForm] = useState<ConnectorEntry>(blankForm);
   const [testResults, setTestResults] = useState<Record<number, { ok: boolean; message: string }>>({});
   const [saving, setSaving] = useState(false);
 
@@ -44,12 +44,22 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
     setSaving(true);
     // Reuse the id minted when the form opened. Edits preserve the
     // existing entry's id; in edit mode we PUT, in create mode we POST.
-    const payload: DatasourceEntry = {
+    const payload: ConnectorEntry = {
       ...form,
       name: form.name || form.type,
     };
+    const wire = {
+      id: payload.id,
+      type: payload.type,
+      name: payload.name,
+      config: {
+        url: payload.url,
+        ...(payload.apiKey ? { apiKey: payload.apiKey } : {}),
+      },
+      isDefault: entries.length === 0,
+    };
     if (editingIdx !== null && form.id) {
-      await apiClient.put(`/datasources/${form.id}`, payload);
+      await apiClient.put(`/connectors/${form.id}`, wire);
       setEntries((prev) => prev.map((d, i) => (i === editingIdx ? payload : d)));
       setTestResults((prev) => {
         const next = { ...prev };
@@ -57,7 +67,7 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
         return next;
       });
     } else {
-      await apiClient.post('/datasources', payload);
+      await apiClient.post('/connectors', wire);
       setEntries((prev) => [...prev, payload]);
     }
     resetForm();
@@ -81,11 +91,10 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
   const handleTest = async (idx: number) => {
     const ds = entries[idx];
     if (!ds) return;
-    // /api/datasources/test is the test-only endpoint — no persistence.
     try {
       const res = await apiClient.post<{ ok: boolean; message: string }>(
-        '/datasources/test',
-        ds,
+        `/connectors/${ds.id}/test`,
+        {},
       );
       setTestResults((prev) => ({
         ...prev,
@@ -103,7 +112,7 @@ export function StepDatasources({ onNext, onBack }: { onNext: () => void; onBack
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-[var(--color-on-surface)] mb-1">Data Sources</h2>
+      <h2 className="text-xl font-bold text-[var(--color-on-surface)] mb-1">Connectors</h2>
       <p className="text-[var(--color-on-surface-variant)] text-sm mb-6">Connect your observability backends. You can add more later in Settings.</p>
 
       {entries.length > 0 && (

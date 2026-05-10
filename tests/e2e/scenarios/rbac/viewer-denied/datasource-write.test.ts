@@ -1,10 +1,10 @@
 /**
- * Viewer lacks `datasources:create` and must get 403 from POST /api/datasources.
+ * Viewer lacks `connectors:create` and must get 403 from POST /api/connectors.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { createUser, deleteUser, loginAs, apiAs } from '../../helpers/users.js';
 
-describe('rbac/viewer-denied/datasource-write', () => {
+describe('rbac/viewer-denied/connector-write', () => {
   const cleanup: Array<() => Promise<void>> = [];
 
   afterAll(async () => {
@@ -13,14 +13,14 @@ describe('rbac/viewer-denied/datasource-write', () => {
     }
   }, 60_000);
 
-  it('viewer is forbidden from POST /api/datasources', async () => {
+  it('viewer is forbidden from POST /api/connectors', async () => {
     const viewer = await createUser('Viewer');
     cleanup.push(() => deleteUser(viewer.id));
     const cookie = await loginAs(viewer);
-    const result = await apiAs(cookie, 'POST', '/api/datasources', {
+    const result = await apiAs(cookie, 'POST', '/api/connectors', {
       name: `rbac-viewer-ds-${Date.now()}`,
       type: 'prometheus',
-      url: 'http://example.invalid',
+      config: { url: 'http://example.invalid' },
     });
     expect(result.status).toBe(403);
   }, 60_000);

@@ -296,8 +296,8 @@ export default function Navigation() {
   const canSeeSettings =
     !!user
     && (user.isServerAdmin
-      || hasPermission('datasources:write')
-      || hasPermission('datasources:create')
+      || hasPermission('connectors:write')
+      || hasPermission('connectors:create')
       || hasPermission('admin:write'));
   // Default expanded, persisted across sessions. User's explicit toggle wins
   // over any route-based behavior (we used to auto-collapse when leaving Home,

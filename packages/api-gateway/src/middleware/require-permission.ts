@@ -35,7 +35,7 @@ export type EvaluatorFactory = (req: AuthenticatedRequest) => Evaluator;
  * Accepts either the real `AccessControlService` or the late-binding
  * `AccessControlHolder` — both implement `AccessControlSurface` (they only
  * need `evaluate()` here). Late binding is required for routes mounted
- * outside the auth-subsystem IIFE (e.g. `/api/datasources` — it runs
+ * outside the auth-subsystem IIFE (e.g. `/api/connectors` — it runs
  * pre-bootstrap before `accessControl` is constructed).
  */
 export function createRequirePermission(ac: AccessControlSurface) {

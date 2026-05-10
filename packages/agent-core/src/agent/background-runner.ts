@@ -62,7 +62,7 @@ export interface BackgroundRunnerDeps {
    */
   /**
    * May return synchronously OR a Promise. Async builders are useful when
-   * the orchestrator needs runtime config (LLM, datasources, connectors)
+   * the orchestrator needs runtime config (LLM, connectors)
    * that can change between calls — fetch it inside the factory, not at
    * BackgroundRunnerDeps construction time.
    */

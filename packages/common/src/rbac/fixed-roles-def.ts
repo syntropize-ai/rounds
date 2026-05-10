@@ -6,7 +6,7 @@
  *
  * Naming convention:
  *   fixed:<area>:<verb>          — e.g. `fixed:dashboards:reader`,
- *                                   `fixed:datasources:writer`
+ *                                   `fixed:connectors:writer`
  *   fixed:<area>.<sub>:<verb>    — used when an area has a finer-grained
  *                                   sub-resource that needs its own role,
  *                                   e.g. `fixed:dashboards.permissions:writer`
@@ -174,74 +174,74 @@ const FOLDERS_PERMISSIONS_WRITER = def(
   ],
 );
 
-// -- Datasources ----------------------------------------------------------
+// -- Connectors ----------------------------------------------------------
 
 const DATASOURCES_READER = def(
-  'fixed:datasources:reader',
-  'Datasources reader',
-  'Read datasources and their configuration.',
-  'Datasources',
+  'fixed:connectors:reader',
+  'Connectors reader',
+  'Read connectors and their configuration.',
+  'Connectors',
   [
-    { action: ACTIONS.DatasourcesRead, scope: 'datasources:*' },
-    { action: ACTIONS.DatasourcesIdRead, scope: 'datasources:*' },
+    { action: ACTIONS.ConnectorsRead, scope: 'connectors:*' },
+    { action: ACTIONS.ConnectorsIdRead, scope: 'connectors:*' },
   ],
 );
 
 const DATASOURCES_WRITER = def(
-  'fixed:datasources:writer',
-  'Datasources writer',
-  'Create, update, and delete datasources.',
-  'Datasources',
+  'fixed:connectors:writer',
+  'Connectors writer',
+  'Create, update, and delete connectors.',
+  'Connectors',
   [
-    { action: ACTIONS.DatasourcesRead, scope: 'datasources:*' },
-    { action: ACTIONS.DatasourcesWrite, scope: 'datasources:*' },
-    { action: ACTIONS.DatasourcesCreate, scope: '' },
-    { action: ACTIONS.DatasourcesDelete, scope: 'datasources:*' },
-    { action: ACTIONS.DatasourcesIdRead, scope: 'datasources:*' },
+    { action: ACTIONS.ConnectorsRead, scope: 'connectors:*' },
+    { action: ACTIONS.ConnectorsWrite, scope: 'connectors:*' },
+    { action: ACTIONS.ConnectorsCreate, scope: '' },
+    { action: ACTIONS.ConnectorsDelete, scope: 'connectors:*' },
+    { action: ACTIONS.ConnectorsIdRead, scope: 'connectors:*' },
   ],
 );
 
 const DATASOURCES_CREATOR = def(
-  'fixed:datasources:creator',
-  'Datasources creator',
-  'Create new datasources.',
-  'Datasources',
-  [{ action: ACTIONS.DatasourcesCreate, scope: '' }],
+  'fixed:connectors:creator',
+  'Connectors creator',
+  'Create new connectors.',
+  'Connectors',
+  [{ action: ACTIONS.ConnectorsCreate, scope: '' }],
 );
 
 const DATASOURCES_EXPLORER = def(
-  'fixed:datasources:explorer',
-  'Datasources explorer',
+  'fixed:connectors:explorer',
+  'Connectors explorer',
   'Use Explore to run ad-hoc queries.',
-  'Datasources',
-  [{ action: ACTIONS.DatasourcesExplore, scope: '' }],
+  'Connectors',
+  [{ action: ACTIONS.ConnectorsExplore, scope: '' }],
 );
 
 const DATASOURCES_PERMISSIONS_READER = def(
-  'fixed:datasources.permissions:reader',
-  'Datasource permissions reader',
-  'Read datasource permission assignments.',
-  'Datasources',
-  [{ action: ACTIONS.DatasourcesPermissionsRead, scope: 'datasources:*' }],
+  'fixed:connectors.permissions:reader',
+  'Connector permissions reader',
+  'Read connector permission assignments.',
+  'Connectors',
+  [{ action: ACTIONS.ConnectorsPermissionsRead, scope: 'connectors:*' }],
 );
 
 const DATASOURCES_PERMISSIONS_WRITER = def(
-  'fixed:datasources.permissions:writer',
-  'Datasource permissions writer',
-  'Change datasource permission assignments.',
-  'Datasources',
+  'fixed:connectors.permissions:writer',
+  'Connector permissions writer',
+  'Change connector permission assignments.',
+  'Connectors',
   [
-    { action: ACTIONS.DatasourcesPermissionsRead, scope: 'datasources:*' },
-    { action: ACTIONS.DatasourcesPermissionsWrite, scope: 'datasources:*' },
+    { action: ACTIONS.ConnectorsPermissionsRead, scope: 'connectors:*' },
+    { action: ACTIONS.ConnectorsPermissionsWrite, scope: 'connectors:*' },
   ],
 );
 
 const DATASOURCES_ID_READER = def(
-  'fixed:datasources.id:reader',
-  'Datasource ID reader',
-  'Resolve datasource numeric IDs from UIDs (internal).',
-  'Datasources',
-  [{ action: ACTIONS.DatasourcesIdRead, scope: 'datasources:*' }],
+  'fixed:connectors.id:reader',
+  'Connector ID reader',
+  'Resolve connector numeric IDs from UIDs (internal).',
+  'Connectors',
+  [{ action: ACTIONS.ConnectorsIdRead, scope: 'connectors:*' }],
   { hidden: true },
 );
 
@@ -748,33 +748,14 @@ const AGENTS_CONFIG_WRITER = def(
   ],
 );
 
-const OPS_CONNECTORS_READER = def(
-  'fixed:ops.connectors:reader',
-  'Ops connectors reader',
-  'Read configured Ops/Kubernetes connectors.',
-  'Ops',
-  [{ action: ACTIONS.OpsConnectorsRead, scope: 'ops.connectors:*' }],
-);
-
-const OPS_CONNECTORS_WRITER = def(
-  'fixed:ops.connectors:writer',
-  'Ops connectors writer',
-  'Create and update Ops/Kubernetes connectors.',
-  'Ops',
-  [
-    { action: ACTIONS.OpsConnectorsRead, scope: 'ops.connectors:*' },
-    { action: ACTIONS.OpsConnectorsWrite, scope: 'ops.connectors:*' },
-  ],
-);
-
 const OPS_COMMANDS_RUNNER = def(
   'fixed:ops.commands:runner',
   'Ops command runner',
   'Run policy-gated Ops/Kubernetes commands through configured connectors.',
   'Ops',
   [
-    { action: ACTIONS.OpsConnectorsRead, scope: 'ops.connectors:*' },
-    { action: ACTIONS.OpsCommandsRun, scope: 'ops.connectors:*' },
+    { action: ACTIONS.ConnectorsRead, scope: 'connectors:*' },
+    { action: ACTIONS.OpsCommandsRun, scope: 'connectors:*' },
   ],
 );
 
@@ -845,8 +826,6 @@ export const FIXED_ROLE_DEFINITIONS: readonly FixedRoleDefinition[] =
     PLANS_AUTO_EDITOR,
     AGENTS_CONFIG_READER,
     AGENTS_CONFIG_WRITER,
-    OPS_CONNECTORS_READER,
-    OPS_CONNECTORS_WRITER,
     OPS_COMMANDS_RUNNER,
   ]);
 

@@ -133,7 +133,21 @@ export class KubectlExecutionAdapter implements ExecutionAdapter {
   }
 
   capabilities(): AdapterCapability[] {
-    return this.opts.mode === 'read' ? ['k8s.read'] : ['k8s.read', 'k8s.write'];
+    const readCapabilities: AdapterCapability[] = [
+      'runtime.get',
+      'runtime.list',
+      'runtime.logs',
+      'runtime.events',
+    ];
+    return this.opts.mode === 'read'
+      ? readCapabilities
+      : [
+          ...readCapabilities,
+          'runtime.restart',
+          'runtime.scale',
+          'runtime.rollout',
+          'runtime.delete',
+        ];
   }
 
   async validate(action: AdapterAction): Promise<ValidationResult> {

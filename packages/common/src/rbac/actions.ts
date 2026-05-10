@@ -34,16 +34,17 @@ export const ACTIONS = {
   FoldersPermissionsRead: 'folders.permissions:read',
   FoldersPermissionsWrite: 'folders.permissions:write',
 
-  // -- Datasources ----------------------------------------------------------
-  DatasourcesRead: 'datasources:read',
-  DatasourcesWrite: 'datasources:write',
-  DatasourcesCreate: 'datasources:create',
-  DatasourcesDelete: 'datasources:delete',
-  DatasourcesQuery: 'datasources:query',
-  DatasourcesExplore: 'datasources:explore',
-  DatasourcesIdRead: 'datasources.id:read',
-  DatasourcesPermissionsRead: 'datasources.permissions:read',
-  DatasourcesPermissionsWrite: 'datasources.permissions:write',
+  // -- Connectors ----------------------------------------------------------
+  ConnectorsRead: 'connectors:read',
+  ConnectorsWrite: 'connectors:write',
+  ConnectorsCreate: 'connectors:create',
+  ConnectorsDelete: 'connectors:delete',
+  ConnectorsQuery: 'connectors:query',
+  ConnectorsExplore: 'connectors:explore',
+  ConnectorsIdRead: 'connectors.id:read',
+  ConnectorsPermissionsRead: 'connectors.permissions:read',
+  ConnectorsPermissionsWrite: 'connectors.permissions:write',
+  ConnectorsTest: 'connectors:test',
 
   // -- Alerting -------------------------------------------------------------
   AlertRulesRead: 'alert.rules:read',
@@ -147,8 +148,6 @@ export const ACTIONS = {
   ChatUse: 'chat:use',
   AgentsConfigRead: 'agents.config:read',
   AgentsConfigWrite: 'agents.config:write',
-  OpsConnectorsRead: 'ops.connectors:read',
-  OpsConnectorsWrite: 'ops.connectors:write',
   OpsCommandsRun: 'ops.commands:run',
   // Remediation plans (Phase 5 of docs/design/auto-remediation.md). Default
   // grants seeded in rbac-seed: PlansRead → Viewer+, PlansApprove → Editor+

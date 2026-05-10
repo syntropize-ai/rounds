@@ -22,7 +22,7 @@ import type {
   IInvestigationReportStore,
   IInvestigationStore,
   IAlertRuleStore,
-  DatasourceConfig,
+  ConnectorConfig,
   OpsCommandRunner,
   OpsConnectorConfig,
   ApprovalRequestStore,
@@ -48,13 +48,13 @@ export interface ActionContext {
    * Source-agnostic adapter registry. Required — the orchestrator resolves
    * every metrics/logs/changes call through it by `sourceId`. A session with
    * no backends configured still gets an empty registry so handlers can
-   * return "unknown datasource" observations uniformly.
+   * return "unknown connector" observations uniformly.
    */
   adapters: AdapterRegistry;
   webSearchAdapter?: IWebSearchAdapter;
-  allDatasources?: DatasourceConfig[];
+  allConnectors?: ConnectorConfig[];
   /**
-   * Mutable per-session "sticky" datasource pins keyed by signal type
+   * Mutable per-session "sticky" connector pins keyed by signal type
    * (e.g. `{ prometheus: 'ds-prod' }`). Survives across tool calls within
    * a single chat session — chat-service constructs the bag, hands it to
    * each agent run, and reads it back so subsequent messages see prior
@@ -62,7 +62,7 @@ export interface ActionContext {
    * (acceptable v1 — re-asking once is a small cost vs. shipping a schema
    * column for a UX nice-to-have).
    */
-  sessionDatasourcePins?: Record<string, string>;
+  sessionConnectorPins?: Record<string, string>;
   opsCommandRunner?: OpsCommandRunner;
   opsConnectors?: OpsConnectorConfig[];
   /**
@@ -80,10 +80,8 @@ export interface ActionContext {
    */
   approvalRequests?: ApprovalRequestStore;
   /**
-   * AI-first configuration surface used by the `datasource_configure`,
-   * `ops_connector_configure`, and `system_setting_configure` tools.
-   * Optional — when absent those tools return a "not configured"
-   * observation; the existing manual Settings UI is unaffected either way.
+   * Connector-model configuration surface used by connector_* and setting_*.
+   * Optional while backend workers land /api/connectors.
    */
   configService?: AgentConfigService;
   sendEvent: (event: DashboardSseEvent) => void;

@@ -1,14 +1,14 @@
 import type { ActionContext } from './_context.js';
-import type { SignalType, DatasourceInfo } from '../../adapters/index.js';
-import type { DatasourceConfig } from '../types.js';
+import type { SignalType, ConnectorInfo } from '../../adapters/index.js';
+import type { ConnectorConfig } from '../types.js';
 import { withToolEventBoundary } from './_shared.js';
 
 // ---------------------------------------------------------------------------
-// Datasource discovery (always allowed — required before metrics/logs/changes)
+// Connector discovery (always allowed — required before metrics/logs/changes)
 // ---------------------------------------------------------------------------
 
 // TODO: migrate to withToolEventBoundary
-export async function handleDatasourcesList(
+export async function handleConnectorsList(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -19,17 +19,17 @@ export async function handleDatasourcesList(
       : undefined;
   ctx.sendEvent({
     type: 'tool_call',
-    tool: 'datasources_list',
+    tool: 'connectors_list',
     args: filter ? filter : {},
-    displayText: filter ? `Listing ${filter.signalType} datasources` : 'Listing datasources',
+    displayText: filter ? `Listing ${filter.signalType} connectors` : 'Listing connectors',
   });
 
   const infos = ctx.adapters.list(filter);
   if (infos.length === 0) {
     const msg = filter
-      ? `No ${filter.signalType} datasources are configured.`
-      : 'No datasources are configured.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'datasources_list', summary: msg, success: true });
+      ? `No ${filter.signalType} connectors are configured.`
+      : 'No connectors are configured.';
+    ctx.sendEvent({ type: 'tool_result', tool: 'connectors_list', summary: msg, success: true });
     return msg;
   }
   const lines = infos.map((d) => {
@@ -39,8 +39,8 @@ export async function handleDatasourcesList(
   const summary = lines.join('\n');
   ctx.sendEvent({
     type: 'tool_result',
-    tool: 'datasources_list',
-    summary: `${infos.length} datasource(s)`,
+    tool: 'connectors_list',
+    summary: `${infos.length} connector(s)`,
     success: true,
   });
   return summary;
@@ -50,9 +50,9 @@ export async function handleDatasourcesList(
 // Decision-pyramid helper used by suggest/pin/unpin
 // ---------------------------------------------------------------------------
 
-/** Merged datasource view: AdapterRegistry info + optional environment/cluster
- *  metadata from `ctx.allDatasources` (populated by chat-service). */
-interface DatasourceView {
+/** Merged connector view: AdapterRegistry info + optional environment/cluster
+ *  metadata from `ctx.allConnectors` (populated by chat-service). */
+interface ConnectorView {
   id: string;
   name: string;
   type: string;
@@ -62,14 +62,14 @@ interface DatasourceView {
   isDefault?: boolean;
 }
 
-function listDatasourceViews(ctx: ActionContext, type?: string): DatasourceView[] {
-  const cfgById = new Map<string, DatasourceConfig>();
-  for (const cfg of ctx.allDatasources ?? []) cfgById.set(cfg.id, cfg);
+function listConnectorViews(ctx: ActionContext, type?: string): ConnectorView[] {
+  const cfgById = new Map<string, ConnectorConfig>();
+  for (const cfg of ctx.allConnectors ?? []) cfgById.set(cfg.id, cfg);
 
   // Prefer the in-process AdapterRegistry as the source of truth (matches
-  // handleDatasourcesList) and merge in environment/cluster from allDatasources.
-  const infos: DatasourceInfo[] = ctx.adapters.list();
-  const views: DatasourceView[] = infos.map((info) => {
+  // handleConnectorsList) and merge in environment/cluster from allConnectors.
+  const infos: ConnectorInfo[] = ctx.adapters.list();
+  const views: ConnectorView[] = infos.map((info) => {
     const cfg = cfgById.get(info.id);
     return {
       id: info.id,
@@ -95,7 +95,7 @@ interface SuggestResult {
   alternatives: Array<{ id: string; name: string; environment?: string; cluster?: string }>;
 }
 
-function buildSuggestion(views: DatasourceView[], userIntent: string): SuggestResult {
+function buildSuggestion(views: ConnectorView[], userIntent: string): SuggestResult {
   const intent = userIntent.toLowerCase();
 
   // Layer 1 — explicit hint match (name / environment / cluster substring).
@@ -126,13 +126,13 @@ function buildSuggestion(views: DatasourceView[], userIntent: string): SuggestRe
     }
   }
 
-  // Layer 2 — default datasource.
+  // Layer 2 — default connector.
   const def = views.find((v) => v.isDefault === true);
   if (def) {
     return {
       recommendedId: def.id,
       name: def.name,
-      reason: 'No explicit hint; picked the default datasource.',
+      reason: 'No explicit hint; picked the default connector.',
       confidence: 'medium',
       alternatives: toAlternatives(views, def.id),
     };
@@ -160,7 +160,7 @@ function buildSuggestion(views: DatasourceView[], userIntent: string): SuggestRe
   };
 }
 
-function toAlternatives(views: DatasourceView[], excludeId: string | null): SuggestResult['alternatives'] {
+function toAlternatives(views: ConnectorView[], excludeId: string | null): SuggestResult['alternatives'] {
   return views
     .filter((v) => v.id !== excludeId)
     .slice(0, 5)
@@ -173,10 +173,10 @@ function toAlternatives(views: DatasourceView[], excludeId: string | null): Sugg
 }
 
 // ---------------------------------------------------------------------------
-// datasources_suggest — decision pyramid (hint > default > ambiguous)
+// connectors_suggest — decision pyramid (hint > default > ambiguous)
 // ---------------------------------------------------------------------------
 
-export async function handleDatasourcesSuggest(
+export async function handleConnectorsSuggest(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -185,18 +185,18 @@ export async function handleDatasourcesSuggest(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'datasources_suggest',
+    'connectors_suggest',
     { userIntent, ...(type ? { type } : {}) },
-    'Choosing data source',
+    'Choosing connector',
     async () => {
-      const views = listDatasourceViews(ctx, type);
+      const views = listConnectorViews(ctx, type);
       if (views.length === 0) {
         const empty: SuggestResult = {
           recommendedId: null,
           name: null,
           reason: type
-            ? `No datasources of type "${type}" are configured.`
-            : 'No datasources are configured.',
+            ? `No connectors of type "${type}" are configured.`
+            : 'No connectors are configured.',
           confidence: 'low',
           alternatives: [],
         };
@@ -226,39 +226,39 @@ export async function handleDatasourcesSuggest(
 }
 
 // ---------------------------------------------------------------------------
-// datasources_pin / datasources_unpin — session-scoped pinning
+// connectors_pin / connectors_unpin — session-scoped pinning
 // ---------------------------------------------------------------------------
 
 /** Lazy-init the per-session pins bag on first use. chat-service constructs
  *  it for each agent run; tests / fakes that omit it get an empty bag here so
  *  the pin/unpin handlers don't crash on a missing field. */
 function getSessionPins(ctx: ActionContext): Record<string, string> {
-  if (!ctx.sessionDatasourcePins) ctx.sessionDatasourcePins = {};
-  return ctx.sessionDatasourcePins;
+  if (!ctx.sessionConnectorPins) ctx.sessionConnectorPins = {};
+  return ctx.sessionConnectorPins;
 }
 
-export async function handleDatasourcesPin(
+export async function handleConnectorsPin(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const datasourceId = typeof args.datasourceId === 'string' ? args.datasourceId.trim() : '';
+  const connectorId = typeof args.connectorId === 'string' ? args.connectorId.trim() : '';
   const type = typeof args.type === 'string' && args.type.trim() !== '' ? args.type.trim() : 'prometheus';
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'datasources_pin',
-    { datasourceId, type },
-    'Pinning data source',
+    'connectors_pin',
+    { connectorId, type },
+    'Pinning connector',
     async () => {
-      if (!datasourceId) return 'Error: "datasourceId" is required.';
+      if (!connectorId) return 'Error: "connectorId" is required.';
       const pins = getSessionPins(ctx);
-      pins[type] = datasourceId;
-      return `Pinned ${type} datasource to ${datasourceId} for this session.`;
+      pins[type] = connectorId;
+      return `Pinned ${type} connector to ${connectorId} for this session.`;
     },
   );
 }
 
-export async function handleDatasourcesUnpin(
+export async function handleConnectorsUnpin(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -266,14 +266,14 @@ export async function handleDatasourcesUnpin(
 
   return withToolEventBoundary(
     ctx.sendEvent,
-    'datasources_unpin',
+    'connectors_unpin',
     { type },
-    'Unpinning data source',
+    'Unpinning connector',
     async () => {
       const pins = getSessionPins(ctx);
-      if (!(type in pins)) return `No ${type} datasource was pinned.`;
+      if (!(type in pins)) return `No ${type} connector was pinned.`;
       delete pins[type];
-      return `Unpinned ${type} datasource for this session.`;
+      return `Unpinned ${type} connector for this session.`;
     },
   );
 }

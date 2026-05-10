@@ -19,10 +19,10 @@ import {
   handleDashboardRemovePanels,
   handleDashboardModifyPanel,
   handleDashboardAddVariable,
-  handleDatasourcesList,
-  handleDatasourcesSuggest,
-  handleDatasourcesPin,
-  handleDatasourcesUnpin,
+  handleConnectorsList,
+  handleConnectorsSuggest,
+  handleConnectorsPin,
+  handleConnectorsUnpin,
   handleMetricsQuery,
   handleMetricsRangeQuery,
   handleMetricsDiscover,
@@ -42,9 +42,14 @@ import {
   handleOpsRunCommand,
   handleRemediationPlanCreate,
   handleRemediationPlanCreateRescue,
-  handleDatasourceConfigure,
-  handleOpsConnectorConfigure,
-  handleSystemSettingConfigure,
+  handleConnectorList,
+  handleConnectorTemplateList,
+  handleConnectorDetect,
+  handleConnectorPropose,
+  handleConnectorApply,
+  handleConnectorTest,
+  handleSettingGet,
+  handleSettingSet,
 } from './orchestrator-action-handlers.js';
 import type { ToolAuditReporter } from './orchestrator-audit-reporter.js';
 
@@ -191,11 +196,11 @@ async function dispatchAction(
     case 'folder_list': return handleFolderList(ctx, args);
     // Navigation
     case 'navigate': return handleNavigate(ctx, args);
-    // Datasource discovery (always allowed)
-    case 'datasources_list': return handleDatasourcesList(ctx, args);
-    case 'datasources_suggest': return handleDatasourcesSuggest(ctx, args);
-    case 'datasources_pin': return handleDatasourcesPin(ctx, args);
-    case 'datasources_unpin': return handleDatasourcesUnpin(ctx, args);
+    // Connector discovery (always allowed)
+    case 'connectors_list': return handleConnectorsList(ctx, args);
+    case 'connectors_suggest': return handleConnectorsSuggest(ctx, args);
+    case 'connectors_pin': return handleConnectorsPin(ctx, args);
+    case 'connectors_unpin': return handleConnectorsUnpin(ctx, args);
     // Source-agnostic metrics primitives — discover collapses labels /
     // label_values / series / metadata / metric_names via `kind`
     case 'metrics_query': return handleMetricsQuery(ctx, args);
@@ -213,11 +218,15 @@ async function dispatchAction(
     // Remediation plans (P4)
     case 'remediation_plan_create': return handleRemediationPlanCreate(ctx, args);
     case 'remediation_plan_create_rescue': return handleRemediationPlanCreateRescue(ctx, args);
-    // AI-first configuration tools (Task 07) — datasource / connector /
-    // low-risk org settings via conversation. Manual Settings UI keeps working.
-    case 'datasource_configure': return handleDatasourceConfigure(ctx, args);
-    case 'ops_connector_configure': return handleOpsConnectorConfigure(ctx, args);
-    case 'system_setting_configure': return handleSystemSettingConfigure(ctx, args);
+    // Connector-model configuration tools.
+    case 'connector_list': return handleConnectorList(ctx, args);
+    case 'connector_template_list': return handleConnectorTemplateList(ctx, args);
+    case 'connector_detect': return handleConnectorDetect(ctx, args);
+    case 'connector_propose': return handleConnectorPropose(ctx, args);
+    case 'connector_apply': return handleConnectorApply(ctx, args);
+    case 'connector_test': return handleConnectorTest(ctx, args);
+    case 'setting_get': return handleSettingGet(ctx, args);
+    case 'setting_set': return handleSettingSet(ctx, args);
     // Web search
     case 'web_search': return handleWebSearch(ctx, args);
     // `tool_search` is intercepted by ReActLoop before dispatch — it

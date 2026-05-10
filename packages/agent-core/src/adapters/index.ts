@@ -14,7 +14,7 @@ export type {
 } from './changes-adapter.js';
 export type {
   AdapterEntry,
-  DatasourceInfo,
+  ConnectorInfo,
   SignalType,
 } from './registry.js';
 export { AdapterRegistry } from './registry.js';

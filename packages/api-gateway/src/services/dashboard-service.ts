@@ -1,14 +1,14 @@
-import type { InstanceDatasource } from '@agentic-obs/common';
+import type { Connector } from '@agentic-obs/common';
 import { AdapterRegistry } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter, LokiLogsAdapter } from '@agentic-obs/adapters';
 import type { IChangesAdapter } from '@agentic-obs/adapters';
 
 /**
- * Convert InstanceDatasource[] to the narrower `DatasourceConfig[]`
+ * Convert Connector[] to the narrower prompt config shape
  * shape the orchestrator's system-prompt helpers expect. Drops credential
  * fields (they don't belong in a prompt) and converts `null` → undefined.
  */
-export function toAgentDatasources(datasources: InstanceDatasource[]): Array<{
+export function toAgentConnectors(connectors: Connector[]): Array<{
   id: string;
   type: string;
   name: string;
@@ -18,47 +18,48 @@ export function toAgentDatasources(datasources: InstanceDatasource[]): Array<{
   label?: string;
   isDefault?: boolean;
 }> {
-  return datasources.map((d) => ({
-    id: d.id,
-    type: d.type,
-    name: d.name,
-    url: d.url,
-    ...(d.environment ? { environment: d.environment } : {}),
-    ...(d.cluster ? { cluster: d.cluster } : {}),
-    ...(d.label ? { label: d.label } : {}),
-    isDefault: d.isDefault,
+  return connectors.map((c) => ({
+    id: c.id,
+    type: c.type,
+    name: c.name,
+    url: configString(c, 'url') ?? '',
+    ...(configString(c, 'environment') ? { environment: configString(c, 'environment') } : {}),
+    ...(configString(c, 'cluster') ? { cluster: configString(c, 'cluster') } : {}),
+    ...(configString(c, 'label') ? { label: configString(c, 'label') } : {}),
+    isDefault: c.isDefault,
   }));
 }
 
 // -- Prometheus resolution (shared across services)
 
-export interface PrometheusDatasource {
+export interface PrometheusConnector {
   url: string;
   headers: Record<string, string>;
 }
 
-export function resolvePrometheusDatasource(datasources: InstanceDatasource[]): PrometheusDatasource | undefined {
-  const promDatasources = datasources.filter((d) => d.type === 'prometheus' || d.type === 'victoria-metrics');
-  const prom = promDatasources.find((d) => d.isDefault) ?? promDatasources[0];
+export function resolvePrometheusConnector(connectors: Connector[]): PrometheusConnector | undefined {
+  const promConnectors = connectors.filter((c) => c.type === 'prometheus' || c.type === 'victoria-metrics');
+  const prom = promConnectors.find((c) => c.isDefault) ?? promConnectors[0];
   if (!prom) return undefined;
 
-  const headers: Record<string, string> = {};
-  if (prom.username && prom.password) {
-    headers.Authorization = `Basic ${Buffer.from(`${prom.username}:${prom.password}`).toString('base64')}`;
-  } else if (prom.apiKey) {
-    headers.Authorization = `Bearer ${prom.apiKey}`;
-  }
-
-  return { url: prom.url, headers };
+  return { url: configString(prom, 'url') ?? '', headers: connectorHeaders(prom) };
 }
 
-/** Build HTTP auth headers from an InstanceDatasource's stored credentials. */
-export function datasourceHeaders(ds: InstanceDatasource): Record<string, string> {
+function configString(connector: Connector, key: string): string | undefined {
+  const value = connector.config[key];
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+/** Build HTTP auth headers from connector config. Real secrets are resolved at adapter boundary. */
+export function connectorHeaders(connector: Connector): Record<string, string> {
   const headers: Record<string, string> = {};
-  if (ds.username && ds.password) {
-    headers.Authorization = `Basic ${Buffer.from(`${ds.username}:${ds.password}`).toString('base64')}`;
-  } else if (ds.apiKey) {
-    headers.Authorization = `Bearer ${ds.apiKey}`;
+  const username = configString(connector, 'username');
+  const password = configString(connector, 'password');
+  const apiKey = configString(connector, 'apiKey');
+  if (username && password) {
+    headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+  } else if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
   }
   return headers;
 }
@@ -79,21 +80,22 @@ export interface ChangeAdapterRegistration {
 }
 
 export function buildAdapterRegistry(
-  datasources: InstanceDatasource[],
+  connectors: Connector[],
   changeAdapters: ChangeAdapterRegistration[] = [],
 ): AdapterRegistry {
   const registry = new AdapterRegistry();
-  for (const ds of datasources) {
-    const headers = datasourceHeaders(ds);
-    if (ds.type === 'prometheus' || ds.type === 'victoria-metrics') {
+  for (const connector of connectors) {
+    const url = configString(connector, 'url') ?? '';
+    const headers = connectorHeaders(connector);
+    if (connector.type === 'prometheus' || connector.type === 'victoria-metrics') {
       registry.register({
-        info: { id: ds.id, name: ds.name, type: ds.type, url: ds.url, signalType: 'metrics', isDefault: ds.isDefault },
-        metrics: new PrometheusMetricsAdapter(ds.url, headers),
+        info: { id: connector.id, name: connector.name, type: connector.type, url, signalType: 'metrics', isDefault: connector.isDefault },
+        metrics: new PrometheusMetricsAdapter(url, headers),
       });
-    } else if (ds.type === 'loki') {
+    } else if (connector.type === 'loki') {
       registry.register({
-        info: { id: ds.id, name: ds.name, type: ds.type, url: ds.url, signalType: 'logs', isDefault: ds.isDefault },
-        logs: new LokiLogsAdapter(ds.url, headers),
+        info: { id: connector.id, name: connector.name, type: connector.type, url, signalType: 'logs', isDefault: connector.isDefault },
+        logs: new LokiLogsAdapter(url, headers),
       });
     }
     // elasticsearch / clickhouse / tempo / jaeger / otel: adapters not yet implemented

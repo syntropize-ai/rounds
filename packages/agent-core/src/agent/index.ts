@@ -44,7 +44,7 @@ export type {
   IInvestigationReportStore,
   IInvestigationStore,
   IAlertRuleStore,
-  DatasourceConfig,
+  ConnectorConfig,
   OpsCommandIntent,
   OpsConnectorConfig,
   OpsCommandRunner,

@@ -25,7 +25,7 @@ dependency is called out.
 | **PlanStep** | One write action inside a plan. Today only `ops.run_command` (kubectl shell). Future: `alert_rule.write`, `dashboard.update`, etc. |
 | **RescuePlan** | Optional companion plan generated alongside the main plan, containing "undo" steps. Never auto-executes; only triggered by a human after a failure. Modeled as an ordinary plan with `rescue_for_plan_id` set. |
 | **Auto-edit** | A flag set at plan-approval time. When true, the executor skips per-step approval and runs the whole approved plan. Scope: this plan only. Gated by `plans:auto_edit` permission. |
-| **Connector** | An `ops_connectors` row, currently only `kubernetes`. Carries kubeconfig (via `secretRef`) + allowed namespaces + capabilities. |
+| **Connector** | A `connectors` row, currently including `kubernetes`. Carries type-specific config, secret reference, scope, and capabilities. |
 | **Read-allow / write-allow / permanent-deny** | Three lists controlling which `kubectl` verbs are permitted in which context. See Phase 6. |
 
 ## 2. Architecture

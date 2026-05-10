@@ -44,7 +44,6 @@ import { PublishingApprovalRepository } from './services/publishing-approval-rep
 import { ApprovalRouter } from './services/approval-router.js';
 import { EventEmittingAlertRuleRepository } from '@agentic-obs/data-layer';
 import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
-import { GitHubChangeSourceRegistry } from './services/github-change-source-service.js';
 import { createShutdownHooks } from './app/lifecycle.js';
 import type { WebSocketGatewayDeps } from './websocket/gateway.js';
 
@@ -160,7 +159,7 @@ export async function createApp(): Promise<Application> {
   // so config-mutation events can be audited via `authSub.audit`.
   const setupConfig = new SetupConfigService({
     instanceConfig: persistence.repos.instanceConfig,
-    datasources: persistence.repos.datasources,
+    connectors: persistence.repos.connectors,
     notificationChannels: persistence.repos.notificationChannels,
     audit: bundle.authSub.audit,
   });
@@ -200,8 +199,6 @@ export async function createApp(): Promise<Application> {
   const eventAlertRuleStore = new EventEmittingAlertRuleRepository(
     persistence.repos.alertRules,
   );
-  const githubChangeSources = new GitHubChangeSourceRegistry(persistence.repos.changeSources);
-
   // Event bus — Redis when REDIS_URL is set, in-memory otherwise. Both
   // the AutoInvestigationConsumer and the NotificationConsumer subscribe
   // to `alert.fired` here; the AlertEvaluator publishes to it on every
@@ -233,7 +230,6 @@ export async function createApp(): Promise<Application> {
       accessControl,
       audit: bundle.authSub.audit,
       folderRepository: sharedFolderRepo,
-      githubChangeSources,
     }),
   };
 
@@ -249,7 +245,6 @@ export async function createApp(): Promise<Application> {
     userRateLimiter,
     queryRateLimiter,
     eventAlertRuleStore,
-    githubChangeSources,
     runner: backgroundRunner,
     approvalsForExecutor: publishingApprovals,
   });

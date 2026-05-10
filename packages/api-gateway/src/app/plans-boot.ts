@@ -16,7 +16,7 @@ import { createLogger } from '@agentic-obs/common/logging';
 import { KubectlExecutionAdapter } from '@agentic-obs/adapters';
 import type {
   IApprovalRequestRepository,
-  IOpsConnectorRepository,
+  IConnectorRepository,
   IRemediationPlanRepository,
   RemediationPlan,
   RemediationPlanStep,
@@ -37,7 +37,7 @@ export interface MountPlansDeps {
   plans: IRemediationPlanRepository;
   approvals: IApprovalRequestRepository;
   approvalEventStore: EventEmittingApprovalRepository;
-  connectors: IOpsConnectorRepository;
+  connectors: IConnectorRepository;
   ac: AccessControlSurface;
   /** Optional audit writer; one row per plan-step execution when wired. */
   audit?: import('../auth/audit-writer.js').AuditWriter;
@@ -69,7 +69,7 @@ export function mountPlans(deps: MountPlansDeps): void {
     if (!connectorId) {
       throw new Error(`step ${step.ordinal}: paramsJson.connectorId is required`);
     }
-    const connector = await deps.connectors.findByIdInOrg(plan.orgId, connectorId);
+    const connector = await deps.connectors.get(connectorId, { orgId: plan.orgId });
     if (!connector) {
       throw new Error(`connector "${connectorId}" not found in org ${plan.orgId}`);
     }
@@ -79,11 +79,15 @@ export function mountPlans(deps: MountPlansDeps): void {
       // when present (already decrypted by the repo) and falls back to
       // the ref resolver for env://, file://, vault:// schemes.
       resolveKubeconfig: async () => {
-        if (connector.secret) return connector.secret;
-        if (connector.secretRef) return secretResolver.resolve(connector.secretRef);
-        throw new Error(`connector "${connectorId}" has no secret or secretRef configured`);
+        const inline = connector.config['kubeconfig'];
+        const secretRef = connector.config['secretRef'];
+        if (typeof inline === 'string' && inline) return inline;
+        if (typeof secretRef === 'string' && secretRef) return secretResolver.resolve(secretRef);
+        throw new Error(`connector "${connectorId}" has no kubeconfig or secretRef configured`);
       },
-      allowedNamespaces: connector.allowedNamespaces,
+      allowedNamespaces: Array.isArray(connector.config['allowedNamespaces'])
+        ? connector.config['allowedNamespaces'].filter((v): v is string => typeof v === 'string')
+        : [],
       mode: 'write',
     });
   };

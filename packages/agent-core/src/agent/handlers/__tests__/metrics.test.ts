@@ -62,7 +62,7 @@ describe('metrics handlers', () => {
     it('returns an unknown-source error and skips the call when sourceId is not registered', async () => {
       const ctx = makeFakeActionContext();
       const observation = await handleMetricsQuery(ctx, { sourceId: 'nope', query: 'up' });
-      expect(observation).toMatch(/unknown metrics datasource 'nope'/);
+      expect(observation).toMatch(/unknown metrics connector 'nope'/);
     });
 
     it('catches adapter errors and returns success: false in tool_result', async () => {

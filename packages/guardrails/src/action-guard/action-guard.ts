@@ -16,9 +16,10 @@ export interface ActionInput {
 }
 
 /**
- * Caller-provided permission check. Return true iff `actorUserId` is
- * permitted to perform `verb` on `connectorId` within `orgId`. The guard
- * stays decoupled from any specific auth/permission service.
+ * Caller-provided connector policy check. Return true iff `actorUserId` is
+ * permitted to perform `capability` on `connectorId` within `orgId`. The
+ * guard stays decoupled from the runtime policy repository; api-gateway wires
+ * this to `connector_team_policies`.
  *
  * `actorUserId` is undefined for non-user sources (background_agent,
  * system) — the checker may still apply org-wide policy.
@@ -28,16 +29,14 @@ export type PermissionChecker = (input: {
   orgId: string;
   connectorId: string;
   capability: string;
-  verb: string;
+  verb?: string;
+  scope?: Record<string, unknown>;
 }) => Promise<boolean> | boolean;
 
 /**
- * Allowlist of (connectorId, capability, verb) tuples the guard recognises.
- * Anything not present → deny. This is the central allowlist; adapter-local
- * allowlists (e.g. kubectl-allowlist) stay in place as defense-in-depth.
- *
- * The shape uses a flat list so it can be sourced from policy config without
- * a fancy schema.
+ * Optional bootstrap-default tuple for connector templates. Runtime GuardedAction
+ * decisions do not consult this list; connector policy lookup is the source of
+ * truth. The shape remains exported for data-layer/template bootstrap code.
  */
 export interface CapabilityAllowEntry {
   connectorId: string | '*';
@@ -72,9 +71,9 @@ export type GuardAuditWriter = (entry: {
 }) => Promise<string | undefined> | string | undefined | void;
 
 export interface GuardedActionGuardOptions {
-  allowlist: readonly CapabilityAllowEntry[];
   permissionChecker: PermissionChecker;
   auditWriter?: GuardAuditWriter;
+  validateParams?: (action: ProposedAction) => string | null;
 }
 
 export class ActionGuard {
@@ -82,19 +81,18 @@ export class ActionGuard {
   private readonly rules: PolicyRule[];
 
   // ---- new GuardedAction mode ----
-  private readonly allowlist: readonly CapabilityAllowEntry[];
   private readonly permissionChecker?: PermissionChecker;
   private readonly auditWriter?: GuardAuditWriter;
+  private readonly validateParams?: (action: ProposedAction) => string | null;
 
   constructor(rulesOrOpts: PolicyRule[] | GuardedActionGuardOptions) {
     if (Array.isArray(rulesOrOpts)) {
       this.rules = rulesOrOpts;
-      this.allowlist = [];
     } else {
       this.rules = [];
-      this.allowlist = rulesOrOpts.allowlist;
       this.permissionChecker = rulesOrOpts.permissionChecker;
       this.auditWriter = rulesOrOpts.auditWriter;
+      this.validateParams = rulesOrOpts.validateParams;
     }
   }
 
@@ -106,27 +104,18 @@ export class ActionGuard {
    * Evaluate a `ProposedAction` and return a `GuardedDecision`.
    *
    * Order:
-   *   1. Allowlist match (connector × capability × verb). Unknown → deny.
-   *   2. Per-verb param validation. Invalid → deny.
-   *   3. Permission check. Denied → deny (NEVER silently upgraded).
-   *   4. Compute confirmationMode from source × risk.
-   *   5. Write audit row (allow or deny).
+   *   1. Optional caller-supplied param validation. Invalid → deny.
+   *   2. Connector policy check. Denied → deny (NEVER silently upgraded).
+   *   3. Compute confirmationMode from source × risk.
+   *   4. Write audit row (allow or deny).
    */
   async decide(action: ProposedAction): Promise<GuardedDecision> {
     if (!this.permissionChecker) {
       throw new Error('ActionGuard.decide requires permissionChecker (use new constructor signature)');
     }
 
-    const allowEntry = this.findAllowEntry(action);
-    if (!allowEntry) {
-      return this.finalizeDeny(
-        action,
-        `unknown ${action.connectorId}/${action.capability}/${action.verb}`,
-      );
-    }
-
-    if (allowEntry.validateParams) {
-      const reason = allowEntry.validateParams(action.params);
+    if (this.validateParams) {
+      const reason = this.validateParams(action);
       if (reason) {
         return this.finalizeDeny(action, `invalid params: ${reason}`);
       }
@@ -138,6 +127,7 @@ export class ActionGuard {
       connectorId: action.connectorId,
       capability: action.capability,
       verb: action.verb,
+      scope: action.scope,
     });
     if (!permitted) {
       return this.finalizeDeny(action, 'permission denied');
@@ -145,15 +135,6 @@ export class ActionGuard {
 
     const confirmationMode = pickConfirmationMode(action.source, action.risk);
     return this.finalizeAllow(action, confirmationMode);
-  }
-
-  private findAllowEntry(action: ProposedAction): CapabilityAllowEntry | undefined {
-    return this.allowlist.find(
-      (e) =>
-        (e.connectorId === '*' || e.connectorId === action.connectorId) &&
-        e.capability === action.capability &&
-        e.verb === action.verb,
-    );
   }
 
   private async finalizeAllow(

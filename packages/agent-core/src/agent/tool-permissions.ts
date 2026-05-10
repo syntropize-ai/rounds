@@ -16,7 +16,7 @@
  *                                                     that requires a lookup.
  *   - Returning `null` means "this tool is not permission-gated" (only the
  *     UI-only tools below qualify). The gate treats `null` as allow.
- *   - No PromQL parsing anywhere. Datasource UID → scope; that's it (§D14).
+ *   - No PromQL parsing anywhere. Connector ID → scope; that's it (§D14).
  */
 
 import type { Evaluator } from '@agentic-obs/common';
@@ -27,25 +27,25 @@ import type { ToolPermissionBuilder } from './types-permissions.js';
 const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
 
 /**
- * Resolve the datasource UID for a source-agnostic metrics / logs / changes
+ * Resolve the connector ID for a source-agnostic metrics / logs / changes
  * tool call. The LLM is now required to pass `sourceId` (see orchestrator
- * system prompt — "Datasource discovery first"); we still accept the older
+ * system prompt — "Connector discovery first"); we still accept the older
  * `datasourceId` / `datasourceUid` aliases for leniency. When nothing
- * resolves we scope to `datasources:uid:*` so the gate still runs — an
- * org-wide `datasources:query` grant covers this, but a per-UID grant does
+ * resolves we scope to `connectors:id:*` so the gate still runs — an
+ * org-wide `connectors:query` grant covers this, but a per-ID grant does
  * not (fail-closed for narrow grants).
  */
-function resolveDatasourceScope(args: Record<string, unknown>): string {
+function resolveConnectorScope(args: Record<string, unknown>): string {
   if (typeof args.sourceId === 'string' && args.sourceId) {
-    return `datasources:uid:${args.sourceId}`;
+    return `connectors:id:${args.sourceId}`;
   }
   if (typeof args.datasourceId === 'string' && args.datasourceId) {
-    return `datasources:uid:${args.datasourceId}`;
+    return `connectors:id:${args.datasourceId}`;
   }
   if (typeof args.datasourceUid === 'string' && args.datasourceUid) {
-    return `datasources:uid:${args.datasourceUid}`;
+    return `connectors:id:${args.datasourceUid}`;
   }
-  return 'datasources:uid:*';
+  return 'connectors:id:*';
 }
 
 /**
@@ -151,24 +151,24 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
 
   // -- Metrics primitives (source-agnostic; sourceId is required) ----------
   'metrics_query': (args: Record<string, unknown>) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args)),
+    ac.eval('connectors:query', resolveConnectorScope(args)),
   'metrics_range_query': (args: Record<string, unknown>) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args)),
+    ac.eval('connectors:query', resolveConnectorScope(args)),
   // metrics_discover collapses labels / label_values / series / metadata /
-  // metric_names — they all read against the same datasource scope so the
+  // metric_names — they all read against the same connector scope so the
   // gate is identical regardless of the `kind` discriminator.
   'metrics_discover': (args: Record<string, unknown>) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args)),
+    ac.eval('connectors:query', resolveConnectorScope(args)),
   'metrics_validate': (args: Record<string, unknown>) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args)),
+    ac.eval('connectors:query', resolveConnectorScope(args)),
 
   // -- Logs primitives (source-agnostic; sourceId is required) -------------
   'logs_query': (args: Record<string, unknown>) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args)),
+    ac.eval('connectors:query', resolveConnectorScope(args)),
   'logs_labels': (args: Record<string, unknown>) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args)),
+    ac.eval('connectors:query', resolveConnectorScope(args)),
   'logs_label_values': (args: Record<string, unknown>) =>
-    ac.eval('datasources:query', resolveDatasourceScope(args)),
+    ac.eval('connectors:query', resolveConnectorScope(args)),
 
   // -- Recent change events ------------------------------------------------
   // Gated as an investigation-style read so Viewer+ roles can consult
@@ -181,36 +181,18 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
     ac.any(
       ac.eval(
         ACTIONS.OpsCommandsRun,
-        `ops.connectors:id:${String(args.connectorId ?? '*')}`,
+        `connectors:id:${String(args.connectorId ?? '*')}`,
       ),
       ac.eval(ACTIONS.InstanceConfigWrite),
     ),
 
-  // -- AI-first configuration tools (Task 07) ------------------------------
-  // These mirror the RBAC the manual Settings UI uses: a caller able to
-  // configure a datasource / connector / instance setting via the UI is the
-  // same caller able to do so via conversation.
-  'datasource_configure': (args: Record<string, unknown>) =>
-    ac.any(
-      ac.eval(
-        ACTIONS.DatasourcesWrite,
-        typeof args.id === 'string' && args.id !== ''
-          ? `datasources:uid:${args.id}`
-          : 'datasources:*',
-      ),
-      ac.eval(ACTIONS.InstanceConfigWrite),
-    ),
-  'ops_connector_configure': (args: Record<string, unknown>) =>
-    ac.any(
-      ac.eval(
-        ACTIONS.OpsConnectorsWrite,
-        typeof args.id === 'string' && args.id !== ''
-          ? `ops.connectors:id:${args.id}`
-          : 'ops.connectors:*',
-      ),
-      ac.eval(ACTIONS.InstanceConfigWrite),
-    ),
-  'system_setting_configure': () => ac.eval(ACTIONS.InstanceConfigWrite),
+  // -- Connector-model setup and settings ---------------------------------
+  'connector_propose': () => ac.eval('connectors:write', 'connectors:*'),
+  'connector_apply': () => ac.eval('connectors:write', 'connectors:*'),
+  'connector_test': (args: Record<string, unknown>) =>
+    ac.eval('connectors:write', `connectors:id:${String(args.connectorId ?? '*')}`),
+  'setting_get': () => ac.eval(ACTIONS.InstanceConfigWrite),
+  'setting_set': () => ac.eval(ACTIONS.InstanceConfigWrite),
 
   // -- Web / knowledge ------------------------------------------------------
   'web_search': () => ac.eval('chat:use'),
@@ -241,13 +223,16 @@ export const UNGATED_TOOLS: ReadonlySet<string> = new Set([
   // Discovery is always allowed — the caller needs to see what's configured
   // BEFORE they can form a gated call. This is a read of the in-process
   // registry; no backend side effect.
-  'datasources_list',
+  'connectors_list',
   // Suggestion, pin, unpin are session-scoped reads / in-memory writes — no
   // backend mutation. They MUST stay ungated so the agent can call them
   // before doing any RBAC-checked work.
-  'datasources_suggest',
-  'datasources_pin',
-  'datasources_unpin',
+  'connectors_suggest',
+  'connectors_pin',
+  'connectors_unpin',
+  'connector_list',
+  'connector_template_list',
+  'connector_detect',
 ]);
 
 /**

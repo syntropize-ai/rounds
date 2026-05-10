@@ -465,14 +465,14 @@ inherited-from-folder grants.
 
 ---
 
-## Datasource permissions
+## Connector permissions
 
-### 📝 `GET /api/datasources/:uid/permissions` / `POST /api/datasources/:uid/permissions`
+### 📝 `GET /api/connectors/:uid/permissions` / `POST /api/connectors/:uid/permissions`
 
-No folder cascade — datasources are flat.
+No folder cascade — connectors are flat.
 
-Actions mapped: View→`datasources:query`, Edit→`datasources:write`,
-Admin→`datasources.permissions:write`.
+Actions mapped: View→`connectors:query`, Edit→`connectors:write`,
+Admin→`connectors.permissions:write`.
 
 ---
 
@@ -500,7 +500,7 @@ user already exists.
 
 ### 🔓 `POST /api/setup/config`
 
-Save platform settings (LLM, datasources, notifications).
+Save platform settings (LLM, connectors, notifications).
 
 ### 🔓 `POST /api/setup/complete`
 
@@ -514,7 +514,7 @@ Mark setup as complete.
 
 Org-level quota management. `limit=-1` means unlimited.
 
-**Quota targets**: `users`, `dashboards`, `datasources`, `api_keys`,
+**Quota targets**: `users`, `dashboards`, `connectors`, `api_keys`,
 `service_accounts`, `alert_rules`, `folders`.
 
 ### 📝 `GET /api/user/quotas` / `POST /api/admin/users/:userId/quotas`

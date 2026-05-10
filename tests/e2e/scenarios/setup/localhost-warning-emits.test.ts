@@ -38,7 +38,7 @@ describe('setup/localhost-warning-emits', () => {
 
   afterAll(async () => {
     if (id) {
-      try { await apiDelete(`/api/ops/connectors/${id}`); } catch { /* noop */ }
+      try { await apiDelete(`/api/connectors/${id}`); } catch { /* noop */ }
     }
   }, 30_000);
 
@@ -46,7 +46,7 @@ describe('setup/localhost-warning-emits', () => {
   // API yet — mark this as failing-but-tracked so CI surfaces a regression
   // when the field finally exists, without breaking the suite today.
   it.fails('connector with server=https://127.0.0.1:6443 surfaces a localhost warning (PR #120)', async () => {
-    const created = await apiPost<CreateResp>('/api/ops/connectors', {
+    const created = await apiPost<CreateResp>('/api/connectors', {
       name: `e2e-localhost-${Date.now()}`,
       type: 'kubernetes',
       config: { mode: 'kubeconfig' },
@@ -55,7 +55,7 @@ describe('setup/localhost-warning-emits', () => {
       capabilities: ['read'],
     });
     id = created.connector.id;
-    const fetched = await apiGet<GetResp>(`/api/ops/connectors/${id}`);
+    const fetched = await apiGet<GetResp>(`/api/connectors/${id}`);
     const warnings = fetched.connector.warnings ?? fetched.connector.config?.warnings ?? [];
     expect(warnings.join(' ')).toMatch(/localhost|127\.0\.0\.1|loopback|in-cluster/i);
   }, 60_000);

@@ -18,10 +18,8 @@ export { PostgresChatSessionContextRepository } from './chat-session-context.js'
 export { PostgresChatMessageRepository } from './chat-message.js';
 export { PostgresChatSessionEventRepository } from './chat-session-event.js';
 export { PostgresInstanceConfigRepository } from './instance-config.js';
-export { PostgresDatasourceRepository } from './datasource.js';
 export { PostgresNotificationChannelRepository } from './notification-channel.js';
-export { PostgresOpsConnectorRepository } from './ops-connector.js';
-export { PostgresChangeSourceRepository } from './change-source.js';
+export { PostgresConnectorRepository } from './connector.js';
 export { applyPostgresSchema } from './schema-applier.js';
 
 export { PostgresRemediationPlanRepository } from './remediation-plan.js';

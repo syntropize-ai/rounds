@@ -103,7 +103,7 @@ export class VariableResolver {
   }
 
   /**
-   * Datasource variable: return the ids of every metrics-style datasource.
+   * Datasource variable: return the ids of every metrics-style connector.
    * The ids are what panels substitute into `${datasource}` placeholders, so
    * returning ids (not labels) keeps the substitution path single-step. The
    * UI is responsible for resolving id → human label for the dropdown.
@@ -114,8 +114,8 @@ export class VariableResolver {
    */
   private async resolveDatasources(filterPattern?: string): Promise<string[]> {
     if (!this.setupConfig || !this.orgId) return []
-    const datasources = await this.setupConfig.listDatasources({ orgId: this.orgId })
-    const metrics = datasources.filter(
+    const connectors = await this.setupConfig.listConnectors({ orgId: this.orgId })
+    const metrics = connectors.filter(
       (d) => d.type === 'prometheus' || d.type === 'victoria-metrics',
     )
 
@@ -126,7 +126,10 @@ export class VariableResolver {
       const flags = filterPattern.slice(last + 1)
       try {
         const re = new RegExp(body, flags)
-        candidates = metrics.filter((d) => re.test(d.name) || (d.label ? re.test(d.label) : false))
+        candidates = metrics.filter((d) => {
+          const label = typeof d.config.label === 'string' ? d.config.label : ''
+          return re.test(d.name) || (label ? re.test(label) : false)
+        })
       } catch {
         // Bad regex — fall back to all metrics datasources rather than
         // emptying the dropdown silently.

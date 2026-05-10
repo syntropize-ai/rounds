@@ -18,11 +18,9 @@ export { SqliteChatSessionContextRepository } from './chat-session-context.js';
 export { SqliteChatMessageRepository } from './chat-message.js';
 export { SqliteChatSessionEventRepository } from './chat-session-event.js';
 
-// — Instance-scoped config (W2 / T2.2) —
+// — Instance-scoped config and connectors —
 export { InstanceConfigRepository } from './instance-config.js';
-export { DatasourceRepository } from './datasource.js';
 export { NotificationChannelRepository } from './notification-channel.js';
-export { OpsConnectorRepository } from './ops-connector.js';
-export { SqliteChangeSourceRepository } from './change-source.js';
+export { SqliteConnectorRepository } from './connector.js';
 
 export { SqliteRemediationPlanRepository } from './remediation-plan.js';

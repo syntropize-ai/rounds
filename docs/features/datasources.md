@@ -1,8 +1,8 @@
-# Datasources & connectors
+# Connectors & connectors
 
-OpenObs reads metrics, logs, and change events from your existing infrastructure, and talks to ops systems (Kubernetes today, more planned) through **connectors**. Every dashboard panel, alert rule, and investigation query talks to a configured datasource — there's no second copy of the data.
+OpenObs reads metrics, logs, and change events from your existing infrastructure, and talks to ops systems (Kubernetes today, more planned) through **connectors**. Every dashboard panel, alert rule, and investigation query talks to a configured connector — there's no second copy of the data.
 
-Datasources can be added through the setup wizard, the Settings page, the REST API, **or by chatting with the agent** (e.g. "connect my prod Prometheus at http://..."). The agent uses the AI-first config tools to validate the URL, test connectivity, and save under your RBAC.
+Connectors can be added through the setup wizard, the Settings page, the REST API, **or by chatting with the agent** (e.g. "connect my prod Prometheus at http://..."). The agent uses the AI-first config tools to validate the URL, test connectivity, and save under your RBAC.
 
 ## Supported backends
 
@@ -12,7 +12,7 @@ Datasources can be added through the setup wizard, the Settings page, the REST A
 |---|---|---|
 | **Prometheus** | Native | PromQL via `/api/v1/query` and `/api/v1/query_range` |
 | **VictoriaMetrics** | Native | Use MetricsQL extensions where supported |
-| **Mimir** | Via Prometheus protocol | Set the tenant ID via `X-Scope-OrgID` header in datasource config |
+| **Mimir** | Via Prometheus protocol | Set the tenant ID via `X-Scope-OrgID` header in connector config |
 | **Thanos** | Via Prometheus protocol | Querier endpoint works as-is |
 | **Cortex** | Via Prometheus protocol | Same as Mimir |
 
@@ -47,14 +47,14 @@ Ops connectors let OpenObs read state and (with approval) act on the systems run
 
 ## How to use it
 
-### Add a datasource
+### Add a connector
 
-UI: Admin → Datasources → **+ New datasource** → pick the type → fill in URL + auth.
+UI: Admin → Connectors → **+ New connector** → pick the type → fill in URL + auth.
 
 Or via API:
 
 ```bash
-curl -X POST https://your-openobs/api/datasources \
+curl -X POST https://your-openobs/api/connectors \
   -H "Authorization: Bearer openobs_sa_..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -72,26 +72,26 @@ After adding, click **Save & test** in the UI. OpenObs hits `GET /api/v1/labels`
 
 ### Use it in chat
 
-Once a datasource is configured, the agent automatically discovers it via `datasources.list`. No prompt change needed:
+Once a connector is configured, the agent automatically discovers it via `connectors.list`. No prompt change needed:
 
 > Show me memory usage across all hosts
 
-The agent picks the appropriate metrics datasource and runs queries.
+The agent picks the appropriate metrics connector and runs queries.
 
-### Multiple datasources
+### Multiple connectors
 
 You can have many. The agent will:
 - Filter by `signalType` (`metrics` / `logs` / `changes`) when relevant
-- Pick the default datasource for each signal type unless you specify ("query the staging Prometheus instead")
+- Pick the default connector for each signal type unless you specify ("query the staging Prometheus instead")
 - Suggest specifying when ambiguous
 
-### Datasource permissions
+### Connector permissions
 
-By default, all org members can query all datasources (their org role determines write access). For sensitive sources:
+By default, all org members can query all connectors (their org role determines write access). For sensitive sources:
 
-UI: Admin → Datasources → click datasource → **Permissions** tab → Add → pick user/team/role → level (View / Edit / Admin) → Save.
+UI: Admin → Connectors → click connector → **Permissions** tab → Add → pick user/team/role → level (View / Edit / Admin) → Save.
 
-`View` = `datasources:query` (read data). `Edit` = modify config. `Admin` = manage permissions on this datasource.
+`View` = `connectors:query` (read data). `Edit` = modify config. `Admin` = manage permissions on this connector.
 
 ## Examples
 
@@ -99,14 +99,14 @@ UI: Admin → Datasources → click datasource → **Permissions** tab → Add �
 
 ```bash
 # Dev — local prometheus
-curl -X POST .../api/datasources -d '{
+curl -X POST .../api/connectors -d '{
   "name": "dev-prometheus",
   "type": "prometheus",
   "url": "http://localhost:9090"
 }'
 
 # Prod — Mimir with tenant
-curl -X POST .../api/datasources -d '{
+curl -X POST .../api/connectors -d '{
   "name": "prod-mimir",
   "type": "prometheus",
   "url": "https://mimir.prod.example.com/prometheus",
@@ -118,7 +118,7 @@ curl -X POST .../api/datasources -d '{
 ### Connect Loki for log search
 
 ```bash
-curl -X POST .../api/datasources -d '{
+curl -X POST .../api/connectors -d '{
   "name": "logs",
   "type": "loki",
   "url": "http://loki.monitoring.svc:3100"
@@ -131,11 +131,11 @@ After this, the agent picks it up and you can ask: "Search logs for OOM kills in
 
 - Auth methods supported: bearer token, basic auth, custom headers, mTLS (via cert + key in `secureJsonData`).
 - The agent caps result-set size at 20 series per metric query to keep the conversation snappy. Override per-call if needed.
-- No write-back to datasources — OpenObs reads only. Recording rules and alerting rules live in OpenObs's own database.
-- Datasource configs are stored encrypted (`SECRET_KEY` for credentials). Datasource definitions are org-scoped — separate orgs cannot see each other's connections.
+- No write-back to connectors — OpenObs reads only. Recording rules and alerting rules live in OpenObs's own database.
+- Connector configs are stored encrypted (`SECRET_KEY` for credentials). Connector definitions are org-scoped — separate orgs cannot see each other's connections.
 
 ## Related
 
 - [Configuration](/configuration) — `DEFAULT_METRICS_URL` etc. for bootstrap
-- [Permissions](/auth#datasource-permissions) — per-datasource ACLs
-- [Dashboards](/features/dashboards) — uses the configured datasources
+- [Permissions](/auth#connector-permissions) — per-connector ACLs
+- [Dashboards](/features/dashboards) — uses the configured connectors

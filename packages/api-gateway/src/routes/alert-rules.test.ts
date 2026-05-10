@@ -208,11 +208,11 @@ describe('POST /alert-rules/preview', () => {
 
   function withProm(): Partial<SetupConfigService> {
     return {
-      listDatasources: vi.fn(async () => [{
+      listConnectors: vi.fn(async () => [{
         id: 'ds_prom',
         type: 'prometheus',
         name: 'prom',
-        url: 'http://prom:9090',
+        config: { url: 'http://prom:9090' },
         orgId: 'org_a',
         isDefault: true,
       } as never]),
@@ -249,7 +249,7 @@ describe('POST /alert-rules/preview', () => {
 
   it('returns missing_capability when no metrics datasource is configured', async () => {
     const { app } = makeApp(makeStore(), makeFolderRepo(), {
-      listDatasources: vi.fn(async () => []),
+      listConnectors: vi.fn(async () => []),
     });
 
     const res = await request(app)

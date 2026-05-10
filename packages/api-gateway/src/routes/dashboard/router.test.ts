@@ -70,7 +70,7 @@ function makeStore(dash: Dashboard): IGatewayDashboardStore {
 
 function makeApp(
   store: IGatewayDashboardStore,
-  setupConfig: Pick<SetupConfigService, 'listDatasources'> | undefined = { listDatasources: vi.fn() },
+  setupConfig: Pick<SetupConfigService, 'listConnectors'> | undefined = { listConnectors: vi.fn() },
 ) {
   const accessControl: AccessControlSurface = {
     evaluate: vi.fn(async () => true),
@@ -84,7 +84,7 @@ function makeApp(
   app.use('/dashboards', createDashboardRouter({
     store,
     accessControl,
-    setupConfig: (setupConfig ?? { listDatasources: vi.fn() }) as SetupConfigService,
+    setupConfig: (setupConfig ?? { listConnectors: vi.fn() }) as SetupConfigService,
   }))
   return app
 }
@@ -168,7 +168,7 @@ describe('dashboard router workspace ownership checks', () => {
 
   it('returns 404 and skips datasource resolution for cross-workspace variable resolution', async () => {
     const store = makeStore(dashboard({ variables: [{ name: 'pod', label: 'Pod', type: 'query', query: 'label_values(up, pod)' }] }))
-    const setupConfig = { listDatasources: vi.fn(async () => []) }
+    const setupConfig = { listConnectors: vi.fn(async () => []) }
     const app = makeApp(store, setupConfig)
 
     const res = await request(app)
@@ -177,7 +177,7 @@ describe('dashboard router workspace ownership checks', () => {
 
     expect(res.status).toBe(404)
     expect(res.body.error?.code).toBe('NOT_FOUND')
-    expect(setupConfig.listDatasources).not.toHaveBeenCalled()
+    expect(setupConfig.listConnectors).not.toHaveBeenCalled()
   })
 
 })

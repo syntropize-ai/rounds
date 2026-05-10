@@ -13,9 +13,10 @@ describe('applySchema()', () => {
       'org_user', 'team', 'team_member', 'api_key',
       'role', 'permission', 'builtin_role', 'user_role', 'team_role',
       'folder', 'dashboard_acl', 'preferences', 'quota', 'audit_log',
-      'instance_llm_config', 'instance_datasources',
+      'instance_llm_config',
       'notification_channels', 'instance_settings',
-      'ops_connectors',
+      'connectors', 'connector_capabilities', 'connector_secrets',
+      'connector_team_policies',
     ];
 
     const rows = db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type='table'`);

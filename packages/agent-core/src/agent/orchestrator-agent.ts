@@ -15,7 +15,7 @@ import type {
   IInvestigationReportStore,
   IInvestigationStore,
   IAlertRuleStore,
-  DatasourceConfig,
+  ConnectorConfig,
   OpsCommandRunner,
   OpsConnectorConfig,
   ApprovalRequestStore,
@@ -62,20 +62,20 @@ export interface OrchestratorDeps {
    * Source-agnostic adapter registry — the orchestrator dispatches every
    * metrics/logs/changes tool through this. Required; pass an empty
    * `new AdapterRegistry()` if no backends are wired (all handlers will
-   * return a uniform "unknown datasource" observation).
+   * return a uniform "unknown connector" observation).
    */
   adapters: AdapterRegistry
   webSearchAdapter?: IWebSearchAdapter
-  allDatasources?: DatasourceConfig[]
-  /** Live per-session datasource pin bag (see chat-service for lifecycle). */
-  sessionDatasourcePins?: Record<string, string>
+  allConnectors?: ConnectorConfig[]
+  /** Live per-session connector pin bag (see chat-service for lifecycle). */
+  sessionConnectorPins?: Record<string, string>
   opsCommandRunner?: OpsCommandRunner
   opsConnectors?: OpsConnectorConfig[]
   /** P4 — when present, registers remediation_plan.create + .create_rescue tools. */
   remediationPlans?: RemediationPlanStore
   /** P4 — used to auto-emit a plan-level ApprovalRequest on plan creation. */
   approvalRequests?: ApprovalRequestStore
-  /** Task 07 — AI-first configuration tools (datasource / connector / settings). */
+  /** Task 07 — AI-first configuration tools (connector / settings). */
   configService?: AgentConfigService
   sendEvent: (event: DashboardSseEvent) => void
   timeRange?: { start: string; end: string; clientTimezone?: string }
@@ -285,7 +285,7 @@ export class OrchestratorAgent {
     }
 
     const hasMetrics = this.deps.adapters.list({ signalType: 'metrics' }).length > 0
-    const systemPrompt = buildSystemPrompt(dashboard ?? null, history, alertRules, activeAlertRule, this.deps.allDatasources ?? [], {
+    const systemPrompt = buildSystemPrompt(dashboard ?? null, history, alertRules, activeAlertRule, this.deps.allConnectors ?? [], {
       hasPrometheus: hasMetrics,
       timeRange: this.deps.timeRange ? { start: this.deps.timeRange.start, end: this.deps.timeRange.end } : undefined,
       identity: this.deps.identity,

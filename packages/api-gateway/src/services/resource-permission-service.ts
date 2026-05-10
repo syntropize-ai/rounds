@@ -394,7 +394,7 @@ export class ResourcePermissionService {
     // For the managed-role case, actions live in the catalog — we look up by
     // action and filter to this scope.
     // To avoid a huge query, we scan all actions for the four resource kinds.
-    const kinds: ResourceKind[] = ['folders', 'dashboards', 'datasources', 'alert.rules'];
+    const kinds: ResourceKind[] = ['folders', 'dashboards', 'connectors', 'alert.rules'];
     const seenActions = new Set<string>();
     for (const k of kinds) {
       for (const a of [

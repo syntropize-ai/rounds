@@ -2,13 +2,13 @@
  * SetupConfigService — one-stop owner of instance-scoped config reads and
  * writes (W2 / T2.4).
  *
- * Wraps the three new repositories (instance-config, datasources,
+ * Wraps the three new repositories (instance-config, connectors,
  * notification-channels), adds audit logging on mutations, and centralizes
  * the "is the instance fully bootstrapped" predicate.
  *
  * This replaces the `inMemoryConfig` + exported getter/setter pattern in
  * the old `routes/setup.ts`. All callers that previously imported
- * `getSetupConfig()` / `updateDatasources()` go through a service instance
+ * `getSetupConfig()` / `updateConnectors()` go through a service instance
  * passed via router deps.
  *
  * Design notes:
@@ -24,22 +24,22 @@
 
 import type {
   IInstanceConfigRepository,
-  IDatasourceRepository,
   INotificationChannelRepository,
   InstanceLlmConfig,
   NewInstanceLlmConfig,
-  InstanceDatasource,
-  NewInstanceDatasource,
-  InstanceDatasourcePatch,
+  Connector,
+  ConnectorLookupOptions,
+  ConnectorPatch,
+  ListConnectorsOptions,
+  NewConnector,
   NotificationChannel,
   NewNotificationChannel,
   NotificationChannelPatch,
   MaskOptions,
-  ListDatasourcesOptions,
-  DatasourceLookupOptions,
   ListNotificationChannelsOptions,
 } from '@agentic-obs/common';
 import { AuditAction } from '@agentic-obs/common';
+import type { IConnectorRepository } from '@agentic-obs/data-layer';
 import type { AuditWriter } from '../auth/audit-writer.js';
 
 // Key names in `instance_settings`. Kept alongside the service so every
@@ -52,7 +52,7 @@ export const INSTANCE_SETTING_KEYS = {
 export interface SetupStatus {
   hasAdmin: boolean;
   hasLLM: boolean;
-  datasourceCount: number;
+  connectorCount: number;
   hasNotifications: boolean;
   bootstrappedAt: string | null;
   configuredAt: string | null;
@@ -60,7 +60,7 @@ export interface SetupStatus {
 
 export interface SetupConfigServiceDeps {
   instanceConfig: IInstanceConfigRepository;
-  datasources: IDatasourceRepository;
+  connectors: IConnectorRepository;
   notificationChannels: INotificationChannelRepository;
   audit: AuditWriter;
 }
@@ -114,48 +114,45 @@ export class SetupConfigService {
     return removed;
   }
 
-  // -- Datasources -----------------------------------------------------
+  // -- Connectors ------------------------------------------------------
 
-  async listDatasources(opts: ListDatasourcesOptions): Promise<InstanceDatasource[]> {
-    return this.deps.datasources.list(opts);
+  async listConnectors(opts: ListConnectorsOptions): Promise<Connector[]> {
+    return this.deps.connectors.list(opts);
   }
 
-  async getDatasource(id: string, opts: DatasourceLookupOptions): Promise<InstanceDatasource | null> {
-    return this.deps.datasources.get(id, opts);
+  async getConnector(id: string, opts: ConnectorLookupOptions): Promise<Connector | null> {
+    return this.deps.connectors.get(id, opts);
   }
 
-  async createDatasource(
-    input: NewInstanceDatasource,
+  async createConnector(
+    input: NewConnector,
     actor: { userId: string | null },
-  ): Promise<InstanceDatasource> {
-    const ds = await this.deps.datasources.create({ ...input, updatedBy: actor.userId });
+  ): Promise<Connector> {
+    const connector = await this.deps.connectors.create(input);
     void this.deps.audit.log({
       action: AuditAction.DatasourceCreated,
       actorType: actor.userId ? 'user' : 'system',
       actorId: actor.userId ?? 'setup-wizard',
-      targetType: 'datasource',
-      targetId: ds.id,
+      targetType: 'connector',
+      targetId: connector.id,
       outcome: 'success',
-      metadata: { type: ds.type, name: ds.name, orgId: ds.orgId },
+      metadata: { type: connector.type, name: connector.name, orgId: connector.orgId },
     });
-    return ds;
+    return connector;
   }
 
-  async updateDatasource(
+  async updateConnector(
     id: string,
-    patch: InstanceDatasourcePatch,
+    patch: ConnectorPatch,
     actor: { userId: string | null; orgId: string },
-  ): Promise<InstanceDatasource | null> {
-    const updated = await this.deps.datasources.update(id, {
-      ...patch,
-      updatedBy: actor.userId,
-    }, actor.orgId);
+  ): Promise<Connector | null> {
+    const updated = await this.deps.connectors.update(id, patch, actor.orgId);
     if (updated) {
       void this.deps.audit.log({
         action: AuditAction.DatasourceUpdated,
         actorType: actor.userId ? 'user' : 'system',
         actorId: actor.userId ?? 'setup-wizard',
-        targetType: 'datasource',
+        targetType: 'connector',
         targetId: id,
         outcome: 'success',
         metadata: { type: updated.type, name: updated.name },
@@ -164,17 +161,17 @@ export class SetupConfigService {
     return updated;
   }
 
-  async deleteDatasource(
+  async deleteConnector(
     id: string,
     actor: { userId: string | null; orgId: string },
   ): Promise<boolean> {
-    const removed = await this.deps.datasources.delete(id, actor.orgId);
+    const removed = await this.deps.connectors.delete(id, actor.orgId);
     if (removed) {
       void this.deps.audit.log({
         action: AuditAction.DatasourceDeleted,
         actorType: actor.userId ? 'user' : 'system',
         actorId: actor.userId ?? 'setup-wizard',
-        targetType: 'datasource',
+        targetType: 'connector',
         targetId: id,
         outcome: 'success',
       });
@@ -182,8 +179,8 @@ export class SetupConfigService {
     return removed;
   }
 
-  async countDatasources(orgId: string): Promise<number> {
-    return this.deps.datasources.count(orgId);
+  async countConnectors(orgId: string): Promise<number> {
+    return this.deps.connectors.count(orgId);
   }
 
   // -- Notification channels ------------------------------------------
@@ -309,10 +306,10 @@ export class SetupConfigService {
    * must be provided externally (the service doesn't own user state).
    */
   async getStatus(hasAdmin: boolean): Promise<SetupStatus> {
-    const [llm, datasourceCount, channels, bootstrappedAt, configuredAt] =
+    const [llm, connectorCount, channels, bootstrappedAt, configuredAt] =
       await Promise.all([
         this.deps.instanceConfig.getLlm({ masked: true }),
-        this.deps.datasources.count('org_main'),
+        this.deps.connectors.count('org_main'),
         this.deps.notificationChannels.list(),
         this.getBootstrappedAt(),
         this.getConfiguredAt(),
@@ -320,7 +317,7 @@ export class SetupConfigService {
     return {
       hasAdmin,
       hasLLM: !!llm,
-      datasourceCount,
+      connectorCount,
       hasNotifications: channels.length > 0,
       bootstrappedAt,
       configuredAt,

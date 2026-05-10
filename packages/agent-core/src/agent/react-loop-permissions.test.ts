@@ -194,7 +194,7 @@ describe('Scenario 3 — mixed: query allowed, create denied', () => {
     const called = rows.filter((e) => e.action === 'agent.tool_called').length;
     const denied = rows.filter((e) => e.action === 'agent.tool_denied').length;
     // metrics_query has no registered adapter in the empty AdapterRegistry,
-    // so the handler emits an "unknown datasource" observation — but the gate
+    // so the handler emits an "unknown connector" observation — but the gate
     // still passes it as ALLOWED. Only dashboard_create should be denied.
     expect(denied).toBe(1);
     expect(called).toBeGreaterThanOrEqual(1);
@@ -271,12 +271,12 @@ describe('Scenario 7 — propose_only agent + dashboard_create', () => {
   });
 });
 
-describe('Scenario 5 / 16 — cross-org / datasource isolation', () => {
-  it('denies metrics_query when the datasource scope is not granted', async () => {
+describe('Scenario 5 / 16 - cross-org / connector isolation', () => {
+  it('denies metrics_query when the connector scope is not granted', async () => {
     const deny = new AccessControlStub((_id, e: Evaluator) => {
       // Grant query on prom-app, deny on prom-infra.
-      if (e.string().includes('datasources:uid:prom-app')) return true;
-      if (e.string().includes('datasources:uid:prom-infra')) return false;
+      if (e.string().includes('connectors:id:prom-app')) return true;
+      if (e.string().includes('connectors:id:prom-infra')) return false;
       return true;
     });
     const { agent, audit } = build({

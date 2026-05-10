@@ -1,201 +1,158 @@
-/**
- * Unit tests for the AI-first configuration handlers (Task 07).
- *
- * Asserts:
- *   - tool schemas exist and the registry has the expected required fields
- *   - happy-path datasource_configure calls the service and emits a
- *     redacted SSE payload (no secret leaks)
- *   - happy-path ops_connector_configure with a mocked runner
- *   - low-risk system_setting_configure path (default alert folder)
- *   - allowlist enforcement on system_setting_configure
- *   - raw-credential rejection on all three handlers
- *   - orchestrator-prompt mentions the new tools
- */
-
 import { describe, it, expect, vi } from 'vitest';
 import { TOOL_REGISTRY } from '../../tool-schema-registry.js';
 import { buildSystemPrompt } from '../../orchestrator-prompt.js';
 import {
-  handleDatasourceConfigure,
-  handleOpsConnectorConfigure,
-  handleSystemSettingConfigure,
+  handleConnectorApply,
+  handleConnectorList,
+  handleConnectorPropose,
+  handleConnectorTest,
+  handleSettingSet,
 } from '../config.js';
 import { makeFakeActionContext } from '../_test-helpers.js';
 import type { AgentConfigService } from '../../types.js';
 
 function makeStubConfigService(): AgentConfigService {
   return {
-    upsertDatasource: vi.fn().mockResolvedValue({
-      id: 'ds-new',
+    listConnectors: vi.fn().mockResolvedValue([{
+      id: 'conn-prom',
       type: 'prometheus',
       name: 'prod-prom',
-      url: 'http://prom.local',
+      category: ['observability'],
+      capabilities: ['metrics.query'],
+      status: 'active',
+      defaultFor: 'prometheus',
+    }]),
+    listConnectorTemplates: vi.fn().mockResolvedValue([{
+      type: 'prometheus',
+      category: ['observability'],
+      capabilities: ['metrics.query', 'metrics.discover'],
+      requiredFields: ['url'],
+      credentialRequired: false,
+    }]),
+    detectConnectors: vi.fn().mockResolvedValue([]),
+    proposeConnector: vi.fn().mockResolvedValue({
+      draftId: 'draft-1',
+      needsCredential: false,
+      capabilityPreview: ['metrics.query'],
     }),
-    testDatasource: vi.fn().mockResolvedValue({ ok: true, message: 'reachable' }),
-    upsertOpsConnector: vi.fn().mockResolvedValue({
-      id: 'ops-1',
-      name: 'prod-cluster',
-      type: 'kubernetes',
+    applyConnectorDraft: vi.fn().mockResolvedValue({
+      connectorId: 'conn-prom',
+      status: 'active',
+      capabilities: ['metrics.query'],
     }),
-    testOpsConnector: vi.fn().mockResolvedValue({
+    testConnector: vi.fn().mockResolvedValue({
       ok: true,
-      message: 'kubectl version ok',
-      status: 'connected',
+      latencyMs: 12,
+      capabilities: ['metrics.query'],
     }),
-    getInstanceSetting: vi.fn().mockResolvedValue(null),
-    setInstanceSetting: vi.fn().mockResolvedValue(undefined),
+    getSetting: vi.fn().mockResolvedValue(null),
+    setSetting: vi.fn().mockResolvedValue(undefined),
   };
 }
 
-describe('tool schema registry — Task 07 entries', () => {
-  it('datasource_configure exists and requires type, name, url', () => {
-    const e = TOOL_REGISTRY['datasource_configure'];
-    expect(e).toBeDefined();
-    expect(e!.schema.input_schema?.required).toEqual(
-      expect.arrayContaining(['type', 'name', 'url']),
+describe('tool schema registry — connector model entries', () => {
+  it('registers connector tools', () => {
+    expect(TOOL_REGISTRY['connector_list']).toBeDefined();
+    expect(TOOL_REGISTRY['connector_propose']!.schema.input_schema?.required).toEqual(
+      expect.arrayContaining(['template', 'name', 'config']),
     );
-    // The schema must NOT expose raw credential fields.
-    const props = e!.schema.input_schema?.properties as Record<string, unknown>;
-    expect(props).not.toHaveProperty('password');
-    expect(props).not.toHaveProperty('apiKey');
-    expect(props).not.toHaveProperty('token');
+    expect(TOOL_REGISTRY['connector_apply']!.schema.input_schema?.required).toEqual(['draftId']);
+    expect(TOOL_REGISTRY['connector_test']!.schema.input_schema?.required).toEqual(['connectorId']);
   });
 
-  it('ops_connector_configure exists and requires name', () => {
-    const e = TOOL_REGISTRY['ops_connector_configure'];
-    expect(e).toBeDefined();
-    expect(e!.schema.input_schema?.required).toEqual(
-      expect.arrayContaining(['name']),
-    );
-  });
-
-  it('system_setting_configure exists with allowlisted enum', () => {
-    const e = TOOL_REGISTRY['system_setting_configure'];
-    expect(e).toBeDefined();
-    const props = e!.schema.input_schema?.properties as Record<string, { enum?: string[] }>;
-    expect(props['key']?.enum).toEqual(
-      expect.arrayContaining(['default_alert_folder_uid', 'default_dashboard_folder_uid']),
-    );
+  it('registers setting_get and setting_set with the full allowlist', () => {
+    const props = TOOL_REGISTRY['setting_set']!.schema.input_schema?.properties as Record<string, { enum?: string[] }>;
+    expect(props['key']?.enum).toEqual(expect.arrayContaining([
+      'default_alert_folder_uid',
+      'default_dashboard_folder_uid',
+      'notification_default_channel',
+      'auto_investigation_enabled',
+    ]));
   });
 });
 
-describe('handleDatasourceConfigure', () => {
-  it('happy path: creates datasource and emits redacted SSE', async () => {
+describe('connector handlers', () => {
+  it('lists connectors through the new service surface', async () => {
     const configService = makeStubConfigService();
     const ctx = makeFakeActionContext({ configService });
-    const result = await handleDatasourceConfigure(ctx, {
-      type: 'prometheus',
-      name: 'prod-prom',
-      url: 'http://prom.local',
-      secretRef: 'sec-123',
-      test: true,
-    });
-    expect(result).toContain('Created prometheus datasource');
-    expect(result).toContain('Connection test OK');
-    expect(configService.upsertDatasource).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'prometheus', secretRef: 'sec-123' }),
+    const result = await handleConnectorList(ctx, { capability: 'metrics.query' });
+
+    expect(result).toContain('conn-prom');
+    expect(configService.listConnectors).toHaveBeenCalledWith(
+      expect.objectContaining({ capability: 'metrics.query' }),
     );
-    // SSE event #0 is the tool_call — its args must be redacted/no raw secret.
-    const calls = (ctx.sendEvent as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    const toolCall = calls.find((c) => (c[0] as { type?: string }).type === 'tool_call');
-    expect(toolCall).toBeDefined();
-    const payload = JSON.stringify(toolCall![0]);
-    expect(payload).not.toContain('password');
+  });
+
+  it('proposes a connector draft and emits redacted SSE', async () => {
+    const configService = makeStubConfigService();
+    const ctx = makeFakeActionContext({ configService });
+    const result = await handleConnectorPropose(ctx, {
+      template: 'prometheus',
+      name: 'prod-prom',
+      config: { url: 'http://prom.local' },
+      isDefault: true,
+    });
+
+    expect(result).toContain('draftId: draft-1');
+    expect(configService.proposeConnector).toHaveBeenCalledWith(
+      expect.objectContaining({
+        template: 'prometheus',
+        config: { url: 'http://prom.local' },
+        isDefault: true,
+      }),
+    );
+    const payload = JSON.stringify((ctx.sendEvent as unknown as { mock: { calls: unknown[][] } }).mock.calls);
     expect(payload).not.toContain('raw-secret');
   });
 
-  it('rejects raw credentials in args', async () => {
+  it('rejects raw credentials inside connector config', async () => {
     const ctx = makeFakeActionContext({ configService: makeStubConfigService() });
-    const result = await handleDatasourceConfigure(ctx, {
-      type: 'prometheus',
-      name: 'p',
-      url: 'http://p',
-      password: 'raw-secret',
+    const result = await handleConnectorPropose(ctx, {
+      template: 'github',
+      name: 'prod-github',
+      config: { org: 'acme', token: 'raw-secret' },
     });
-    expect(result).toMatch(/Refusing to accept raw "password"/);
-    // Even when rejected, no secret leaks in SSE.
-    const calls = (ctx.sendEvent as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-    expect(JSON.stringify(calls)).not.toContain('raw-secret');
+
+    expect(result).toMatch(/Refusing to accept raw config.token/);
   });
 
-  it('returns needs_credential when service flags secretMissing', async () => {
+  it('applies and tests connectors', async () => {
     const configService = makeStubConfigService();
-    (configService.upsertDatasource as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 'ds-x',
-      type: 'elasticsearch',
-      name: 'es-prod',
-      url: 'http://es',
-      secretMissing: true,
-    });
     const ctx = makeFakeActionContext({ configService });
-    const result = await handleDatasourceConfigure(ctx, {
-      type: 'elasticsearch',
-      name: 'es-prod',
-      url: 'http://es',
-    });
-    expect(result).toMatch(/needs_credential/);
-    expect(result).toContain('/settings/datasources/ds-x');
+
+    await expect(handleConnectorApply(ctx, { draftId: 'draft-1' })).resolves.toContain('connectorId=conn-prom');
+    await expect(handleConnectorTest(ctx, { connectorId: 'conn-prom' })).resolves.toContain('test OK');
   });
 });
 
-describe('handleOpsConnectorConfigure', () => {
-  it('happy path with mocked runner', async () => {
+describe('setting handlers', () => {
+  it('sets an allowlisted notification setting', async () => {
     const configService = makeStubConfigService();
     const ctx = makeFakeActionContext({ configService });
-    const result = await handleOpsConnectorConfigure(ctx, {
-      type: 'kubernetes',
-      name: 'prod-cluster',
-      secretRef: 'sec-kube',
-      allowedNamespaces: ['app'],
+    const result = await handleSettingSet(ctx, {
+      key: 'notification_default_channel',
+      value: 'slack-prod',
     });
-    expect(result).toContain('Created kubernetes ops connector');
-    expect(result).toContain('Connection test OK');
-    expect(configService.upsertOpsConnector).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'prod-cluster', secretRef: 'sec-kube' }),
-    );
-  });
 
-  it('rejects raw token', async () => {
-    const ctx = makeFakeActionContext({ configService: makeStubConfigService() });
-    const result = await handleOpsConnectorConfigure(ctx, {
-      name: 'k',
-      token: 'kube-bearer',
-    });
-    expect(result).toMatch(/Refusing to accept raw "token"/);
-  });
-});
-
-describe('handleSystemSettingConfigure', () => {
-  it('low-risk path: change default alert folder', async () => {
-    const configService = makeStubConfigService();
-    const ctx = makeFakeActionContext({ configService });
-    const result = await handleSystemSettingConfigure(ctx, {
-      key: 'default_alert_folder_uid',
-      value: 'alerts-prod',
-    });
-    expect(result).toContain('Set "default_alert_folder_uid" to "alerts-prod".');
-    expect(configService.setInstanceSetting).toHaveBeenCalledWith(
-      'default_alert_folder_uid',
-      'alerts-prod',
-      { userId: expect.any(String) },
+    expect(result).toContain('Set "notification_default_channel" to "slack-prod".');
+    expect(configService.setSetting).toHaveBeenCalledWith(
+      'notification_default_channel',
+      'slack-prod',
+      { orgId: expect.any(String), userId: expect.any(String) },
     );
   });
 
   it('rejects keys outside the allowlist', async () => {
     const ctx = makeFakeActionContext({ configService: makeStubConfigService() });
-    const result = await handleSystemSettingConfigure(ctx, {
-      key: 'admin_role',
-      value: 'editor',
-    });
-    expect(result).toMatch(/not in the AI-configurable allowlist/);
+    const result = await handleSettingSet(ctx, { key: 'admin_role', value: 'editor' });
+    expect(result).toMatch(/not in the AI-configurable settings allowlist/);
   });
 });
 
 describe('orchestrator prompt', () => {
-  it('mentions the AI-first configuration tools', () => {
+  it('mentions connector and setting tools', () => {
     const prompt = buildSystemPrompt(null, [], [], null, [], { hasPrometheus: false });
-    expect(prompt).toContain('datasource_configure');
-    expect(prompt).toContain('ops_connector_configure');
-    expect(prompt).toContain('system_setting_configure');
+    expect(prompt).toContain('connector_propose');
+    expect(prompt).toContain('setting_set');
   });
 });

@@ -4,7 +4,7 @@ import { apiClient } from '../api/client.js';
 import {
   StepAdmin,
   StepLlm,
-  StepDatasources,
+  StepConnectors,
   StepNotifications,
   LLM_PROVIDERS,
   STEPS,
@@ -221,7 +221,7 @@ export default function SetupWizard() {
             onBack={back}
           />
         )}
-        {step === 3 && <StepDatasources onNext={next} onBack={back} />}
+        {step === 3 && <StepConnectors onNext={next} onBack={back} />}
         {step === 4 && (
           <StepNotifications
             config={notifications}

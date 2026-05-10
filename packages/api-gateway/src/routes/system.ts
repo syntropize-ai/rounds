@@ -27,7 +27,6 @@ import {
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
-import { inClusterAvailable } from '../services/ops-connector-service.js';
 
 export interface SystemRouterDeps {
   setupConfig: SetupConfigService;
@@ -41,6 +40,13 @@ export interface SystemRouterDeps {
 function actorFromReq(req: Request): { userId: string | null } {
   const ar = req as AuthenticatedRequest;
   return { userId: ar.auth?.userId ?? null };
+}
+
+function inClusterAvailable(): boolean {
+  return Boolean(
+    process.env['KUBERNETES_SERVICE_HOST'] &&
+    process.env['KUBERNETES_SERVICE_PORT'],
+  );
 }
 
 export function createSystemRouter(deps: SystemRouterDeps): Router {

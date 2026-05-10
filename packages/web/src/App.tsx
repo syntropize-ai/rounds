@@ -112,8 +112,8 @@ function SettingsGate({ children }: { children: React.ReactNode }) {
       allow={() =>
         !!user
         && (user.isServerAdmin
-          || hasPermission('datasources:write')
-          || hasPermission('datasources:create')
+          || hasPermission('connectors:write')
+          || hasPermission('connectors:create')
           || hasPermission('admin:write'))
       }
     >

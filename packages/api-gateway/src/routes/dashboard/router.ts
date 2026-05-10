@@ -280,23 +280,26 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
 
       const body = req.body as { datasourceId?: string } | undefined
       const orgId = resolveOrgId(req)
-      const allDs = await setupConfig.listDatasources({ orgId })
+      const connectors = await setupConfig.listConnectors({ orgId })
       const datasourceId = body?.datasourceId
 
-      const promDs = allDs.find((d) =>
+      const promConnector = connectors.find((d) =>
         (d.type === 'prometheus' || d.type === 'victoria-metrics')
         && (!datasourceId || d.id === datasourceId),
       )
 
       let prometheusUrl = ''
       const headers: Record<string, string> = {}
-      if (promDs) {
-        prometheusUrl = promDs.url
-        if (promDs.username && promDs.password) {
-          headers.Authorization = `Basic ${Buffer.from(`${promDs.username}:${promDs.password}`).toString('base64')}`
+      if (promConnector) {
+        prometheusUrl = typeof promConnector.config.url === 'string' ? promConnector.config.url : ''
+        const username = typeof promConnector.config.username === 'string' ? promConnector.config.username : ''
+        const password = typeof promConnector.config.password === 'string' ? promConnector.config.password : ''
+        const apiKey = typeof promConnector.config.apiKey === 'string' ? promConnector.config.apiKey : ''
+        if (username && password) {
+          headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
         }
-        else if (promDs.apiKey) {
-          headers.Authorization = `Bearer ${promDs.apiKey}`
+        else if (apiKey) {
+          headers.Authorization = `Bearer ${apiKey}`
         }
       }
 

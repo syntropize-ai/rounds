@@ -57,7 +57,7 @@ describe('KubectlExecutionAdapter.validate', () => {
       spawnFn: fn,
     });
     const r = await a.validate({
-      type: 'k8s.read', targetService: 'web',
+      type: 'runtime.get', targetService: 'web',
       params: { argv: ['get', 'pods', '-n', 'app'] },
     });
     expect(r.valid).toBe(true);
@@ -86,7 +86,7 @@ describe('KubectlExecutionAdapter.validate', () => {
       spawnFn: fn,
     });
     const r = await a.validate({
-      type: 'k8s.read', targetService: 'web',
+      type: 'runtime.get', targetService: 'web',
       params: {},
     });
     expect(r.valid).toBe(false);
@@ -103,7 +103,7 @@ describe('KubectlExecutionAdapter.execute', () => {
       spawnFn: fn,
     });
     const r = await a.execute({
-      type: 'k8s.read', targetService: 'web',
+      type: 'runtime.get', targetService: 'web',
       params: { argv: ['get', 'pods', '-n', 'app'] },
     });
     expect(r.success).toBe(true);
@@ -123,7 +123,7 @@ describe('KubectlExecutionAdapter.execute', () => {
       spawnFn: fn,
     });
     await a.execute({
-      type: 'k8s.read', targetService: 'web',
+      type: 'runtime.get', targetService: 'web',
       params: { argv: ['get', 'pods', '-n', 'app'] },
     });
     const path = calls[0]?.env['KUBECONFIG'] as string;
@@ -140,7 +140,7 @@ describe('KubectlExecutionAdapter.execute', () => {
       spawnFn: fn,
     });
     const r = await a.execute({
-      type: 'k8s.read', targetService: 'web',
+      type: 'runtime.get', targetService: 'web',
       params: { argv: ['get', 'pods', '-n', 'app'] },
     });
     expect(r.success).toBe(false);
@@ -174,7 +174,7 @@ describe('KubectlExecutionAdapter.execute', () => {
       spawnFn: fn,
     });
     const r = await a.execute({
-      type: 'k8s.read', targetService: 'web',
+      type: 'runtime.get', targetService: 'web',
       params: { argv: ['get', 'pods', '-n', 'app'] },
     });
     expect(JSON.stringify(r)).not.toContain(secret);
@@ -191,7 +191,7 @@ describe('KubectlExecutionAdapter.dryRun', () => {
       spawnFn: fn,
     });
     const r = await a.dryRun({
-      type: 'k8s.write', targetService: 'web',
+      type: 'runtime.scale', targetService: 'web',
       params: { argv: ['scale', 'deploy/web', '--replicas=3', '-n', 'app'] },
     });
     expect(r.estimatedImpact).toBe('kind: Deployment\n');
@@ -209,7 +209,7 @@ describe('KubectlExecutionAdapter.dryRun', () => {
       spawnFn: fn,
     });
     await expect(a.dryRun({
-      type: 'k8s.write', targetService: 'web',
+      type: 'runtime.scale', targetService: 'web',
       params: { argv: ['scale', 'deploy/web', '--replicas=3', '-n', 'app'] },
     })).rejects.toThrow(/rejected.*read-allowlist/);
     expect(calls).toHaveLength(0);
@@ -217,23 +217,37 @@ describe('KubectlExecutionAdapter.dryRun', () => {
 });
 
 describe('KubectlExecutionAdapter.capabilities', () => {
-  it('reports k8s.read for read mode', () => {
+  it('reports runtime read capabilities for read mode', () => {
     const a = new KubectlExecutionAdapter({
       resolveKubeconfig: () => KUBECONFIG,
       allowedNamespaces: [],
       mode: 'read',
       spawnFn: fakeSpawn().fn,
     });
-    expect(a.capabilities()).toEqual(['k8s.read']);
+    expect(a.capabilities()).toEqual([
+      'runtime.get',
+      'runtime.list',
+      'runtime.logs',
+      'runtime.events',
+    ]);
   });
-  it('reports k8s.read + k8s.write for write mode', () => {
+  it('reports runtime read and write capabilities for write mode', () => {
     const a = new KubectlExecutionAdapter({
       resolveKubeconfig: () => KUBECONFIG,
       allowedNamespaces: [],
       mode: 'write',
       spawnFn: fakeSpawn().fn,
     });
-    expect(a.capabilities()).toEqual(['k8s.read', 'k8s.write']);
+    expect(a.capabilities()).toEqual([
+      'runtime.get',
+      'runtime.list',
+      'runtime.logs',
+      'runtime.events',
+      'runtime.restart',
+      'runtime.scale',
+      'runtime.rollout',
+      'runtime.delete',
+    ]);
   });
 });
 
@@ -247,7 +261,7 @@ describe('KubectlExecutionAdapter — kubeconfig cleanup on throw', () => {
       spawnFn: fn,
     });
     await expect(a.execute({
-      type: 'k8s.read', targetService: 'web',
+      type: 'runtime.get', targetService: 'web',
       params: { argv: ['get', 'pods', '-n', 'app'] },
     })).rejects.toThrow(/spawn failure/);
     // Cleanup happened: there's no path we can assert against from here, but

@@ -23,7 +23,7 @@ describe('rbac/actions catalog', () => {
     const categories = [
       'dashboards:read',
       'folders:read',
-      'datasources:read',
+      'connectors:read',
       'alert.rules:read',
       'users:read',
       'org.users:read',
@@ -39,7 +39,7 @@ describe('rbac/actions catalog', () => {
       'approvals:read',
       'chat:use',
       'agents.config:read',
-      'ops.connectors:read',
+      'connectors:read',
       'ops.commands:run',
     ];
     for (const a of categories) {

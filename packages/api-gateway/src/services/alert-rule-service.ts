@@ -1,7 +1,7 @@
 import { type AlertOperator } from '@agentic-obs/common';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
-import { resolvePrometheusDatasource } from './dashboard-service.js';
+import { resolvePrometheusConnector } from './dashboard-service.js';
 import type { SetupConfigService } from './setup-config-service.js';
 import {
   previewAlertCondition,
@@ -25,7 +25,7 @@ export class AlertRuleService {
 
   /**
    * Backtest an alert condition against the current metrics datasource over
-   * `lookbackHours` (default 24). Resolves the default Prometheus datasource
+   * `lookbackHours` (default 24). Resolves the default Prometheus connector
    * for the org; returns a structured `missing_capability` payload when no
    * metrics datasource is configured. Never fabricates data.
    */
@@ -33,8 +33,8 @@ export class AlertRuleService {
     input: PreviewAlertRuleInput,
     orgId: string,
   ): Promise<PreviewAlertResult> {
-    const datasources = await this.setupConfig.listDatasources({ orgId });
-    const prom = resolvePrometheusDatasource(datasources);
+    const connectors = await this.setupConfig.listConnectors({ orgId });
+    const prom = resolvePrometheusConnector(connectors);
     if (!prom) {
       return { kind: 'missing_capability', reason: 'no_metrics_datasource' };
     }

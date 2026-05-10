@@ -5,7 +5,7 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { ac, ACTIONS, getErrorMessage } from '@agentic-obs/common'
-import type { InstanceDatasource } from '@agentic-obs/common'
+import type { Connector } from '@agentic-obs/common'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { PrometheusHttpClient } from '@agentic-obs/adapters'
@@ -20,7 +20,7 @@ export interface QueryRouterDeps {
 // -- Helpers
 
 /**
- * Strict id-based lookup. Caller must supply the exact datasource — there's
+ * Strict id-based lookup. Caller must supply the exact connector — there's
  * no fallback to "the default", "the only one", or env/cluster narrowing.
  * Panel queries always have a datasourceId by the time they reach here
  * (enforced by the dashboard.add_panels / dashboard.modify_panel handlers
@@ -32,32 +32,43 @@ async function resolvePrometheusDatasource(
   setupConfig: SetupConfigService,
   orgId: string | null | undefined,
   datasourceId: string,
-): Promise<InstanceDatasource | null> {
+): Promise<Connector | null> {
   if (!datasourceId) return null
   if (!orgId) return null
-  const ds = await setupConfig.getDatasource(datasourceId, { orgId })
-  if (!ds) return null
-  const isPrometheus = ds.type === 'prometheus' || ds.type === 'victoria-metrics'
-  return isPrometheus ? ds : null
+  const connector = await setupConfig.getConnector(datasourceId, { orgId })
+  if (!connector) return null
+  const isPrometheus = connector.type === 'prometheus' || connector.type === 'victoria-metrics'
+  return isPrometheus ? connector : null
 }
 
-function buildClientConfig(ds: InstanceDatasource): ConstructorParameters<typeof PrometheusHttpClient>[0] {
-  const cfg: ConstructorParameters<typeof PrometheusHttpClient>[0] = { baseUrl: ds.url }
-  if (ds.username && ds.password) {
-    cfg.auth = { username: ds.username, password: ds.password }
-  } else if (ds.apiKey) {
-    cfg.headers = { Authorization: `Bearer ${ds.apiKey}` }
+function configString(connector: Connector, key: string): string | undefined {
+  const value = connector.config[key]
+  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+}
+
+function buildClientConfig(connector: Connector): ConstructorParameters<typeof PrometheusHttpClient>[0] {
+  const cfg: ConstructorParameters<typeof PrometheusHttpClient>[0] = { baseUrl: configString(connector, 'url') ?? '' }
+  const username = configString(connector, 'username')
+  const password = configString(connector, 'password')
+  const apiKey = configString(connector, 'apiKey')
+  if (username && password) {
+    cfg.auth = { username, password }
+  } else if (apiKey) {
+    cfg.headers = { Authorization: `Bearer ${apiKey}` }
   }
   return cfg
 }
 
-function buildFetchHeaders(ds: InstanceDatasource): Record<string, string> {
-  if (ds.username && ds.password) {
-    const token = Buffer.from(`${ds.username}:${ds.password}`).toString('base64')
+function buildFetchHeaders(connector: Connector): Record<string, string> {
+  const username = configString(connector, 'username')
+  const password = configString(connector, 'password')
+  const apiKey = configString(connector, 'apiKey')
+  if (username && password) {
+    const token = Buffer.from(`${username}:${password}`).toString('base64')
     return { Authorization: `Basic ${token}` }
   }
-  if (ds.apiKey) {
-    return { Authorization: `Bearer ${ds.apiKey}` }
+  if (apiKey) {
+    return { Authorization: `Bearer ${apiKey}` }
   }
   return {}
 }
@@ -92,7 +103,7 @@ async function requireDatasourcePermission(
   deps: QueryRouterDeps,
   req: Request,
   res: Response,
-  action: typeof ACTIONS.DatasourcesQuery | typeof ACTIONS.DatasourcesRead,
+  action: typeof ACTIONS.ConnectorsQuery | typeof ACTIONS.ConnectorsRead,
   datasourceId: string,
 ): Promise<boolean> {
   const identity = (req as AuthenticatedRequest).auth
@@ -102,7 +113,7 @@ async function requireDatasourcePermission(
     })
     return false
   }
-  const evaluator = ac.eval(action, `datasources:uid:${datasourceId}`)
+  const evaluator = ac.eval(action, `connectors:uid:${datasourceId}`)
   const allowed = await deps.ac.evaluate(identity, evaluator)
   if (!allowed) {
     res.status(403).json({
@@ -150,7 +161,7 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${resolvedDatasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
-    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsQuery, ds.id))) return
 
     const endDate = end ? new Date(end) : new Date()
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 60 * 1000)
@@ -190,7 +201,7 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${resolvedDatasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
-    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsQuery, ds.id))) return
 
     try {
       const client = new PrometheusHttpClient(buildClientConfig(ds))
@@ -217,10 +228,10 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${datasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
-    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesRead, ds.id))) return
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsRead, ds.id))) return
 
     try {
-      const baseUrl = ds.url.replace(/\/$/, '')
+      const baseUrl = (configString(ds, 'url') ?? '').replace(/\/$/, '')
       const headers = buildFetchHeaders(ds)
 
       let url: string
@@ -271,10 +282,10 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       res.status(400).json({ error: { code: 'NO_DATASOURCE', message: `Datasource ${datasourceId} not found, not Prometheus, or not in your org` } })
       return
     }
-    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesRead, ds.id))) return
+    if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsRead, ds.id))) return
 
     try {
-      const baseUrl = ds.url.replace(/\/$/, '')
+      const baseUrl = (configString(ds, 'url') ?? '').replace(/\/$/, '')
       const headers = buildFetchHeaders(ds)
       const params = new URLSearchParams()
       if (metric) params.set('match[]', metric)
@@ -329,7 +340,7 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
 
     const endDate = end ? new Date(end) : new Date()
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 60 * 1000)
-    const resolved: InstanceDatasource[] = []
+    const resolved: Connector[] = []
     for (const q of queries) {
       const dsId = substituteVariableTokens(q.datasourceId, variableValues)
       if (!dsId) {
@@ -346,7 +357,7 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
         })
         return
       }
-      if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.DatasourcesQuery, ds.id))) return
+      if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsQuery, ds.id))) return
       resolved.push(ds)
     }
 

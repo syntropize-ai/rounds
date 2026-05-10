@@ -109,7 +109,7 @@ export type PlanExecutorOutcome =
 export interface OpsRunCommandStepParams {
   /** kubectl argv WITHOUT the leading `kubectl`. */
   argv: string[];
-  /** `OpsConnector.id` to resolve credentials against. */
+  /** Connector id to resolve credentials against. */
   connectorId: string;
 }
 
@@ -131,6 +131,19 @@ function readOpsRunCommandParams(step: RemediationPlanStep): OpsRunCommandStepPa
 function truncate(s: string | null | undefined, cap: number): string | null {
   if (!s) return null;
   return s.length <= cap ? s : s.slice(s.length - cap);
+}
+
+export function capabilityForKubectlArgv(argv: readonly string[]): string {
+  const verb = argv[0] ?? '';
+  if (verb === 'scale') return 'runtime.scale';
+  if (verb === 'rollout') return 'runtime.rollout';
+  if (verb === 'restart') return 'runtime.restart';
+  if (verb === 'delete') return 'runtime.delete';
+  if (verb === 'logs') return 'runtime.logs';
+  if (verb === 'events') return 'runtime.events';
+  if (verb === 'get') return 'runtime.get';
+  if (verb === 'list') return 'runtime.list';
+  return `runtime.${verb || 'unknown'}`;
 }
 
 export class PlanExecutorService {
@@ -405,7 +418,7 @@ export class PlanExecutorService {
       const proposed: ProposedAction = {
         orgId: plan.orgId,
         connectorId: params.connectorId,
-        capability: 'k8s.write',
+        capability: capabilityForKubectlArgv(params.argv),
         verb: params.argv[0] ?? 'unknown',
         params: { argv: params.argv },
         // Plan steps come from already-approved plans, so by the time we

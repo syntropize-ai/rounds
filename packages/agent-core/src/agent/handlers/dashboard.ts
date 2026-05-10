@@ -62,7 +62,7 @@ export async function handleDashboardCreate(
   const prompt = String(args.prompt ?? args.description ?? '');
   const datasourceId = typeof args.datasourceId === 'string' ? args.datasourceId.trim() : '';
   if (!datasourceId) {
-    return 'Error: "datasourceId" is required. Call datasources_list (or datasources_suggest) first to choose the primary datasource for this dashboard.';
+    return 'Error: "datasourceId" is required. Call connectors_list (or connectors_suggest) first to choose the primary connector for this dashboard.';
   }
 
   let createdId = '';
@@ -178,7 +178,7 @@ export async function handleDashboardClone(
       );
 
       // Persist panels + variables onto the freshly created shell. Variables
-      // copy over verbatim — they carry no per-datasource state on their own.
+      // copy over verbatim — they carry no per-connector state on their own.
       await ctx.store.updatePanels(created.id, clonedPanels);
       await ctx.store.updateVariables(created.id, source.variables ?? []);
       if (ctx.store.updateStatus) {
@@ -194,7 +194,7 @@ export async function handleDashboardClone(
       ctx.activeDashboardId = created.id;
       ctx.freshlyCreatedDashboards.add(created.id);
 
-      const observation = `Cloned "${source.title}" (${clonedPanels.length} panel${clonedPanels.length === 1 ? '' : 's'}) to datasource ${targetDatasourceId}. New dashboard id: ${created.id}.`;
+      const observation = `Cloned "${source.title}" (${clonedPanels.length} panel${clonedPanels.length === 1 ? '' : 's'}) to connector ${targetDatasourceId}. New dashboard id: ${created.id}.`;
       ctx.emitAgentEvent(
         ctx.makeAgentEvent('agent.tool_completed', {
           tool: 'dashboard_clone',

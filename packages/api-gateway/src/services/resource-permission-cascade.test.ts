@@ -281,7 +281,7 @@ describe('AccessControlService.evaluate — folder cascade', () => {
       userId: u.id,
       permission: 0,
     });
-    await perms.setBulk('org_main', 'datasources', 'prom-prod', [
+    await perms.setBulk('org_main', 'connectors', 'prom-prod', [
       { teamId: team.id, permission: PermissionLevel.View },
     ]);
     const identity: Identity = {
@@ -294,14 +294,14 @@ describe('AccessControlService.evaluate — folder cascade', () => {
     expect(
       await access.evaluate(
         identity,
-        ac.eval(ACTIONS.DatasourcesQuery, 'datasources:uid:prom-prod'),
+        ac.eval('connectors:query', 'connectors:uid:prom-prod'),
       ),
     ).toBe(true);
-    // Not the other datasource.
+    // Not the other connector.
     expect(
       await access.evaluate(
         { ...identity },
-        ac.eval(ACTIONS.DatasourcesQuery, 'datasources:uid:prom-staging'),
+        ac.eval('connectors:query', 'connectors:uid:prom-staging'),
       ),
     ).toBe(false);
   });

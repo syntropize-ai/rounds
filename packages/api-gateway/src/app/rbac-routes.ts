@@ -11,7 +11,7 @@
  *   - `/api/serviceaccounts`               — SAs + their tokens
  *   - `/api/user` (tokens), `/api/auth/keys`
  *   - `/api/folders`                       — Grafana-parity folder API
- *   - `/api/dashboards`, `/api/datasources`, `/api/access-control/alert.rules`
+ *   - `/api/dashboards`, `/api/access-control/alert.rules`
  *     resource-permission management routers (mounted BEFORE the W6
  *     domain mounts in `domain-routes.ts` so their handlers shadow the
  *     legacy in-memory permission routes).
@@ -46,7 +46,6 @@ import { createUserTokensRouter } from '../routes/user-tokens.js';
 import { createAuthKeysRouter } from '../routes/auth-keys.js';
 import { createFolderRouter } from '../routes/folders.js';
 import { createDashboardPermissionsRouter } from '../routes/dashboard-permissions.js';
-import { createDatasourcePermissionsRouter } from '../routes/datasource-permissions.js';
 import { createAlertRulePermissionsRouter } from '../routes/alert-rule-permissions.js';
 import { createOrgContextMiddleware } from '../middleware/org-context.js';
 import type { AuthRepositories } from './auth-routes.js';
@@ -298,16 +297,6 @@ export async function mountRbacRoutes(
       permissionService: resourcePermissionService,
       ac: accessControl,
       db,
-    }),
-  );
-  app.use(
-    '/api/datasources',
-    authMw,
-    userRateLimiter,
-    createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
-    createDatasourcePermissionsRouter({
-      permissionService: resourcePermissionService,
-      ac: accessControl,
     }),
   );
   app.use(

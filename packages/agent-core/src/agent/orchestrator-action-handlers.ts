@@ -1,10 +1,9 @@
 /**
- * Backwards-compatibility shim.
+ * Handler barrel shim.
  *
  * The 1,555-LOC handler god-file has been split into per-domain modules
- * under `./handlers/`. This file remains as a thin re-export so external
- * imports of `ActionContext` and the `handle*` functions keep working
- * without touching every call site.
+ * under `./handlers/`. This file remains as a thin re-export for the current
+ * handler modules.
  *
  * New code should import from `./handlers/index.js` (or the specific
  * domain file) directly.
@@ -35,10 +34,10 @@ export {
   handleLogsLabels,
   handleLogsLabelValues,
   handleChangesListRecent,
-  handleDatasourcesList,
-  handleDatasourcesSuggest,
-  handleDatasourcesPin,
-  handleDatasourcesUnpin,
+  handleConnectorsList,
+  handleConnectorsSuggest,
+  handleConnectorsPin,
+  handleConnectorsUnpin,
   handleWebSearch,
   handleNavigate,
   handleFolderCreate,
@@ -46,7 +45,12 @@ export {
   handleOpsRunCommand,
   handleRemediationPlanCreate,
   handleRemediationPlanCreateRescue,
-  handleDatasourceConfigure,
-  handleOpsConnectorConfigure,
-  handleSystemSettingConfigure,
+  handleConnectorList,
+  handleConnectorTemplateList,
+  handleConnectorDetect,
+  handleConnectorPropose,
+  handleConnectorApply,
+  handleConnectorTest,
+  handleSettingGet,
+  handleSettingSet,
 } from './handlers/index.js';

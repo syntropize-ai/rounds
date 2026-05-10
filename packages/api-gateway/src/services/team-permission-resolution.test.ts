@@ -114,8 +114,8 @@ describe('AccessControlService — team permission resolution (T5.3)', () => {
     });
     await h.permissions.create({
       roleId: role2.id,
-      action: 'datasources:read',
-      scope: 'datasources:*',
+      action: 'connectors:read',
+      scope: 'connectors:*',
     });
     await h.teamRoles.create({
       orgId: 'org_main',
@@ -140,7 +140,7 @@ describe('AccessControlService — team permission resolution (T5.3)', () => {
     expect(
       await h.service.evaluate(
         identity,
-        ac.eval('datasources:read', 'datasources:uid:any'),
+        ac.eval('connectors:read', 'connectors:uid:any'),
       ),
     ).toBe(true);
     // A permission neither team carries → denied (no inheritance from elsewhere).

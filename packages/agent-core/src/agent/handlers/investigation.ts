@@ -161,7 +161,7 @@ export async function handleInvestigationAddSection(
 
     // Capture snapshot data if any metrics adapter is available in the
     // registry. Evidence panels don't carry a sourceId today — pick the
-    // first registered metrics datasource (preferring default) so snapshot
+    // first registered metrics connector (preferring default) so snapshot
     // capture keeps working during the migration. Phase 2 may plumb the
     // sourceId through the panel config.
     const queries = panelConfig.queries ?? [];

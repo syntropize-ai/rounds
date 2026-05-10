@@ -30,8 +30,8 @@ import { createLogger } from '@agentic-obs/common/logging';
 import type { RoleService } from '../services/role-service.js';
 
 /**
- * Fixed role uid that bundles OpsConnectorsRead + OpsCommandsRun on
- * `ops.connectors:*`. The role's `name` is `fixed:ops.commands:runner`;
+ * Fixed role uid that bundles ConnectorsRead + OpsCommandsRun on
+ * `connectors:*`. The role's `name` is `fixed:ops.commands:runner`;
  * `RoleService.assignRoleToUser` looks roles up by `uid`, which is the
  * `:`/`.`-replaced form (see fixed-roles-def.ts `def()`).
  */
@@ -78,8 +78,8 @@ export interface SeedAutoInvestigationSaOptions {
  * path the SA is additionally assigned the fixed role
  * `fixed:ops.commands:runner` (defined in
  * packages/common/src/rbac/fixed-roles-def.ts as OPS_COMMANDS_RUNNER),
- * which bundles `ops.connectors:read` + `ops.commands:run` on
- * `ops.connectors:*`. The assignment is idempotent and runs every boot
+ * which bundles `connectors:read` + `ops.commands:run` on
+ * `connectors:*`. The assignment is idempotent and runs every boot
  * regardless of whether the SA user already exists, so existing
  * installs upgrade automatically.
  */

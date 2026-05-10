@@ -29,8 +29,8 @@ export function resolveListEndpoint(resource: ResourceKind, uid: string): string
       return `/folders/${encodeURIComponent(uid)}/permissions`;
     case 'dashboards':
       return `/dashboards/uid/${encodeURIComponent(uid)}/permissions`;
-    case 'datasources':
-      return `/datasources/${encodeURIComponent(uid)}/permissions`;
+    case 'connectors':
+      return `/connectors/${encodeURIComponent(uid)}/permissions`;
     case 'alert.rules':
       return `/access-control/alert.rules/${encodeURIComponent(uid)}/permissions`;
   }

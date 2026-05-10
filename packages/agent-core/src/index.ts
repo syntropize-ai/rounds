@@ -14,7 +14,7 @@ export {
   type IInvestigationReportStore,
   type IAlertRuleStore,
   type IInvestigationStore,
-  type DatasourceConfig,
+  type ConnectorConfig,
   type OpsCommandRunner,
   type OpsConnectorConfig,
   type OpsCommandIntent,
@@ -31,7 +31,7 @@ export {
   type IConversationStore as IDashboardConversationStore,
   type IAlertRuleStore as IDashboardAlertRuleStore,
   type IInvestigationStore as IDashboardInvestigationStore,
-  type DatasourceConfig as DashboardDatasourceConfig,
+  type ConnectorConfig as DashboardConnectorConfig,
   // Context compaction
   shouldCompact,
   compactMessages,

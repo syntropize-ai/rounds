@@ -53,7 +53,7 @@ function fakeAdapter(opts: {
   const calls: Array<{ argv: string[] }> = [];
   const succeedDefault = opts.succeed ?? true;
   return {
-    capabilities: () => ['k8s.read', 'k8s.write'],
+    capabilities: () => ['runtime.get', 'runtime.scale', 'runtime.restart', 'runtime.rollout'],
     async validate() { return { valid: true }; },
     async dryRun() { return { estimatedImpact: 'ok', warnings: [], willAffect: [] }; },
     async execute(action) {

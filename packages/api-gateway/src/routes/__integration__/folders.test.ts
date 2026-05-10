@@ -5,7 +5,6 @@
  *   - folder CRUD happy path + 403 when a viewer tries to create
  *   - folder delete with alert rules (400 without force, 200 with force)
  *   - dashboard permissions grant + list (with folder cascade)
- *   - datasource permissions grant + list
  *   - alert-rule permissions attach to folder uid
  */
 
@@ -36,7 +35,6 @@ import { ResourcePermissionService } from '../../services/resource-permission-se
 import { DashboardAclService } from '../../services/dashboard-acl-service.js';
 import { createFolderRouter } from '../folders.js';
 import { createDashboardPermissionsRouter } from '../dashboard-permissions.js';
-import { createDatasourcePermissionsRouter } from '../datasource-permissions.js';
 import { createAlertRulePermissionsRouter } from '../alert-rule-permissions.js';
 import { createResolverRegistry } from '../../rbac/resolvers/index.js';
 
@@ -176,10 +174,6 @@ async function buildApp(): Promise<Ctx> {
   app.use(
     '/api/dashboards',
     createDashboardPermissionsRouter({ permissionService, ac, db }),
-  );
-  app.use(
-    '/api/datasources',
-    createDatasourcePermissionsRouter({ permissionService, ac }),
   );
   app.use(
     '/api/access-control/alert.rules',
@@ -382,26 +376,6 @@ describe('/api/dashboards/uid/:uid/permissions', () => {
       .set('x-test-user', 'admin');
     expect(list.status).toBe(200);
     expect(list.body[0].userId).toBe(ctx.viewerId);
-  });
-});
-
-describe('/api/datasources/:uid/permissions', () => {
-  let ctx: Ctx;
-  beforeEach(async () => {
-    ctx = await buildApp();
-  });
-
-  it('grants datasources:query via View', async () => {
-    const r = await request(ctx.app)
-      .post('/api/datasources/prom-prod/permissions')
-      .set('x-test-user', 'admin')
-      .send({ items: [{ userId: ctx.viewerId, permission: 1 }] });
-    expect(r.status).toBe(200);
-    const list = await request(ctx.app)
-      .get('/api/datasources/prom-prod/permissions')
-      .set('x-test-user', 'admin');
-    expect(list.status).toBe(200);
-    expect(list.body[0].actions).toContain('datasources:query');
   });
 });
 

@@ -3,8 +3,8 @@
 # seed.sh - first-time setup of an openobs instance for e2e tests.
 #
 # Idempotent. Safe to run multiple times. Walks the bootstrap wizard,
-# configures the LLM datasource, attaches the in-cluster prometheus
-# datasource, registers an in-cluster ops connector, and mints a
+# configures the LLM connector, attaches the in-cluster prometheus
+# connector, registers an in-cluster ops connector, and mints a
 # service-account token. Persists outputs into tests/e2e/.state/ which
 # is the contract every TypeScript scenario reads.
 #
@@ -50,7 +50,7 @@ ADMIN_PASSWORD="$(cat "$PASSWORD_FILE")"
 COOKIE_JAR="$STATE_DIR/cookies.txt"
 ADMIN_COOKIE_FILE="$STATE_DIR/admin-cookie"
 SA_TOKEN_FILE="$STATE_DIR/sa-token"
-PROM_DS_FILE="$STATE_DIR/prometheus-datasource-id"
+PROM_DS_FILE="$STATE_DIR/prometheus-connector-id"
 OPS_CONNECTOR_FILE="$STATE_DIR/ops-connector-id"
 
 phase() { printf "\n[seed] === %s ===\n" "$1" >&2; }
@@ -181,32 +181,32 @@ JSON
 )
 api PUT "/api/system/llm" "${CURL_AUTH[@]}" --data "$llm_body" >/dev/null
 
-# --- 4. prometheus datasource -------------------------------------------
-phase "prometheus datasource at $PROM_URL"
-existing_ds=$(api GET "/api/datasources" "${CURL_AUTH[@]}")
+# --- 4. prometheus connector -------------------------------------------
+phase "prometheus connector at $PROM_URL"
+existing_ds=$(api GET "/api/connectors" "${CURL_AUTH[@]}")
 prom_id=$(printf '%s' "$existing_ds" | python3 -c '
 import json,sys
 data = json.load(sys.stdin)
-for ds in data.get("datasources", []):
+for ds in data.get("connectors", []):
     if ds.get("type") == "prometheus":
         print(ds["id"]); break
 ')
 if [[ -z "$prom_id" ]]; then
-  prom_body=$(cat <<JSON
-{"type":"prometheus","name":"e2e-prometheus","url":"$PROM_URL","isDefault":true}
+prom_body=$(cat <<JSON
+{"type":"prometheus","name":"e2e-prometheus","config":{"url":"$PROM_URL"},"isDefault":true}
 JSON
 )
-  created=$(api POST "/api/datasources" "${CURL_AUTH[@]}" --data "$prom_body")
-  prom_id=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["datasource"]["id"])')
-  printf "[seed] prometheus datasource created id=%s\n" "$prom_id" >&2
+  created=$(api POST "/api/connectors" "${CURL_AUTH[@]}" --data "$prom_body")
+  prom_id=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["connector"]["id"])')
+  printf "[seed] prometheus connector created id=%s\n" "$prom_id" >&2
 else
-  printf "[seed] prometheus datasource already exists id=%s\n" "$prom_id" >&2
+  printf "[seed] prometheus connector already exists id=%s\n" "$prom_id" >&2
 fi
 printf "%s" "$prom_id" > "$PROM_DS_FILE"
 
 # --- 5. ops connector (in-cluster) --------------------------------------
 phase "ops connector (in-cluster, namespace=$OPS_NS)"
-existing_ops=$(api GET "/api/ops/connectors" "${CURL_AUTH[@]}")
+existing_ops=$(api GET "/api/connectors" "${CURL_AUTH[@]}")
 ops_id=$(printf '%s' "$existing_ops" | python3 -c '
 import json,sys
 data = json.load(sys.stdin)
@@ -219,7 +219,7 @@ if [[ -z "$ops_id" ]]; then
 {"name":"e2e","type":"kubernetes","config":{"mode":"in-cluster"},"allowedNamespaces":["$OPS_NS"],"capabilities":["read","propose","execute_approved"]}
 JSON
 )
-  created=$(api POST "/api/ops/connectors" "${CURL_AUTH[@]}" --data "$ops_body")
+  created=$(api POST "/api/connectors" "${CURL_AUTH[@]}" --data "$ops_body")
   ops_id=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["connector"]["id"])')
   printf "[seed] ops connector created id=%s\n" "$ops_id" >&2
 else

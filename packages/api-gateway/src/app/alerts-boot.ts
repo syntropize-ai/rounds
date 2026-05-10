@@ -31,8 +31,8 @@ import {
 } from '../services/auto-investigation-consumer.js';
 import { LeaderLock } from '../services/leader-lock.js';
 import {
-  resolvePrometheusDatasource,
-  type PrometheusDatasource,
+  resolvePrometheusConnector,
+  type PrometheusConnector,
 } from '../services/dashboard-service.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
@@ -53,15 +53,15 @@ function envFlag(name: string, defaultValue: boolean): boolean {
 
 /**
  * Build a `MetricQueryFn` that resolves a rule's PromQL against the
- * configured default Prometheus-compatible datasource and returns the
+ * configured default Prometheus-compatible connector and returns the
  * latest scalar value.
  *
  * `null` return = "no sample". The evaluator treats null as "leave
  * state alone", which matches alertmanager semantics: stale =
  * inconclusive.
  *
- * Datasource resolution is **per-call** so an operator can swap
- * datasources at runtime without restarting the api-gateway. The
+ * Connector resolution is **per-call** so an operator can swap
+ * connectors at runtime without restarting the api-gateway. The
  * downside is a small overhead per tick; the upside is consistency
  * with the rest of the system (which does the same).
  *
@@ -70,10 +70,10 @@ function envFlag(name: string, defaultValue: boolean): boolean {
  */
 export function buildMetricQueryFn(setupConfig: SetupConfigService): MetricQueryFn {
   return async (rule) => {
-    const datasources = await setupConfig.listDatasources({ orgId: rule.workspaceId ?? 'org_main' });
-    const prom: PrometheusDatasource | undefined = resolvePrometheusDatasource(datasources);
+    const connectors = await setupConfig.listConnectors({ orgId: rule.workspaceId ?? 'org_main' });
+    const prom: PrometheusConnector | undefined = resolvePrometheusConnector(connectors);
     if (!prom) {
-      log.debug({ ruleId: rule.id }, 'no Prometheus datasource configured; skipping evaluation');
+      log.debug({ ruleId: rule.id }, 'no Prometheus connector configured; skipping evaluation');
       return null;
     }
     const adapter = new PrometheusMetricsAdapter(prom.url, prom.headers);

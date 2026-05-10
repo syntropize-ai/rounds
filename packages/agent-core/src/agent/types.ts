@@ -89,8 +89,8 @@ export interface IAlertRuleStore {
   getAllHistory?(limit?: number): unknown[] | Promise<unknown[]>
 }
 
-/** Minimal datasource descriptor passed to the orchestrator. */
-export interface DatasourceConfig {
+/** Minimal connector descriptor passed to the orchestrator. */
+export interface ConnectorConfig {
   id: string
   type: string
   name: string
@@ -188,58 +188,87 @@ export interface ApprovalRequest {
   expiresAt: string
 }
 
+export interface AgentConnectorSummary {
+  id: string;
+  type: string;
+  name: string;
+  category?: string[];
+  capabilities: string[];
+  status: string;
+  defaultFor?: string | null;
+  secretMissing?: boolean;
+}
+
+export interface AgentConnectorTemplateSummary {
+  type: string;
+  category: string[];
+  capabilities: string[];
+  requiredFields: string[];
+  credentialRequired: boolean;
+}
+
+export interface AgentConnectorCandidate {
+  template: string;
+  candidate: Record<string, unknown>;
+  confidence: number;
+  source: string;
+}
+
 /**
- * Minimal config-mutation surface the agent uses for AI-first
- * datasource / connector / org-setting configuration tools.
+ * Minimal connector/config surface for the agent's connector_* and setting_*
+ * tools.
  *
- * Implemented by api-gateway adapting `SetupConfigService` (and ops connector
- * repo) — agent-core stays decoupled from the gateway. Optional on
- * ActionContext so test/in-memory setups can omit; the handlers return a
- * clear "not configured" observation if the agent invokes them anyway.
- *
- * Raw credentials NEVER flow through this surface — adapters only accept an
- * opaque `secretRef` (string id of an externally-stored secret) plus shape
- * config. Connection probes operate on already-persisted records.
+ * Implemented by api-gateway once the new connector routes land. Until then
+ * tests and local harnesses can provide a mock with the same shape. Raw
+ * credentials NEVER flow through this surface; connector secrets are captured
+ * by the UI/API secret endpoint and referenced only by connector id.
  */
 export interface AgentConfigService {
-  /** Create or update a datasource draft. `id` set ⇒ update, else create. */
-  upsertDatasource(input: {
-    id?: string;
+  listConnectors(filter: {
     orgId: string;
-    type: string;
+    category?: string;
+    capability?: string;
+    status?: string;
+  }): Promise<AgentConnectorSummary[]>;
+  listConnectorTemplates(filter: {
+    category?: string;
+    capability?: string;
+  }): Promise<AgentConnectorTemplateSummary[]>;
+  detectConnectors(input: {
+    orgId: string;
+    template?: string;
+  }): Promise<AgentConnectorCandidate[]>;
+  proposeConnector(input: {
+    orgId: string;
+    template: string;
     name: string;
-    url: string;
-    environment?: string | null;
-    cluster?: string | null;
-    label?: string | null;
+    config: Record<string, unknown>;
+    scope?: Record<string, unknown> | null;
     isDefault?: boolean;
-    secretRef?: string | null;
     actorUserId?: string | null;
-  }): Promise<{ id: string; type: string; name: string; url: string; secretMissing?: boolean }>;
-  /** Probe an already-persisted datasource. */
-  testDatasource(id: string, orgId: string): Promise<{ ok: boolean; message: string }>;
-
-  /** Create or update an ops connector draft. `id` set ⇒ update, else create. */
-  upsertOpsConnector(input: {
-    id?: string;
+  }): Promise<{
+    draftId: string;
+    needsCredential: boolean;
+    capabilityPreview: string[];
+  }>;
+  applyConnectorDraft(input: {
     orgId: string;
-    type: 'kubernetes';
-    name: string;
-    environment?: string | null;
-    secretRef?: string | null;
-    allowedNamespaces?: string[];
-    capabilities?: string[];
+    draftId: string;
     actorUserId?: string | null;
-  }): Promise<{ id: string; name: string; type: string; secretMissing?: boolean }>;
-  /** Probe an already-persisted connector. */
-  testOpsConnector(id: string, orgId: string): Promise<{ ok: boolean; message: string; status?: string }>;
+  }): Promise<{ connectorId: string; status: string; capabilities: string[] }>;
+  testConnector(connectorId: string, orgId: string): Promise<{
+    ok: boolean;
+    latencyMs?: number;
+    capabilities: string[];
+    error?: string;
+  }>;
 
-  /** Read/write low-risk org settings (default folders, etc). */
-  getInstanceSetting(key: string): Promise<string | null>;
-  setInstanceSetting(
+  /** Read/write allowlisted org settings. */
+  getSetting(key: string, orgId: string): Promise<string | null>;
+  setSetting(
     key: string,
     value: string,
-    actor: { userId: string | null },
+    actor: { orgId: string; userId: string | null },
   ): Promise<void>;
 }
 

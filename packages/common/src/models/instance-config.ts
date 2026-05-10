@@ -1,12 +1,11 @@
 /**
  * Instance-scoped configuration models.
  *
- * Backed by the `instance_llm_config`, `instance_datasources`,
- * `notification_channels`, and `instance_settings` tables added in
- * migration 019. Replaces the legacy flat `setup-config.json` file as
- * the source of truth for LLM / datasource / notification config.
+ * Backed by the `instance_llm_config`, `notification_channels`, and
+ * `instance_settings` tables. Replaces the legacy flat `setup-config.json`
+ * file as the source of truth for LLM / notification config.
  *
- * Secret fields (apiKey, password, notification config secrets) are
+ * Secret fields (apiKey, notification config secrets) are
  * stored encrypted at rest via AES-256-GCM with `SECRET_KEY` (see
  * `@agentic-obs/common/crypto`). Repository reads return plaintext;
  * callers pass `{ masked: true }` to receive redacted values for UI.
@@ -70,68 +69,6 @@ export interface NewInstanceLlmConfig {
   region?: string | null;
   apiKeyHelper?: string | null;
   apiFormat?: LlmApiFormat | null;
-  updatedBy?: string | null;
-}
-
-// -- Datasource --------------------------------------------------------
-
-export type DatasourceType =
-  | 'loki'
-  | 'elasticsearch'
-  | 'clickhouse'
-  | 'tempo'
-  | 'jaeger'
-  | 'otel'
-  | 'prometheus'
-  | 'victoria-metrics';
-
-export interface InstanceDatasource {
-  id: string;
-  /** Owning org. Always set — datasources are not instance-global. */
-  orgId: string;
-  type: DatasourceType;
-  name: string;
-  url: string;
-  environment?: string | null;
-  cluster?: string | null;
-  label?: string | null;
-  isDefault: boolean;
-  apiKey?: string | null;
-  username?: string | null;
-  password?: string | null;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy?: string | null;
-}
-
-export interface NewInstanceDatasource {
-  id?: string;
-  /** Required — datasources are always owned by exactly one org. */
-  orgId: string;
-  type: DatasourceType;
-  name: string;
-  url: string;
-  environment?: string | null;
-  cluster?: string | null;
-  label?: string | null;
-  isDefault?: boolean;
-  apiKey?: string | null;
-  username?: string | null;
-  password?: string | null;
-  updatedBy?: string | null;
-}
-
-export interface InstanceDatasourcePatch {
-  type?: DatasourceType;
-  name?: string;
-  url?: string;
-  environment?: string | null;
-  cluster?: string | null;
-  label?: string | null;
-  isDefault?: boolean;
-  apiKey?: string | null;
-  username?: string | null;
-  password?: string | null;
   updatedBy?: string | null;
 }
 

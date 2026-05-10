@@ -1,35 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ProposedAction } from '@agentic-obs/common';
-import {
-  ActionGuard,
-  type CapabilityAllowEntry,
-  pickConfirmationMode,
-} from '../action-guard.js';
+import { ActionGuard, pickConfirmationMode } from '../action-guard.js';
 
-const allowlist: CapabilityAllowEntry[] = [
-  {
-    connectorId: 'k8s-prod',
-    capability: 'k8s.write',
-    verb: 'scale',
-    validateParams: (p) => {
-      if (typeof p['replicas'] !== 'number') return 'replicas must be number';
-      if ((p['replicas'] as number) < 0) return 'replicas must be >= 0';
-      return null;
-    },
-  },
-  {
-    connectorId: '*',
-    capability: 'k8s.read',
-    verb: 'get',
-  },
-];
+const validateScaleParams = (action: ProposedAction): string | null => {
+  if (action.capability !== 'runtime.scale') return null;
+  if (typeof action.params['replicas'] !== 'number') return 'replicas must be number';
+  if ((action.params['replicas'] as number) < 0) return 'replicas must be >= 0';
+  return null;
+};
 
 function makeAction(overrides: Partial<ProposedAction> = {}): ProposedAction {
   return {
     actorUserId: 'u1',
     orgId: 'org1',
     connectorId: 'k8s-prod',
-    capability: 'k8s.write',
+    capability: 'runtime.scale',
     verb: 'scale',
     resource: { kind: 'Deployment', name: 'web', namespace: 'app' },
     params: { replicas: 3 },
@@ -43,9 +28,9 @@ describe('ActionGuard.decide', () => {
   it('user_conversation high risk with permission → allow + strong_user_confirm', async () => {
     const audit = vi.fn().mockResolvedValue('audit-1');
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
       auditWriter: audit,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(makeAction());
     expect(decision.kind).toBe('allow');
@@ -63,9 +48,9 @@ describe('ActionGuard.decide', () => {
   it('background_agent high risk → allow + formal_approval', async () => {
     const audit = vi.fn();
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
       auditWriter: audit,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(
       makeAction({ source: 'background_agent', actorUserId: undefined, risk: 'high' }),
@@ -77,8 +62,8 @@ describe('ActionGuard.decide', () => {
 
   it('background_agent critical risk → allow + formal_approval', async () => {
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(
       makeAction({ source: 'background_agent', risk: 'critical' }),
@@ -90,8 +75,8 @@ describe('ActionGuard.decide', () => {
 
   it('background_agent low risk → allow + none', async () => {
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(
       makeAction({ source: 'background_agent', risk: 'low' }),
@@ -103,8 +88,8 @@ describe('ActionGuard.decide', () => {
 
   it('user_conversation medium risk → user_confirm', async () => {
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(makeAction({ risk: 'medium' }));
     expect(decision.kind).toBe('allow');
@@ -114,8 +99,8 @@ describe('ActionGuard.decide', () => {
 
   it('user_conversation low risk → none', async () => {
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(makeAction({ risk: 'low' }));
     expect(decision.kind).toBe('allow');
@@ -125,8 +110,8 @@ describe('ActionGuard.decide', () => {
 
   it('manual_ui mirrors user_conversation', async () => {
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(
       makeAction({ source: 'manual_ui', risk: 'critical' }),
@@ -136,12 +121,12 @@ describe('ActionGuard.decide', () => {
     expect(decision.confirmationMode).toBe('strong_user_confirm');
   });
 
-  it('unknown connector → deny', async () => {
+  it('connector policy miss → deny', async () => {
     const audit = vi.fn();
     const guard = new ActionGuard({
-      allowlist,
-      permissionChecker: () => true,
+      permissionChecker: (input) => input.connectorId === 'k8s-prod',
       auditWriter: audit,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(makeAction({ connectorId: 'unknown' }));
     expect(decision.kind).toBe('deny');
@@ -150,28 +135,31 @@ describe('ActionGuard.decide', () => {
     );
   });
 
-  it('unknown verb → deny', async () => {
+  it('passes verb through to the connector policy checker', async () => {
+    const checker = vi.fn().mockReturnValue(true);
     const guard = new ActionGuard({
-      allowlist,
-      permissionChecker: () => true,
+      permissionChecker: checker,
+      validateParams: validateScaleParams,
     });
-    const decision = await guard.decide(makeAction({ verb: 'nuke' }));
-    expect(decision.kind).toBe('deny');
+    await guard.decide(makeAction({ verb: 'rollout' }));
+    expect(checker).toHaveBeenCalledWith(expect.objectContaining({ verb: 'rollout' }));
   });
 
-  it('unknown capability → deny', async () => {
+  it('passes capability through to the connector policy checker', async () => {
+    const checker = vi.fn().mockReturnValue(false);
     const guard = new ActionGuard({
-      allowlist,
-      permissionChecker: () => true,
+      permissionChecker: checker,
+      validateParams: validateScaleParams,
     });
-    const decision = await guard.decide(makeAction({ capability: 'k8s.exec' }));
+    const decision = await guard.decide(makeAction({ capability: 'runtime.delete' }));
     expect(decision.kind).toBe('deny');
+    expect(checker).toHaveBeenCalledWith(expect.objectContaining({ capability: 'runtime.delete' }));
   });
 
   it('invalid params → deny', async () => {
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(
       makeAction({ params: { replicas: -1 } }),
@@ -184,9 +172,9 @@ describe('ActionGuard.decide', () => {
   it('permission denied → deny (never silently upgrades)', async () => {
     const audit = vi.fn();
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => false,
       auditWriter: audit,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(makeAction());
     expect(decision.kind).toBe('deny');
@@ -200,9 +188,9 @@ describe('ActionGuard.decide', () => {
   it('audit row written for both allow and deny', async () => {
     const audit = vi.fn();
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: (i) => i.connectorId === 'k8s-prod',
       auditWriter: audit,
+      validateParams: validateScaleParams,
     });
     await guard.decide(makeAction());
     await guard.decide(makeAction({ connectorId: 'unknown' }));
@@ -214,9 +202,9 @@ describe('ActionGuard.decide', () => {
   it('redacts secret-like keys in audit metadata', async () => {
     const audit = vi.fn();
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
       auditWriter: audit,
+      validateParams: validateScaleParams,
     });
     await guard.decide(
       makeAction({
@@ -240,30 +228,35 @@ describe('ActionGuard.decide', () => {
 
   it('audit-writer failure does not break decision', async () => {
     const guard = new ActionGuard({
-      allowlist,
       permissionChecker: () => true,
       auditWriter: () => {
         throw new Error('db down');
       },
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(makeAction());
     expect(decision.kind).toBe('allow');
   });
 
-  it('wildcard connector entry matches any connector', async () => {
+  it('passes scope hints through to the connector policy checker', async () => {
+    const checker = vi.fn().mockReturnValue(true);
     const guard = new ActionGuard({
-      allowlist,
-      permissionChecker: () => true,
+      permissionChecker: checker,
+      validateParams: validateScaleParams,
     });
     const decision = await guard.decide(
       makeAction({
         connectorId: 'k8s-staging',
-        capability: 'k8s.read',
-        verb: 'get',
+        capability: 'runtime.list',
+        verb: 'list',
+        scope: { namespaces: ['app'] },
         risk: 'low',
       }),
     );
     expect(decision.kind).toBe('allow');
+    expect(checker).toHaveBeenCalledWith(
+      expect.objectContaining({ connectorId: 'k8s-staging', scope: { namespaces: ['app'] } }),
+    );
   });
 });
 

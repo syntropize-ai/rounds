@@ -13,7 +13,7 @@ function makeCtx(allowAll = true): ActionContext {
     investigationReportStore: {} as ActionContext['investigationReportStore'],
     alertRuleStore: {} as ActionContext['alertRuleStore'],
     adapters: new AdapterRegistry(),
-    allDatasources: [{ id: 'ds-prom', type: 'prometheus', name: 'Prom', url: 'http://x', isDefault: true }],
+    allConnectors: [{ id: 'ds-prom', type: 'prometheus', name: 'Prom', url: 'http://x', isDefault: true }],
     sendEvent: () => {},
     sessionId: 's',
     identity: makeTestIdentity(),

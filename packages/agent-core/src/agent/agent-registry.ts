@@ -41,9 +41,9 @@ agentRegistry.register({
     'investigation_create', 'investigation_list',
     'investigation_add_section',
     'investigation_complete',
-    // Datasource discovery (always allowed; no RBAC)
-    'datasources_list',
-    'datasources_suggest', 'datasources_pin', 'datasources_unpin',
+    // Connector discovery (always allowed; no RBAC)
+    'connectors_list',
+    'connectors_suggest', 'connectors_pin', 'connectors_unpin',
     // Source-agnostic metrics primitives (each requires sourceId)
     'metrics_query', 'metrics_range_query', 'metrics_discover', 'metrics_validate',
     // Source-agnostic logs primitives (each requires sourceId)
@@ -58,9 +58,10 @@ agentRegistry.register({
     'alert_rule_write', 'alert_rule_list', 'alert_rule_history',
     // Navigation
     'navigate',
-    // AI-first configuration (Task 07) — conversation-driven setup. Manual
-    // Settings UI keeps working; these tools call the same service surface.
-    'datasource_configure', 'ops_connector_configure', 'system_setting_configure',
+    // Connector-model setup and allowlisted settings.
+    'connector_list', 'connector_template_list', 'connector_detect',
+    'connector_propose', 'connector_apply', 'connector_test',
+    'setting_get', 'setting_set',
     // Lazy tool loading — fetches deferred schemas on demand
     'tool_search',
   ],

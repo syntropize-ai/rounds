@@ -70,9 +70,9 @@ const PROMPTS = [
 
 function cannedToolResult(name: string): string {
   switch (name) {
-    case 'datasources_list':
+    case 'connectors_list':
       return JSON.stringify([{ id: 'prom-prod', name: 'prom-prod', type: 'prometheus', isDefault: true }]);
-    case 'datasources_suggest':
+    case 'connectors_suggest':
       return JSON.stringify({ chosen: { id: 'prom-prod', type: 'prometheus' }, alternatives: [] });
     case 'investigation_create':
       return JSON.stringify({ investigationId: 'inv-test-123' });

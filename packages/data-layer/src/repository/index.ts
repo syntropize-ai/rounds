@@ -46,26 +46,8 @@ export type {
 } from './types.js';
 
 export type {
-  IOpsConnectorRepository,
-  NewOpsConnector,
-  OpsConnector,
-  OpsConnectorConfig,
-  OpsConnectorPatch,
-  OpsConnectorReadOptions,
-  OpsConnectorStatus,
-  OpsConnectorType,
-} from './types/ops-connector.js';
-
-export type {
-  ChangeEvent,
-  ChangeSource,
-  ChangeSourceType,
-  IChangeSourceRepository,
-  ListChangeEventsOptions,
-  NewChangeEvent,
-  NewChangeSource,
-  PublicChangeSource,
-} from './types/change-source.js';
+  IConnectorRepository,
+} from './types/connector.js';
 
 export type {
   INotificationDispatchRepository,

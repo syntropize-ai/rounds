@@ -32,7 +32,7 @@ export * from './rbac/index.js';
 // `ConfigLoader` and its Zod `AppConfigSchema` were never wired into
 // the running server and have been removed — runtime config lives in
 // SQLite (org_user, preferences, instance_settings, instance_llm_config,
-// instance_datasources, notification_channels).
+// notification_channels).
 export { DEFAULT_LLM_MODEL } from './config/index.js';
 
 // Lifecycle: graceful-shutdown hooks use node:process signals — server only.

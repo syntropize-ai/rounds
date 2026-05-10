@@ -2,7 +2,7 @@
  * Regression coverage — Task 16, scenario 1.
  *
  * Protects the AI-first dashboard build contract end-to-end across the
- * datasources_suggest → metrics_discover → metrics_validate →
+ * connectors_suggest → metrics_discover → metrics_validate →
  * dashboard_create → dashboard_add_panels handler chain. The individual
  * handlers each have unit tests; this scenario specifically protects the
  * cross-handler EVIDENCE chain (`ctx.dashboardBuildEvidence`) that gates
@@ -16,7 +16,7 @@
  *   - dashboard_create / add_panels validation gates → dashboard.test.ts
  *   - metrics_discover per-kind shapes              → metrics.test.ts
  *   - metrics_validate ok / error                   → metrics.test.ts
- *   - datasources_suggest decision pyramid          → datasources.test.ts
+ *   - connectors_suggest decision pyramid          -> connectors.test.ts
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -28,7 +28,7 @@ import {
   handleMetricsDiscover,
   handleMetricsValidate,
 } from '../metrics.js';
-import { handleDatasourcesSuggest } from '../datasources.js';
+import { handleConnectorsSuggest } from '../connectors.js';
 import { makeFakeActionContext } from '../_test-helpers.js';
 import { AdapterRegistry } from '../../../adapters/registry.js';
 import type { IMetricsAdapter } from '@agentic-obs/adapters';
@@ -64,7 +64,7 @@ function buildCtxWithProm() {
   const create = vi.fn().mockResolvedValue({ id: 'dash-1', title: 'Latency' });
   const ctx = makeFakeActionContext({
     adapters,
-    allDatasources: [
+    allConnectors: [
       {
         id: 'prom',
         name: 'prod-prom',
@@ -84,13 +84,13 @@ function buildCtxWithProm() {
   return ctx;
 }
 
-describe('regression: dashboard build flow (datasources → discover → validate → create → add_panels)', () => {
+describe('regression: dashboard build flow (connectors -> discover -> validate -> create -> add_panels)', () => {
   it('full happy path: chain produces a created dashboard with one validated panel', async () => {
     const ctx = buildCtxWithProm();
 
-    // 1) Pick the datasource. With one default prometheus + matching
+    // 1) Pick the connector. With one default prometheus + matching
     //    intent, the suggest result is high-confidence and points at 'prom'.
-    const suggest = await handleDatasourcesSuggest(ctx, {
+    const suggest = await handleConnectorsSuggest(ctx, {
       userIntent: 'show me prod-prom request rate',
     });
     const suggestion = JSON.parse(suggest) as { recommendedId: string | null };
@@ -148,7 +148,7 @@ describe('regression: dashboard build flow (datasources → discover → validat
     // the research gate, but the per-expression validation gate must still
     // reject. This protects against silent regression of the validate gate.
     const ctx = buildCtxWithProm();
-    await handleDatasourcesSuggest(ctx, { userIntent: 'prod-prom' });
+    await handleConnectorsSuggest(ctx, { userIntent: 'prod-prom' });
     await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'names' });
     await handleDashboardCreate(ctx, { title: 'Latency', datasourceId: 'prom' });
 
@@ -176,7 +176,7 @@ describe('regression: dashboard build flow (datasources → discover → validat
     // research gate must still reject the panel because there's no evidence
     // the model surveyed available metrics first.
     const ctx = buildCtxWithProm();
-    await handleDatasourcesSuggest(ctx, { userIntent: 'prod-prom' });
+    await handleConnectorsSuggest(ctx, { userIntent: 'prod-prom' });
     await handleDashboardCreate(ctx, { title: 'Latency', datasourceId: 'prom' });
     // Force a validated query into evidence WITHOUT a discover call.
     ctx.dashboardBuildEvidence.validatedQueries.add('up');

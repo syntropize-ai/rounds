@@ -1,5 +1,5 @@
 /**
- * Thin wrappers over /api/ops/connectors for tests that need to spin up
+ * Thin wrappers over /api/connectors for tests that need to spin up
  * scoped connectors and tear them down. Reuses the SA token via
  * api-client.ts.
  */
@@ -30,13 +30,13 @@ export async function createConnector(
   };
   if (opts.manual) body['manual'] = opts.manual;
   if (opts.secret) body['secret'] = opts.secret;
-  const created = await apiPost<CreateConnectorResponse>('/api/ops/connectors', body);
+  const created = await apiPost<CreateConnectorResponse>('/api/connectors', body);
   return created.connector;
 }
 
 export async function deleteConnector(id: string): Promise<void> {
   try {
-    await apiDelete(`/api/ops/connectors/${id}`);
+    await apiDelete(`/api/connectors/${id}`);
   } catch {
     /* best effort */
   }

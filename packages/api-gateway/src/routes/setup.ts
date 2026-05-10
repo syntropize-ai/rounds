@@ -3,12 +3,11 @@
  *
  * Pre-W2 this router owned `inMemoryConfig` + read/write of
  * `<DATA_DIR>/setup-config.json`. That whole layer is deleted — LLM /
- * datasources / notifications now live in SQLite (see migration 019)
+ * connectors / notifications now live in SQLite
  * and go through `SetupConfigService`.
  *
  * After T2.5 the save endpoints moved out of `/api/setup/*`:
- *   - `POST /api/setup/datasource` (save)             → POST /api/datasources
- *   - `DELETE /api/setup/datasource/:id`              → DELETE /api/datasources/:id
+ *   - connector saves                                → /api/connectors
  *   - `POST /api/setup/llm` (save)                    → PUT /api/system/llm
  *   - `POST /api/setup/notifications` (save)          → PUT /api/system/notifications
  *
@@ -206,7 +205,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
         configured,
         hasAdmin: status.hasAdmin,
         hasLLM: status.hasLLM,
-        datasourceCount: status.datasourceCount,
+        connectorCount: status.connectorCount,
         hasNotifications: status.hasNotifications,
         bootstrappedAt: status.bootstrappedAt,
         configuredAt,
@@ -269,14 +268,14 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
   // GET /api/setup/config — returns current config (secrets masked).
   router.get('/config', requireConfigRead, async (_req: Request, res: Response) => {
     try {
-      const [llm, datasources, notifications] = await Promise.all([
+      const [llm, connectors, notifications] = await Promise.all([
         setupConfig.getLlm({ masked: true }),
-        setupConfig.listDatasources({ orgId: 'org_main', masked: true }),
+        setupConfig.listConnectors({ orgId: 'org_main' }),
         readNotificationsAsDto(setupConfig),
       ]);
       res.json({
         llm: llm ?? undefined,
-        datasources,
+        connectors,
         notifications,
       });
     } catch (err) {
@@ -336,12 +335,12 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
     res.json({ models });
   });
 
-  // Save endpoints for datasources / notifications / llm moved to
-  // `/api/datasources`, `/api/system/notifications`, and `/api/system/llm`
+  // Save endpoints for connectors / notifications / llm moved to
+  // `/api/connectors`, `/api/system/notifications`, and `/api/system/llm`
   // respectively in T2.5. All three are bootstrap-aware so the wizard
   // can still hit them pre-first-admin.
 
-  // POST /api/setup/reset — dev utility. Clears LLM + all datasources +
+  // POST /api/setup/reset — dev utility. Clears LLM + connector config +
   // notifications. Leaves `bootstrapped_at` in place so the gate doesn't
   // reopen. Post-bootstrap this requires `instance.config:write` (Admin+);
   // pre-bootstrap the outer `requireSetupAccess` middleware lets the wizard
@@ -351,9 +350,9 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
     requirePermission(() => ac.eval(ACTIONS.InstanceConfigWrite)),
     async (_req: Request, res: Response) => {
       await setupConfig.clearLlm({ userId: null });
-      const datasources = await setupConfig.listDatasources({ orgId: 'org_main' });
-      for (const ds of datasources) {
-        await setupConfig.deleteDatasource(ds.id, { userId: null, orgId: ds.orgId });
+      const connectors = await setupConfig.listConnectors({ orgId: 'org_main' });
+      for (const connector of connectors) {
+        await setupConfig.deleteConnector(connector.id, { userId: null, orgId: connector.orgId });
       }
       const channels = await setupConfig.listNotificationChannels();
       for (const c of channels) {

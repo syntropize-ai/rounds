@@ -12,7 +12,7 @@ import type { ActionExecutor } from './action-executor.js';
 import type { AgentEvent } from './agent-events.js';
 import type { ActionContext } from './orchestrator-action-handlers.js';
 import type {
-  DatasourceConfig,
+  ConnectorConfig,
   OpsCommandRunner,
   OpsConnectorConfig,
   ApprovalRequestStore,
@@ -37,16 +37,16 @@ export interface OrchestratorActionContextDeps {
   folderRepository?: IFolderRepository;
   adapters: AdapterRegistry;
   webSearchAdapter?: IWebSearchAdapter;
-  allDatasources?: DatasourceConfig[];
-  /** Per-session datasource pins; chat-service owns the lifecycle. */
-  sessionDatasourcePins?: Record<string, string>;
+  allConnectors?: ConnectorConfig[];
+  /** Per-session connector pins; chat-service owns the lifecycle. */
+  sessionConnectorPins?: Record<string, string>;
   opsCommandRunner?: OpsCommandRunner;
   opsConnectors?: OpsConnectorConfig[];
   /** P4 — when present, registers `remediation_plan.create` + `.create_rescue` tools. */
   remediationPlans?: RemediationPlanStore;
   /** P4 — used to auto-emit a plan-level ApprovalRequest on plan creation. */
   approvalRequests?: ApprovalRequestStore;
-  /** Task 07 — AI-first configuration tools (datasource / connector / settings). */
+  /** Connector-model setup and allowlisted settings tools. */
   configService?: AgentConfigService;
   sendEvent: (event: DashboardSseEvent) => void;
   identity: Identity;
@@ -92,8 +92,8 @@ export function buildActionContext(
     folderRepository: deps.folderRepository,
     adapters: deps.adapters,
     webSearchAdapter: deps.webSearchAdapter,
-    allDatasources: deps.allDatasources,
-    sessionDatasourcePins: deps.sessionDatasourcePins,
+    allConnectors: deps.allConnectors,
+    sessionConnectorPins: deps.sessionConnectorPins,
     opsCommandRunner: deps.opsCommandRunner,
     opsConnectors: deps.opsConnectors,
     remediationPlans: deps.remediationPlans,

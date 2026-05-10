@@ -18,7 +18,7 @@
 import type { IFolderRepository } from '@agentic-obs/common';
 import { buildDashboardsResolver } from './dashboards.js';
 import { buildFoldersResolver } from './folders.js';
-import { buildDatasourcesResolver } from './datasources.js';
+import { buildConnectorsResolver } from './connectors.js';
 import { buildUsersResolver } from './users.js';
 import { buildTeamsResolver } from './teams.js';
 import { buildServiceAccountsResolver } from './serviceaccounts.js';
@@ -59,7 +59,7 @@ export interface ResolverDeps {
 export function createResolverRegistry(deps: ResolverDeps): ResolverRegistry {
   const dashboards = buildDashboardsResolver(deps);
   const folders = buildFoldersResolver(deps);
-  const datasources = buildDatasourcesResolver(deps);
+  const connectors = buildConnectorsResolver(deps);
   const users = buildUsersResolver(deps);
   const teams = buildTeamsResolver(deps);
   const sa = buildServiceAccountsResolver(deps);
@@ -68,7 +68,7 @@ export function createResolverRegistry(deps: ResolverDeps): ResolverRegistry {
   const byKind: Record<string, ScopeResolver> = {
     dashboards,
     folders,
-    datasources,
+    connectors,
     users,
     teams,
     serviceaccounts: sa,
@@ -91,7 +91,7 @@ export function createResolverRegistry(deps: ResolverDeps): ResolverRegistry {
 export {
   buildDashboardsResolver,
   buildFoldersResolver,
-  buildDatasourcesResolver,
+  buildConnectorsResolver,
   buildUsersResolver,
   buildTeamsResolver,
   buildServiceAccountsResolver,

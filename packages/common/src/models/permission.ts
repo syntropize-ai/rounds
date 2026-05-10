@@ -23,7 +23,7 @@ export const PermissionLevel = {
 export type PermissionLevel = (typeof PermissionLevel)[keyof typeof PermissionLevel];
 
 /** Resource kinds that support per-resource permissions. */
-export type ResourceKind = 'folders' | 'dashboards' | 'datasources' | 'alert.rules';
+export type ResourceKind = 'folders' | 'dashboards' | 'connectors' | 'alert.rules';
 
 /** Built-in role names usable as permission principals. */
 export type BuiltInRoleName = 'Admin' | 'Editor' | 'Viewer';
@@ -91,7 +91,7 @@ export function actionsForLevel(
   const viewActions: Record<ResourceKind, string[]> = {
     folders: ['folders:read', 'dashboards:read', 'alert.rules:read'],
     dashboards: ['dashboards:read'],
-    datasources: ['datasources:query'],
+    connectors: ['connectors:query'],
     'alert.rules': ['alert.rules:read'],
   };
   const editActions: Record<ResourceKind, string[]> = {
@@ -106,7 +106,7 @@ export function actionsForLevel(
       'alert.rules:delete',
     ],
     dashboards: ['dashboards:write', 'dashboards:delete'],
-    datasources: ['datasources:write'],
+    connectors: ['connectors:write'],
     'alert.rules': ['alert.rules:write', 'alert.rules:create', 'alert.rules:delete'],
   };
   const adminActions: Record<ResourceKind, string[]> = {
@@ -117,7 +117,7 @@ export function actionsForLevel(
       'dashboards.permissions:write',
     ],
     dashboards: ['dashboards.permissions:read', 'dashboards.permissions:write'],
-    datasources: ['datasources.permissions:read', 'datasources.permissions:write'],
+    connectors: ['connectors.permissions:read', 'connectors.permissions:write'],
     'alert.rules': ['alert.rules.permissions:read', 'alert.rules.permissions:write'],
   };
 

@@ -39,9 +39,9 @@ export interface LlmConfig {
   apiFormat: LlmApiFormat;
 }
 
-export interface DatasourceEntry {
+export interface ConnectorEntry {
   // Stable id generated once per entry (on form open) and preserved across
-  // edits. New rows POST to `/datasources`; edits PUT `/datasources/:id`.
+  // edits. New rows POST to `/connectors`; edits PUT `/connectors/:id`.
   id: string;
   type: string;
   name: string;
@@ -140,4 +140,4 @@ export const LLM_PROVIDERS: Array<{
 // with the Settings page so the setup wizard and post-setup editor render
 // the same picker.
 
-export const STEPS = ['Welcome', 'Administrator', 'LLM Provider', 'Data Sources', 'Notifications', 'Ready'];
+export const STEPS = ['Welcome', 'Administrator', 'LLM Provider', 'Connectors', 'Notifications', 'Ready'];

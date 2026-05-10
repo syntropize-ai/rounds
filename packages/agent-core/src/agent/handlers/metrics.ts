@@ -6,13 +6,13 @@ import type { ActionContext } from './_context.js';
 // ---------------------------------------------------------------------------
 
 function unknownMetricsSource(sourceId: string): string {
-  return `Error: unknown metrics datasource '${sourceId}'. Call datasources_list to see available sources.`;
+  return `Error: unknown metrics connector '${sourceId}'. Call connectors_list to see available sources.`;
 }
 
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call connectors_list to see available sources.';
   const adapter = ctx.adapters.metrics(sourceId);
   if (!adapter) return unknownMetricsSource(sourceId);
   const expr = String(args.query ?? args.expr ?? '');
@@ -44,7 +44,7 @@ export async function handleMetricsQuery(ctx: ActionContext, args: Record<string
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call connectors_list to see available sources.';
   const adapter = ctx.adapters.metrics(sourceId);
   if (!adapter) return unknownMetricsSource(sourceId);
   const expr = String(args.query ?? args.expr ?? '');
@@ -172,7 +172,7 @@ export async function handleMetricsDiscover(
 ): Promise<string> {
   const sourceId = typeof args.sourceId === 'string' ? args.sourceId : '';
   if (!sourceId) {
-    return 'Error: metrics_discover requires "sourceId". Call datasources_list to see available sources.';
+    return 'Error: metrics_discover requires "sourceId". Call connectors_list to see available sources.';
   }
 
   const kindRaw = typeof args.kind === 'string' ? args.kind : '';
@@ -287,7 +287,7 @@ export async function handleMetricsDiscover(
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsValidate(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
-  if (!sourceId) return 'Error: "sourceId" is required. Call datasources_list to see available sources.';
+  if (!sourceId) return 'Error: "sourceId" is required. Call connectors_list to see available sources.';
   const adapter = ctx.adapters.metrics(sourceId);
   if (!adapter) return unknownMetricsSource(sourceId);
   const expr = String(args.query ?? args.expr ?? '');

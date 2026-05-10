@@ -1,12 +1,11 @@
 /**
- * Repository interfaces for instance-scoped config (Wave 2 / T2.2).
+ * Repository interfaces for instance-scoped config.
  *
  * Implementations live in `packages/data-layer/src/repository/sqlite/`:
  *   - instance-config.ts       (InstanceConfigRepository)
- *   - datasource.ts            (DatasourceRepository)
  *   - notification-channel.ts  (NotificationChannelRepository)
  *
- * Secret fields (api_key, password, notification secrets) are encrypted
+ * Secret fields (api_key, notification secrets) are encrypted
  * on write and decrypted on read by the repository using AES-256-GCM
  * with SECRET_KEY from env. Callers pass `{ masked: true }` to receive
  * redacted values suitable for UI (e.g. "••••••abcd").
@@ -15,9 +14,6 @@
 import type {
   InstanceLlmConfig,
   NewInstanceLlmConfig,
-  InstanceDatasource,
-  NewInstanceDatasource,
-  InstanceDatasourcePatch,
   NotificationChannel,
   NewNotificationChannel,
   NotificationChannelPatch,
@@ -51,25 +47,6 @@ export interface IInstanceConfigRepository {
   setSetting(key: string, value: string): Promise<void>;
   /** Delete a key from instance_settings. Returns true if a row was deleted. */
   deleteSetting(key: string): Promise<boolean>;
-}
-
-// -- DatasourceRepository ---------------------------------------------
-
-export interface DatasourceLookupOptions extends MaskOptions {
-  orgId: string;
-}
-
-export interface ListDatasourcesOptions extends DatasourceLookupOptions {
-  type?: string;
-}
-
-export interface IDatasourceRepository {
-  list(opts: ListDatasourcesOptions): Promise<InstanceDatasource[]>;
-  get(id: string, opts: DatasourceLookupOptions): Promise<InstanceDatasource | null>;
-  create(input: NewInstanceDatasource): Promise<InstanceDatasource>;
-  update(id: string, patch: InstanceDatasourcePatch, orgId: string): Promise<InstanceDatasource | null>;
-  delete(id: string, orgId: string): Promise<boolean>;
-  count(orgId: string): Promise<number>;
 }
 
 // -- NotificationChannelRepository ------------------------------------

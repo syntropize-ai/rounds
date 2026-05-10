@@ -47,7 +47,7 @@ function fakeRepo(): IAlertRuleRepository {
 
 function fakeSetupConfig(): SetupConfigService {
   return {
-    listDatasources: async () => [],
+    listConnectors: async () => [],
     getLlm: async () => null,
   } as unknown as SetupConfigService;
 }

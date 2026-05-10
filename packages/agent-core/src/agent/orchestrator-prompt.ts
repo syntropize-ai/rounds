@@ -1,6 +1,6 @@
 import type { Dashboard, DashboardMessage, Identity } from '@agentic-obs/common'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
-import type { DatasourceConfig, OpsConnectorConfig } from './types.js'
+import type { ConnectorConfig, OpsConnectorConfig } from './types.js'
 import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
 
 /**
@@ -8,7 +8,7 @@ import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
  * from session-dynamic content. Everything emitted BEFORE this marker in
  * the prompt array is identical for every user/session in the org and
  * can be cached server-side. Everything AFTER contains session-specific
- * data (current dashboard, alert history, datasource list, ...) and must
+ * data (current dashboard, alert history, connector list, ...) and must
  * not be part of a shared cache key.
  *
  * Consumers in @agentic-obs/llm-gateway use this marker to set a
@@ -49,7 +49,7 @@ Requests fall into four shapes: build something (dashboard / alert), investigate
 
 ## Decision flow before any tool call
 1. **Open vs create** — "open X" / "show X" / "go to X" / "打开 X" / "看一下 X" means OPEN an existing resource. List first (dashboard_list / investigation_list / alert_rule_list) with a filter keyword, then navigate. Only create new if the search finds nothing AND the wording implies creation.
-2. **Which datasource** — every metrics/logs/changes call requires an explicit \`sourceId\`. Call \`datasources_list\` first. If multiple same-signal sources exist and the user's intent is ambiguous, ask which one before querying.
+2. **Which connector** — every metrics/logs/changes call requires an explicit \`sourceId\`. Call \`connectors_list\` first. If multiple same-signal connectors exist and the user's intent is ambiguous, ask which one before querying.
 3. **Ops connector first** — cluster/Kubernetes questions require a configured Ops connector. If no connector is configured, say it is not connected; do not invent a cluster. Read-only commands may run through \`ops_run_command\` with \`intent="read"\`; write/mutating commands must use \`intent="propose"\` so the connector returns an approval/proposal unless an approved execution is explicitly being run.
 4. **Read before mutate** — mutation tools (dashboard_create / add_panels / modify_panel / alert_rule_write / investigation_add_section) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, discover/query/validate the metric and pass a complete structured \`spec\`; alert_rule_write does not generate the rule for you.
 5. **Validate before adding panels** — panel queries must go through \`metrics_validate\` before \`dashboard_add_panels\`. Exception: pre-deployment dashboards (metrics don't exist yet) — skip validation, use web-researched naming conventions.
@@ -117,12 +117,14 @@ Carefully consider the reversibility and blast radius of each tool call before i
 - \`dashboard_remove_panels\` on a shared dashboard — other operators are looking at it.
 - \`dashboard_modify_panel\` that changes a query semantically (e.g. p95 → p50, different metric name) on a panel multiple users rely on.
 
-## AI-first configuration
-The user can configure datasources / ops connectors / low-risk org settings through chat instead of the Settings UI:
-- \`datasource_configure\` — create or update a metrics/logs datasource and probe its connection. NEVER pass raw credentials; pass an opaque \`secretRef\` from Settings → Secrets. If credentials are required and missing, the tool returns a \`needs_credential\` outcome with a UI link — surface that link verbatim to the user.
-- \`ops_connector_configure\` — create or update a Kubernetes connector and probe it. Same credential rules as above.
-- \`system_setting_configure\` — change a low-risk org default. STRICT allowlist: only \`default_alert_folder_uid\` and \`default_dashboard_folder_uid\`. For any permission/role/credential change, tell the user it must be done from Settings UI.
-The manual Settings UI is unaffected — these tools are an additive shortcut for users who prefer chat.
+## Connector setup
+The user can set up connectors and a small allowlisted settings surface through chat:
+- \`connector_list\` — list configured connectors by category, capability, or status.
+- \`connector_template_list\` — inspect available connector templates and required fields before proposing one.
+- \`connector_detect\` — look for likely connector candidates. This does not persist anything.
+- \`connector_propose\` → \`connector_apply\` → \`connector_test\` — create a connector draft, persist it, then verify it. NEVER pass raw credentials, tokens, passwords, or kubeconfigs; secrets are captured in Settings → Connectors through the connector secret endpoint after a connector exists.
+- \`setting_get\` / \`setting_set\` — read or update only allowlisted settings: \`default_alert_folder_uid\`, \`default_dashboard_folder_uid\`, \`notification_default_channel\`, and \`auto_investigation_enabled\`.
+Org, team, role, security, and credential settings are not agent-configurable; tell the user to use Admin Center for those.
 
 ## Default to proposing a plan when the investigation finds an actionable fix
 When an investigation identifies a concrete root cause AND the fix is expressible as one or more kubectl commands AND an attached ops connector covers the target namespace: DEFAULT to calling \`remediation_plan_create\` after \`investigation_complete\`. The plan is a proposal, not an action — humans gate execution. Skip the plan only when (a) the user explicitly asked you to stop after diagnosis, (b) the fix needs credentials the configured connector lacks, or (c) the right next step isn't kubectl-shaped (data migration, code change, ask upstream).`
@@ -136,7 +138,7 @@ Each example shows a representative tool-call flow. Tool input/output is shown a
 ## Creating a Dashboard (metrics exist)
 <example>
 User: "Create a dashboard for HTTP monitoring"
-  1. datasources_list(signalType: "metrics") → id: prom-prod
+  1. connectors_list(signalType: "metrics") → id: prom-prod
   2. web_search(query: "http service monitoring RED method")
   3. metrics_discover(sourceId: "prom-prod", kind: "names", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
   4. metrics_discover(sourceId: "prom-prod", kind: "metadata", metric: "http_requests_total") → counter
@@ -158,7 +160,7 @@ User: "Create a monitoring dashboard for our new Redis deployment"
 ## Explaining / Analyzing Panel Data
 <example>
 User: "Analyze the request rate by handler data"
-  1. datasources_list(signalType: "metrics") → id: prom-prod
+  1. connectors_list(signalType: "metrics") → id: prom-prod
   2. metrics_query(sourceId: "prom-prod", query: "topk(5, sum(rate(http_requests_total[5m])) by (handler))")
      → /api/v1/query: 2.3, /api/v1/label: 1.1, /metrics: 0.8, ...
   3. final reply (plain text): "Top 5 handlers by traffic: /api/v1/query — 2.3 req/s (32%), /api/v1/label — 1.1 req/s (15%), /metrics — 0.8 req/s (11%). Traffic stable, no anomalies."
@@ -213,7 +215,7 @@ If the \`# Ops Integrations\` section above lists a connector, use \`ops_run_com
 
 <example>
 User: "Why is p99 latency so high?"
-  1. datasources_list(signalType: "metrics") → id: prom-prod
+  1. connectors_list(signalType: "metrics") → id: prom-prod
   2. investigation_create(question: "Why is p99 latency high?") → inv-789
   3. metrics_query(p99) → 99ms; metrics_query(p50) → 50ms
   4. investigation_add_section(type: "text", content: "## Symptom\n\np99 is sitting at 99ms vs ~50ms p50 — about 2× the median, sustained over the last hour. Worth chasing.")
@@ -430,14 +432,14 @@ function getHistorySection(history: DashboardMessage[]): string {
   return `\n# Recent Conversation\n${history.slice(-10).map((m) => `- ${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n')}`
 }
 
-function getDatasourceSection(allDatasources: DatasourceConfig[]): string {
-  if (allDatasources.length === 0) return ''
+function getConnectorSection(allConnectors: ConnectorConfig[]): string {
+  if (allConnectors.length === 0) return ''
   // Expose `sourceId` explicitly — the name field (e.g. "demo") looks like
   // an id to the model and leads to a two-step recovery where the first
-  // tool call fails with "unknown datasource 'demo'" before the model calls
-  // datasources_list to get the real UUID. Putting id front-and-center
+  // tool call fails with "unknown connector 'demo'" before the model calls
+  // connectors_list to get the real UUID. Putting id front-and-center
   // saves those two steps.
-  return `\n# Datasources\n${allDatasources.map((d) =>
+  return `\n# Connectors\n${allConnectors.map((d) =>
     `- sourceId="${d.id}" name="${d.name}" type=${d.type}${d.environment ? ` env=${d.environment}` : ''}${d.isDefault ? ' DEFAULT' : ''}`).join('\n')}`
 }
 
@@ -570,7 +572,7 @@ export function buildSystemPrompt(
   history: DashboardMessage[],
   alertRules: AlertRuleSummary[],
   activeAlertRule: AlertRuleSummary | null,
-  allDatasources: DatasourceConfig[],
+  allConnectors: ConnectorConfig[],
   options?: SystemPromptOptions,
 ): string {
   // hasMetrics / hasPrometheus is no longer consulted at prompt build time —
@@ -601,7 +603,7 @@ export function buildSystemPrompt(
   const dynamicSections = [
     dashboard ? getDashboardContextSection(dashboard, options?.timeRange) : getSessionModeSection(),
     getHistorySection(history),
-    getDatasourceSection(allDatasources),
+    getConnectorSection(allConnectors),
     getOpsConnectorSection(options?.opsConnectors),
     getAlertRulesSection(alertRules, activeAlertRule, history),
   ]

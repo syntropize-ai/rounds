@@ -35,9 +35,9 @@ describe('resolver registry', () => {
     expect(out).toContain('folders:*');
   });
 
-  it('datasources / users / teams / serviceaccounts resolve with wildcards', async () => {
+  it('connectors / users / teams / serviceaccounts resolve with wildcards', async () => {
     const reg = createResolverRegistry({ orgId: 'org_main' });
-    expect(await reg.resolve('datasources:uid:p')).toContain('datasources:*');
+    expect(await reg.resolve('connectors:uid:p')).toContain('connectors:*');
     expect(await reg.resolve('users:id:u1')).toContain('users:*');
     expect(await reg.resolve('teams:id:t1')).toContain('teams:*');
     expect(await reg.resolve('serviceaccounts:id:s1')).toContain(

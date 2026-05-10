@@ -285,23 +285,23 @@ describe('ResourcePermissionService — cascade for dashboards', () => {
   });
 });
 
-describe('ResourcePermissionService — datasources + alert.rules', () => {
+describe('ResourcePermissionService — connectors + alert.rules', () => {
   let db: SqliteClient;
   beforeEach(() => {
     db = createTestDb();
   });
 
-  it('datasource View expands to datasources:query', async () => {
+  it('connector View expands to connectors:query', async () => {
     const { svc, users, orgUsers } = await makeCtx(db);
     const userId = await seedUser(users, orgUsers, 'ida');
-    await svc.setBulk('org_main', 'datasources', 'prom-prod', [
+    await svc.setBulk('org_main', 'connectors', 'prom-prod', [
       { userId, permission: PermissionLevel.View },
     ]);
-    const entries = await svc.list('org_main', 'datasources', 'prom-prod');
-    expect(entries[0]!.actions).toContain('datasources:query');
+    const entries = await svc.list('org_main', 'connectors', 'prom-prod');
+    expect(entries[0]!.actions).toContain('connectors:query');
   });
 
-  it('datasources have no folder cascade', async () => {
+  it('connectors have no folder cascade', async () => {
     const { svc, users, orgUsers, folders } = await makeCtx(db);
     const f = await folders.create({
       orgId: 'org_main',
@@ -312,8 +312,8 @@ describe('ResourcePermissionService — datasources + alert.rules', () => {
     await svc.setBulk('org_main', 'folders', f.uid, [
       { userId, permission: PermissionLevel.Admin },
     ]);
-    // Datasource grants are flat — folder perms do not cascade in the list.
-    const entries = await svc.list('org_main', 'datasources', 'some-ds');
+    // Connector grants are flat — folder perms do not cascade in the list.
+    const entries = await svc.list('org_main', 'connectors', 'some-connector');
     expect(entries).toHaveLength(0);
   });
 

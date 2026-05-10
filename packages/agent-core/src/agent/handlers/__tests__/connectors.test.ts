@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  handleDatasourcesSuggest,
-  handleDatasourcesPin,
-  handleDatasourcesUnpin,
-} from '../datasources.js';
+  handleConnectorsSuggest,
+  handleConnectorsPin,
+  handleConnectorsUnpin,
+} from '../connectors.js';
 import { makeFakeActionContext } from '../_test-helpers.js';
 import { AdapterRegistry } from '../../../adapters/registry.js';
-import type { DatasourceConfig } from '../../types.js';
+import type { ConnectorConfig } from '../../types.js';
 
-interface DatasourceFixture {
+interface ConnectorFixture {
   id: string;
   name: string;
   type: string;
@@ -17,7 +17,7 @@ interface DatasourceFixture {
   cluster?: string;
 }
 
-function makeRegistryFromFixtures(fixtures: DatasourceFixture[]): AdapterRegistry {
+function makeRegistryFromFixtures(fixtures: ConnectorFixture[]): AdapterRegistry {
   const reg = new AdapterRegistry();
   for (const f of fixtures) {
     reg.register({
@@ -33,7 +33,7 @@ function makeRegistryFromFixtures(fixtures: DatasourceFixture[]): AdapterRegistr
   return reg;
 }
 
-function fixturesToConfigs(fixtures: DatasourceFixture[]): DatasourceConfig[] {
+function fixturesToConfigs(fixtures: ConnectorFixture[]): ConnectorConfig[] {
   return fixtures.map((f) => ({
     id: f.id,
     name: f.name,
@@ -45,20 +45,20 @@ function fixturesToConfigs(fixtures: DatasourceFixture[]): DatasourceConfig[] {
   }));
 }
 
-function ctxWith(fixtures: DatasourceFixture[]) {
+function ctxWith(fixtures: ConnectorFixture[]) {
   return makeFakeActionContext({
     adapters: makeRegistryFromFixtures(fixtures),
-    allDatasources: fixturesToConfigs(fixtures),
+    allConnectors: fixturesToConfigs(fixtures),
   });
 }
 
-describe('handleDatasourcesSuggest — decision pyramid', () => {
+describe('handleConnectorsSuggest — decision pyramid', () => {
   it('layer 1: matches a name substring in userIntent → high confidence', async () => {
     const ctx = ctxWith([
       { id: 'ds-prod', name: 'prod-prom', type: 'prometheus', isDefault: true },
       { id: 'ds-stage', name: 'stage-prom', type: 'prometheus' },
     ]);
-    const raw = await handleDatasourcesSuggest(ctx, {
+    const raw = await handleConnectorsSuggest(ctx, {
       userIntent: 'p99 latency on stage-prom please',
     });
     const out = JSON.parse(raw);
@@ -73,19 +73,19 @@ describe('handleDatasourcesSuggest — decision pyramid', () => {
       { id: 'b', name: 'beta', type: 'prometheus', environment: 'production', isDefault: true },
     ]);
     const out = JSON.parse(
-      await handleDatasourcesSuggest(ctx, { userIntent: 'show staging errors' }),
+      await handleConnectorsSuggest(ctx, { userIntent: 'show staging errors' }),
     );
     expect(out.recommendedId).toBe('a');
     expect(out.confidence).toBe('high');
   });
 
-  it('layer 2: no hint → falls back to the default datasource (medium)', async () => {
+  it('layer 2: no hint -> falls back to the default connector (medium)', async () => {
     const ctx = ctxWith([
       { id: 'ds-prod', name: 'prod-prom', type: 'prometheus', isDefault: true },
       { id: 'ds-stage', name: 'stage-prom', type: 'prometheus' },
     ]);
     const out = JSON.parse(
-      await handleDatasourcesSuggest(ctx, { userIntent: 'cpu usage trend' }),
+      await handleConnectorsSuggest(ctx, { userIntent: 'cpu usage trend' }),
     );
     expect(out.recommendedId).toBe('ds-prod');
     expect(out.confidence).toBe('medium');
@@ -97,7 +97,7 @@ describe('handleDatasourcesSuggest — decision pyramid', () => {
       { id: 'ds-b', name: 'beta', type: 'prometheus' },
     ]);
     const out = JSON.parse(
-      await handleDatasourcesSuggest(ctx, { userIntent: 'show me cpu usage' }),
+      await handleConnectorsSuggest(ctx, { userIntent: 'show me cpu usage' }),
     );
     expect(out.recommendedId).toBeNull();
     expect(out.confidence).toBe('low');
@@ -108,7 +108,7 @@ describe('handleDatasourcesSuggest — decision pyramid', () => {
   it('single candidate, no default, no hint → low confidence picked-first fallback', async () => {
     const ctx = ctxWith([{ id: 'only', name: 'only-prom', type: 'prometheus' }]);
     const out = JSON.parse(
-      await handleDatasourcesSuggest(ctx, { userIntent: 'whatever' }),
+      await handleConnectorsSuggest(ctx, { userIntent: 'whatever' }),
     );
     expect(out.recommendedId).toBe('only');
     expect(out.confidence).toBe('low');
@@ -121,16 +121,16 @@ describe('handleDatasourcesSuggest — decision pyramid', () => {
       { id: 'ds-loki', name: 'loki', type: 'loki' },
     ]);
     const out = JSON.parse(
-      await handleDatasourcesSuggest(ctx, { userIntent: 'errors', type: 'loki' }),
+      await handleConnectorsSuggest(ctx, { userIntent: 'errors', type: 'loki' }),
     );
     expect(out.recommendedId).toBe('ds-loki');
     expect(out.confidence).toBe('low'); // single candidate, no default in the filtered set
   });
 
-  it('returns an empty result when no datasources match', async () => {
+  it('returns an empty result when no connectors match', async () => {
     const ctx = ctxWith([]);
     const out = JSON.parse(
-      await handleDatasourcesSuggest(ctx, { userIntent: 'cpu' }),
+      await handleConnectorsSuggest(ctx, { userIntent: 'cpu' }),
     );
     expect(out.recommendedId).toBeNull();
     expect(out.alternatives).toEqual([]);
@@ -138,34 +138,34 @@ describe('handleDatasourcesSuggest — decision pyramid', () => {
 
   it('emits a tool_call and tool_result via withToolEventBoundary', async () => {
     const ctx = ctxWith([{ id: 'only', name: 'only-prom', type: 'prometheus', isDefault: true }]);
-    await handleDatasourcesSuggest(ctx, { userIntent: 'cpu' });
+    await handleConnectorsSuggest(ctx, { userIntent: 'cpu' });
     const tools = ctx.sendEvent.mock.calls.map((c) => c[0]);
-    expect(tools[0]).toMatchObject({ type: 'tool_call', tool: 'datasources_suggest' });
-    expect(tools.at(-1)).toMatchObject({ type: 'tool_result', tool: 'datasources_suggest', success: true });
+    expect(tools[0]).toMatchObject({ type: 'tool_call', tool: 'connectors_suggest' });
+    expect(tools.at(-1)).toMatchObject({ type: 'tool_result', tool: 'connectors_suggest', success: true });
   });
 });
 
-describe('handleDatasourcesPin / handleDatasourcesUnpin', () => {
-  it('pin writes to ctx.sessionDatasourcePins under the type slot (defaulting to prometheus)', async () => {
+describe('handleConnectorsPin / handleConnectorsUnpin', () => {
+  it('pin writes to ctx.sessionConnectorPins under the type slot (defaulting to prometheus)', async () => {
     const ctx = ctxWith([{ id: 'ds-prod', name: 'prod', type: 'prometheus', isDefault: true }]);
-    const out = await handleDatasourcesPin(ctx, { datasourceId: 'ds-prod' });
-    expect(out).toMatch(/Pinned prometheus datasource to ds-prod/);
-    const bag = (ctx as unknown as { sessionDatasourcePins: Record<string, string> });
-    expect(bag.sessionDatasourcePins).toEqual({ prometheus: 'ds-prod' });
+    const out = await handleConnectorsPin(ctx, { connectorId: 'ds-prod' });
+    expect(out).toMatch(/Pinned prometheus connector to ds-prod/);
+    const bag = (ctx as unknown as { sessionConnectorPins: Record<string, string> });
+    expect(bag.sessionConnectorPins).toEqual({ prometheus: 'ds-prod' });
   });
 
-  it('pin requires datasourceId', async () => {
+  it('pin requires connectorId', async () => {
     const ctx = ctxWith([]);
-    const out = await handleDatasourcesPin(ctx, {});
+    const out = await handleConnectorsPin(ctx, {});
     expect(out).toMatch(/Error/);
   });
 
   it('unpin removes the slot and is idempotent', async () => {
     const ctx = ctxWith([]);
-    await handleDatasourcesPin(ctx, { datasourceId: 'ds-x', type: 'loki' });
-    const removed = await handleDatasourcesUnpin(ctx, { type: 'loki' });
-    expect(removed).toMatch(/Unpinned loki datasource/);
-    const again = await handleDatasourcesUnpin(ctx, { type: 'loki' });
-    expect(again).toMatch(/No loki datasource was pinned/);
+    await handleConnectorsPin(ctx, { connectorId: 'ds-x', type: 'loki' });
+    const removed = await handleConnectorsUnpin(ctx, { type: 'loki' });
+    expect(removed).toMatch(/Unpinned loki connector/);
+    const again = await handleConnectorsUnpin(ctx, { type: 'loki' });
+    expect(again).toMatch(/No loki connector was pinned/);
   });
 });

@@ -21,10 +21,9 @@ import type {
 import type { IInvestigationRepository as SqliteInvestigationRepositoryInterface } from './sqlite/investigation.js';
 import type {
   IInstanceConfigRepository,
-  IDatasourceRepository,
   INotificationChannelRepository,
 } from '@agentic-obs/common';
-import type { IOpsConnectorRepository } from './types/ops-connector.js';
+import type { IConnectorRepository } from './types/connector.js';
 import type {
   IGatewayInvestigationStore,
   IGatewayIncidentStore,
@@ -50,10 +49,8 @@ import { SqliteChatSessionContextRepository } from './sqlite/chat-session-contex
 import { SqliteChatMessageRepository } from './sqlite/chat-message.js';
 import { SqliteChatSessionEventRepository } from './sqlite/chat-session-event.js';
 import { InstanceConfigRepository } from './sqlite/instance-config.js';
-import { DatasourceRepository } from './sqlite/datasource.js';
 import { NotificationChannelRepository } from './sqlite/notification-channel.js';
-import { OpsConnectorRepository } from './sqlite/ops-connector.js';
-import { SqliteChangeSourceRepository } from './sqlite/change-source.js';
+import { SqliteConnectorRepository } from './sqlite/connector.js';
 import { PostgresInvestigationRepository } from './postgres/investigation.js';
 import { PostgresIncidentRepository } from './postgres/incident.js';
 import { PostgresFeedItemRepository } from './postgres/feed.js';
@@ -71,14 +68,11 @@ import { PostgresChatSessionContextRepository } from './postgres/chat-session-co
 import { PostgresChatMessageRepository } from './postgres/chat-message.js';
 import { PostgresChatSessionEventRepository } from './postgres/chat-session-event.js';
 import { PostgresInstanceConfigRepository } from './postgres/instance-config.js';
-import { PostgresDatasourceRepository } from './postgres/datasource.js';
 import { PostgresNotificationChannelRepository } from './postgres/notification-channel.js';
-import { PostgresOpsConnectorRepository } from './postgres/ops-connector.js';
-import { PostgresChangeSourceRepository } from './postgres/change-source.js';
+import { PostgresConnectorRepository } from './postgres/connector.js';
 import { SqliteRemediationPlanRepository } from './sqlite/remediation-plan.js';
 import { PostgresRemediationPlanRepository } from './postgres/remediation-plan.js';
 import type { IRemediationPlanRepository } from './types/remediation-plan.js';
-import type { IChangeSourceRepository } from './types/change-source.js';
 import type { INotificationDispatchRepository } from './types/notification-dispatch.js';
 import { SqliteNotificationDispatchRepository } from './sqlite/notification-dispatch.js';
 import { PostgresNotificationDispatchRepository } from './postgres/notification-dispatch.js';
@@ -114,10 +108,8 @@ export interface RepositoryBundle {
   chatSessionEvents: IChatSessionEventRepository;
   // W2 / T2.2 — instance-scoped config (replaces setup-config.json).
   instanceConfig: IInstanceConfigRepository;
-  datasources: IDatasourceRepository;
+  connectors: IConnectorRepository;
   notificationChannels: INotificationChannelRepository;
-  opsConnectors: IOpsConnectorRepository;
-  changeSources: IChangeSourceRepository;
   remediationPlans: IRemediationPlanRepository;
   notificationDispatch: INotificationDispatchRepository;
   llmAudit: ILlmAuditRepository;
@@ -142,10 +134,8 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     chatMessages: new SqliteChatMessageRepository(db),
     chatSessionEvents: new SqliteChatSessionEventRepository(db),
     instanceConfig: new InstanceConfigRepository(db),
-    datasources: new DatasourceRepository(db),
+    connectors: new SqliteConnectorRepository(db),
     notificationChannels: new NotificationChannelRepository(db),
-    opsConnectors: new OpsConnectorRepository(db),
-    changeSources: new SqliteChangeSourceRepository(db),
     remediationPlans: new SqliteRemediationPlanRepository(db),
     notificationDispatch: new SqliteNotificationDispatchRepository(db),
     llmAudit: new SqliteLlmAuditRepository(db),
@@ -172,10 +162,8 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     chatMessages: new PostgresChatMessageRepository(db),
     chatSessionEvents: new PostgresChatSessionEventRepository(db),
     instanceConfig: new PostgresInstanceConfigRepository(queryClient),
-    datasources: new PostgresDatasourceRepository(queryClient),
+    connectors: new PostgresConnectorRepository(queryClient),
     notificationChannels: new PostgresNotificationChannelRepository(queryClient),
-    opsConnectors: new PostgresOpsConnectorRepository(db),
-    changeSources: new PostgresChangeSourceRepository(queryClient),
     remediationPlans: new PostgresRemediationPlanRepository(db),
     notificationDispatch: new PostgresNotificationDispatchRepository(db),
     llmAudit: new PostgresLlmAuditRepository(db),

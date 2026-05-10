@@ -1,15 +1,29 @@
 import { useEffect, useState } from 'react';
 import { apiClient } from '../api/client.js';
-import type { InstanceDatasource } from '@agentic-obs/common';
+
+export interface InstanceDatasource {
+  id: string;
+  type: string;
+  name: string;
+  url?: string;
+  config?: { url?: string; label?: string; environment?: string; cluster?: string };
+  environment?: string;
+  cluster?: string;
+  label?: string;
+  isDefault?: boolean;
+  apiKey?: string;
+  username?: string;
+  password?: string;
+}
 
 /**
  * Shared id → InstanceDatasource lookup for panel headers and other UI that
  * needs to render a datasource's name without each component independently
- * fetching `/api/datasources`.
+ * fetching `/api/connectors`.
  *
  * Implementation: a single module-level promise dedupes the in-flight fetch
  * across N concurrent callers, and a `version` counter (bumped via the
- * `datasources:changed` window event) forces a refetch whenever Settings
+ * `connectors:changed` window event) forces a refetch whenever Settings
  * mutates the list.
  */
 
@@ -20,10 +34,18 @@ let cachedVersion = 0;
 function fetchOnce(): Promise<Map<string, InstanceDatasource>> {
   if (inflight) return inflight;
   inflight = (async () => {
-    const res = await apiClient.get<{ datasources: InstanceDatasource[] }>('/datasources');
+    const res = await apiClient.get<{ connectors: InstanceDatasource[] }>('/connectors');
     const map = new Map<string, InstanceDatasource>();
-    if (!res.error && res.data?.datasources) {
-      for (const ds of res.data.datasources) map.set(ds.id, ds);
+    if (!res.error && res.data?.connectors) {
+      for (const connector of res.data.connectors) {
+        map.set(connector.id, {
+          ...connector,
+          url: connector.url ?? connector.config?.url,
+          label: connector.label ?? connector.config?.label,
+          environment: connector.environment ?? connector.config?.environment,
+          cluster: connector.cluster ?? connector.config?.cluster,
+        });
+      }
     }
     cached = map;
     return map;
@@ -37,11 +59,11 @@ function fetchOnce(): Promise<Map<string, InstanceDatasource>> {
 
 /** Bump from Settings (or anywhere else that mutates datasources) so consumers
  *  reload their lookup. The hook also auto-listens for this internally. */
-export function notifyDatasourcesChanged(): void {
+export function notifyConnectorsChanged(): void {
   cachedVersion += 1;
   cached = null;
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('datasources:changed'));
+    window.dispatchEvent(new CustomEvent('connectors:changed'));
   }
 }
 
@@ -57,7 +79,7 @@ export function useDatasourceLookup(): Map<string, InstanceDatasource> {
 
     const onChange = () => {
       // Force a fresh fetch — the cache was already invalidated by
-      // notifyDatasourcesChanged, but a separate dispatcher (another tab,
+      // notifyConnectorsChanged, but a separate dispatcher (another tab,
       // future SSE) might fire the event without touching module state.
       cached = null;
       setTick((n) => n + 1);
@@ -65,10 +87,10 @@ export function useDatasourceLookup(): Map<string, InstanceDatasource> {
         if (alive) setMap(m);
       });
     };
-    window.addEventListener('datasources:changed', onChange);
+    window.addEventListener('connectors:changed', onChange);
     return () => {
       alive = false;
-      window.removeEventListener('datasources:changed', onChange);
+      window.removeEventListener('connectors:changed', onChange);
     };
   }, []);
 

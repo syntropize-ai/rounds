@@ -22,9 +22,9 @@ describe('permissions helpers — endpoint routing', () => {
       '/dashboards/uid/abc-xyz/permissions',
     );
   });
-  it('datasources → /datasources/:uid/permissions', () => {
-    expect(resolveListEndpoint('datasources', 'prom-prod')).toBe(
-      '/datasources/prom-prod/permissions',
+  it('connectors → /connectors/:uid/permissions', () => {
+    expect(resolveListEndpoint('connectors', 'prom-prod')).toBe(
+      '/connectors/prom-prod/permissions',
     );
   });
   it('alert.rules → /access-control/alert.rules/:uid/permissions', () => {

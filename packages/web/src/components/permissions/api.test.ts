@@ -65,7 +65,7 @@ describe('api.getResourcePermissions / setResourcePermissions', () => {
   const cases: Array<{ resource: ResourceKind; uid: string; expected: string }> = [
     { resource: 'folders', uid: 'f1', expected: '/api/folders/f1/permissions' },
     { resource: 'dashboards', uid: 'd1', expected: '/api/dashboards/uid/d1/permissions' },
-    { resource: 'datasources', uid: 'ds1', expected: '/api/datasources/ds1/permissions' },
+    { resource: 'connectors', uid: 'ds1', expected: '/api/connectors/ds1/permissions' },
     {
       resource: 'alert.rules',
       uid: 'fa1',

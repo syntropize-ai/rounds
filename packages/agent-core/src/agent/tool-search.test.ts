@@ -15,7 +15,7 @@ function def(name: string, description: string): ToolDefinition {
 }
 
 const REGISTRY: Record<string, ToolDefinition> = {
-  'metrics_query': def('metrics_query', 'Run an instant PromQL query against a metrics datasource.'),
+  'metrics_query': def('metrics_query', 'Run an instant PromQL query against a metrics connector.'),
   'metrics_range_query': def('metrics_range_query', 'Run a range PromQL query over a time window.'),
   'logs_query': def('logs_query', 'Run a logs query (LogQL for Loki) over an explicit window.'),
   'alert_rule_list': def('alert_rule_list', 'List existing alert rules. Pass a filter keyword.'),

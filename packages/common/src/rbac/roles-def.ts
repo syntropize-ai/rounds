@@ -51,9 +51,9 @@ const VIEWER_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.FoldersRead, scope: 'folders:*' },
   { action: ACTIONS.AnnotationsRead, scope: 'annotations:*' },
 
-  // Datasource discovery — explore mode only (read-only query).
-  { action: ACTIONS.DatasourcesExplore, scope: '' },
-  { action: ACTIONS.DatasourcesIdRead, scope: 'datasources:*' },
+  // Connector discovery — explore mode only (read-only query).
+  { action: ACTIONS.ConnectorsExplore, scope: '' },
+  { action: ACTIONS.ConnectorsIdRead, scope: 'connectors:*' },
 
   // Alert read-only (Grafana: Viewer can see alerts).
   { action: ACTIONS.AlertRulesRead, scope: 'folders:*' },
@@ -92,9 +92,9 @@ const EDITOR_ONLY_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.FoldersWrite, scope: 'folders:*' },
   { action: ACTIONS.FoldersDelete, scope: 'folders:*' },
 
-  // Datasource query (not read/write metadata).
-  { action: ACTIONS.DatasourcesQuery, scope: 'datasources:*' },
-  { action: ACTIONS.DatasourcesRead, scope: 'datasources:*' },
+  // Connector query (not read/write metadata).
+  { action: ACTIONS.ConnectorsQuery, scope: 'connectors:*' },
+  { action: ACTIONS.ConnectorsRead, scope: 'connectors:*' },
 
   // Annotation CRUD.
   { action: ACTIONS.AnnotationsWrite, scope: 'annotations:*' },
@@ -158,12 +158,12 @@ const ADMIN_ONLY_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.RolesWrite, scope: 'roles:*' },
   { action: ACTIONS.RolesDelete, scope: 'roles:*' },
 
-  // Datasource full CRUD within the org.
-  { action: ACTIONS.DatasourcesWrite, scope: 'datasources:*' },
-  { action: ACTIONS.DatasourcesCreate, scope: '' },
-  { action: ACTIONS.DatasourcesDelete, scope: 'datasources:*' },
-  { action: ACTIONS.DatasourcesPermissionsRead, scope: 'datasources:*' },
-  { action: ACTIONS.DatasourcesPermissionsWrite, scope: 'datasources:*' },
+  // Connector full CRUD within the org.
+  { action: ACTIONS.ConnectorsWrite, scope: 'connectors:*' },
+  { action: ACTIONS.ConnectorsCreate, scope: '' },
+  { action: ACTIONS.ConnectorsDelete, scope: 'connectors:*' },
+  { action: ACTIONS.ConnectorsPermissionsRead, scope: 'connectors:*' },
+  { action: ACTIONS.ConnectorsPermissionsWrite, scope: 'connectors:*' },
 
   // Folder & dashboard permission management.
   { action: ACTIONS.FoldersPermissionsRead, scope: 'folders:*' },
@@ -184,9 +184,9 @@ const ADMIN_ONLY_PERMISSIONS: BuiltinPermission[] = [
   // per user/team, not bundled with the Admin role.
   { action: ACTIONS.AgentsConfigRead, scope: '' },
   { action: ACTIONS.AgentsConfigWrite, scope: '' },
-  { action: ACTIONS.OpsConnectorsRead, scope: 'ops.connectors:*' },
-  { action: ACTIONS.OpsConnectorsWrite, scope: 'ops.connectors:*' },
-  { action: ACTIONS.OpsCommandsRun, scope: 'ops.connectors:*' },
+  { action: ACTIONS.ConnectorsRead, scope: 'connectors:*' },
+  { action: ACTIONS.ConnectorsWrite, scope: 'connectors:*' },
+  { action: ACTIONS.OpsCommandsRun, scope: 'connectors:*' },
   { action: ACTIONS.InstanceConfigRead, scope: '' },
   { action: ACTIONS.InstanceConfigWrite, scope: '' },
 ];

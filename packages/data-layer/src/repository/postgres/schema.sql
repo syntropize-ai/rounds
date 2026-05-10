@@ -340,7 +340,7 @@ CREATE TABLE IF NOT EXISTS folders (
 );
 
 -- ============================================================================
--- Instance config (LLM / datasources / notifications / KV)
+-- Instance config (LLM / notifications / KV)
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS instance_llm_config (
@@ -356,32 +356,6 @@ CREATE TABLE IF NOT EXISTS instance_llm_config (
   updated_at     TEXT NOT NULL,
   updated_by     TEXT NULL
 );
-
-CREATE TABLE IF NOT EXISTS instance_datasources (
-  id          TEXT PRIMARY KEY,
-  org_id      TEXT NOT NULL,
-  type        TEXT NOT NULL,
-  name        TEXT NOT NULL,
-  url         TEXT NOT NULL,
-  environment TEXT NULL,
-  cluster     TEXT NULL,
-  label       TEXT NULL,
-  is_default  INTEGER NOT NULL DEFAULT 0,
-  api_key     TEXT NULL,
-  username    TEXT NULL,
-  password    TEXT NULL,
-  created_at  TEXT NOT NULL,
-  updated_at  TEXT NOT NULL,
-  updated_by  TEXT NULL,
-  FOREIGN KEY (org_id) REFERENCES org(id) ON DELETE CASCADE
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_instance_datasources_org_name ON instance_datasources(org_id, name);
-CREATE INDEX        IF NOT EXISTS ix_instance_datasources_org_id   ON instance_datasources(org_id);
-CREATE INDEX        IF NOT EXISTS ix_instance_datasources_type     ON instance_datasources(type);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_instance_datasources_default
-  ON instance_datasources(org_id, type)
-  WHERE is_default = 1;
 
 CREATE TABLE IF NOT EXISTS notification_channels (
   id         TEXT PRIMARY KEY,
@@ -773,78 +747,62 @@ CREATE INDEX IF NOT EXISTS idx_notification_dispatch_lookup
   ON notification_dispatch (org_id, fingerprint, contact_point_id);
 
 -- ============================================================================
--- Ops connectors (Kubernetes etc.)
+-- Connectors
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS ops_connectors (
-  id                      TEXT PRIMARY KEY,
-  org_id                  TEXT NOT NULL,
-  type                    TEXT NOT NULL CHECK (type = 'kubernetes'),
-  name                    TEXT NOT NULL,
-  environment             TEXT NULL,
-  config_json             TEXT NOT NULL,
-  secret_ref              TEXT NULL,
-  encrypted_secret        TEXT NULL,
-  allowed_namespaces_json TEXT NOT NULL DEFAULT '[]',
-  capabilities_json       TEXT NOT NULL DEFAULT '[]',
-  status                  TEXT NOT NULL DEFAULT 'unknown',
-  last_checked_at         TEXT NULL,
-  created_at              TEXT NOT NULL,
-  updated_at              TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS connectors (
+  id                 TEXT PRIMARY KEY,
+  org_id             TEXT NOT NULL,
+  type               TEXT NOT NULL,
+  name               TEXT NOT NULL,
+  config             JSONB NOT NULL,
+  status             TEXT NOT NULL,
+  last_verified_at   TIMESTAMP NULL,
+  last_verify_error  TEXT NULL,
+  is_default         BOOLEAN NOT NULL DEFAULT FALSE,
+  created_by         TEXT NOT NULL,
+  created_at         TIMESTAMP NOT NULL,
+  updated_at         TIMESTAMP NOT NULL,
+  UNIQUE (org_id, type, name),
   FOREIGN KEY (org_id) REFERENCES org(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_ops_connectors_org_name ON ops_connectors(org_id, name);
-CREATE INDEX        IF NOT EXISTS ix_ops_connectors_org_id   ON ops_connectors(org_id);
-CREATE INDEX        IF NOT EXISTS ix_ops_connectors_org_type ON ops_connectors(org_id, type);
+CREATE INDEX IF NOT EXISTS ix_connectors_org_id ON connectors(org_id);
+CREATE INDEX IF NOT EXISTS ix_connectors_org_type ON connectors(org_id, type);
+CREATE INDEX IF NOT EXISTS ix_connectors_status ON connectors(status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_connectors_default
+  ON connectors(org_id, type)
+  WHERE is_default = TRUE;
 
--- ============================================================================
--- Change sources and events (GitHub deployments, releases, etc.)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS change_sources (
-  id               TEXT PRIMARY KEY,
-  org_id           TEXT NOT NULL,
-  type             TEXT NOT NULL CHECK (type = 'github'),
-  name             TEXT NOT NULL,
-  owner            TEXT NULL,
-  repo             TEXT NULL,
-  events_json      TEXT NOT NULL DEFAULT '[]',
-  encrypted_secret TEXT NULL,
-  active           BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at       TEXT NOT NULL,
-  updated_at       TEXT NOT NULL,
-  last_event_at    TEXT NULL,
-  FOREIGN KEY (org_id) REFERENCES org(id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS connector_capabilities (
+  connector_id TEXT NOT NULL,
+  capability   TEXT NOT NULL,
+  PRIMARY KEY (connector_id, capability),
+  FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_change_sources_org_name ON change_sources(org_id, name);
-CREATE INDEX        IF NOT EXISTS ix_change_sources_org_id   ON change_sources(org_id);
-CREATE INDEX        IF NOT EXISTS ix_change_sources_org_type ON change_sources(org_id, type);
+CREATE INDEX IF NOT EXISTS idx_connector_capabilities_capability
+  ON connector_capabilities(capability);
 
-CREATE TABLE IF NOT EXISTS change_events (
-  id           TEXT PRIMARY KEY,
-  org_id       TEXT NOT NULL,
-  source_id    TEXT NOT NULL,
-  service_id   TEXT NOT NULL,
-  type         TEXT NOT NULL,
-  timestamp    TEXT NOT NULL,
-  author       TEXT NOT NULL,
-  description  TEXT NOT NULL,
-  diff         TEXT NULL,
-  version      TEXT NULL,
-  payload_json TEXT NULL,
-  created_at   TEXT NOT NULL,
-  FOREIGN KEY (org_id) REFERENCES org(id) ON DELETE CASCADE,
-  FOREIGN KEY (source_id) REFERENCES change_sources(id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS connector_secrets (
+  connector_id TEXT PRIMARY KEY,
+  ciphertext   BYTEA NOT NULL,
+  key_version  INTEGER NOT NULL,
+  created_at   TIMESTAMP NOT NULL,
+  updated_at   TIMESTAMP NOT NULL,
+  FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS ix_change_events_org_time
-  ON change_events(org_id, timestamp);
-CREATE INDEX IF NOT EXISTS ix_change_events_source_time
-  ON change_events(source_id, timestamp);
-CREATE INDEX IF NOT EXISTS ix_change_events_service_time
-  ON change_events(org_id, service_id, timestamp);
+CREATE TABLE IF NOT EXISTS connector_team_policies (
+  connector_id  TEXT NOT NULL,
+  team_id       TEXT NOT NULL DEFAULT '',
+  capability    TEXT NOT NULL,
+  scope         JSONB NULL,
+  human_policy  TEXT NOT NULL,
+  agent_policy  TEXT NOT NULL,
+  PRIMARY KEY (connector_id, team_id, capability),
+  FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
+);
 
 -- ============================================================================
 -- Remediation plans (Phase 3 of docs/design/auto-remediation.md)

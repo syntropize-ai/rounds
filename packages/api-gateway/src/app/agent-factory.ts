@@ -4,11 +4,11 @@
  * Builds a fully-wired `OrchestratorAgent` for non-interactive callers
  * (alert.fired auto-investigations, scheduled report generation, etc.).
  * Lives separately from `chat-service.ts` because chat-service is
- * session-scoped (sessionId, datasource pin bag, conversation history,
+ * session-scoped (sessionId, connector pin bag, conversation history,
  * SSE event stream) and a background run has none of those.
  *
  * The factory closes over long-lived dependencies (persistence, RBAC
- * surface, audit writer) and resolves runtime config (LLM, datasources,
+ * surface, audit writer) and resolves runtime config (LLM, connectors,
  * ops connectors) on each call. That mirrors chat-service's behavior so
  * a runtime config change takes effect on the next background run
  * without restarting the api-gateway.
@@ -26,17 +26,15 @@ import {
 } from '@agentic-obs/agent-core';
 import { DuckDuckGoSearchAdapter } from '@agentic-obs/adapters';
 import { createLlmGateway, createDbAuditSink } from '../routes/llm-factory.js';
-import { OpsCommandRunnerService } from '../services/ops-command-runner-service.js';
 import {
   buildAdapterRegistry,
-  toAgentDatasources,
+  toAgentConnectors,
 } from '../services/dashboard-service.js';
 import { toAlertRuleStore } from '../services/chat-service.js';
 import type { Persistence } from './persistence.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
-import type { GitHubChangeSourceRegistry } from '../services/github-change-source-service.js';
 import type { IApprovalRequestRepository } from '@agentic-obs/data-layer';
 
 const NOOP_CONVERSATION_STORE: IAgentConversationStore = {
@@ -55,8 +53,6 @@ export interface BackgroundOrchestratorFactoryDeps {
   audit?: AuditWriter;
   /** Optional folder backend — enables folder.create / folder.list tools. */
   folderRepository?: IFolderRepository;
-  /** In-process GitHub/change sources. */
-  githubChangeSources?: GitHubChangeSourceRegistry;
   /**
    * Override the approval-request repo used by the agent's plan handler.
    * Wired at boot to a publishing wrapper so plan-level `submit()` calls
@@ -75,7 +71,7 @@ export type MakeBackgroundOrchestrator = (overrides: {
  * Build the closure passed as `BackgroundRunnerDeps.makeOrchestrator`.
  * Each invocation:
  *   - reads current LLM config from setupConfig (throws if not configured)
- *   - reads current datasources + builds the adapter registry
+ *   - reads current connectors + builds the adapter registry
  *   - rebuilds OpsCommandRunnerService scoped to the caller's orgId
  *   - constructs a fresh OrchestratorAgent with a noop conversation store
  *     and a noop sendEvent (no SSE for background)
@@ -88,24 +84,16 @@ export function buildBackgroundOrchestratorFactory(
     if (!llm) {
       throw new Error('LLM not configured — complete the Setup Wizard before running background investigations');
     }
-    const datasources = await deps.setupConfig.listDatasources({ orgId: identity.orgId });
+    const connectors = await deps.setupConfig.listConnectors({ orgId: identity.orgId });
     // Task 04 — DB-backed audit sink. Persistence carries the llmAudit repo
     // for both backends; falling back is fine for tests / minimal deployments.
     const llmAuditRepo = deps.persistence.repos.llmAudit;
     const auditSink = llmAuditRepo ? createDbAuditSink(llmAuditRepo) : undefined;
     const gateway = createLlmGateway(llm, undefined, auditSink);
     const adapters = buildAdapterRegistry(
-      datasources,
-      deps.githubChangeSources ? await deps.githubChangeSources.listAdapters(identity.orgId) : [],
+      connectors,
+      [],
     );
-
-    const opsCommandRunner = deps.persistence.repos.opsConnectors && deps.persistence.repos.approvals
-      ? new OpsCommandRunnerService({
-          connectors: deps.persistence.repos.opsConnectors,
-          approvals: deps.persistence.repos.approvals,
-        }, identity.orgId)
-      : undefined;
-    const opsConnectors = opsCommandRunner ? await opsCommandRunner.listConnectors() : undefined;
 
     return new OrchestratorAgent({
       gateway,
@@ -118,8 +106,7 @@ export function buildBackgroundOrchestratorFactory(
       ...(deps.folderRepository ? { folderRepository: deps.folderRepository } : {}),
       adapters,
       webSearchAdapter: sharedWebSearchAdapter,
-      allDatasources: toAgentDatasources(datasources),
-      ...(opsCommandRunner ? { opsCommandRunner, opsConnectors } : {}),
+      allConnectors: toAgentConnectors(connectors),
       remediationPlans: deps.persistence.repos.remediationPlans,
       approvalRequests: deps.approvalsOverride ?? deps.persistence.repos.approvals,
       // Background runs have no SSE channel; tool events are still logged

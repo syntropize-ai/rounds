@@ -99,7 +99,7 @@ describe('ReActLoop', () => {
             id: 'call_1',
             name: 'ask_user',
             input: {
-              question: 'Which datasource?',
+              question: 'Which connector?',
               options: [
                 { id: 'prom-prod', label: 'Prometheus prod', hint: 'cluster=prod' },
                 { id: 'prom-stg', label: 'Prometheus staging' },
@@ -119,11 +119,11 @@ describe('ReActLoop', () => {
       allowedTools: ALLOWED_TOOLS,
     })
 
-    await loop.runLoop('system', 'I have two prom datasources', vi.fn())
+    await loop.runLoop('system', 'I have two prom connectors', vi.fn())
 
     expect(sendEvent).toHaveBeenCalledWith({
       type: 'ask_user',
-      question: 'Which datasource?',
+      question: 'Which connector?',
       options: [
         { id: 'prom-prod', label: 'Prometheus prod', hint: 'cluster=prod' },
         { id: 'prom-stg', label: 'Prometheus staging' },

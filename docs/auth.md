@@ -92,7 +92,7 @@ Assign it instead of `basic:admin`.
 - **Service account** — a non-human identity used by scripts, CI, scrapers.
   Lives in exactly one organization. Authenticates with API tokens.
 - **Organization (org)** — tenancy boundary. All dashboards, folders,
-  datasources, alert rules, investigations, teams belong to one org. Users
+  connectors, alert rules, investigations, teams belong to one org. Users
   and service accounts see only resources in their current org.
 - **Team** — a named group of users within an org, used as a permission
   principal.
@@ -291,7 +291,7 @@ Read-only across the org:
 
 - Dashboards: read
 - Folders: read
-- Datasources: query / explore
+- Connectors: query / explore
 - Teams: read
 - Annotations: read
 - Alert rules: read
@@ -306,7 +306,7 @@ Viewer + create/edit/delete content:
 - Annotations: create, write, delete
 - Alert rules: create, write, delete
 - Alert silences: create, write
-- Datasources: explore only (not write; that's admin)
+- Connectors: explore only (not write; that's admin)
 
 ### `basic:admin`
 
@@ -316,7 +316,7 @@ Editor + org administration:
 - Teams: full CRUD + team.permissions:write
 - Service accounts: full CRUD + token lifecycle
 - Roles: full CRUD (custom roles)
-- Datasources: create, write, delete, permissions
+- Connectors: create, write, delete, permissions
 - Folder permissions: read / write
 - Dashboard permissions: read / write
 - Alert.provisioning: read / write
@@ -338,8 +338,8 @@ dashboards without first being added to org X (with any org role).
 - `fixed:dashboards:reader` — read dashboards in org
 - `fixed:dashboards:writer` — read + write + create + delete + permissions
 - `fixed:folders:creator` — create folders (nothing else)
-- `fixed:datasources:reader` — read datasource config
-- `fixed:datasources:explorer` — query datasources (reader + query)
+- `fixed:connectors:reader` — read connector config
+- `fixed:connectors:explorer` — query connectors (reader + query)
 - `fixed:alert.rules:reader` / `:writer`
 - `fixed:alert.silences:creator` — create silences only
 - `fixed:users:reader` / `:writer`
@@ -373,7 +373,7 @@ POST /api/access-control/roles
 Custom role names must start with `custom:`. Reserved prefixes (`basic:`,
 `fixed:`, `managed:`) are rejected.
 
-## Resource permissions (folders, dashboards, datasources, alert rules)
+## Resource permissions (folders, dashboards, connectors, alert rules)
 
 Per-resource access control on top of roles. You grant a **principal**
 (user, team, or built-in role) one of three **levels** on a specific
@@ -522,7 +522,7 @@ POST /api/user/using/:orgId
 Which updates the user's default org. The frontend org switcher calls this,
 then refetches `/api/user` and `/api/user/permissions`.
 
-Resources (dashboards, investigations, alert rules, datasources, teams)
+Resources (dashboards, investigations, alert rules, connectors, teams)
 are strictly scoped to the active org — a user in org A cannot see org
 B's resources via any endpoint unless they explicitly switch context.
 

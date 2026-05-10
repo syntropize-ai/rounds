@@ -4,9 +4,9 @@
  * The full handler exercises a lot of surface (folder resolution, RBAC,
  * upsert lookup); these tests focus on the new contract introduced by
  * Task 08:
- *   1. When a metrics datasource is registered, the create-op observation
+ *   1. When a metrics connector is registered, the create-op observation
  *      string includes a "would have fired N times" preview line.
- *   2. When no metrics datasource is wired, the preview is silently omitted
+ *   2. When no metrics connector is wired, the preview is silently omitted
  *      (no fabrication).
  */
 
@@ -15,6 +15,7 @@ import { handleAlertRuleWrite } from '../alert.js';
 import { makeFakeActionContext } from '../_test-helpers.js';
 import { AdapterRegistry } from '../../../adapters/registry.js';
 import type { IMetricsAdapter } from '@agentic-obs/adapters';
+import type { ActionContext } from '../_context.js';
 
 function fakeMetricsAdapter(values: Array<[number, string]>): IMetricsAdapter {
   return {
@@ -44,11 +45,11 @@ function fakeAgentCtxBase(opts: { adapters?: AdapterRegistry } = {}) {
     findByWorkspace: vi.fn(async () => []),
     update: vi.fn(),
     delete: vi.fn(),
-  } as never;
+  } as unknown as ActionContext['alertRuleStore'];
   const folderRepository = {
     create: vi.fn(),
     findByUid: vi.fn(async () => ({ uid: 'alerts' })),
-  } as never;
+  } as unknown as ActionContext['folderRepository'];
   const ctx = makeFakeActionContext({
     alertRuleStore,
     folderRepository,
@@ -67,7 +68,7 @@ const createSpec = {
 };
 
 describe('alert_rule_write op=create — preview summary', () => {
-  it('includes preview "would have fired" line when a metrics datasource is registered', async () => {
+  it('includes preview "would have fired" line when a metrics connector is registered', async () => {
     const adapter = fakeMetricsAdapter([
       [1_700_000_000, '0.1'],
       [1_700_000_060, '0.9'],
@@ -86,7 +87,7 @@ describe('alert_rule_write op=create — preview summary', () => {
     expect(observation).toContain('Preview: would have fired 2 time(s) across 1 series in the last 24h.');
   });
 
-  it('omits the preview line when no metrics datasource is registered (no fabrication)', async () => {
+  it('omits the preview line when no metrics connector is registered (no fabrication)', async () => {
     const { ctx } = fakeAgentCtxBase({ adapters: new AdapterRegistry() });
 
     const observation = await handleAlertRuleWrite(ctx, { op: 'create', spec: createSpec });

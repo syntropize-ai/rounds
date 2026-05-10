@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../api/client.js';
 import type { DashboardVariable } from '../hooks/useDashboardChat.js';
 
-/** Datasource record returned by GET /api/datasources — only the fields the
+/** Connector record returned by GET /api/connectors — only the fields the
  *  switcher dropdown needs to label options. */
 interface DatasourceOption {
   id: string;
@@ -91,14 +91,14 @@ function VariablePill({ variable, dashboardId, onChange }: DropdownProps) {
             `/dashboards/${dashboardId}/variables/resolve`,
             {},
           ),
-          apiClient.get<{ datasources: DatasourceOption[] }>(`/datasources`),
+          apiClient.get<{ connectors: DatasourceOption[] }>(`/connectors`),
         ]);
         if (!resolvedRes.error && resolvedRes.data?.variables?.[variable.name]) {
           setOptions(resolvedRes.data.variables[variable.name] ?? []);
         }
-        if (!dsRes.error && dsRes.data?.datasources) {
+        if (!dsRes.error && dsRes.data?.connectors) {
           const meta: Record<string, DatasourceOption> = {};
-          for (const d of dsRes.data.datasources) meta[d.id] = d;
+          for (const d of dsRes.data.connectors) meta[d.id] = d;
           setDatasourceMeta(meta);
         }
       } finally {

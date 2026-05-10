@@ -106,10 +106,19 @@ export const USER_VISIBLE_TOOLS = new Set([
   'investigate_query',
   'investigate_analyze',
   // Data source discovery
-  'datasources_list',
-  'datasources_suggest',
-  'datasources_pin',
-  'datasources_unpin',
+  'connectors_list',
+  'connectors_suggest',
+  'connectors_pin',
+  'connectors_unpin',
+  // Connector setup
+  'connector_list',
+  'connector_template_list',
+  'connector_detect',
+  'connector_propose',
+  'connector_apply',
+  'connector_test',
+  'setting_get',
+  'setting_set',
   // Metrics primitives (runtime-first toolized access, source-agnostic)
   'metrics_query',
   'metrics_range_query',
@@ -156,11 +165,14 @@ export const USER_VISIBLE_TOOLS = new Set([
 export function phaseOf(tool: string): string {
   // Data source discovery
   if (
-    tool === 'datasources_list' ||
-    tool === 'datasources_suggest' ||
-    tool === 'datasources_pin' ||
-    tool === 'datasources_unpin'
+    tool === 'connectors_list' ||
+    tool === 'connectors_suggest' ||
+    tool === 'connectors_pin' ||
+    tool === 'connectors_unpin'
   ) return 'discover';
+
+  if (tool.startsWith('connector_')) return 'connector';
+  if (tool.startsWith('setting_')) return 'setting';
 
   // Metrics primitives — discover (kind=labels/values/series/metadata/names)
   // collapses into one phase; query / validate stay distinct.
@@ -222,10 +234,18 @@ export const TOOL_LABELS: Record<string, string> = {
   fix_query: 'Fixing queries',
   critic: 'Reviewing panels',
   // Data source discovery
-  'datasources_list': 'Listing data sources',
-  'datasources_suggest': 'Choosing data source',
-  'datasources_pin': 'Pinning data source',
-  'datasources_unpin': 'Unpinning data source',
+  'connectors_list': 'Listing connectors',
+  'connectors_suggest': 'Choosing connector',
+  'connectors_pin': 'Pinning connector',
+  'connectors_unpin': 'Unpinning connector',
+  'connector_list': 'Listing connectors',
+  'connector_template_list': 'Listing connector templates',
+  'connector_detect': 'Detecting connectors',
+  'connector_propose': 'Proposing connector',
+  'connector_apply': 'Applying connector',
+  'connector_test': 'Testing connector',
+  'setting_get': 'Reading setting',
+  'setting_set': 'Updating setting',
   // Metrics primitives (source-agnostic)
   'metrics_query': 'Querying metrics',
   'metrics_range_query': 'Range-querying metrics',

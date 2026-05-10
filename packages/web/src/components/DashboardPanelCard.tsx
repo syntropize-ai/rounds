@@ -3,7 +3,7 @@ import { apiClient } from '../api/client.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import { useDatasourceLookup } from '../hooks/useDatasourceLookup.js';
 import { useMeasure } from '../hooks/useMeasure.js';
-import type { InstanceDatasource } from '@agentic-obs/common';
+import type { InstanceDatasource } from '../hooks/useDatasourceLookup.js';
 import TimeSeriesViz from './viz/TimeSeriesViz.js';
 import StatViz from './viz/StatViz.js';
 import GaugeViz from './viz/GaugeViz.js';

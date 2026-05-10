@@ -16,10 +16,10 @@ import request from 'supertest';
 import {
   AuditLogRepository,
   InstanceConfigRepository,
-  DatasourceRepository,
   NotificationChannelRepository,
   OrgRepository,
   OrgUserRepository,
+  SqliteConnectorRepository,
   UserAuthTokenRepository,
   UserRepository,
   createTestDb,
@@ -66,7 +66,7 @@ async function buildApp(opts: {
   const sessions = new SessionService(userAuthTokens);
   const setupConfig = new SetupConfigService({
     instanceConfig: new InstanceConfigRepository(db),
-    datasources: new DatasourceRepository(db),
+    connectors: new SqliteConnectorRepository(db),
     notificationChannels: new NotificationChannelRepository(db),
     audit,
   });
@@ -237,7 +237,7 @@ describe('GET /api/setup/status', () => {
     expect(res.status).toBe(200);
     expect(res.body.hasAdmin).toBe(false);
     expect(res.body.hasLLM).toBe(false);
-    expect(res.body.datasourceCount).toBe(0);
+    expect(res.body.connectorCount).toBe(0);
   });
 
   it('returns hasAdmin=true once an admin is created', async () => {

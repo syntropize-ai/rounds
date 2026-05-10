@@ -6,7 +6,7 @@ import { withWorkspaceScope } from './_shared.js';
 /**
  * Backtest a freshly-generated alert rule against the default metrics
  * datasource for the session. Returns a one-line preview summary or `null`
- * when no metrics datasource is registered (caller silently omits — no
+ * when no metrics connector is registered (caller silently omits — no
  * fabrication).
  *
  * Inlined here rather than imported from api-gateway because handlers must
@@ -238,7 +238,7 @@ async function createAlertRule(
     evaluationIntervalSec: Number(rule.evaluationIntervalSec ?? generated.evaluationIntervalSec),
   });
   // Preview / backtest summary — best-effort. Omitted entirely when no
-  // metrics datasource is wired so we don't fabricate numbers.
+  // metrics connector is wired so we don't fabricate numbers.
   let previewText = '';
   try {
     const preview = await previewForAgent(ctx, {

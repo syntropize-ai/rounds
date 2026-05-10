@@ -1,7 +1,7 @@
 /**
  * Single source of truth for datasource-type display metadata.
  *
- * Consumed by both the setup wizard (`StepDatasources`) and the
+ * Consumed by both the setup wizard (`StepConnectors`) and the
  * `Settings` page. Each entry carries every field any consumer needs:
  *
  *   value     — machine id (matches `DatasourceType` in @agentic-obs/common)

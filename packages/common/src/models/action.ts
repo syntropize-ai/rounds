@@ -59,7 +59,7 @@ export interface ProposedAction {
   actorUserId?: string;
   orgId: string;
   connectorId: string;
-  /** Capability name from AdapterCapability (e.g. 'k8s.write'). */
+  /** Capability name from AdapterCapability (e.g. 'runtime.scale'). */
   capability: string;
   /** Verb within the capability (e.g. 'scale', 'delete', 'apply'). */
   verb: string;

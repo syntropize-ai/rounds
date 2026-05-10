@@ -7,7 +7,7 @@ export const GENERATION_PRINCIPLES = `
 ## Generation Principles (apply to all tasks)
 
 1. SCOPE: Only produce what was asked. Do not expand, supplement, or "complete" beyond the request.
-2. GROUNDING: When metrics/data have been discovered from the datasource, use ONLY those. Do not invent metrics that were not discovered. If a needed metric is missing, omit that part and state the gap.
+2. GROUNDING: When metrics/data have been discovered from the connector, use ONLY those. Do not invent metrics that were not discovered. If a needed metric is missing, omit that part and state the gap.
 3. KNOWLEDGE PRIORITY: Discovered data > existing context > research/best practices. Research tells you what to look for; discovery tells you what exists.
 4. CONSERVATISM: When uncertain, prefer a narrower result grounded in real data over a comprehensive guessed result.
 5. VISUALIZATION: Choose the simplest chart type that communicates the signal. Do not diversify for variety.

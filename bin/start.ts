@@ -98,13 +98,15 @@ async function main() {
     execSync('npm install', { cwd: ROOT, stdio: 'inherit' });
   }
 
-  // Build TypeScript + web bundle if api-gateway dist is missing or stale.
-  // Startup serves compiled JS, not source — skipping this on first run means
-  // `npm start` immediately crashes with "Cannot find module dist/main.js".
+  // Ensure backend is built and synchronized with source.
+  // tsc --build is fast when up-to-date, so we run it on every start.
   const apiMainJs = join(ROOT, 'packages', 'api-gateway', 'dist', 'main.js');
   if (!existsSync(apiMainJs)) {
     log('Building workspaces (first run — this can take a minute)...');
     execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
+  } else {
+    log('Synchronizing backend build...');
+    execSync('npx tsc --build', { cwd: ROOT, stdio: 'inherit' });
   }
 
   // Dev-mode convenience: only SESSION_COOKIE_SECURE defaults here. The

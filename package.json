@@ -8,6 +8,7 @@
   "scripts": {
     "start": "npx tsx bin/start.ts",
     "build": "tsc --build && npm --workspace @agentic-obs/web run build",
+    "clean": "find packages -name dist -type d -exec rm -rf {} + && find . -name \"*.tsbuildinfo\" -delete",
     "dist": "node scripts/build-cli.mjs",
     "dist:pack": "npm run dist && cd packages/cli && npm pack",
     "typecheck": "tsc --noEmit -p tsconfig.json",

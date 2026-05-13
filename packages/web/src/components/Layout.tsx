@@ -53,10 +53,14 @@ function LayoutInner() {
       }
       return;
     }
+    if (chatId === currentSessionId) {
+      loadedUrlChatRef.current = chatId;
+      return;
+    }
     if (loadedUrlChatRef.current === chatId) return;
     loadedUrlChatRef.current = chatId;
     void loadSession(chatId);
-  }, [location.search, loadSession, showChat, startNewSession]);
+  }, [currentSessionId, location.search, loadSession, showChat, startNewSession]);
 
   useEffect(() => {
     if (!showChat || !currentSessionId) return;

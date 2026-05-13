@@ -52,27 +52,50 @@ export interface UseChatResult {
  * by the chat panel. Mirrors the live parsing in handleSSEEvent so replayed
  * history renders identically to the live stream.
  */
-function payloadToChatEvent(
+export function payloadToChatEvent(
   id: string,
   kind: string,
   payload: Record<string, unknown>,
+  timestamp?: string,
 ): ChatEvent | null {
   switch (kind) {
+    case 'reply': {
+      const content = (payload.content as string) ?? '';
+      if (!content) return null;
+      return {
+        id,
+        kind: 'message',
+        message: {
+          id,
+          role: 'assistant',
+          content,
+          timestamp: timestamp ?? new Date().toISOString(),
+        },
+      };
+    }
     case 'thinking':
       return {
         id,
         kind: 'thinking',
         content: (payload.content as string) ?? 'Thinking...',
       };
-    case 'tool_call':
+    case 'tool_call': {
+      const params =
+        payload.args && typeof payload.args === 'object' && !Array.isArray(payload.args)
+          ? (payload.args as Record<string, unknown>)
+          : undefined;
       return {
         id,
         kind: 'tool_call',
         tool: payload.tool as string | undefined,
         content:
           (payload.displayText as string) ?? (payload.content as string) ?? '',
+        ...(params ? { params } : {}),
+        ...(typeof payload.evidenceId === 'string' ? { evidenceId: payload.evidenceId } : {}),
       };
-    case 'tool_result':
+    }
+    case 'tool_result': {
+      const output = typeof payload.output === 'string' ? payload.output : undefined;
       return {
         id,
         kind: 'tool_result',
@@ -80,7 +103,12 @@ function payloadToChatEvent(
         content:
           (payload.summary as string) ?? (payload.content as string) ?? '',
         success: payload.success !== false,
+        ...(output ? { output } : {}),
+        ...(typeof payload.evidenceId === 'string' ? { evidenceId: payload.evidenceId } : {}),
+        ...(typeof payload.cost === 'number' ? { cost: payload.cost } : {}),
+        ...(typeof payload.durationMs === 'number' ? { durationMs: payload.durationMs } : {}),
       };
+    }
     case 'panel_added':
       return {
         id,
@@ -162,6 +190,54 @@ function payloadToChatEvent(
       // verification_report / approval_required aren't currently rendered.
       return null;
   }
+}
+
+export interface PersistedChatSessionEvent {
+  id: string;
+  seq: number;
+  kind: string;
+  payload: Record<string, unknown>;
+  timestamp: string;
+}
+
+export function rebuildChatEventsFromSession(
+  messages: ChatMessage[],
+  persistedEvents: PersistedChatSessionEvent[] = [],
+): ChatEvent[] {
+  const hasPersistedReplies = persistedEvents.some((evt) => evt.kind === 'reply');
+
+  type Entry =
+    | { kind: 'msg'; ts: string; message: ChatMessage }
+    | { kind: 'evt'; ts: string; seq: number; evt: ChatEvent };
+
+  const entries: Entry[] = [];
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && hasPersistedReplies) continue;
+    entries.push({ kind: 'msg', ts: msg.timestamp, message: msg });
+  }
+  for (const raw of persistedEvents) {
+    const evt = payloadToChatEvent(raw.id, raw.kind, raw.payload, raw.timestamp);
+    if (evt) {
+      entries.push({
+        kind: 'evt',
+        ts: raw.timestamp,
+        seq: raw.seq,
+        evt,
+      });
+    }
+  }
+  entries.sort((a, b) => {
+    if (a.ts !== b.ts) return a.ts < b.ts ? -1 : 1;
+    const aSeq = a.kind === 'evt' ? a.seq : -Infinity;
+    const bSeq = b.kind === 'evt' ? b.seq : -Infinity;
+    return aSeq - bSeq;
+  });
+
+  return entries.map((entry) =>
+    entry.kind === 'msg'
+      ? { id: entry.message.id, kind: 'message', message: entry.message }
+      : entry.evt,
+  );
 }
 
 function withChatQuery(path: string, sessionId: string): string {
@@ -484,13 +560,7 @@ export function useChat(): UseChatResult {
       const res = await apiClient.get<{
         sessionId: string;
         messages: ChatMessage[];
-        events?: Array<{
-          id: string;
-          seq: number;
-          kind: string;
-          payload: Record<string, unknown>;
-          timestamp: string;
-        }>;
+        events?: PersistedChatSessionEvent[];
       }>(`/chat/sessions/${sessionId}/messages`);
 
       if (token !== loadTokenRef.current) {
@@ -533,46 +603,7 @@ export function useChat(): UseChatResult {
       const loaded = res.data.messages;
       setMessages(loaded);
 
-      // Rebuild the full event trace so the chat panel looks identical to the
-      // live run: messages interleaved with the agent-activity events they
-      // produced (tool_call / tool_result / panel_added / thinking / etc.).
-      // Strategy: turn each message + each persisted step event into a
-      // timestamped entry, sort chronologically, then convert to ChatEvents.
-      type Entry =
-        | { kind: 'msg'; ts: string; message: ChatMessage }
-        | { kind: 'evt'; ts: string; seq: number; id: string; evt: ChatEvent };
-
-      const entries: Entry[] = [];
-      for (const msg of loaded) {
-        entries.push({ kind: 'msg', ts: msg.timestamp, message: msg });
-      }
-      for (const raw of res.data.events ?? []) {
-        const evt = payloadToChatEvent(raw.id, raw.kind, raw.payload);
-        if (evt)
-          entries.push({
-            kind: 'evt',
-            ts: raw.timestamp,
-            seq: raw.seq,
-            id: raw.id,
-            evt,
-          });
-      }
-      entries.sort((a, b) => {
-        if (a.ts !== b.ts) return a.ts < b.ts ? -1 : 1;
-        // Same timestamp: events use seq for ordering; messages come before
-        // any same-timestamp events to match the live-stream order (user
-        // message appended, then agent activity begins).
-        const aSeq = a.kind === 'evt' ? a.seq : -Infinity;
-        const bSeq = b.kind === 'evt' ? b.seq : -Infinity;
-        return aSeq - bSeq;
-      });
-
-      const rebuilt: ChatEvent[] = entries.map((e) =>
-        e.kind === 'msg'
-          ? { id: e.message.id, kind: 'message', message: e.message }
-          : e.evt,
-      );
-      setEvents(rebuilt);
+      setEvents(rebuildChatEventsFromSession(loaded, res.data.events ?? []));
     } catch (err) {
       if (token !== loadTokenRef.current) {
         // Same race guard for thrown errors — a stale failure must not

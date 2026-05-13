@@ -11,7 +11,12 @@ import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import AgentActivityBlock, { ToolCallCardView } from '../AgentActivityBlock.js';
-import { buildToolCalls, type ToolCallCard } from '../event-processing.js';
+import {
+  buildToolCalls,
+  groupEvents,
+  liveAgentBlockId,
+  type ToolCallCard,
+} from '../event-processing.js';
 import type { ChatEvent } from '../../../hooks/useDashboardChat.js';
 
 function makeToolCallEvent(idx: number, params?: Record<string, unknown>): ChatEvent {
@@ -160,5 +165,48 @@ describe('AgentActivityBlock aria-expanded', () => {
     const events: ChatEvent[] = [makeToolCallEvent(0), makeResultEvent(0)];
     const html = renderToStaticMarkup(<AgentActivityBlock events={events} isLive={false} />);
     expect(html).toContain('aria-expanded="false"');
+  });
+});
+
+describe('liveAgentBlockId', () => {
+  it('does not mark the previous agent block live after a new user message', () => {
+    const events: ChatEvent[] = [
+      makeToolCallEvent(0),
+      makeResultEvent(0),
+      {
+        id: 'user-1',
+        kind: 'message',
+        message: {
+          id: 'user-1',
+          role: 'user',
+          content: 'next request',
+          timestamp: '2026-05-12T01:00:00.000Z',
+        },
+      },
+    ];
+
+    const blocks = groupEvents(events);
+    expect(liveAgentBlockId(blocks, true)).toBeNull();
+  });
+
+  it('marks only the trailing agent block live once new agent activity starts', () => {
+    const events: ChatEvent[] = [
+      makeToolCallEvent(0),
+      makeResultEvent(0),
+      {
+        id: 'user-1',
+        kind: 'message',
+        message: {
+          id: 'user-1',
+          role: 'user',
+          content: 'next request',
+          timestamp: '2026-05-12T01:00:00.000Z',
+        },
+      },
+      { id: 'think-1', kind: 'thinking', content: 'Thinking...' },
+    ];
+
+    const blocks = groupEvents(events);
+    expect(liveAgentBlockId(blocks, true)).toBe('think-1');
   });
 });

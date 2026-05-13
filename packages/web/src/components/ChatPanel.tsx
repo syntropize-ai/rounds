@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion';
 import { slideIn } from '../animations.js';
 import type { ChatEvent } from '../hooks/useDashboardChat.js';
-import { groupEvents } from './chat/event-processing.js';
-import type { Block } from './chat/event-processing.js';
+import { groupEvents, liveAgentBlockId } from './chat/event-processing.js';
 import { UserMessage, AssistantMessage, ErrorMessage } from './chat/MessageComponents.js';
 import AgentActivityBlock from './chat/AgentActivityBlock.js';
 import AskUserPrompt from './chat/AskUserPrompt.js';
@@ -40,12 +39,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const blocks = useMemo(() => groupEvents(events), [events]);
-  const lastAgentBlockId = useMemo(() => {
-    for (let i = blocks.length - 1; i >= 0; i -= 1) {
-      if (blocks[i]!.type === 'agent') return (blocks[i] as Extract<Block, { type: 'agent' }>).id;
-    }
-    return null;
-  }, [blocks]);
+  const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -276,7 +270,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
               <AgentActivityBlock
                 key={block.id}
                 events={block.events}
-                isLive={isGenerating && block.id === lastAgentBlockId}
+                isLive={block.id === liveBlockId}
               />
             );
           }

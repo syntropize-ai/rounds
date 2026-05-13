@@ -244,11 +244,10 @@ function pickAgentTypeFromContext(
   return 'orchestrator';
 }
 
-// Event kinds that represent transient signalling (terminator, navigation
-// side-effect, duplicated message content) and should NOT be persisted to the
-// event trace — they'd clutter replay or double-render messages already saved
-// in chat_messages.
-const SKIP_PERSIST_KINDS = new Set(['reply', 'done', 'navigate']);
+// Event kinds that represent transient signalling (terminator / navigation
+// side-effect) and should NOT be persisted to the event trace. `reply` events
+// are persisted so history replay keeps the same interleaving users saw live.
+const SKIP_PERSIST_KINDS = new Set(['done', 'navigate']);
 
 export interface ChatSessionResult {
   sessionId: string;

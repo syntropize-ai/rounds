@@ -136,12 +136,14 @@ export default function Home() {
   // a durable personal chat to reopen.
   useEffect(() => {
     if (chatIdFromUrl) {
-      void loadSession(chatIdFromUrl);
+      if (chatIdFromUrl !== currentSessionId) {
+        void loadSession(chatIdFromUrl);
+      }
     } else {
       globalChat.startNewSession();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatIdFromUrl]);
+  }, [chatIdFromUrl, currentSessionId]);
 
   const handleDeleteDashboard = useCallback(async (id: string) => {
     const res = await apiClient.delete(`/dashboards/${id}`);

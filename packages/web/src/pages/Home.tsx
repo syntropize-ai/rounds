@@ -6,8 +6,7 @@ import { fadeIn } from '../animations.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { relativeTime } from '../utils/time.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
-import { groupEvents } from '../components/chat/event-processing.js';
-import type { Block } from '../components/chat/event-processing.js';
+import { groupEvents, liveAgentBlockId } from '../components/chat/event-processing.js';
 import {
   UserMessage,
   AssistantMessage,
@@ -126,13 +125,7 @@ export default function Home() {
   const hasMessages = events.length > 0;
 
   const blocks = useMemo(() => groupEvents(events), [events]);
-  const lastAgentBlockId = useMemo(() => {
-    for (let i = blocks.length - 1; i >= 0; i -= 1) {
-      if (blocks[i]!.type === 'agent')
-        return (blocks[i] as Extract<Block, { type: 'agent' }>).id;
-    }
-    return null;
-  }, [blocks]);
+  const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
 
   const chatIdFromUrl = useMemo(
     () => new URLSearchParams(location.search).get('chat'),
@@ -462,7 +455,7 @@ export default function Home() {
                 <AgentActivityBlock
                   key={block.id}
                   events={block.events}
-                  isLive={isGenerating && block.id === lastAgentBlockId}
+                  isLive={block.id === liveBlockId}
                 />
               );
             }

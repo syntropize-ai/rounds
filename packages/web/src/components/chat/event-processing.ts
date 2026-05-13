@@ -40,6 +40,12 @@ export function groupEvents(events: ChatEvent[]): Block[] {
   return blocks;
 }
 
+export function liveAgentBlockId(blocks: Block[], isGenerating: boolean): string | null {
+  if (!isGenerating) return null;
+  const last = blocks[blocks.length - 1];
+  return last?.type === 'agent' ? last.id : null;
+}
+
 // Step processing
 
 // Phase-grouped step builder.

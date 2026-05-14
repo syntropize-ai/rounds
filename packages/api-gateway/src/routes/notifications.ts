@@ -9,7 +9,7 @@ import type {
 } from '@agentic-obs/common';
 import { ac, ACTIONS } from '@agentic-obs/common';
 import type { INotificationRepository, IAlertRuleRepository } from '@agentic-obs/data-layer';
-import { defaultNotificationStore, defaultAlertRuleStore } from '@agentic-obs/data-layer';
+import { defaultNotificationStore } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
@@ -18,7 +18,7 @@ import { postWebhook, buildTestWebhookBody } from '../services/notification-send
 
 export interface NotificationsRouterDeps {
   notificationStore?: INotificationRepository;
-  alertRuleStore?: IAlertRuleRepository;
+  alertRuleStore: IAlertRuleRepository;
   /**
    * RBAC surface. Contact points / policies / mute timings / alert groups all
    * gate on `alert.notifications:read` (Viewer) and `alert.notifications:write`
@@ -30,7 +30,7 @@ export interface NotificationsRouterDeps {
 
 export function createNotificationsRouter(deps: NotificationsRouterDeps): Router {
   const notifStore = deps.notificationStore ?? defaultNotificationStore;
-  const alertStore = deps.alertRuleStore ?? defaultAlertRuleStore;
+  const alertStore = deps.alertRuleStore;
   const router = Router();
   const requirePermission = createRequirePermission(deps.ac);
   const requireDashboardRead = requirePermission(() => ac.eval(ACTIONS.AlertNotificationsRead));

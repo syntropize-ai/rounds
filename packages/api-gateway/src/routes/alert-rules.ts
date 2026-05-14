@@ -10,7 +10,6 @@ import {
 } from '@agentic-obs/common';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import type { IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
-import { defaultAlertRuleStore } from '@agentic-obs/data-layer';
 import { runBackgroundAgent, type BackgroundRunnerDeps } from '@agentic-obs/agent-core';
 import { createLogger } from '@agentic-obs/common/logging';
 import { authMiddleware } from '../middleware/auth.js';
@@ -39,7 +38,7 @@ function resolveOrgId(req: Request): string {
 }
 
 export interface AlertRulesRouterDeps {
-  alertRuleStore?: IAlertRuleRepository;
+  alertRuleStore: IAlertRuleRepository;
   investigationStore?: IGatewayInvestigationStore;
   feedStore?: IGatewayFeedStore;
   reportStore?: IInvestigationReportRepository;
@@ -68,7 +67,7 @@ export interface AlertRulesRouterDeps {
 }
 
 export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
-  const store = deps.alertRuleStore ?? defaultAlertRuleStore;
+  const store = deps.alertRuleStore;
   const router = Router();
   const alertRuleService = new AlertRuleService(store, deps.setupConfig);
   const audit = deps.audit;

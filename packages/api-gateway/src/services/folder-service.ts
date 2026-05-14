@@ -166,7 +166,10 @@ export class FolderService {
     return this.deps.folders.findByUid(orgId, uid);
   }
 
-  async list(orgId: string, opts: ListFoldersOpts = {}): Promise<GrafanaFolder[]> {
+  async list(
+    orgId: string,
+    opts: ListFoldersOpts = {},
+  ): Promise<(GrafanaFolder & { counts: FolderCounts })[]> {
     const { items } = await this.deps.folders.list({
       orgId,
       // `undefined` = "all folders". `null` = "roots only". A concrete string =
@@ -175,11 +178,62 @@ export class FolderService {
       limit: opts.limit ?? 200,
       offset: opts.offset ?? 0,
     });
-    if (opts.query) {
-      const q = opts.query.toLowerCase();
-      return items.filter((f) => f.title.toLowerCase().includes(q));
-    }
-    return items;
+    const filtered = opts.query
+      ? items.filter((f) => f.title.toLowerCase().includes(opts.query!.toLowerCase()))
+      : items;
+    const countsByUid = await this.getFolderCounts(
+      orgId,
+      filtered.map((f) => f.uid),
+    );
+    return filtered.map((f) => ({
+      ...f,
+      counts: countsByUid.get(f.uid) ?? { dashboards: 0, alertRules: 0, subfolders: 0 },
+    }));
+  }
+
+  /**
+   * Batch counts for many folders. Three GROUP BY queries — one per resource
+   * type — joined in memory. Returns a map keyed by folder uid; folders with
+   * zero of every resource may be missing from the map (callers should default
+   * to zeros).
+   */
+  async getFolderCounts(
+    orgId: string,
+    folderUids: string[],
+  ): Promise<Map<string, FolderCounts>> {
+    const out = new Map<string, FolderCounts>();
+    if (folderUids.length === 0) return out;
+    const placeholders = sql.join(
+      folderUids.map((u) => sql`${u}`),
+      sql`, `,
+    );
+    const ensure = (uid: string): FolderCounts => {
+      let c = out.get(uid);
+      if (!c) {
+        c = { dashboards: 0, alertRules: 0, subfolders: 0 };
+        out.set(uid, c);
+      }
+      return c;
+    };
+    const dashRows = await this.deps.db.all<{ folder_uid: string; n: number }>(sql`
+      SELECT folder_uid, COUNT(*) AS n FROM dashboards
+      WHERE org_id = ${orgId} AND folder_uid IN (${placeholders})
+      GROUP BY folder_uid
+    `);
+    for (const r of dashRows) ensure(r.folder_uid).dashboards = Number(r.n);
+    const ruleRows = await this.deps.db.all<{ folder_uid: string; n: number }>(sql`
+      SELECT folder_uid, COUNT(*) AS n FROM alert_rules
+      WHERE org_id = ${orgId} AND folder_uid IN (${placeholders})
+      GROUP BY folder_uid
+    `);
+    for (const r of ruleRows) ensure(r.folder_uid).alertRules = Number(r.n);
+    const subRows = await this.deps.db.all<{ parent_uid: string; n: number }>(sql`
+      SELECT parent_uid, COUNT(*) AS n FROM folder
+      WHERE org_id = ${orgId} AND parent_uid IN (${placeholders})
+      GROUP BY parent_uid
+    `);
+    for (const r of subRows) ensure(r.parent_uid).subfolders = Number(r.n);
+    return out;
   }
 
   async update(

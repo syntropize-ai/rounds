@@ -21,6 +21,12 @@ interface Dashboard {
   folder?: string;
 }
 
+interface FolderCounts {
+  dashboards: number;
+  alertRules: number;
+  subfolders: number;
+}
+
 interface Folder {
   id: string;
   name: string;
@@ -29,6 +35,7 @@ interface Folder {
   title?: string;
   parentUid?: string | null;
   createdAt: string;
+  counts?: FolderCounts;
 }
 
 type SortKey = 'date' | 'name';
@@ -523,8 +530,25 @@ export default function Dashboards() {
             )}
 
             {visibleFolders.map((folder) => {
-              const childCount = folders.filter((child) => child.parentId === folder.id).length;
-              const dashboardCount = dashboards.filter((dashboard) => dashboard.folder === folder.id).length;
+              const localChildCount = folders.filter((child) => child.parentId === folder.id).length;
+              const localDashboardCount = dashboards.filter((dashboard) => dashboard.folder === folder.id).length;
+              // Prefer server-supplied counts (which include alert rules and
+              // are authoritative across pagination). Fall back to whatever we
+              // can compute locally if the backend hasn't shipped counts yet.
+              const dashboardCount = folder.counts?.dashboards ?? localDashboardCount;
+              const alertRuleCount = folder.counts?.alertRules ?? 0;
+              const childCount = folder.counts?.subfolders ?? localChildCount;
+              let summary: string;
+              if (dashboardCount > 0 && alertRuleCount > 0) {
+                summary = `${dashboardCount} dashboards · ${alertRuleCount} alert rules`;
+              } else if (dashboardCount > 0) {
+                summary = `${dashboardCount} dashboards`;
+              } else if (alertRuleCount > 0) {
+                summary = `No dashboards · contains ${alertRuleCount} alert rules`;
+              } else {
+                summary = 'Empty';
+              }
+              if (childCount > 0) summary += ` · ${childCount} subfolders`;
               return (
                 <div
                   key={folder.id}
@@ -545,7 +569,7 @@ export default function Dashboards() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-on-surface">{folder.name}</div>
                     <div className="text-xs text-on-surface-variant">
-                      {dashboardCount} dashboards{childCount > 0 ? ` · ${childCount} folders` : ''}
+                      {summary}
                     </div>
                   </div>
                   <button
@@ -604,9 +628,34 @@ export default function Dashboards() {
             ))}
 
             {visibleFolders.length === 0 && visibleDashboards.length === 0 && !showNewFolder && (
-              <div className="px-4 py-10 text-center text-sm text-on-surface-variant">
-                This folder is empty.
-              </div>
+              currentFolder && (currentFolder.counts?.dashboards ?? 0) === 0 && (currentFolder.counts?.alertRules ?? 0) > 0 ? (
+                <div className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                  <p className="mb-1 text-on-surface">This folder has no dashboards.</p>
+                  <p className="mb-4">It contains {currentFolder.counts?.alertRules} alert rules.</p>
+                  <div className="flex justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/alerts?folder=${encodeURIComponent(currentFolder.id)}`)}
+                      className="bg-surface-container border border-outline-variant text-on-surface-variant hover:text-on-surface hover:border-outline px-4 py-2 text-xs font-semibold transition-colors"
+                    >
+                      View alert rules
+                    </button>
+                    {canCreateDashboard && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/?folder=${encodeURIComponent(currentFolder.id)}`)}
+                        className="bg-primary text-on-primary-fixed px-4 py-2 text-xs font-semibold transition-transform active:scale-95"
+                      >
+                        Create dashboard here
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="px-4 py-10 text-center text-sm text-on-surface-variant">
+                  This folder is empty.
+                </div>
+              )
             )}
           </div>
         )}

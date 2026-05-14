@@ -390,12 +390,23 @@ export async function handleInvestigationComplete(
         ...(finalProvenance ? { provenance: finalProvenance } : {}),
       });
 
-      // Update investigation status if store supports it
+      // Update investigation status if store supports it. Non-fatal: the
+      // report is already saved, so callers shouldn't see a hard error
+      // just because the status row is briefly stale. Log loudly so the
+      // mismatch is discoverable instead of silent.
       if (ctx.investigationStore) {
         try {
           await ctx.investigationStore.updateStatus(investigationId, 'completed');
-        } catch {
-          // Status update failed — non-fatal
+        } catch (err) {
+          log.warn(
+            {
+              investigationId,
+              targetStatus: 'completed',
+              errorClass: err instanceof Error ? err.constructor.name : typeof err,
+              error: err instanceof Error ? err.message : String(err),
+            },
+            'investigation updateStatus failed; report saved but status stale',
+          );
         }
       }
 

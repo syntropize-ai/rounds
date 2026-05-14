@@ -315,6 +315,57 @@ describe('investigation handlers', () => {
     expect(reportStore.save).toHaveBeenCalledOnce();
   });
 
+  // ── T1.2 regression: final status-update failure is observable ──────────
+  it('warns when updateStatus rejects at completion but still saves the report', async () => {
+    const inv: Investigation = {
+      id: 'inv_st',
+      sessionId: 'ses_1',
+      userId: 'agent',
+      intent: 'why',
+      structuredIntent: {} as Investigation['structuredIntent'],
+      plan: { entity: '', objective: '', steps: [], stopConditions: [] },
+      status: 'investigating',
+      hypotheses: [],
+      actions: [],
+      evidence: [],
+      symptoms: [],
+      workspaceId: 'test-org',
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+    };
+    const store = {
+      create: vi.fn(),
+      findById: vi.fn(async () => inv),
+      findAll: vi.fn(),
+      updateStatus: vi.fn().mockRejectedValue(new Error('db unreachable')),
+      updatePlan: vi.fn(),
+      updateResult: vi.fn(),
+    };
+    const reportStore = { save: vi.fn() };
+    const ctx = makeFakeActionContext({
+      investigationStore: store,
+      investigationReportStore: reportStore,
+      activeInvestigationId: 'inv_st',
+    });
+
+    warnSpy.mockClear();
+    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+
+    // Report saved regardless of status-update outcome.
+    expect(result).toContain('report saved');
+    expect(reportStore.save).toHaveBeenCalledOnce();
+
+    // Warn emitted with structured context.
+    const statusWarn = warnSpy.mock.calls.find(
+      (c) => typeof c[1] === 'string' && c[1].includes('investigation updateStatus failed'),
+    );
+    expect(statusWarn).toBeDefined();
+    const ctxFields = statusWarn![0] as Record<string, unknown>;
+    expect(ctxFields.investigationId).toBe('inv_st');
+    expect(ctxFields.targetStatus).toBe('completed');
+    expect(ctxFields.error).toMatch(/db unreachable/);
+  });
+
   it('persists provenance on the saved report at completion', async () => {
     const created = {
       id: 'inv_p2',

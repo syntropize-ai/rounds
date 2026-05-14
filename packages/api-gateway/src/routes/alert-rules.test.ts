@@ -94,6 +94,7 @@ function makeFolderRepo(): IFolderRepository {
         title: input.title,
         description: input.description ?? null,
         parentUid: input.parentUid ?? null,
+        kind: input.kind ?? 'shared',
         created: '2026-04-30T00:00:00.000Z',
         updated: '2026-04-30T00:00:00.000Z',
         createdBy: input.createdBy ?? null,

@@ -18,6 +18,7 @@ const Settings = lazy(() => import('./pages/Settings.js'));
 const Login = lazy(() => import('./pages/Login.js'));
 const Admin = lazy(() => import('./pages/Admin.js'));
 const Dashboards = lazy(() => import('./pages/Dashboards.js'));
+const MyWorkspace = lazy(() => import('./pages/MyWorkspace.js'));
 const DashboardWorkspace = lazy(() => import('./pages/DashboardWorkspace.js'));
 const Alerts = lazy(() => import('./pages/Alerts.js'));
 const AlertRuleEdit = lazy(() => import('./pages/AlertRuleEdit.js'));
@@ -159,6 +160,7 @@ export default function App() {
                     }
                   />
                   <Route path="/admin/*" element={<Admin />} />
+                  <Route path="/workspace" element={<MyWorkspace />} />
                   <Route path="/dashboards" element={<Dashboards />} />
                   <Route path="/dashboards/:id" element={<DashboardWorkspace />} />
                   <Route path="/alerts" element={<Alerts />} />

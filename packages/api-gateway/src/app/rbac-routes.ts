@@ -45,6 +45,7 @@ import { createServiceAccountsRouter } from '../routes/serviceaccounts.js';
 import { createUserTokensRouter } from '../routes/user-tokens.js';
 import { createAuthKeysRouter } from '../routes/auth-keys.js';
 import { createFolderRouter } from '../routes/folders.js';
+import { createWorkspaceRouter } from '../routes/workspace.js';
 import { createDashboardPermissionsRouter } from '../routes/dashboard-permissions.js';
 import { createAlertRulePermissionsRouter } from '../routes/alert-rule-permissions.js';
 import { createOrgContextMiddleware } from '../middleware/org-context.js';
@@ -287,6 +288,19 @@ export async function mountRbacRoutes(
       folderService,
       permissionService: resourcePermissionService,
       ac: accessControl,
+    }),
+  );
+  // Wave 1 / PR-C: personal workspace endpoint. Auth-only (no RBAC permission
+  // gate) — the route always returns the *caller's* folder, scoped via
+  // `req.auth.userId`, so there's no resource to authorize against.
+  app.use(
+    '/api/workspace',
+    authMw,
+    userRateLimiter,
+    createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
+    createWorkspaceRouter({
+      folderService,
+      users: authRepos.users,
     }),
   );
   app.use(

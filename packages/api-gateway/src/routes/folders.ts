@@ -85,12 +85,12 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
           typeof req.query['query'] === 'string'
             ? (req.query['query'] as string)
             : undefined;
-        const items = await deps.folderService.list(req.auth!.orgId, {
-          parentUid,
-          query,
-          limit,
-          offset,
-        });
+        const items = await deps.folderService.list(
+          req.auth!.orgId,
+          { parentUid, query, limit, offset },
+          // Wave 1 / PR-C: scoped so caller only sees their own personal folder.
+          req.auth!.userId,
+        );
         res.json(items);
       } catch (err) {
         handleServiceError(err, res);
@@ -115,6 +115,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
           title?: string;
           description?: string;
           parentUid?: string;
+          kind?: string;
         };
         if (!body.title) {
           res.status(400).json({
@@ -131,6 +132,9 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
             parentUid: body.parentUid,
             // REST API created — see writable-gate.ts for the source taxonomy.
             source: 'api',
+            // Pass through so the service can reject `kind: 'personal'` from
+            // the public API surface.
+            kind: body.kind === 'personal' ? 'personal' : undefined,
           },
           req.auth!.userId,
         );

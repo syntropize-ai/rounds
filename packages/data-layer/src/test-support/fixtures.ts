@@ -222,6 +222,7 @@ export function makeFolder(orgId: string, overrides: Partial<GrafanaFolder> = {}
     title: 'Fixture Folder',
     description: null,
     parentUid: null,
+    kind: 'shared',
     created: now,
     updated: now,
     createdBy: null,

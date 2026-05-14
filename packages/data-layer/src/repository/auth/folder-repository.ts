@@ -18,6 +18,7 @@ interface Row {
   title: string;
   description: string | null;
   parent_uid: string | null;
+  kind: string | null;
   created: string;
   updated: string;
   created_by: string | null;
@@ -41,6 +42,7 @@ function rowTo(r: Row): GrafanaFolder {
     title: r.title,
     description: r.description,
     parentUid: r.parent_uid,
+    kind: r.kind === 'personal' ? 'personal' : 'shared',
     created: r.created,
     updated: r.updated,
     createdBy: r.created_by,
@@ -75,12 +77,13 @@ export class FolderRepository implements IFolderRepository {
     const provenanceJson = input.provenance ? JSON.stringify(input.provenance) : null;
     this.db.run(sql`
       INSERT INTO folder (
-        id, uid, org_id, title, description, parent_uid,
+        id, uid, org_id, title, description, parent_uid, kind,
         created, updated, created_by, updated_by,
         source, provenance
       ) VALUES (
         ${id}, ${input.uid}, ${input.orgId}, ${input.title},
         ${input.description ?? null}, ${input.parentUid ?? null},
+        ${input.kind ?? 'shared'},
         ${now}, ${now}, ${input.createdBy ?? null}, ${input.updatedBy ?? null},
         ${source}, ${provenanceJson}
       )

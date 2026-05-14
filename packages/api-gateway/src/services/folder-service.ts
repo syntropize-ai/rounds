@@ -24,8 +24,9 @@ import type {
   GrafanaFolderPatch,
   ResourceSource,
   ResourceProvenance,
+  FolderKind,
 } from '@agentic-obs/common';
-import { AuditAction, FOLDER_MAX_DEPTH } from '@agentic-obs/common';
+import { AuditAction, FOLDER_MAX_DEPTH, personalFolderUid } from '@agentic-obs/common';
 import type { QueryClient } from '@agentic-obs/data-layer';
 import type { AuditWriter } from '../auth/audit-writer.js';
 
@@ -52,6 +53,12 @@ export interface CreateFolderInput {
   /** Defaults to `'manual'` when unset. */
   source?: ResourceSource;
   provenance?: ResourceProvenance;
+  /**
+   * Internal only — `'personal'` is rejected by the public CRUD path. The
+   * personal-workspace lazy-create flow calls `getOrCreatePersonal()` directly,
+   * which bypasses `create()` entirely.
+   */
+  kind?: FolderKind;
 }
 
 export interface UpdateFolderPatch {
@@ -112,6 +119,16 @@ export class FolderService {
     if (!input.title?.trim()) {
       throw new FolderServiceError('validation', 'title is required', 400);
     }
+    // Wave 1 / PR-C: personal folders are owned by exactly one user and are
+    // created only by the workspace lazy-init flow (`getOrCreatePersonal`).
+    // Any public-API attempt to mint one is rejected.
+    if (input.kind === 'personal') {
+      throw new FolderServiceError(
+        'validation',
+        "folder kind 'personal' is reserved for the user's workspace; use GET /api/workspace/me",
+        400,
+      );
+    }
     let uid = input.uid?.trim() || slugifyUid(input.title);
     // If the slugified uid already exists, append a short suffix to disambiguate.
     if (await this.deps.folders.findByUid(orgId, uid)) {
@@ -158,6 +175,7 @@ export class FolderService {
       title: input.title.trim(),
       description: input.description ?? null,
       parentUid: input.parentUid ?? null,
+      kind: 'shared',
       createdBy: userId,
       updatedBy: userId,
       source: input.source ?? 'manual',
@@ -194,6 +212,7 @@ export class FolderService {
   async list(
     orgId: string,
     opts: ListFoldersOpts = {},
+    currentUserId?: string,
   ): Promise<(GrafanaFolder & { counts: FolderCounts })[]> {
     const { items } = await this.deps.folders.list({
       orgId,
@@ -203,9 +222,17 @@ export class FolderService {
       limit: opts.limit ?? 200,
       offset: opts.offset ?? 0,
     });
+    // Wave 1 / PR-C RBAC: personal folders are visible to their owner only.
+    // The owner is identified by `uid === 'user:<userId>'`. When no
+    // currentUserId is supplied (server-internal callers), personal folders
+    // are filtered out entirely — only `getOrCreatePersonal` bypasses this.
+    const expectedUid = currentUserId ? personalFolderUid(currentUserId) : null;
+    const visible = items.filter(
+      (f) => f.kind !== 'personal' || f.uid === expectedUid,
+    );
     const filtered = opts.query
-      ? items.filter((f) => f.title.toLowerCase().includes(opts.query!.toLowerCase()))
-      : items;
+      ? visible.filter((f) => f.title.toLowerCase().includes(opts.query!.toLowerCase()))
+      : visible;
     const countsByUid = await this.getFolderCounts(
       orgId,
       filtered.map((f) => f.uid),
@@ -447,6 +474,39 @@ export class FolderService {
       alertRules: ruleRows[0]?.n ?? 0,
       subfolders: subRows[0]?.n ?? 0,
     };
+  }
+
+  /**
+   * Wave 1 / PR-C: Return the caller's personal "My Workspace" folder, creating
+   * it lazily on first access. The folder uid is deterministic (`user:<userId>`)
+   * so subsequent calls return the same row even across processes.
+   *
+   * This is the *only* path that mints a `kind='personal'` folder — the public
+   * `create()` rejects the kind so attackers can't impersonate someone else's
+   * workspace by guessing the uid.
+   */
+  async getOrCreatePersonal(
+    orgId: string,
+    userId: string,
+    userDisplayName: string,
+  ): Promise<GrafanaFolder> {
+    const wantedUid = personalFolderUid(userId);
+    const existing = await this.deps.folders.findByUid(orgId, wantedUid);
+    if (existing) return existing;
+    // Defensive: a caller could ask for someone else's workspace if userId is
+    // ever spoofed. The caller (workspace route) is responsible for passing
+    // `req.auth.userId` — we just persist it.
+    const title = `${userDisplayName}'s workspace`;
+    return this.deps.folders.create({
+      uid: wantedUid,
+      orgId,
+      title,
+      description: 'Personal workspace — only you can see items here.',
+      parentUid: null,
+      kind: 'personal',
+      createdBy: userId,
+      updatedBy: userId,
+    });
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────

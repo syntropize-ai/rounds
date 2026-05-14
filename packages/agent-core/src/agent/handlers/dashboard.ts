@@ -1,9 +1,49 @@
 import { randomUUID } from 'node:crypto';
-import { ac, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common';
+import { ac, AuditAction, assertWritable, ProvisionedResourceError, personalFolderUid } from '@agentic-obs/common';
 import type { PendingDashboardChange, PendingDashboardChangeOp } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { applyLayout } from '../layout-engine.js';
+
+/**
+ * Wave 1 / PR-C: when the agent creates a dashboard without an explicit folder,
+ * land it in the caller's personal "My Workspace" folder so temporary
+ * explorations don't pollute shared team folders. Lazy-creates the folder on
+ * first use. Falls back to no folder (legacy behaviour) when the folder
+ * backend isn't wired into the context.
+ */
+async function resolveAgentDashboardFolderUid(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string | undefined> {
+  const requested = typeof args.folderUid === 'string' ? args.folderUid.trim() : '';
+  if (requested) return requested;
+  if (!ctx.folderRepository) return undefined;
+
+  const wantedUid = personalFolderUid(ctx.identity.userId);
+  const existing = await ctx.folderRepository.findByUid(
+    ctx.identity.orgId,
+    wantedUid,
+  );
+  if (existing) return existing.uid;
+
+  // Mirror FolderService.getOrCreatePersonal — we don't have a user display
+  // name in agent context, so fall back to the userId. The /api/workspace/me
+  // endpoint will overwrite (no — it's idempotent and won't replace title).
+  // First-use via agent yields a less pretty title; acceptable: the user can
+  // refresh on /workspace any time.
+  const created = await ctx.folderRepository.create({
+    uid: wantedUid,
+    orgId: ctx.identity.orgId,
+    title: `${ctx.identity.userId}'s workspace`,
+    description: 'Personal workspace — only you can see items here.',
+    parentUid: null,
+    kind: 'personal',
+    createdBy: ctx.identity.userId,
+    updatedBy: ctx.identity.userId,
+  });
+  return created.uid;
+}
 
 // ---------------------------------------------------------------------------
 // Pending-changes helper — Task 09
@@ -65,6 +105,10 @@ export async function handleDashboardCreate(
     return 'Error: "datasourceId" is required. Call connectors_list (or connectors_suggest) first to choose the primary connector for this dashboard.';
   }
 
+  // Wave 1 / PR-C: default agent-created dashboards into the caller's
+  // personal workspace when no folder is supplied.
+  const folderUid = await resolveAgentDashboardFolderUid(ctx, args);
+
   let createdId = '';
   let observationText = '';
   await withToolEventBoundary(
@@ -89,6 +133,7 @@ export async function handleDashboardCreate(
           sessionId: ctx.sessionId,
           // Agent-tool created — see writable-gate.ts for source taxonomy.
           source: 'ai_generated',
+          ...(folderUid ? { folder: folderUid } : {}),
         }),
       );
 

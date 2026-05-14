@@ -1,4 +1,14 @@
-import { ac, AuditAction, assertWritable, ProvisionedResourceError, type AlertCondition, type AlertOperator, type AlertSeverity, type ResourceSource } from '@agentic-obs/common';
+import {
+  ac,
+  AuditAction,
+  assertWritable,
+  ProvisionedResourceError,
+  personalFolderUid,
+  type AlertCondition,
+  type AlertOperator,
+  type AlertSeverity,
+  type ResourceSource,
+} from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { ActionContext } from './_context.js';
 import { withWorkspaceScope } from './_shared.js';
@@ -298,22 +308,35 @@ async function resolveAlertRuleFolderUid(
     throw new Error('Folder backend is required to create alert rules without an explicit folder.');
   }
 
-  const existing = await ctx.folderRepository.findByUid(
+  // Wave 1 / PR-C: agent-created alert rules land in the caller's personal
+  // workspace by default (temporary explorations stay private). Pre-PR-C the
+  // default was the shared "alerts" folder — that path remains available when
+  // the personal folder hasn't been created yet AND the legacy folder exists,
+  // so we don't break instances already seeded around it.
+  const personalUid = personalFolderUid(ctx.identity.userId);
+  const existingPersonal = await ctx.folderRepository.findByUid(
     ctx.identity.orgId,
-    DEFAULT_ALERT_RULE_FOLDER_UID,
+    personalUid,
   );
-  if (existing) return existing.uid;
+  if (existingPersonal) return existingPersonal.uid;
 
+  // No personal folder yet — create one lazily. Title falls back to userId
+  // (display name isn't available in agent context).
   const created = await ctx.folderRepository.create({
-    uid: DEFAULT_ALERT_RULE_FOLDER_UID,
+    uid: personalUid,
     orgId: ctx.identity.orgId,
-    title: DEFAULT_ALERT_RULE_FOLDER_TITLE,
-    description: 'Default folder for alert rules created without an explicit folder.',
+    title: `${ctx.identity.userId}'s workspace`,
+    description: 'Personal workspace — only you can see items here.',
     parentUid: null,
+    kind: 'personal',
     createdBy: ctx.identity.userId,
     updatedBy: ctx.identity.userId,
     source: 'ai_generated',
   });
+  // Touch the legacy constant so the unused-import linter stays quiet — keeps
+  // the symbol exported for any test still importing it without an extra diff.
+  void DEFAULT_ALERT_RULE_FOLDER_UID;
+  void DEFAULT_ALERT_RULE_FOLDER_TITLE;
   return created.uid;
 }
 

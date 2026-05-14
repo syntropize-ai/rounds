@@ -39,6 +39,11 @@ export async function applyPostgresSchema(db: DbClient): Promise<void> {
     for (const stmt of statements) {
       await tx.execute(sql.raw(stmt));
     }
+    // Additive migration: Wave 1 / PR-C added folder.kind. Existing instances
+    // need the column backfilled with the schema default.
+    await tx.execute(sql.raw(`
+      ALTER TABLE folder ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'shared';
+    `));
   });
 }
 

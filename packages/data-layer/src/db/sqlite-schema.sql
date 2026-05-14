@@ -308,6 +308,9 @@ CREATE TABLE IF NOT EXISTS folder (
   title       TEXT NOT NULL,
   description TEXT NULL,
   parent_uid  TEXT NULL,
+  -- Wave 1 / PR-C: 'personal' = per-user My Workspace (uid='user:<userId>',
+  -- visible only to its owner). 'shared' = default Grafana-parity folder.
+  kind        TEXT NOT NULL DEFAULT 'shared',
   created     TEXT NOT NULL,
   updated     TEXT NOT NULL,
   created_by  TEXT NULL,

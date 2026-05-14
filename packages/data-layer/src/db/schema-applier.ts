@@ -62,6 +62,7 @@ export function applySchema(db: SqliteClient): void {
   // columns added to existing tables on already-built databases. Each
   // step is idempotent and inspects sqlite_master / pragma first.
   addProvenanceColumnIfMissing(db);
+  addFolderKindColumnIfMissing(db);
 }
 
 function renameLegacyUserTable(db: SqliteClient): void {
@@ -80,6 +81,20 @@ function renameLegacyUserTable(db: SqliteClient): void {
  * rows (no provenance to backfill) keep working — the UI's
  * <ProvenanceHeader /> already degrades to "—" for null fields.
  */
+/**
+ * Add `folder.kind` for databases created before Wave 1 / PR-C. Existing rows
+ * default to 'shared'; the personal kind is only ever set via the
+ * `/api/workspace/me` lazy-create flow.
+ */
+function addFolderKindColumnIfMissing(db: SqliteClient): void {
+  const cols = db.all<{ name: string }>(sql`PRAGMA table_info('folder')`);
+  if (!cols.some((c) => c.name === 'kind')) {
+    db.run(
+      sql.raw("ALTER TABLE folder ADD COLUMN kind TEXT NOT NULL DEFAULT 'shared'"),
+    );
+  }
+}
+
 function addProvenanceColumnIfMissing(db: SqliteClient): void {
   const cols = db.all<{ name: string }>(
     sql`PRAGMA table_info('investigation_reports')`,

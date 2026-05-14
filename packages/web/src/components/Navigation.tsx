@@ -43,6 +43,16 @@ function HomeIcon({ className }: { className?: string }) {
   );
 }
 
+/* My Workspace — folder + person icon */
+function WorkspaceIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+      <circle cx="12" cy="13" r="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function DashboardIcon({ className }: { className?: string }) {
   return (
     <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -488,6 +498,9 @@ export default function Navigation() {
       {(activeTab === 'nav' || !expanded) && (
         <div className={`flex flex-col gap-1 flex-1 ${expanded ? '' : 'items-center'}`}>
           <SidebarItem to="/" label="Home" icon={<HomeIcon />} end expanded={expanded} />
+          {/* Wave 1 / PR-C — personal scratch area, sits right under Home so
+              users always know where their private items live. */}
+          <SidebarItem to="/workspace" label="My Workspace" icon={<WorkspaceIcon />} expanded={expanded} />
           <SidebarItem to="/dashboards" label="Dashboards" icon={<DashboardIcon />} expanded={expanded} />
           <SidebarItem to="/investigations" label="Investigations" icon={<InvestigationIcon />} expanded={expanded} />
           <SidebarItem to="/alerts" label="Alerts" icon={<AlertsIcon />} expanded={expanded} />

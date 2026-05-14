@@ -1,15 +1,10 @@
 /**
  * Regression coverage — Task 16, scenario 2 (agent-core slice).
  *
- * Protects the AI alert-creation contract: when no folderUid is supplied,
- * the handler must use (and lazily CREATE) the default `alerts` folder
- * scoped to the caller's org. The route-level equivalent for the manual UI
- * is tested in packages/api-gateway/src/routes/alert-rules.test.ts —
- * this test covers the agent-core handler path which has its own
- * `resolveAlertRuleFolderUid` implementation.
- *
- * Existing alert.test.ts only stubs `findByUid` to return an existing
- * folder — this test specifically protects the create-on-miss branch.
+ * Wave 1 / PR-C updated the default: agent-created alerts without an explicit
+ * folderUid now land in the caller's personal "My Workspace" folder
+ * (`uid = user:<userId>`), not the shared `alerts` folder. Explicit folderUid
+ * still wins and bypasses the folder repo entirely.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -27,8 +22,8 @@ const createSpec = {
 };
 
 describe('regression: alert handler default Alerts folder (agent-core handler path)', () => {
-  it('creates the "alerts" folder when it does not exist and uses it for the rule', async () => {
-    const create = vi.fn(async () => ({ uid: 'alerts' }));
+  it('lazy-creates the caller\'s personal workspace folder when it does not exist and uses it', async () => {
+    const create = vi.fn(async () => ({ uid: 'user:u-1' }));
     const findByUid = vi.fn(async () => null);
     const folderRepository = { create, findByUid } as never;
 
@@ -58,20 +53,20 @@ describe('regression: alert handler default Alerts folder (agent-core handler pa
     });
 
     expect(observation).toContain('Created alert rule "CPUHigh"');
-    // Resolution went looking in the caller's org first.
-    expect(findByUid).toHaveBeenCalledWith('org-7', 'alerts');
-    // Then created the folder under that org with the canonical title.
+    // Resolution went looking in the caller's org for the personal folder uid.
+    expect(findByUid).toHaveBeenCalledWith('org-7', 'user:u-1');
+    // Then created the personal-kind folder under that org.
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        uid: 'alerts',
+        uid: 'user:u-1',
         orgId: 'org-7',
-        title: 'Alerts',
+        kind: 'personal',
         createdBy: 'u-1',
       }),
     );
     // The alert row was scoped to the resolved folder.
     expect((alertRuleStore as { create: ReturnType<typeof vi.fn> }).create).toHaveBeenCalledWith(
-      expect.objectContaining({ folderUid: 'alerts', workspaceId: 'org-7' }),
+      expect.objectContaining({ folderUid: 'user:u-1', workspaceId: 'org-7' }),
     );
   });
 

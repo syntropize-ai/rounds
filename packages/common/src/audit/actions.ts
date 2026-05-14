@@ -88,6 +88,25 @@ export const AuditAction = {
   NotificationChannelUpdated: 'notification_channel.updated',
   NotificationChannelDeleted: 'notification_channel.deleted',
   InstanceBootstrapped: 'instance.bootstrapped',
+
+  // Resource mutations (Wave 1 — enables downstream RFCs for My Workspace
+  // promote, provisioned protection, service attribution confirm).
+  // See docs/design/rfc-safety-patterns.md.
+  DashboardCreate: 'dashboard.create',
+  DashboardUpdate: 'dashboard.update',
+  DashboardDelete: 'dashboard.delete',
+  DashboardMove: 'dashboard.move',
+  DashboardFork: 'dashboard.fork',
+  DashboardPromote: 'dashboard.promote',
+  FolderCreate: 'folder.create',
+  FolderUpdate: 'folder.update',
+  FolderDelete: 'folder.delete',
+  AlertRuleCreate: 'alert_rule.create',
+  AlertRuleUpdate: 'alert_rule.update',
+  AlertRuleDelete: 'alert_rule.delete',
+  InvestigationCreate: 'investigation.create',
+  InvestigationUpdate: 'investigation.update',
+  ServiceAttributionConfirm: 'service.attribution_confirm',
 } as const;
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];

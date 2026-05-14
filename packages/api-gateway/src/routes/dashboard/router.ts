@@ -263,6 +263,83 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     }
   })
 
+  // POST /dashboards/:id/fork — Wave 2 / Step 5
+  // Copy the (possibly provisioned) source dashboard into the caller's personal
+  // folder as a `source: 'manual'` row. Reads bypass the writable-gate on
+  // purpose: forking a provisioned dashboard is the supported "edit it" path.
+  // We require read on the source AND create-in-folders for the destination.
+  router.post(
+    '/:id/fork',
+    requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const id = req.params['id'] ?? ''
+        const body = (req.body ?? {}) as { newTitle?: string }
+        const source = await loadOwnedDashboard(req, res, id)
+        if (!source) return
+
+        const userId = (req as AuthenticatedRequest).auth?.userId ?? 'anonymous'
+        const orgId = resolveOrgId(req)
+        // Personal-folder convention — see docs/auth-perm-design and the
+        // writable-gate RFC. The folder is created on-demand by callers; here
+        // we just attach the uid string so the create-folder-RBAC scope works.
+        const personalFolderUid = `personal-${userId}`
+
+        const newTitle =
+          typeof body.newTitle === 'string' && body.newTitle.trim()
+            ? body.newTitle.trim()
+            : `${source.title} (forked)`
+
+        const created = await store.create({
+          title: newTitle,
+          description: source.description,
+          prompt: source.prompt,
+          userId,
+          datasourceIds: source.datasourceIds,
+          useExistingMetrics: source.useExistingMetrics,
+          folder: personalFolderUid,
+          workspaceId: orgId,
+          // Fork lands as a plain manual row so the writable-gate lets the
+          // user edit it freely going forward.
+          source: 'manual',
+          provenance: { forkedFrom: source.id },
+        })
+
+        // Copy panels + variables onto the freshly created shell. We persist
+        // through the dedicated methods (rather than passing into create())
+        // because create() doesn't accept them — same pattern as agent clone.
+        if (source.panels.length > 0) {
+          await store.updatePanels(created.id, source.panels)
+        }
+        if (source.variables.length > 0) {
+          await store.updateVariables(created.id, source.variables)
+        }
+
+        void audit?.log({
+          action: AuditAction.DashboardFork,
+          actorType: 'user',
+          actorId: userId,
+          orgId,
+          targetType: 'dashboard',
+          targetId: created.id,
+          targetName: created.title,
+          outcome: 'success',
+          metadata: {
+            sourceId: source.id,
+            sourceSource: source.source ?? 'manual',
+            folder: personalFolderUid,
+          },
+        })
+
+        // Reload so the response includes the panels/variables we just wrote.
+        const full = await store.findById(created.id)
+        res.status(201).json(full ?? created)
+      } catch (err) {
+        next(err)
+      }
+    },
+  )
+
   // PUT /dashboards/:id/panels
   router.put('/:id/panels', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
     try {

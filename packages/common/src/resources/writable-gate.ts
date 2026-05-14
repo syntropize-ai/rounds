@@ -26,6 +26,12 @@ export interface ResourceProvenance {
   commit?: string;
   generatedBy?: string;
   prompt?: string;
+  /**
+   * Wave 2 / Step 5 — when set, this resource was forked from another resource
+   * (typically a provisioned one) into the caller's personal workspace. The
+   * chain is queryable for "show ancestry" UIs but not used for any gating.
+   */
+  forkedFrom?: string;
 }
 
 export class ProvisionedResourceError extends Error {

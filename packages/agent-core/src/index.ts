@@ -55,3 +55,11 @@ export {
 } from './agent/background-runner.js';
 
 export type { AgentType } from './agent/agent-types.js';
+
+// Wave 2 / Step 5 — provisioned diff helper. Re-exported here so the
+// orchestrator and the api-gateway router can both reach it without crossing
+// internal package boundaries.
+export {
+  generateProvisionedDiff,
+  type ProvisionedDiffProvenance,
+} from './agent/provisioned-diff.js';

@@ -421,6 +421,75 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     },
   );
 
+  // POST /api/alert-rules/:id/fork — Wave 2 / Step 5
+  // Mirrors the dashboard fork endpoint: copy the (possibly provisioned)
+  // source rule into the caller's personal folder as a `source: 'manual'`
+  // row. Read on the source + create on the personal folder.
+  router.post(
+    '/:id/fork',
+    requirePermission((req) =>
+      ac.eval(ACTIONS.AlertRulesRead, `alert.rules:uid:${req.params['id'] ?? ''}`),
+    ),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const existing = await loadOwnedRule(req, res);
+        if (!existing) return;
+
+        const body = (req.body ?? {}) as { newTitle?: string; folderUid?: string };
+        const userId = (req as AuthenticatedRequest).auth?.userId ?? 'anonymous';
+        const workspaceId = resolveOrgId(req);
+        // Personal-folder convention. Caller may override.
+        const folderUid =
+          (typeof body.folderUid === 'string' && body.folderUid.trim()) ||
+          `personal-${userId}`;
+
+        const newName =
+          typeof body.newTitle === 'string' && body.newTitle.trim()
+            ? body.newTitle.trim()
+            : `${existing.name} (forked)`;
+
+        const created = await store.create({
+          name: newName,
+          description: existing.description,
+          originalPrompt: existing.originalPrompt,
+          condition: existing.condition,
+          evaluationIntervalSec: existing.evaluationIntervalSec,
+          severity: existing.severity,
+          labels: { ...existing.labels },
+          ...(existing.notificationPolicyId
+            ? { notificationPolicyId: existing.notificationPolicyId }
+            : {}),
+          createdBy: userId,
+          workspaceId,
+          folderUid,
+          // Fork lands as a plain manual row so subsequent edits aren't blocked.
+          source: 'manual',
+          provenance: { forkedFrom: existing.id },
+        });
+
+        void audit?.log({
+          action: AuditAction.AlertRuleFork,
+          actorType: 'user',
+          actorId: userId,
+          orgId: workspaceId,
+          targetType: 'alert_rule',
+          targetId: created.id,
+          targetName: created.name,
+          outcome: 'success',
+          metadata: {
+            sourceId: existing.id,
+            sourceSource: existing.source ?? 'manual',
+            folderUid,
+          },
+        });
+
+        res.status(201).json(created);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   router.put(
     '/:id',
     requirePermission((req) =>

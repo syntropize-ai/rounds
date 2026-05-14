@@ -108,6 +108,7 @@ export const AuditAction = {
   // shared/team folder. Crosses a permission boundary; written by the
   // promote handler in addition to the GuardedAction audit.
   AlertRulePromote: 'alert_rule.promote',
+  AlertRuleFork: 'alert_rule.fork',
   InvestigationCreate: 'investigation.create',
   InvestigationUpdate: 'investigation.update',
   ServiceAttributionConfirm: 'service.attribution_confirm',

@@ -200,6 +200,73 @@ describe('dashboard router workspace ownership checks', () => {
     expect(store[mutation]).not.toHaveBeenCalled()
   })
 
+  it('forks a provisioned dashboard into the caller\'s personal folder as manual', async () => {
+    const source = dashboard({
+      id: 'dash_owned',
+      workspaceId: 'org_main',
+      title: 'Prod Latency',
+      source: 'provisioned_git',
+      provenance: { repo: 'org/repo', path: 'dashboards/d.yaml', commit: 'abc' },
+      panels: [panel({ id: 'p1' }), panel({ id: 'p2' })],
+      variables: [{ name: 'pod', label: 'Pod', type: 'query', query: 'label_values(up, pod)' }],
+    })
+    const store = makeStore(source)
+    // Record the create call's input so we can assert provenance + folder.
+    let createInput: unknown
+    vi.mocked(store.create).mockImplementation(async (input: unknown) => {
+      createInput = input
+      return dashboard({ id: 'dash_forked', workspaceId: 'org_main', title: 'Prod Latency (forked)', source: 'manual', folder: 'personal-user_1' })
+    })
+    vi.mocked(store.updatePanels).mockResolvedValue(source)
+    vi.mocked(store.updateVariables).mockResolvedValue(source)
+    vi.mocked(store.findById)
+      .mockResolvedValueOnce(source) // initial loadOwnedDashboard
+      .mockResolvedValueOnce(dashboard({ id: 'dash_forked', workspaceId: 'org_main', title: 'Prod Latency (forked)', source: 'manual', folder: 'personal-user_1', panels: source.panels, variables: source.variables }))
+
+    const app = makeApp(store)
+    const res = await request(app)
+      .post('/dashboards/dash_owned/fork')
+      .send({})
+
+    expect(res.status).toBe(201)
+    expect(res.body.id).toBe('dash_forked')
+    expect(res.body.source).toBe('manual')
+    expect(res.body.folder).toBe('personal-user_1')
+    expect(store.updatePanels).toHaveBeenCalledWith('dash_forked', source.panels)
+    expect(store.updateVariables).toHaveBeenCalledWith('dash_forked', source.variables)
+    const input = createInput as { source?: string; folder?: string; provenance?: { forkedFrom?: string }; title?: string }
+    expect(input.source).toBe('manual')
+    expect(input.folder).toBe('personal-user_1')
+    expect(input.provenance?.forkedFrom).toBe('dash_owned')
+    expect(input.title).toBe('Prod Latency (forked)')
+  })
+
+  it('respects a caller-supplied newTitle on fork', async () => {
+    const source = dashboard({ id: 'dash_owned', workspaceId: 'org_main', title: 'Original' })
+    const store = makeStore(source)
+    let createInput: { title?: string } = {}
+    vi.mocked(store.create).mockImplementation(async (input: { title?: string }) => {
+      createInput = input
+      return dashboard({ id: 'dash_forked', workspaceId: 'org_main', title: input.title ?? '' })
+    })
+    const app = makeApp(store)
+
+    const res = await request(app)
+      .post('/dashboards/dash_owned/fork')
+      .send({ newTitle: 'My Copy' })
+
+    expect(res.status).toBe(201)
+    expect(createInput.title).toBe('My Copy')
+  })
+
+  it('returns 404 when forking a cross-workspace dashboard', async () => {
+    const store = makeStore(dashboard()) // workspaceId === 'org_other'
+    const app = makeApp(store)
+    const res = await request(app).post('/dashboards/dash_other/fork').send({})
+    expect(res.status).toBe(404)
+    expect(store.create).not.toHaveBeenCalled()
+  })
+
   it('returns 404 and skips datasource resolution for cross-workspace variable resolution', async () => {
     const store = makeStore(dashboard({ variables: [{ name: 'pod', label: 'Pod', type: 'query', query: 'label_values(up, pod)' }] }))
     const setupConfig = { listConnectors: vi.fn(async () => []) }

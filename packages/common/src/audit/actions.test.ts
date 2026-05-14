@@ -19,6 +19,11 @@ describe('AuditAction catalog', () => {
     expect(AuditAction.PermissionGranted).toBe('permission.granted');
   });
 
+  it('includes fork actions for dashboard + alert_rule (Wave 2 / Step 5)', () => {
+    expect(AuditAction.DashboardFork).toBe('dashboard.fork');
+    expect(AuditAction.AlertRuleFork).toBe('alert_rule.fork');
+  });
+
   it('has no duplicate values', () => {
     const values = Object.values(AuditAction);
     const set = new Set(values);

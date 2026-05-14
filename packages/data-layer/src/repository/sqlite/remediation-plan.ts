@@ -1,7 +1,7 @@
 /**
  * SQLite implementation of `IRemediationPlanRepository`.
  *
- * Phase 3 of `docs/design/auto-remediation.md`. JSON columns are stored as
+ * Phase 3 of `auto-remediation design notes`. JSON columns are stored as
  * TEXT and parsed in code (matches the surrounding sqlite-repo pattern;
  * keeps the schema dialect-portable).
  */

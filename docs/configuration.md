@@ -49,7 +49,7 @@ By default, Rounds uses SQLite:
 - Helm/container: `${DATA_DIR}/rounds.db`, which defaults to `/var/lib/syntropize/rounds.db`
 
 When `DATABASE_URL` starts with `postgres://` or `postgresql://`, Rounds uses
-Postgres for the full repository layer: auth, RBAC, settings, datasources,
+Postgres for the full repository layer: auth, RBAC, settings, connectors,
 dashboards, investigations, alerts, notifications, chat, and feed data. The
 repository boundary is database-agnostic so additional SQL backends can be added
 without changing product flows, but SQLite and Postgres are the supported

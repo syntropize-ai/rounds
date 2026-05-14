@@ -3,7 +3,7 @@
  * agent after an investigation. The unit of human approval. Steps are write
  * actions executed in order; halt-on-failure by default.
  *
- * Phase 3 of `docs/design/auto-remediation.md`. Schema only — no agent tools,
+ * Phase 3 of `auto-remediation design notes`. Schema only — no agent tools,
  * no executor, no API routes consume these types yet.
  */
 

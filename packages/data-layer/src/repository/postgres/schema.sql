@@ -805,7 +805,7 @@ CREATE TABLE IF NOT EXISTS connector_team_policies (
 );
 
 -- ============================================================================
--- Remediation plans (Phase 3 of docs/design/auto-remediation.md)
+-- Remediation plans (Phase 3 of auto-remediation design notes)
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS remediation_plan (

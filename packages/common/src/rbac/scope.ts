@@ -113,7 +113,7 @@ export function normalizeScope(scope: string | null | undefined): string {
  *   approvals:namespace:<connId>:<ns>        — connector + namespace pin
  *   approvals:team:<teamId>                  — any approval with requester_team_id = teamId
  *
- * See docs/design/approvals-multi-team-scope.md §3.1.
+ * See approval-scope design notes §3.1.
  */
 export type ApprovalScope =
   | { kind: 'wildcard' }

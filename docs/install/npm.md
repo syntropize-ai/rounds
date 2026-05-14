@@ -18,7 +18,7 @@ The first run downloads the package, then starts the API on `http://localhost:30
 
 1. Creating the first administrator account
 2. Configuring your LLM provider key
-3. Adding at least one datasource (Prometheus, VictoriaMetrics, etc.)
+3. Adding at least one metrics connector (Prometheus, VictoriaMetrics, etc.)
 
 ## Install globally
 

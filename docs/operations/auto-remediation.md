@@ -41,7 +41,7 @@ and what to check when something goes wrong.
 ## Prerequisites
 
 - Rounds running with persistence (SQLite default; Postgres also works).
-- A Prometheus-compatible datasource configured in the setup wizard.
+- A Prometheus-compatible metrics connector configured in the setup wizard.
 - At least one Kubernetes ops connector configured under
   Settings → Ops connectors. The connector needs:
   - a kubeconfig credential (inline or a `secretRef` —
@@ -184,7 +184,7 @@ throw.
 ### Alert rules
 
 Standard PromQL rules. The evaluator pulls the default Prometheus
-datasource and runs the rule's `condition.query` per `evaluationIntervalSec`.
+metrics connector and runs the rule's `condition.query` per `evaluationIntervalSec`.
 Multi-series queries fold to the first sample — production rules
 should aggregate to a scalar (`sum(...) by ()`).
 
@@ -228,7 +228,7 @@ alert will use it. The warning is rate-limited to once per minute.
   rule with a 5-minute `forDurationSec` requires the predicate to be
   true for that long before it transitions to `firing`.
 - Check the gateway logs for `metric query failed` — usually a
-  datasource auth or networking issue.
+  connector auth or networking issue.
 - The evaluator is single-process v1; if your gateway is running
   multiple replicas, only one will evaluate (the first to acquire the
   lock; see HA notes below). Multi-replica HA is intentionally bounded
@@ -282,7 +282,6 @@ project if you need any:
   executor does not unwind a failed plan automatically.
 - Cross-cluster fan-out — one connector per step.
 
-## Reference: design doc
+## Implementation status
 
-The full design (state machine, file map, intentional non-goals) is in
-[`docs/design/auto-remediation.md`](https://github.com/syntropize/rounds/blob/main/docs/design/auto-remediation.md).
+Auto-remediation is intentionally conservative. Kubernetes is the first supported execution target, and every mutating step is routed through confirmation or approval before it runs.

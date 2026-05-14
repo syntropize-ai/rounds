@@ -1,67 +1,45 @@
 # Dashboards
 
-Build observability dashboards by describing what you want in plain language. Rounds discovers your metrics, picks visualizations, validates the queries, and ships a working dashboard grounded in real values.
+Dashboards are where you inspect metrics after Rounds creates, edits, or opens them for you. You can work from the dashboard list, a folder, the dashboard workspace, or chat.
 
-## What you can do
+## Common tasks
 
-- **Generate from a prompt** — "create a dashboard for HTTP latency" → ~5 panels with grounded p50/p95/p99, request rate, error rate.
-- **Iterate by chat** — "add a panel showing 5xx errors by handler", "split the latency panel by method", "remove the request-rate panel".
-- **Manage layout** — rearrange, resize, retitle panels via chat or drag-and-drop.
-- **Add variables** — "add a `service` dropdown" creates a template variable backed by a label query.
-- **List & open** — `dashboard.list` returns dashboards filtered by folder/tag; click-through to open in the workspace.
+- Create a dashboard from chat: `Create a dashboard for HTTP latency`.
+- Open an existing dashboard: `Open the ingress gateway dashboard`.
+- Edit a dashboard from chat: add, remove, retitle, rearrange, or explain panels.
+- Use folders to group team, service, personal, or temporary dashboards.
+- Search dashboards, folders, panel titles, descriptions, and PromQL.
+- Manage permissions on folders and dashboards when your role allows it.
 
-## How to use it
+## Dashboard list
 
-### Create a new dashboard
+Open **Dashboards** from the sidebar. The page shows folders and dashboards together, similar to a file browser.
 
-In the chat panel:
+- Use search when you know the dashboard, panel, folder, or query text.
+- Open folders in place to browse nested resources.
+- Create folders for team-owned or personal work.
+- Use the dashboard row to open the workspace.
 
-> Create a dashboard for HTTP latency
+Alerts can live in folders too. A folder is a shared permission boundary for observability resources, not only a dashboard container.
 
-Rounds runs the orchestrator agent through a multi-step plan:
+## Dashboard workspace
 
-1. `datasources.list` — find available metrics backends
-2. `metrics.metric_names` + `web.search` — discover relevant metric names + best practices
-3. `metrics.metadata` / `metrics.labels` — understand the schema
-4. `metrics.query` (parallel) — sample real values for grounding
-5. `metrics.validate` — confirm each query parses and returns data
-6. `dashboard.create` + `dashboard.add_panels` — build it
-7. `navigate` — open the new dashboard for you
+Open a dashboard to view panels, change the time range, refresh manually, or enable auto-refresh.
 
-You'll see the streaming step trace as it runs.
+Use the dashboard chat for scoped edits. The agent already knows which dashboard is open, so prompts can be short:
 
-### Edit an existing dashboard
+> Add p95 and p99 latency by route.
 
-Open a dashboard, then in the chat:
+> Remove panels that return no data.
 
-> Add a panel showing the 5xx error rate per handler
+> Add a service variable and wire it into the queries.
 
-Or use direct UI controls — click the panel menu to edit/duplicate/remove. Both paths use the same underlying tools (`dashboard.add_panels`, `dashboard.modify_panel`, `dashboard.remove_panels`).
+## Chat-generated dashboards
 
-### Add a template variable
-
-> Add a `service` variable populated from the `service` label
-
-Generates a `metrics.label_values` query and wires the variable into all panel queries that use that label.
-
-## Examples
-
-| Prompt | Result |
-|---|---|
-| `Create a dashboard for Redis health` | Connections, ops/sec, memory, evictions, hit rate |
-| `Add p50/p95/p99 latency panels grouped by route` | 3 stat panels + 1 timeseries panel |
-| `Split the requests panel by status code class` | Modifies existing panel to add `status_code_class` legend |
-| `Remove all panels with zero data` | Iterates panels, queries each, deletes empty ones |
+When you ask for a new dashboard, Rounds discovers connectors, samples real metrics, validates PromQL, creates panels, and opens the result. The visible activity trace shows what the agent checked.
 
 ## Limits
 
-- Generation is grounded in your **current** metrics. Cardinality bombs (label combos with millions of series) are filtered out automatically — limit 20 series per query result.
-- The model picks panel types heuristically. You can override with prompts like "use a heatmap for that latency panel".
-- Variable queries with high cardinality (`>1000` values) get truncated; use `regex` filters to narrow.
-- Dashboards are JSON-compatible with the Grafana schema; you can export / import between systems.
-
-## Related
-
-- [Datasources](/features/datasources) — what metric backends are supported
-- [Chat & agents](/features/chat) — how the dashboard agent is wired
-- [Permissions](/auth#resource-permissions-folders-dashboards-datasources-alert-rules) — folder-scoped grants for who can view/edit
+- Metric support is strongest for Prometheus-compatible connectors.
+- Very high-cardinality labels may be truncated or require a narrower prompt.
+- Some advanced Grafana behaviors, such as full import/export parity and dashboard version restore, are product areas under active development.

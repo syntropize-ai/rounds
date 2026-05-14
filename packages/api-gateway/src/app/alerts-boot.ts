@@ -1,7 +1,7 @@
 /**
  * Boot wiring for the alert evaluator.
  *
- * Phase 0.5 of `docs/design/auto-remediation.md` boot path. Stands up
+ * Phase 0.5 of `auto-remediation design notes` boot path. Stands up
  * the periodic AlertEvaluatorService against the configured default
  * Prometheus-compatible datasource, behind a feature flag.
  *

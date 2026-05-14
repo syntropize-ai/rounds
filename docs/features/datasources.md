@@ -1,154 +1,48 @@
-# Connectors & connectors
+# Connectors
 
-<<<<<<< HEAD
-Rounds reads metrics, logs, and change events from your existing infrastructure, and talks to ops systems (Kubernetes today, more planned) through **connectors**. Every dashboard panel, alert rule, and investigation query talks to a configured connector — there's no second copy of the data.
-=======
-Rounds reads metrics, logs, and change events from your existing infrastructure, and talks to ops systems (Kubernetes today, more planned) through **connectors**. Every dashboard panel, alert rule, and investigation query talks to a configured datasource — there's no second copy of the data.
->>>>>>> origin/main
+Connectors let Rounds read telemetry and, when approved, act on operational systems. Dashboards, alerts, investigations, and chat all use the same connector inventory.
 
-Connectors can be added through the setup wizard, the Settings page, the REST API, **or by chatting with the agent** (e.g. "connect my prod Prometheus at http://..."). The agent uses the AI-first config tools to validate the URL, test connectivity, and save under your RBAC.
+## Connector types
 
-## Supported backends
-
-### Metrics
-
-| Backend | Compatibility | Notes |
+| Type | Status | Used for |
 |---|---|---|
-| **Prometheus** | Native | PromQL via `/api/v1/query` and `/api/v1/query_range` |
-| **VictoriaMetrics** | Native | Use MetricsQL extensions where supported |
-| **Mimir** | Via Prometheus protocol | Set the tenant ID via `X-Scope-OrgID` header in connector config |
-| **Thanos** | Via Prometheus protocol | Querier endpoint works as-is |
-| **Cortex** | Via Prometheus protocol | Same as Mimir |
+| Prometheus-compatible metrics | Supported | Dashboards, alerts, investigations |
+| Loki logs | Supported | Log search and investigations |
+| Kubernetes | Supported | Cluster inspection and approval-gated remediation |
+| Manual change events | Supported | Investigation correlation |
+| Notifications | Supported by configuration | Alert and approval delivery |
+| GitHub, Jira, PagerDuty, CI/CD, tracing, database reads | Planned | Change sync, incident sync, deeper investigations |
 
-Any backend exposing the Prometheus HTTP API works.
+Prometheus-compatible systems include Prometheus, Mimir, Thanos, Cortex, VictoriaMetrics, and similar APIs.
 
-### Logs
+## Add a connector
 
-| Backend | Compatibility | Notes |
-|---|---|---|
-| **Loki** | Native | LogQL via `/loki/api/v1/query` and `/query_range` |
+Use **Setup Wizard → Connectors** during first run, or **Settings → Connectors** after setup.
 
-### Change events
+You can also ask chat when your role allows connector changes:
 
-| Source | Status | Notes |
-|---|---|---|
-| **Manual entry** | Available | UI for recording deploys, config flips, infra changes |
-| **GitHub releases** | Planned | Auto-import from release events |
-| **ArgoCD / Flux** | Planned | Watch for sync events |
-| **CI/CD systems** | Planned | Build / deploy webhooks |
+> Connect my dev Prometheus at localhost:9090
 
-### Ops connectors
+Rounds validates the endpoint, saves non-secret configuration, and asks you to add credentials in Settings when needed.
 
-Ops connectors let Rounds read state and (with approval) act on the systems running your workloads.
+## Connector behavior
 
-| Connector | Status | Used for |
-|---|---|---|
-| **Kubernetes** (kubectl, allowlisted) | Available | Investigation reads + plan execution. See [Auto-remediation](/operations/auto-remediation). |
-| **GitHub PRs** | Planned | Open remediations as PRs instead of direct kubectl writes |
-| **Jira / PagerDuty / Opsgenie** | Planned | Incident sync + on-call routing |
-| **Database read connectors** | Planned | Slow-query logs, schema state |
-| **Distributed tracing** | Planned | Trace-aware investigation |
+- Connectors are org-scoped.
+- Credentials are stored as secrets, not shown back in the UI.
+- The agent chooses a connector by signal type and default status.
+- If multiple connectors match, the agent can ask you to choose.
+- Sensitive connector operations are controlled by RBAC and policy.
 
-## How to use it
+## Settings page
 
-### Add a connector
+Open **Settings → Connectors** to view configured connectors, status, capabilities, and policy controls.
 
-UI: Admin → Connectors → **+ New connector** → pick the type → fill in URL + auth.
+Open **Settings → AI** to set the LLM provider used by chat, investigations, and generation workflows.
 
-Or via API:
-
-```bash
-<<<<<<< HEAD
-curl -X POST https://your-rounds-host/api/connectors \
-=======
-curl -X POST https://your-rounds-host/api/datasources \
->>>>>>> origin/main
-  -H "Authorization: Bearer openobs_sa_..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "prod-prometheus",
-    "type": "prometheus",
-    "url": "http://prometheus.monitoring.svc:9090",
-    "access": "proxy",
-    "isDefault": true
-  }'
-```
-
-### Test connectivity
-
-After adding, click **Save & test** in the UI. Rounds hits `GET /api/v1/labels` (Prometheus) or `GET /loki/api/v1/labels` (Loki) and shows the response.
-
-### Use it in chat
-
-Once a connector is configured, the agent automatically discovers it via `connectors.list`. No prompt change needed:
-
-> Show me memory usage across all hosts
-
-The agent picks the appropriate metrics connector and runs queries.
-
-### Multiple connectors
-
-You can have many. The agent will:
-- Filter by `signalType` (`metrics` / `logs` / `changes`) when relevant
-- Pick the default connector for each signal type unless you specify ("query the staging Prometheus instead")
-- Suggest specifying when ambiguous
-
-### Connector permissions
-
-By default, all org members can query all connectors (their org role determines write access). For sensitive sources:
-
-UI: Admin → Connectors → click connector → **Permissions** tab → Add → pick user/team/role → level (View / Edit / Admin) → Save.
-
-`View` = `connectors:query` (read data). `Edit` = modify config. `Admin` = manage permissions on this connector.
-
-## Examples
-
-### Connect a dev Prometheus + a prod Mimir
-
-```bash
-# Dev — local prometheus
-curl -X POST .../api/connectors -d '{
-  "name": "dev-prometheus",
-  "type": "prometheus",
-  "url": "http://localhost:9090"
-}'
-
-# Prod — Mimir with tenant
-curl -X POST .../api/connectors -d '{
-  "name": "prod-mimir",
-  "type": "prometheus",
-  "url": "https://mimir.prod.example.com/prometheus",
-  "jsonData": { "httpHeaderName1": "X-Scope-OrgID" },
-  "secureJsonData": { "httpHeaderValue1": "tenant-foo" }
-}'
-```
-
-### Connect Loki for log search
-
-```bash
-curl -X POST .../api/connectors -d '{
-  "name": "logs",
-  "type": "loki",
-  "url": "http://loki.monitoring.svc:3100"
-}'
-```
-
-After this, the agent picks it up and you can ask: "Search logs for OOM kills in the last hour".
+Open **Settings → Notifications** to configure delivery channels.
 
 ## Limits
 
-- Auth methods supported: bearer token, basic auth, custom headers, mTLS (via cert + key in `secureJsonData`).
-- The agent caps result-set size at 20 series per metric query to keep the conversation snappy. Override per-call if needed.
-<<<<<<< HEAD
-- No write-back to connectors — Rounds reads only. Recording rules and alerting rules live in Rounds's own database.
-- Connector configs are stored encrypted (`SECRET_KEY` for credentials). Connector definitions are org-scoped — separate orgs cannot see each other's connections.
-=======
-- No write-back to datasources — Rounds reads only. Recording rules and alerting rules live in Rounds's own database.
-- Datasource configs are stored encrypted (`SECRET_KEY` for credentials). Datasource definitions are org-scoped — separate orgs cannot see each other's connections.
->>>>>>> origin/main
-
-## Related
-
-- [Configuration](/configuration) — `DEFAULT_METRICS_URL` etc. for bootstrap
-- [Permissions](/auth#connector-permissions) — per-connector ACLs
-- [Dashboards](/features/dashboards) — uses the configured connectors
+- Metrics and logs are read through their source APIs; Rounds does not copy your full telemetry store.
+- Kubernetes write actions require explicit approval.
+- Some connector creation and policy editing surfaces are still being expanded in the UI.

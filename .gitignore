@@ -25,6 +25,10 @@ pictures/
 .idea/
 .codex
 
+# Local internal architecture/design notes. Public docs should stay focused on
+# user guides, feature behavior, install, configuration, and API reference.
+internal-docs/
+
 # e2e testkit runtime state (cluster url, tokens, port-forward pid/log).
 tests/e2e/.state/*
 !tests/e2e/.state/.gitkeep

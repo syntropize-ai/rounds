@@ -4,7 +4,7 @@
  * (the spawn machinery), so tests can inject a fake `spawn` and assert on
  * argv without touching the network.
  *
- * Phase 6 of `docs/design/auto-remediation.md`.
+ * Phase 6 of `auto-remediation design notes`.
  *
  * Security:
  *   - The kubeconfig is resolved from the connector's secretRef one execution

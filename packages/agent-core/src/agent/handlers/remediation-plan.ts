@@ -1,7 +1,7 @@
 /**
  * Agent tools for proposing remediation plans.
  *
- * Phase 4 of `docs/design/auto-remediation.md`. Two tools:
+ * Phase 4 of `auto-remediation design notes`. Two tools:
  *
  *   - remediation_plan_create        — primary plan (auto-creates a
  *                                       plan-level ApprovalRequest)
@@ -176,7 +176,7 @@ async function createPlanCommon(
       // up in /api/approvals + the ActionCenter UI immediately. Rescue
       // plans do NOT — they're invoked on demand by an operator.
       if (rescueForPlanId === null && ctx.approvalRequests) {
-        // Multi-team scope tags (docs/design/approvals-multi-team-scope.md
+        // Multi-team scope tags (approval-scope design notes
         // §3.6). The plan-level approval is what lands in /api/approvals,
         // so it's the row that needs scope-narrowing for visibility. We
         // pull connector + namespace from the first ops step; team is

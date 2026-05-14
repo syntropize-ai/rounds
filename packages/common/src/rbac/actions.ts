@@ -149,7 +149,7 @@ export const ACTIONS = {
   AgentsConfigRead: 'agents.config:read',
   AgentsConfigWrite: 'agents.config:write',
   OpsCommandsRun: 'ops.commands:run',
-  // Remediation plans (Phase 5 of docs/design/auto-remediation.md). Default
+  // Remediation plans (Phase 5 of auto-remediation design notes). Default
   // grants seeded in rbac-seed: PlansRead → Viewer+, PlansApprove → Editor+
   // via grant, PlansAutoEdit has NO default and must be explicitly granted
   // by an admin. The 'auto-edit' bit is the dangerous one — once the

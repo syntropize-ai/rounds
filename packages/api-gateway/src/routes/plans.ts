@@ -1,5 +1,5 @@
 /**
- * /api/plans router. Phase 5 of `docs/design/auto-remediation.md`.
+ * /api/plans router. Phase 5 of `auto-remediation design notes`.
  *
  * Endpoints:
  *   GET    /api/plans?status=&investigationId=

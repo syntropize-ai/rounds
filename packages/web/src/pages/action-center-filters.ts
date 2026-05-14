@@ -1,7 +1,7 @@
 /**
  * Pure filter helpers for the Action Center approvals list.
  *
- * Per docs/design/approvals-multi-team-scope.md §5: operators filter approvals
+ * Per approval-scope design notes §5: operators filter approvals
  * by connector / namespace / team. The API already gates rows the user can see
  * (T2.2 per-row scope). These helpers only narrow the already-permitted set
  * client-side.

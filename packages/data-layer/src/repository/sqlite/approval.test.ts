@@ -8,7 +8,7 @@ import { toJsonColumn } from '../json-column.js';
 
 /**
  * T1.1 acceptance — schema migration, list() with scope filter, NULL semantics.
- * See docs/design/approvals-multi-team-scope.md §3.2 / §3.3.
+ * See approval-scope design notes §3.2 / §3.3.
  */
 
 interface SeedRow {

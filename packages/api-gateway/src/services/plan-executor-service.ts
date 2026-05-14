@@ -2,7 +2,7 @@
  * PlanExecutorService — the engine that drives a RemediationPlan from
  * `approved` to terminal state.
  *
- * Phase 5 of `docs/design/auto-remediation.md`. The plan is the unit of
+ * Phase 5 of `auto-remediation design notes`. The plan is the unit of
  * approval; this service is the unit of execution. State machine:
  *
  *   pending_approval ──approve──► approved ──startExecution──► executing

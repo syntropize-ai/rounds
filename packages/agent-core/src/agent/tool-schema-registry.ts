@@ -302,7 +302,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     },
   },
   // -------------------------------------------------------------------------
-  // Remediation plans (Phase 4 of docs/design/auto-remediation.md). The agent
+  // Remediation plans (Phase 4 of auto-remediation design notes). The agent
   // emits these AFTER `investigation_complete` when a fix is concrete and in
   // scope of an attached connector. The plan is the unit of approval; steps
   // are the unit of execution. Never run write commands from the

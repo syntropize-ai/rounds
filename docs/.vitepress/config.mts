@@ -17,8 +17,7 @@ export default defineConfig({
     siteTitle: 'Rounds',
     nav: [
       { text: 'Get Started', link: '/getting-started' },
-      { text: 'Install', link: '/install/npm' },
-      { text: 'Features', link: '/features/dashboards' },
+      { text: 'User Guide', link: '/features/chat' },
       { text: 'Security', link: '/auth' },
       { text: 'GitHub', link: 'https://github.com/syntropize/rounds' },
     ],
@@ -39,19 +38,23 @@ export default defineConfig({
         ],
       },
       {
-        text: 'Features',
+        text: 'User Guide',
         items: [
-          { text: 'Operator loop', link: '/features/operator-loop' },
+          { text: 'Chat & agent', link: '/features/chat' },
           { text: 'Dashboards', link: '/features/dashboards' },
-          { text: 'Investigations', link: '/features/investigations' },
           { text: 'Alert rules', link: '/features/alerts' },
-          { text: 'Datasources', link: '/features/datasources' },
-          { text: 'Chat & agents', link: '/features/chat' },
+          { text: 'Investigations', link: '/features/investigations' },
+          { text: 'Feed', link: '/features/feed' },
+          { text: 'Action Center', link: '/features/action-center' },
+          { text: 'Connectors', link: '/features/datasources' },
         ],
       },
       {
-        text: 'Security',
+        text: 'Administration',
         items: [
+          { text: 'Setup wizard', link: '/features/admin#setup-wizard' },
+          { text: 'Settings', link: '/features/admin#settings' },
+          { text: 'Users, teams, and roles', link: '/features/admin#users-teams-and-roles' },
           { text: 'Authentication', link: '/auth#authentication-methods' },
           { text: 'Permissions & RBAC', link: '/auth#built-in-roles-permission-summary' },
           { text: 'Service accounts & tokens', link: '/auth#service-accounts-and-api-tokens' },
@@ -69,7 +72,6 @@ export default defineConfig({
         items: [
           { text: 'Configuration env vars', link: '/configuration' },
           { text: 'REST API', link: '/api-reference' },
-          { text: 'Architecture', link: '/architecture' },
         ],
       },
     ],

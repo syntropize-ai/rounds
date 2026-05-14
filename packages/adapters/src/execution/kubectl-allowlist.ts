@@ -15,7 +15,7 @@
  * `attach`, `auth can-i --as`) and any write to namespace `kube-system`,
  * `kube-public`, or `kube-node-lease`.
  *
- * Phase 6 of `docs/design/auto-remediation.md`.
+ * Phase 6 of `auto-remediation design notes`.
  */
 
 export type KubectlMode = 'read' | 'write';

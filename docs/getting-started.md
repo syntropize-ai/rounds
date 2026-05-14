@@ -32,10 +32,10 @@ The setup wizard walks you through the minimum needed to start asking questions:
 
 1. **Create your administrator account** (name, email, password — minimum 12 characters)
 2. **Configure an LLM provider** — paste an Anthropic, OpenAI, or Gemini API key, point at a local Ollama server, or supply an `apiKeyHelper` script for short-lived / vault-issued credentials
-3. **Add a metrics datasource** — Prometheus, VictoriaMetrics, Mimir, Thanos, Cortex, or any Prometheus-API-compatible backend
+3. **Add a metrics connector** — Prometheus, VictoriaMetrics, Mimir, Thanos, Cortex, or any Prometheus-API-compatible backend
 4. **Optionally add Loki** for log search and a **Kubernetes ops connector** so investigations can inspect pods, events, rollouts, and prepare approval-gated remediations
 
-You don't have to do step 3 or 4 in the wizard — once Rounds is running, you can also **add datasources, ops connectors, and low-risk org settings by chatting with the agent** ("connect my prod Prometheus at http://..."). The agent collects what it needs, previews the change, and applies it under your RBAC and the GuardedAction risk model.
+You don't have to do step 3 or 4 in the wizard — once Rounds is running, you can also **add connectors and low-risk org settings by chatting with the agent** ("connect my prod Prometheus at http://..."). The agent collects what it needs, previews the change, and applies it under your RBAC and the GuardedAction risk model.
 
 ## 3. Try a prompt
 

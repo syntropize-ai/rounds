@@ -7,7 +7,7 @@
  * history rows + updates pendingSince / lastFiredAt / fireCount), and emits
  * an in-process `alert.fired` event when a rule transitions to `firing`.
  *
- * Phase 0.5 of `docs/design/auto-remediation.md`. Single-process v1 — no
+ * Phase 0.5 of `auto-remediation design notes`. Single-process v1 — no
  * cross-replica leader lock yet (multi-replica HA is tracked as a follow-up;
  * the design doc explicitly scoped it out for v1).
  *

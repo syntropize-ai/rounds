@@ -4,7 +4,7 @@
  * encoding (`true/false` vs. `1/0`) and the use of `pgAll`/`pgRun` /
  * `withTransaction` on the Postgres `DbClient`.
  *
- * Phase 3 of `docs/design/auto-remediation.md`.
+ * Phase 3 of `auto-remediation design notes`.
  */
 
 import { sql, type SQL } from 'drizzle-orm';

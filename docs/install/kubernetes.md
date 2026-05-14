@@ -85,7 +85,7 @@ helm install rounds oci://ghcr.io/syntropize/charts/rounds \
 ```
 
 When `DATABASE_URL` starts with `postgres://` or `postgresql://`, Rounds uses
-Postgres for the full repository layer: auth, RBAC, settings, datasources,
+Postgres for the full repository layer: auth, RBAC, settings, connectors,
 dashboards, investigations, alerts, notifications, chat, and feed data. Choose
 the backend at install time. The setup wizard stores application settings such
 as the LLM provider, but it cannot switch the database because the database must

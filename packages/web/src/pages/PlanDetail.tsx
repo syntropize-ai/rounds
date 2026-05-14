@@ -1,7 +1,7 @@
 /**
  * /plans/:id — review + approve a single RemediationPlan.
  *
- * P7 of `docs/design/auto-remediation.md`. Shows the plan summary, source
+ * P7 of `auto-remediation design notes`. Shows the plan summary, source
  * investigation, ordered step list with dry-run previews + risk notes,
  * and an approve form with an opt-in `auto-edit` checkbox (gated by
  * `plans:auto_edit`). Failed plans get a "retry this step" affordance.

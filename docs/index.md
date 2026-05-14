@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Rounds
   text: An open-source AI SRE
-  tagline: Investigate incidents, build dashboards, tune alerts, and approve remediations from a single chat-driven SRE loop.
+  tagline: Use chat to create dashboards, tune alerts, investigate incidents, review approvals, and manage your observability workspace.
   actions:
     - theme: brand
       text: Get Started
@@ -14,12 +14,12 @@ hero:
       link: /install/npm
 
 features:
-  - title: Observe
-    details: Build and edit dashboards from your real metrics with natural language. Pending changes preview before any save.
-  - title: Detect
-    details: Create and tune alert rules with preview + backtest, grounded in your actual telemetry.
-  - title: Investigate
-    details: Correlate metrics, logs, traces, recent changes, and (when configured) Kubernetes state. Every claim has a citation.
-  - title: Remediate safely
-    details: Chat-driven Run / Confirm / Apply for user-led actions; formal Approve / Reject / Modify for background-agent fixes, with the GuardedAction risk model gating writes.
+  - title: Start with chat
+    details: Ask Rounds to find data, create resources, explain signals, or continue a previous conversation from Recents.
+  - title: Manage resources
+    details: Browse folders, dashboards, alert rules, investigations, feed items, and approval requests from the app navigation.
+  - title: Connect your stack
+    details: Add LLM providers, Prometheus-compatible metrics, Loki logs, Kubernetes, notifications, and org settings from setup or Settings.
+  - title: Keep control
+    details: RBAC, service accounts, audit logs, approvals, and confirmation flows keep AI-assisted operations reviewable.
 ---

@@ -440,12 +440,41 @@ export class PlanExecutorService {
       }
     }
 
-    const adapter = await this.opts.adapterFor(plan, step);
-    const result = await adapter.execute({
-      type: 'ops.run_command',
-      targetService: params.connectorId,
-      params: { argv: params.argv },
-    });
+    // Wrap adapter resolution + execution so a throw never leaves the step
+    // stuck in 'executing'. We translate the throw into a terminal 'failed'
+    // step with the error message preserved, mirroring the {success:false}
+    // path below.
+    let result: Awaited<ReturnType<ExecutionAdapter['execute']>>;
+    try {
+      const adapter = await this.opts.adapterFor(plan, step);
+      result = await adapter.execute({
+        type: 'ops.run_command',
+        targetService: params.connectorId,
+        params: { argv: params.argv },
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      await this.opts.plans.updateStep(plan.id, step.ordinal, {
+        status: 'failed',
+        errorText: truncate(`adapter threw: ${errMsg}`, STDIO_CAP_BYTES),
+      });
+      log.warn(
+        {
+          planId: plan.id,
+          stepOrdinal: step.ordinal,
+          orgId: plan.orgId,
+          investigationId: plan.investigationId,
+          errClass: err instanceof Error ? err.constructor.name : typeof err,
+          err: errMsg,
+        },
+        'plan-executor: adapter threw — marking step failed',
+      );
+      void this.audit(plan, step, 'error', `adapter threw: ${errMsg}`, params);
+      if (!step.continueOnError) {
+        await this.haltPlan(plan.orgId, plan.id, step.ordinal, errMsg);
+      }
+      return;
+    }
 
     if (result.success) {
       await this.opts.plans.updateStep(plan.id, step.ordinal, {

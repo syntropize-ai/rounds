@@ -5,6 +5,24 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
+vi.mock('@agentic-obs/common/logging', async () => {
+  const actual = await vi.importActual<typeof import('@agentic-obs/common/logging')>(
+    '@agentic-obs/common/logging',
+  );
+  const stub: () => Record<string, unknown> = () => ({
+    info: () => {},
+    warn: warnSpy,
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+    child: stub,
+  });
+  return { ...actual, createLogger: stub };
+});
+
 import { createTestDb, SqliteRemediationPlanRepository, SqliteApprovalRequestRepository } from '@agentic-obs/data-layer';
 import type { SqliteClient, NewRemediationPlan } from '@agentic-obs/data-layer';
 import type { ExecutionAdapter } from '@agentic-obs/adapters';
@@ -159,6 +177,48 @@ describe('PlanExecutorService — autoEdit happy path', () => {
     await svc.approve('org_main', plan.id, true, ID);
     const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
     expect(fresh?.steps[0]?.outputText?.length).toBe(64 * 1024);
+  });
+
+  // R-5 / T1.3: adapter throw must not leave the step stuck in 'executing'.
+  // Asserts the terminal state transition AND the structured warn log.
+  it('marks step failed (terminal) + warn-logs when adapter throws', async () => {
+    const plan = await plansRepo.create(basePlan());
+    const throwingAdapter: ExecutionAdapter = {
+      capabilities: () => ['runtime.scale'],
+      async validate() { return { valid: true }; },
+      async dryRun() { return { estimatedImpact: 'ok', warnings: [], willAffect: [] }; },
+      async execute() {
+        throw new Error('adapter blew up');
+      },
+    };
+    const svc = new PlanExecutorService({
+      plans: plansRepo,
+      adapterFor: async () => throwingAdapter,
+    });
+    warnSpy.mockClear();
+    const outcome = await svc.approve('org_main', plan.id, true, ID);
+
+    expect(outcome.kind).toBe('failed');
+    const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
+    expect(fresh?.status).toBe('failed');
+    expect(fresh?.steps[0]?.status).toBe('failed');
+    // Critical: NOT stuck in executing.
+    expect(fresh?.steps[0]?.status).not.toBe('executing');
+    expect(fresh?.steps[0]?.errorText).toMatch(/adapter blew up/);
+    // Later steps are skipped (haltPlan).
+    expect(fresh?.steps[1]?.status).toBe('skipped');
+
+    // Structured warn fired with expected fields.
+    const warnCall = warnSpy.mock.calls.find(
+      (c) => typeof c[1] === 'string' && c[1].includes('adapter threw'),
+    );
+    expect(warnCall).toBeDefined();
+    const ctx = warnCall![0] as Record<string, unknown>;
+    expect(ctx.planId).toBe(plan.id);
+    expect(ctx.stepOrdinal).toBe(0);
+    expect(ctx.orgId).toBe('org_main');
+    expect(ctx.errClass).toBe('Error');
+    expect(ctx.err).toMatch(/adapter blew up/);
   });
 });
 

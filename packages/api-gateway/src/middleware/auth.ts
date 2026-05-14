@@ -28,7 +28,12 @@ import {
 } from '../auth/session-service.js';
 import type { ApiKeyService } from '../services/apikey-service.js';
 
-const log = createLogger('auth-mw');
+/**
+ * Exported as a testing seam so tests can spy on `.warn` / `.error` calls
+ * (e.g. the non-blocking `markSeen` failure path). Not part of the public
+ * API — production callers should not depend on this binding.
+ */
+export const log = createLogger('auth-mw');
 
 export interface AuthenticatedRequest extends Request {
   auth?: Identity;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   ApiKeyRepository,
   OrgUserRepository,
@@ -9,6 +9,7 @@ import {
 import { SessionService } from '../auth/session-service.js';
 import {
   createAuthMiddleware,
+  log as authLog,
   readCookie,
   type AuthenticatedRequest,
 } from './auth.js';
@@ -111,6 +112,55 @@ describe('createAuthMiddleware', () => {
     expect(req.auth?.userId).toBe(user.id);
     expect(req.auth?.orgRole).toBe('Editor');
     expect(req.auth?.authenticatedBy).toBe('session');
+  });
+
+  it('still authenticates when markSeen rejects and logs a structured warn', async () => {
+    const user = await users.create({
+      email: 'a@x.com',
+      login: 'alice',
+      name: 'A',
+      orgId: 'org_main',
+    });
+    await orgUsers.create({ orgId: 'org_main', userId: user.id, role: 'Editor' });
+    const { token, row } = await sessions.create(user.id, 'ua', '1.2.3.4');
+
+    // Force markSeen to reject.
+    const markErr = new Error('db unavailable');
+    const markSeenSpy = vi
+      .spyOn(sessions, 'markSeen')
+      .mockRejectedValue(markErr);
+    const warnSpy = vi.spyOn(authLog, 'warn').mockImplementation(() => {});
+
+    try {
+      const req = {
+        headers: { cookie: `${SESSION_COOKIE_NAME}=${token}` },
+      } as unknown as AuthenticatedRequest;
+      const res = mockRes();
+      let called = false;
+      await mw(req, res, () => {
+        called = true;
+      });
+
+      // Auth still succeeded.
+      expect(called).toBe(true);
+      expect(req.auth?.userId).toBe(user.id);
+      expect(res._status).toBe(200);
+
+      // markSeen rejection is fire-and-forget — wait one tick for the catch.
+      await new Promise((r) => setImmediate(r));
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const [fields, msg] = warnSpy.mock.calls[0]!;
+      expect(fields).toMatchObject({
+        sessionId: row.id,
+        metric: 'session.markSeen.failed',
+        err: 'db unavailable',
+      });
+      expect(msg).toContain('markSeen failed');
+    } finally {
+      warnSpy.mockRestore();
+      markSeenSpy.mockRestore();
+    }
   });
 
   it('returns 401 for an unknown session cookie', async () => {

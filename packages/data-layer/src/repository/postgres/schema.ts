@@ -301,3 +301,26 @@ export const chatSessionEvents = pgTable(
     index('pg_repo_chat_session_events_seq_idx').on(t.sessionId, t.seq),
   ],
 );
+
+// — dashboard variable inference acks (Wave 2 / Step 4). Mirror of the
+//   SQLite table. See packages/common/src/utils/variable-hash.ts for the hash.
+
+export const dashboardVariableAck = pgTable(
+  'dashboard_variable_ack',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    dashboardUid: text('dashboard_uid').notNull(),
+    varsHash: text('vars_hash').notNull(),
+    ackedAt: text('acked_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('pg_repo_dashboard_variable_ack_unique').on(
+      t.userId,
+      t.dashboardUid,
+      t.varsHash,
+    ),
+    index('pg_repo_idx_var_ack').on(t.userId, t.dashboardUid),
+  ],
+);

@@ -590,3 +590,27 @@ export const chatSessionEvents = sqliteTable(
     index('chat_session_events_seq_idx').on(t.sessionId, t.seq),
   ],
 );
+
+// — dashboard variable inference acks (Wave 2 / Step 4). One row per
+//   (user, dashboard, hash-of-inferred-vars). Banner is suppressed when a
+//   row exists. See packages/common/src/utils/variable-hash.ts.
+
+export const dashboardVariableAck = sqliteTable(
+  'dashboard_variable_ack',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    dashboardUid: text('dashboard_uid').notNull(),
+    varsHash: text('vars_hash').notNull(),
+    ackedAt: text('acked_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('dashboard_variable_ack_unique').on(
+      t.userId,
+      t.dashboardUid,
+      t.varsHash,
+    ),
+    index('idx_var_ack').on(t.userId, t.dashboardUid),
+  ],
+);

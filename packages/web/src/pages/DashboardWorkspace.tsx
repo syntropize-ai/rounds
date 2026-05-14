@@ -6,6 +6,8 @@ import { queryScheduler } from '../api/query-scheduler.js';
 import DashboardGrid from '../components/DashboardGrid.js';
 import PanelEditor from '../components/PanelEditor.js';
 import VariableBar from '../components/VariableBar.js';
+import VariableInferenceBanner from '../components/VariableInferenceBanner.js';
+import { useInferredVariables } from '../hooks/useInferredVariables.js';
 import InvestigationReportView from '../components/InvestigationReportView.js';
 import { useDashboardChat } from '../hooks/useDashboardChat.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
@@ -330,6 +332,11 @@ export default function DashboardWorkspace() {
     [setVariables],
   );
 
+  // Wave 2.4 — variable inference confirm. When the URL carries _inf_<k>=...
+  // params we surface a banner; only `state.kind === 'applied'` flows the
+  // inferred bindings into panel queries. 'needs-ack' / 'dismissed' do not.
+  const inferred = useInferredVariables(id);
+
   // Resolved variable values for `${name}` substitution in panel queries.
   // Today only `$datasource` flows through here, but the map shape lets us
   // add label/tag substitution later without touching every panel.
@@ -338,8 +345,13 @@ export default function DashboardWorkspace() {
     for (const v of variables) {
       if (v.current) out[v.name] = v.current;
     }
+    if (inferred.state.kind === 'applied') {
+      for (const [k, v] of Object.entries(inferred.state.vars)) {
+        out[k] = v;
+      }
+    }
     return out;
-  }, [variables]);
+  }, [variables, inferred.state]);
 
   // Title editing
 
@@ -744,6 +756,17 @@ export default function DashboardWorkspace() {
 
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col min-w-0">
+          {inferred.state.kind === 'needs-ack' && (
+            <VariableInferenceBanner
+              vars={inferred.state.vars}
+              onAccept={inferred.accept}
+              // "Change variables" just dismisses the banner so the user can
+              // pick values manually from the VariableBar below. The picker
+              // already exists — we don't re-invent it here.
+              onChange={inferred.dismiss}
+              onDismiss={inferred.dismiss}
+            />
+          )}
           <VariableBar
             dashboardId={id ?? ''}
             variables={variables}

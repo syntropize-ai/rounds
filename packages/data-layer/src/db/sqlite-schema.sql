@@ -903,3 +903,25 @@ CREATE INDEX IF NOT EXISTS ix_llm_audit_org_id      ON llm_audit(org_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_user_id     ON llm_audit(user_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_session_id  ON llm_audit(session_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_model       ON llm_audit(model);
+
+-- ============================================================================
+-- Dashboard variable inference acks (Wave 2 / Step 4)
+--
+-- One row per (user, dashboard, vars-hash). The presence of a row means the
+-- user has confirmed those inferred variables for this dashboard and the
+-- banner should not re-prompt them on future opens with the same hash. See
+-- packages/common/src/utils/variable-hash.ts for the canonical hash form.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS dashboard_variable_ack (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  dashboard_uid  TEXT NOT NULL,
+  vars_hash      TEXT NOT NULL,
+  acked_at       TEXT NOT NULL,
+  UNIQUE(user_id, dashboard_uid, vars_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_var_ack
+  ON dashboard_variable_ack(user_id, dashboard_uid);

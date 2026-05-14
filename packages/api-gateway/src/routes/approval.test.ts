@@ -8,6 +8,24 @@
  *     does NOT broaden to `approvals:*` and so MUST NOT see `prod-eks` rows.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
+vi.mock('@agentic-obs/common/logging', async () => {
+  const actual = await vi.importActual<typeof import('@agentic-obs/common/logging')>(
+    '@agentic-obs/common/logging',
+  );
+  const stub: () => Record<string, unknown> = () => ({
+    info: () => {},
+    warn: warnSpy,
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+    child: stub,
+  });
+  return { ...actual, createLogger: stub };
+});
+
 import express from 'express';
 import request from 'supertest';
 import type { Evaluator, Identity, ResolvedPermission } from '@agentic-obs/common';
@@ -239,5 +257,71 @@ describe('FIXED_ROLE_DEFINITIONS — multi-team approval roles', () => {
     expect(names).toContain('fixed:approvals:cluster_approver');
     expect(names).toContain('fixed:approvals:namespace_approver');
     expect(names).toContain('fixed:approvals:team_viewer');
+  });
+});
+
+// R-5 / T1.3: approval mutation failures must surface to the requestor (5xx)
+// and land in the logs with structured context. Earlier the catch in each
+// route just forwarded to Express's default error handler with no breadcrumb.
+describe('/api/approvals — failure surfacing', () => {
+  it('approve repo throw → 5xx response AND structured warn log', async () => {
+    const r = row('appr-boom');
+    const requests: IApprovalRequestRepository = {
+      findById: async () => r,
+      submit: async () => { throw new Error('not used'); },
+      listPending: async () => [r],
+      list: async () => [r],
+      approve: async () => { throw new Error('db write failed'); },
+      reject: async () => r,
+      override: async () => r,
+    };
+    const approvals: IGatewayApprovalStore = {
+      findById: requests.findById,
+      listPending: requests.listPending,
+      approve: requests.approve,
+      reject: requests.reject,
+      override: requests.override,
+    };
+    const accessControl: AccessControlSurface = {
+      getUserPermissions: async () => [],
+      ensurePermissions: async () => [],
+      filterByPermission: async (_id, items) => [...items],
+      evaluate: async () => true, // grant access so we reach the failing approve()
+    };
+    setAuthMiddleware((req, _res, next) => { next(); return undefined as unknown as void; });
+
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      (req as AuthenticatedRequest).auth = {
+        userId: 'u1',
+        orgId: 'org_a',
+        orgRole: 'Admin',
+        isServerAdmin: false,
+        authenticatedBy: 'session',
+      };
+      next();
+    });
+    app.use('/api/approvals', createApprovalRouter({
+      approvals,
+      approvalRequests: requests,
+      ac: accessControl,
+    }));
+
+    warnSpy.mockClear();
+    const res = await request(app).post('/api/approvals/appr-boom/approve').send({});
+
+    // User sees a definitive failure, not a hung request.
+    expect(res.status).toBeGreaterThanOrEqual(500);
+
+    // Structured warn carries the right fields for ops correlation.
+    const warnCall = warnSpy.mock.calls.find(
+      (c) => typeof c[1] === 'string' && c[1].includes('approve failed'),
+    );
+    expect(warnCall).toBeDefined();
+    const ctx = warnCall![0] as Record<string, unknown>;
+    expect(ctx.requestId).toBe('appr-boom');
+    expect(ctx.action).toBe('approve');
+    expect(ctx.err).toBe('db write failed');
   });
 });

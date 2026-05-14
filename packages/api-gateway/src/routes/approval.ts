@@ -2,6 +2,31 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { ApiError, ResolvedPermission } from '@agentic-obs/common';
 import { ac, ACTIONS, approvalRowScopes, parseApprovalScope } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/common/logging';
+
+const log = createLogger('approval-route');
+
+/**
+ * Structured warn before forwarding to Express's default error handler so a
+ * caught failure carries `{ requestId, action, error }` into the operator
+ * logs. The route still returns a 5xx via `next(err)` so the requestor sees
+ * a definitive failure rather than a silent dead state.
+ */
+function logRouteError(
+  action: string,
+  err: unknown,
+  context: { requestId?: string; userId?: string; orgId?: string },
+): void {
+  log.warn(
+    {
+      ...context,
+      action,
+      errClass: err instanceof Error ? err.constructor.name : typeof err,
+      err: err instanceof Error ? err.message : String(err),
+    },
+    `approval-route: ${action} failed`,
+  );
+}
 import type { IApprovalRequestRepository, IGatewayApprovalStore, ApprovalScopeFilter } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
@@ -140,6 +165,8 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         const rows = await requests.list(auth.orgId, { scopeFilter });
         res.json(rows);
       } catch (err) {
+        const auth = (req as AuthenticatedRequest).auth;
+        logRouteError('list', err, { userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
     },
@@ -169,6 +196,9 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         }
         res.json(record);
       } catch (err) {
+        const auth = (req as AuthenticatedRequest).auth;
+        const requestId = req.params['id'];
+        logRouteError('get', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
     },
@@ -209,6 +239,9 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         }
         res.json(updated);
       } catch (err) {
+        const auth = (req as AuthenticatedRequest).auth;
+        const requestId = req.params['id'];
+        logRouteError('approve', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
     },
@@ -249,6 +282,9 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         }
         res.json(updated);
       } catch (err) {
+        const auth = (req as AuthenticatedRequest).auth;
+        const requestId = req.params['id'];
+        logRouteError('reject', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
     },
@@ -285,6 +321,9 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         }
         res.json(updated);
       } catch (err) {
+        const auth = (req as AuthenticatedRequest).auth;
+        const requestId = req.params['id'];
+        logRouteError('override', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
     },

@@ -215,6 +215,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     accessControl,
     setupConfig,
     audit: authSub.audit,
+    variableAcks: repos.dashboardVariableAcks,
   }));
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,

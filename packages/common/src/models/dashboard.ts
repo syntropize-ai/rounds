@@ -63,6 +63,10 @@ export interface PanelSnapshotData {
   sparkline?: { timestamps: number[]; values: number[] };
   /** ISO timestamp when the data was captured */
   capturedAt: string;
+  /** Set when snapshot capture failed (adapter/query error). The panel
+   *  rendered without snapshot data; this field tells the UI / operator
+   *  why the evidence is empty instead of silently appearing broken. */
+  captureError?: string;
 }
 
 /** Visual polish fields the agent may emit alongside core panel config.

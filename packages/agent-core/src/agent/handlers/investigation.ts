@@ -180,6 +180,7 @@ export async function handleInvestigationAddSection(
     const chosenSource = metricsSources.find((d) => d.isDefault) ?? metricsSources[0];
     const evidenceAdapter = chosenSource ? ctx.adapters.metrics(chosenSource.id) : undefined;
     if (evidenceAdapter && queries.length > 0) {
+      const adapterId = chosenSource?.id ?? 'unknown';
       try {
         const hasInstantQuery = queries.some((q) => q.instant);
         if (hasInstantQuery) {
@@ -206,8 +207,20 @@ export async function handleInvestigationAddSection(
                   values: first.values.map(([, v]) => Number(v)).filter(Number.isFinite),
                 };
               }
-            } catch {
-              // ignore — instant snapshot still wins
+            } catch (sparkErr) {
+              // Non-fatal: instant snapshot still wins. Operators get a trail
+              // so missing sparklines are explicable rather than mysterious.
+              log.warn(
+                {
+                  investigationId,
+                  panelTitle: panelConfig.title,
+                  queryKind: 'sparkline',
+                  adapterId,
+                  errorClass: sparkErr instanceof Error ? sparkErr.constructor.name : typeof sparkErr,
+                  error: sparkErr instanceof Error ? sparkErr.message : String(sparkErr),
+                },
+                'investigation sparkline capture failed',
+              );
             }
           }
           panelConfig.snapshotData = {
@@ -245,8 +258,30 @@ export async function handleInvestigationAddSection(
             capturedAt: new Date().toISOString(),
           };
         }
-      } catch {
-        // Snapshot capture failed — proceed without snapshot
+      } catch (capErr) {
+        // Snapshot capture failed — investigation still completes (the
+        // evidence is optional polish, not the report itself). Log so
+        // operators can correlate empty evidence panels with adapter
+        // failures, and stamp a `captureError` provenance marker on the
+        // panel so the UI can render "(capture failed)" instead of an
+        // empty chart.
+        const queryKind = queries.some((q) => q.instant) ? 'instant' : 'range';
+        const errMsg = capErr instanceof Error ? capErr.message : String(capErr);
+        log.warn(
+          {
+            investigationId,
+            panelTitle: panelConfig.title,
+            queryKind,
+            adapterId,
+            errorClass: capErr instanceof Error ? capErr.constructor.name : typeof capErr,
+            error: errMsg,
+          },
+          'investigation snapshot capture failed',
+        );
+        panelConfig.snapshotData = {
+          capturedAt: new Date().toISOString(),
+          captureError: errMsg,
+        };
       }
     }
 

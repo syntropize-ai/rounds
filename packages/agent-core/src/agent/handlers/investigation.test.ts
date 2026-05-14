@@ -1,11 +1,33 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Investigation } from '@agentic-obs/common';
+
+// Capture-fail T1.1 test asserts a structured warn log; intercept the logger
+// factory so we don't have to scrape pino's stream output.
+const warnSpy = vi.fn();
+vi.mock('@agentic-obs/common/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agentic-obs/common/logging')>();
+  return {
+    ...actual,
+    createLogger: (name: string) => {
+      const real = actual.createLogger(name);
+      return new Proxy(real, {
+        get(target, prop) {
+          if (prop === 'warn') return warnSpy;
+          return (target as unknown as Record<string | symbol, unknown>)[prop];
+        },
+      });
+    },
+  };
+});
+
 import {
   handleInvestigationAddSection,
   handleInvestigationComplete,
   handleInvestigationCreate,
 } from './investigation.js';
 import { makeFakeActionContext } from './_test-helpers.js';
+import { AdapterRegistry } from '../../adapters/registry.js';
+import type { IMetricsAdapter } from '../../adapters/metrics-adapter.js';
 
 function investigationStore(workspaceId = 'test-org') {
   const investigation: Investigation = {
@@ -209,6 +231,88 @@ describe('investigation handlers', () => {
     expect(after.citations?.map((c) => c.ref).sort()).toEqual(['l1', 'm1']);
     expect(after.citations?.find((c) => c.ref === 'm1')?.kind).toBe('metric');
     expect(after.citations?.find((c) => c.ref === 'l1')?.kind).toBe('log');
+  });
+
+  // ── T1.1 regression: snapshot capture failure is observable ─────────────
+  it('warns + stamps captureError when snapshot capture fails, investigation still completes', async () => {
+    const created = {
+      id: 'inv_cap',
+      sessionId: 'ses_1',
+      userId: 'agent',
+      intent: 'why',
+      structuredIntent: {} as Investigation['structuredIntent'],
+      plan: { entity: '', objective: '', steps: [], stopConditions: [] },
+      status: 'investigating' as const,
+      hypotheses: [],
+      actions: [],
+      evidence: [],
+      symptoms: [],
+      workspaceId: 'test-org',
+      createdAt: '2026-04-26T00:00:00.000Z',
+      updatedAt: '2026-04-26T00:00:00.000Z',
+    };
+    const store = {
+      create: vi.fn(async () => created),
+      findById: vi.fn(async () => created),
+      findAll: vi.fn(),
+      updateStatus: vi.fn(),
+      updatePlan: vi.fn(),
+      updateResult: vi.fn(),
+    };
+    const reportStore = { save: vi.fn() };
+
+    // Throwing adapter — exercises the snapshot catch block.
+    const failingAdapter: IMetricsAdapter = {
+      instantQuery: vi.fn(async () => { throw new Error('prom unreachable'); }),
+      rangeQuery: vi.fn(async () => { throw new Error('prom unreachable'); }),
+    } as unknown as IMetricsAdapter;
+    const adapters = new AdapterRegistry();
+    adapters.register({
+      info: { id: 'prom-1', name: 'prom-1', type: 'prometheus', signalType: 'metrics', isDefault: true },
+      metrics: failingAdapter,
+    });
+
+    const ctx = makeFakeActionContext({
+      investigationStore: store,
+      investigationReportStore: reportStore,
+      adapters,
+    });
+
+    await handleInvestigationCreate(ctx, { question: 'why' });
+
+    warnSpy.mockClear();
+    await handleInvestigationAddSection(ctx, {
+      type: 'evidence',
+      content: 'CPU saturation',
+      panel: {
+        title: 'CPU',
+        visualization: 'time_series',
+        queries: [{ refId: 'A', expr: 'rate(cpu[5m])' }],
+      },
+    });
+
+    // Section persisted with a captureError provenance marker.
+    const sections = ctx.investigationSections.get('inv_cap')!;
+    expect(sections).toHaveLength(1);
+    const panel = sections[0]!.panel!;
+    expect(panel.snapshotData?.captureError).toMatch(/prom unreachable/);
+
+    // Warn log emitted with the structured context fields.
+    const snapshotWarn = warnSpy.mock.calls.find(
+      (c) => c[1] === 'investigation snapshot capture failed',
+    );
+    expect(snapshotWarn).toBeDefined();
+    const ctxFields = snapshotWarn![0] as Record<string, unknown>;
+    expect(ctxFields.investigationId).toBe('inv_cap');
+    expect(ctxFields.queryKind).toBe('range');
+    expect(ctxFields.adapterId).toBe('prom-1');
+    expect(ctxFields.panelTitle).toBe('CPU');
+    expect(ctxFields.errorClass).toBe('Error');
+
+    // Investigation still completes — capture failure is non-fatal.
+    const finishResult = await handleInvestigationComplete(ctx, { summary: 'done' });
+    expect(finishResult).toContain('report saved');
+    expect(reportStore.save).toHaveBeenCalledOnce();
   });
 
   it('persists provenance on the saved report at completion', async () => {

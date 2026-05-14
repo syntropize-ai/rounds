@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ac, AuditAction } from '@agentic-obs/common';
+import { ac, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common';
 import type { PendingDashboardChange, PendingDashboardChangeOp } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
@@ -87,6 +87,8 @@ export async function handleDashboardCreate(
           // and acts as the fallback for any query that omits its own ds id.
           datasourceIds: [datasourceId],
           sessionId: ctx.sessionId,
+          // Agent-tool created — see writable-gate.ts for source taxonomy.
+          source: 'ai_generated',
         }),
       );
 
@@ -185,6 +187,8 @@ export async function handleDashboardClone(
           userId: 'agent',
           datasourceIds: [targetDatasourceId],
           sessionId: ctx.sessionId,
+          // Agent-tool clone — treat as AI-generated.
+          source: 'ai_generated',
         }),
       );
 

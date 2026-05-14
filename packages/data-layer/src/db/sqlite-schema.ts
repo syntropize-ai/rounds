@@ -217,6 +217,9 @@ export const dashboards = sqliteTable(
     version: integer('version'),
     publishStatus: text('publish_status'),
     error: text('error'),
+    // Provisioning marker — see packages/common/src/resources/writable-gate.ts.
+    source: text('source').notNull().default('manual'),
+    provenance: text('provenance', { mode: 'json' }),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -253,6 +256,9 @@ export const alertRules = sqliteTable(
     lastEvaluatedAt: text('last_evaluated_at'),
     lastFiredAt: text('last_fired_at'),
     fireCount: integer('fire_count').notNull().default(0),
+    // Provisioning marker — see packages/common/src/resources/writable-gate.ts.
+    source: text('source').notNull().default('manual'),
+    provenance: text('provenance', { mode: 'json' }),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

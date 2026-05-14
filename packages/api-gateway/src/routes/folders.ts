@@ -13,7 +13,7 @@
 
 import { Router } from 'express';
 import type { Response } from 'express';
-import { ac, ACTIONS } from '@agentic-obs/common';
+import { ac, ACTIONS, assertWritable, ProvisionedResourceError } from '@agentic-obs/common';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
@@ -129,6 +129,8 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
             title: body.title,
             description: body.description,
             parentUid: body.parentUid,
+            // REST API created — see writable-gate.ts for the source taxonomy.
+            source: 'api',
           },
           req.auth!.userId,
         );
@@ -195,6 +197,27 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     ),
     async (req: AuthenticatedRequest, res: Response) => {
       try {
+        const uid = req.params['uid']!;
+        const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
+        if (!existing) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'folder not found' } });
+          return;
+        }
+        try {
+          assertWritable({ kind: 'folder', id: existing.uid, source: existing.source ?? 'manual' });
+        } catch (gateErr) {
+          if (gateErr instanceof ProvisionedResourceError) {
+            res.status(409).json({
+              error: {
+                code: 'PROVISIONED_RESOURCE',
+                message: gateErr.message,
+                source: gateErr.resource.source,
+              },
+            });
+            return;
+          }
+          throw gateErr;
+        }
         const body = req.body as {
           title?: string;
           description?: string | null;
@@ -202,7 +225,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
         };
         const updated = await deps.folderService.update(
           req.auth!.orgId,
-          req.params['uid']!,
+          uid,
           body,
           req.auth!.userId,
         );
@@ -221,10 +244,29 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     ),
     async (req: AuthenticatedRequest, res: Response) => {
       try {
+        const uid = req.params['uid']!;
+        const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
+        if (existing) {
+          try {
+            assertWritable({ kind: 'folder', id: existing.uid, source: existing.source ?? 'manual' });
+          } catch (gateErr) {
+            if (gateErr instanceof ProvisionedResourceError) {
+              res.status(409).json({
+                error: {
+                  code: 'PROVISIONED_RESOURCE',
+                  message: gateErr.message,
+                  source: gateErr.resource.source,
+                },
+              });
+              return;
+            }
+            throw gateErr;
+          }
+        }
         const force =
           req.query['forceDeleteRules'] === 'true' ||
           req.query['forceDeleteRules'] === '1';
-        await deps.folderService.delete(req.auth!.orgId, req.params['uid']!, {
+        await deps.folderService.delete(req.auth!.orgId, uid, {
           forceDeleteRules: force,
           actorId: req.auth!.userId,
         });

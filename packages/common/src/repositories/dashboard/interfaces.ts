@@ -20,6 +20,7 @@ import type {
   DashboardVariable,
   PanelConfig,
 } from '../../models/dashboard.js';
+import type { ResourceSource, ResourceProvenance } from '../../resources/writable-gate.js';
 
 /**
  * Input shape for `create()`. Matches the argument surface of the old
@@ -35,6 +36,9 @@ export interface NewDashboardInput {
   useExistingMetrics?: boolean;
   folder?: string;
   workspaceId?: string;
+  /** Defaults to `'manual'` when unset. */
+  source?: ResourceSource;
+  provenance?: ResourceProvenance;
 }
 
 /**

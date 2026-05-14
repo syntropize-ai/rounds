@@ -43,6 +43,8 @@ import type {
   IDashboardRepository,
   NewDashboardInput,
   DashboardPatch,
+  ResourceSource,
+  ResourceProvenance,
 } from '@agentic-obs/common';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import type { IDashboardRepository as ILegacyDashboardRepository } from '../interfaces.js';
@@ -68,6 +70,8 @@ interface DashboardRow {
   version: number | null;
   publish_status: string | null;
   error: string | null;
+  source: string;
+  provenance: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +99,16 @@ function fromBool(v: boolean | undefined, dflt = false): number {
   return (v ?? dflt) ? 1 : 0;
 }
 
+function parseProvenance(raw: string | null): ResourceProvenance | undefined {
+  if (raw === null || raw === undefined || raw === '') return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as ResourceProvenance) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function rowToDashboard(r: DashboardRow): Dashboard {
   const base: Dashboard = {
     id: r.id,
@@ -109,6 +123,7 @@ function rowToDashboard(r: DashboardRow): Dashboard {
     refreshIntervalSec: r.refresh_interval_sec,
     datasourceIds: parseJsonArray<string>(r.datasource_ids, []),
     useExistingMetrics: toBool(r.use_existing_metrics),
+    source: (r.source ?? 'manual') as ResourceSource,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -117,6 +132,8 @@ function rowToDashboard(r: DashboardRow): Dashboard {
   if (r.version !== null) base.version = r.version;
   if (r.publish_status !== null) base.publishStatus = r.publish_status as PublishStatus;
   if (r.error !== null) base.error = r.error;
+  const prov = parseProvenance(r.provenance);
+  if (prov) base.provenance = prov;
   return base;
 }
 
@@ -134,11 +151,14 @@ export class DashboardRepository implements IDashboardRepository {
     const datasourceIdsJson = JSON.stringify(input.datasourceIds ?? []);
     const useExistingMetrics = fromBool(input.useExistingMetrics, true);
 
+    const source: ResourceSource = input.source ?? 'manual';
+    const provenanceJson = input.provenance ? JSON.stringify(input.provenance) : null;
     this.db.run(sql`
       INSERT INTO dashboards (
         id, type, title, description, prompt, user_id, status,
         panels, variables, refresh_interval_sec, datasource_ids,
         use_existing_metrics, folder, workspace_id,
+        source, provenance,
         created_at, updated_at
       ) VALUES (
         ${id},
@@ -155,6 +175,8 @@ export class DashboardRepository implements IDashboardRepository {
         ${useExistingMetrics},
         ${input.folder ?? null},
         ${input.workspaceId ?? null},
+        ${source},
+        ${provenanceJson},
         ${now},
         ${now}
       )
@@ -320,7 +342,9 @@ export class DashboardRepository implements IDashboardRepository {
           id, type, title, description, prompt, user_id, status,
           panels, variables, refresh_interval_sec, datasource_ids,
           use_existing_metrics, folder, workspace_id,
-          version, publish_status, error, created_at, updated_at
+          version, publish_status, error,
+          source, provenance,
+          created_at, updated_at
         ) VALUES (
           ${raw.id},
           ${raw.type ?? 'dashboard'},
@@ -339,6 +363,8 @@ export class DashboardRepository implements IDashboardRepository {
           ${raw.version ?? null},
           ${raw.publishStatus ?? null},
           ${raw.error ?? null},
+          ${(raw.source ?? 'manual') as ResourceSource},
+          ${raw.provenance ? JSON.stringify(raw.provenance) : null},
           ${raw.createdAt ?? nowIso()},
           ${raw.updatedAt ?? nowIso()}
         )
@@ -359,6 +385,8 @@ export class DashboardRepository implements IDashboardRepository {
           version              = excluded.version,
           publish_status       = excluded.publish_status,
           error                = excluded.error,
+          source               = excluded.source,
+          provenance           = excluded.provenance,
           created_at           = excluded.created_at,
           updated_at           = excluded.updated_at
       `);

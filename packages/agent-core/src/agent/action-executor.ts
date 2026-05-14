@@ -1,4 +1,5 @@
 import type { DashboardAction, DashboardSseEvent } from '@agentic-obs/common'
+import { assertWritable } from '@agentic-obs/common'
 import type { IDashboardAgentStore } from './types.js'
 
 export class ActionExecutor {
@@ -17,6 +18,12 @@ export class ActionExecutor {
     const dashboard = await this.store.findById(dashboardId)
     if (!dashboard)
       throw new Error('Dashboard not found')
+
+    // Block agent-driven mutation of provisioned (GitOps/file) dashboards.
+    // `create_alert_rule` and friends below are no-ops here, but we still
+    // gate them — if a future change makes them mutate the dashboard row,
+    // the gate is already in place.
+    assertWritable({ kind: 'dashboard', id: dashboard.id, source: dashboard.source ?? 'manual' })
 
     switch (action.type) {
       case 'add_panels': {

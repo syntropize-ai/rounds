@@ -34,6 +34,8 @@ export async function handleFolderCreate(
     parentUid,
     createdBy: ctx.identity.userId,
     updatedBy: ctx.identity.userId,
+    // Agent-tool created — see writable-gate.ts for source taxonomy.
+    source: 'ai_generated',
   });
 
   void ctx.auditWriter?.({

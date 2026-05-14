@@ -1,4 +1,5 @@
 // Alert Rule - user-defined or LLM-generated monitoring condition
+import type { ResourceSource, ResourceProvenance } from '../resources/writable-gate.js';
 
 export type AlertRuleState = 'normal' | 'pending' | 'firing' | 'resolved' | 'disabled';
 export type AlertSeverity = 'critical' | 'high' | 'medium' | 'low';
@@ -48,6 +49,10 @@ export interface AlertRule {
   lastEvaluatedAt?: string;
   lastFiredAt?: string;
   fireCount: number;
+
+  /** Origin marker — see writable-gate.ts. Treat absence as `'manual'`. */
+  source?: ResourceSource;
+  provenance?: ResourceProvenance;
 }
 
 export interface AlertHistoryEntry {

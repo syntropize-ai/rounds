@@ -7,7 +7,7 @@ import { authMiddleware } from '../../middleware/auth.js'
 import { createRequirePermission } from '../../middleware/require-permission.js'
 import type { IGatewayDashboardStore } from '@agentic-obs/data-layer'
 import { VariableResolver } from './variable-resolver.js'
-import { ac, ACTIONS, AuditAction } from '@agentic-obs/common'
+import { ac, ACTIONS, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common'
 import type { Dashboard, PanelConfig } from '@agentic-obs/common'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
 import type { AuditWriter } from '../../auth/audit-writer.js'
@@ -52,6 +52,29 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Dashboard not found' } })
   }
 
+  /**
+   * Returns true and writes the 409 response when the dashboard is owned by a
+   * file/GitOps pipeline; callers should `return` immediately after.
+   */
+  function refuseIfProvisioned(res: Response, dashboard: Dashboard): boolean {
+    try {
+      assertWritable({ kind: 'dashboard', id: dashboard.id, source: dashboard.source ?? 'manual' })
+      return false
+    } catch (err) {
+      if (err instanceof ProvisionedResourceError) {
+        res.status(409).json({
+          error: {
+            code: 'PROVISIONED_RESOURCE',
+            message: err.message,
+            source: err.resource.source,
+          },
+        })
+        return true
+      }
+      throw err
+    }
+  }
+
   async function loadOwnedDashboard(req: Request, res: Response, id: string): Promise<Dashboard | undefined> {
     const dashboard = await store.findById(id)
     if (!dashboard || dashboard.workspaceId !== resolveOrgId(req)) {
@@ -90,6 +113,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         useExistingMetrics: body.useExistingMetrics ?? true,
         folder: body.folder,
         workspaceId,
+        // REST API created — see writable-gate.ts for the source taxonomy.
+        source: 'api',
       })
 
       void audit?.log({
@@ -173,6 +198,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       if (!dashboard) {
         return
       }
+      if (refuseIfProvisioned(res, dashboard)) return
 
       const updated = await store.update(id, patch)
       if (!updated) {
@@ -213,6 +239,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       if (!dashboard) {
         return
       }
+      if (refuseIfProvisioned(res, dashboard)) return
 
       const deleted = await store.delete(id)
       if (!deleted) {
@@ -250,6 +277,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       if (!dashboard) {
         return
       }
+      if (refuseIfProvisioned(res, dashboard)) return
 
       const updated = await store.updatePanels(id, body.panels)
       if (!updated) {
@@ -272,6 +300,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       if (!d) {
         return
       }
+      if (refuseIfProvisioned(res, d)) return
 
       const body = req.body as Omit<PanelConfig, 'id'>
       if (!body.title || typeof body.title !== 'string') {
@@ -302,6 +331,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       if (!d) {
         return
       }
+      if (refuseIfProvisioned(res, d)) return
 
       const panels = d.panels.filter((p) => p.id !== panelId)
       if (panels.length === d.panels.length) {

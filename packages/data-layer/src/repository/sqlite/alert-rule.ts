@@ -39,6 +39,8 @@ import type {
   AlertSilence,
   NotificationPolicy,
   SilenceStatus,
+  ResourceSource,
+  ResourceProvenance,
 } from '@agentic-obs/common';
 import type {
   IAlertRuleRepository,
@@ -69,6 +71,8 @@ interface RuleRow {
   last_evaluated_at: string | null;
   last_fired_at: string | null;
   fire_count: number;
+  source: string;
+  provenance: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -155,6 +159,7 @@ function rowToRule(r: RuleRow): AlertRule {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     fireCount: r.fire_count,
+    source: (r.source ?? 'manual') as ResourceSource,
   };
   if (r.original_prompt !== null) rule.originalPrompt = r.original_prompt;
   if (labels !== null) rule.labels = labels;
@@ -164,6 +169,8 @@ function rowToRule(r: RuleRow): AlertRule {
   if (r.workspace_id !== null) rule.workspaceId = r.workspace_id;
   if (r.last_evaluated_at !== null) rule.lastEvaluatedAt = r.last_evaluated_at;
   if (r.last_fired_at !== null) rule.lastFiredAt = r.last_fired_at;
+  const prov = parseJsonOr<ResourceProvenance | null>(r.provenance, null);
+  if (prov) rule.provenance = prov;
   return rule;
 }
 
@@ -229,6 +236,8 @@ export class AlertRuleRepository implements IAlertRuleRepository {
   ): Promise<AlertRule> {
     const id = `alert_${randomUUID().slice(0, 12)}`;
     const now = nowIso();
+    const source: ResourceSource = (data as { source?: ResourceSource }).source ?? 'manual';
+    const provenance = (data as { provenance?: ResourceProvenance }).provenance ?? null;
     this.db.run(sql`
       INSERT INTO alert_rules (
         id, name, description, original_prompt, condition,
@@ -236,6 +245,7 @@ export class AlertRuleRepository implements IAlertRuleRepository {
         state_changed_at, pending_since, notification_policy_id,
         investigation_id, workspace_id, folder_uid, org_id, created_by,
         last_evaluated_at, last_fired_at, fire_count,
+        source, provenance,
         created_at, updated_at
       ) VALUES (
         ${id},
@@ -258,6 +268,8 @@ export class AlertRuleRepository implements IAlertRuleRepository {
         ${data.lastEvaluatedAt ?? null},
         ${data.lastFiredAt ?? null},
         ${0},
+        ${source},
+        ${stringifyJsonOrNull(provenance)},
         ${now},
         ${now}
       )

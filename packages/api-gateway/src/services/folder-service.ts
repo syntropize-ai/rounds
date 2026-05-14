@@ -22,6 +22,8 @@ import type {
   GrafanaFolder,
   NewGrafanaFolder,
   GrafanaFolderPatch,
+  ResourceSource,
+  ResourceProvenance,
 } from '@agentic-obs/common';
 import { AuditAction, FOLDER_MAX_DEPTH } from '@agentic-obs/common';
 import type { QueryClient } from '@agentic-obs/data-layer';
@@ -47,6 +49,9 @@ export interface CreateFolderInput {
   title: string;
   description?: string;
   parentUid?: string | null;
+  /** Defaults to `'manual'` when unset. */
+  source?: ResourceSource;
+  provenance?: ResourceProvenance;
 }
 
 export interface UpdateFolderPatch {
@@ -155,6 +160,8 @@ export class FolderService {
       parentUid: input.parentUid ?? null,
       createdBy: userId,
       updatedBy: userId,
+      source: input.source ?? 'manual',
+      ...(input.provenance ? { provenance: input.provenance } : {}),
     };
     try {
       const folder = await this.deps.folders.create(payload);

@@ -43,6 +43,23 @@ describe('applySchema()', () => {
     expect(colNames).toContain('folder_uid');
   });
 
+  it('dashboards / alert_rules / folder have source + provenance columns with default `manual`', () => {
+    const db = createSqliteClient({ path: ':memory:', wal: false });
+    applySchema(db);
+    for (const table of ['dashboards', 'alert_rules', 'folder'] as const) {
+      const cols = db.all<{ name: string; dflt_value: string | null; notnull: number }>(
+        sql.raw(`PRAGMA table_info(${table})`),
+      );
+      const byName = new Map(cols.map((c) => [c.name, c]));
+      expect(byName.has('source'), `${table}.source`).toBe(true);
+      expect(byName.has('provenance'), `${table}.provenance`).toBe(true);
+      const src = byName.get('source')!;
+      expect(src.notnull).toBe(1);
+      // SQLite quotes the default literal — accept either form.
+      expect(src.dflt_value).toMatch(/'manual'/);
+    }
+  });
+
   it('renames legacy `user` table to `users` for pre-rename instances', () => {
     const db = createSqliteClient({ path: ':memory:', wal: false });
     // Simulate a pre-rename database with the old `user` table and one row.

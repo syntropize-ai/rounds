@@ -35,6 +35,7 @@ function dashboard(overrides: Partial<Dashboard> = {}): Dashboard {
     datasourceIds: [],
     useExistingMetrics: true,
     workspaceId: 'org_other',
+    source: 'manual',
     createdAt: '2026-04-26T00:00:00.000Z',
     updatedAt: '2026-04-26T00:00:00.000Z',
     ...overrides,
@@ -164,6 +165,33 @@ describe('dashboard router workspace ownership checks', () => {
 
     expect(res.status).toBe(method === 'delete' ? 204 : 200)
     expect(store[mutation]).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['put', '/dashboards/dash_owned', { title: 'Renamed' }, 'update'],
+    ['delete', '/dashboards/dash_owned', undefined, 'delete'],
+    ['put', '/dashboards/dash_owned/panels', { panels: [] }, 'updatePanels'],
+    ['post', '/dashboards/dash_owned/panels', { title: 'CPU', visualization: 'stat', row: 0, col: 0, width: 3, height: 3 }, 'updatePanels'],
+    ['delete', '/dashboards/dash_owned/panels/panel_1', undefined, 'updatePanels'],
+  ] as const)('refuses %s %s on a provisioned_git dashboard with 409', async (method, path, body, mutation) => {
+    const store = makeStore(dashboard({
+      id: 'dash_owned',
+      workspaceId: 'org_main',
+      source: 'provisioned_git',
+      provenance: { repo: 'org/repo', path: 'dashboards/d.yaml', commit: 'abc123' },
+    }))
+    const app = makeApp(store)
+    let req = request(app)[method](path)
+    if (body) req = req.send(body)
+
+    const res = await req
+
+    expect(res.status).toBe(409)
+    expect(res.body.error?.code).toBe('PROVISIONED_RESOURCE')
+    expect(res.body.error?.source).toBe('provisioned_git')
+    expect(res.body.error?.message).toContain('Cannot mutate provisioned resource')
+    expect(res.body.error?.message).toContain('Fork to your workspace')
+    expect(store[mutation]).not.toHaveBeenCalled()
   })
 
   it('returns 404 and skips datasource resolution for cross-workspace variable resolution', async () => {

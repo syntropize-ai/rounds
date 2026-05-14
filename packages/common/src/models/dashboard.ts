@@ -1,4 +1,5 @@
 import type { PublishStatus } from './version.js';
+import type { ResourceSource, ResourceProvenance } from '../resources/writable-gate.js';
 
 export type PanelVisualization =
   | 'time_series'
@@ -281,6 +282,18 @@ export interface Dashboard {
   createdAt: string;
   updatedAt: string;
   error?: string;
+  /**
+   * Origin of the dashboard. Drives the writable-gate check —
+   * provisioned_file / provisioned_git rows refuse mutations from REST
+   * endpoints and agent tools. See packages/common/src/resources/writable-gate.ts.
+   *
+   * Repositories populate this on read (defaulting to `'manual'`); marked
+   * optional so existing in-memory fixtures / mocks compile without a churn.
+   * Treat absence as `'manual'` at call sites.
+   */
+  source?: ResourceSource;
+  /** Optional details about how the dashboard was provisioned. */
+  provenance?: ResourceProvenance;
   /**
    * AI-proposed modifications that have NOT been applied yet. Empty/undefined
    * for dashboards with no outstanding proposals. The dashboard workspace UI

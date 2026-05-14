@@ -305,6 +305,9 @@ CREATE TABLE IF NOT EXISTS folder (
   updated     TEXT NOT NULL,
   created_by  TEXT NULL,
   updated_by  TEXT NULL,
+  -- Provisioning marker — see packages/common/src/resources/writable-gate.ts.
+  source      TEXT NOT NULL DEFAULT 'manual',
+  provenance  TEXT NULL,
   FOREIGN KEY (org_id)     REFERENCES org(id)  ON DELETE CASCADE,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
   FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
@@ -562,6 +565,9 @@ CREATE TABLE IF NOT EXISTS dashboards (
   version              INTEGER,
   publish_status       TEXT,
   error                TEXT,
+  -- Provisioning marker — see packages/common/src/resources/writable-gate.ts.
+  source               TEXT NOT NULL DEFAULT 'manual',
+  provenance           TEXT NULL,
   created_at           TEXT NOT NULL,
   updated_at           TEXT NOT NULL
 );
@@ -661,6 +667,9 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   last_evaluated_at       TEXT,
   last_fired_at           TEXT,
   fire_count              INTEGER NOT NULL DEFAULT 0,
+  -- Provisioning marker — see packages/common/src/resources/writable-gate.ts.
+  source                  TEXT NOT NULL DEFAULT 'manual',
+  provenance              TEXT NULL,
   created_at              TEXT NOT NULL,
   updated_at              TEXT NOT NULL
 );

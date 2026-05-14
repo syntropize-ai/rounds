@@ -152,6 +152,8 @@ export interface IGatewayDashboardStore {
     useExistingMetrics?: boolean
     folder?: string
     workspaceId?: string
+    source?: import('@agentic-obs/common').ResourceSource
+    provenance?: import('@agentic-obs/common').ResourceProvenance
   }): MaybeAsync<Dashboard>
   findById(id: string): MaybeAsync<Dashboard | undefined>
   findAll(userId?: string): MaybeAsync<Dashboard[]>

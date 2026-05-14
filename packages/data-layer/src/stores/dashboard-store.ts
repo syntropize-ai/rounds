@@ -27,6 +27,8 @@ export class DashboardStore implements Persistable {
     useExistingMetrics?: boolean
     folder?: string
     workspaceId?: string
+    source?: import('@agentic-obs/common').ResourceSource
+    provenance?: import('@agentic-obs/common').ResourceProvenance
   }): Dashboard {
     const now = new Date().toISOString()
     const id = uid()
@@ -46,6 +48,8 @@ export class DashboardStore implements Persistable {
       useExistingMetrics: params.useExistingMetrics ?? true,
       ...(params.folder !== undefined ? { folder: params.folder } : {}),
       ...(params.workspaceId !== undefined ? { workspaceId: params.workspaceId } : {}),
+      source: params.source ?? 'manual',
+      ...(params.provenance !== undefined ? { provenance: params.provenance } : {}),
       createdAt: now,
       updatedAt: now,
     }

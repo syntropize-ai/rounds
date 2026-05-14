@@ -8,6 +8,8 @@
  * This is distinct from the legacy Rounds `folders` (plural) table kept in
  * db/sqlite-schema.ts until T9.6 cleanup.
  */
+import type { ResourceSource, ResourceProvenance } from '../resources/writable-gate.js';
+
 export interface GrafanaFolder {
   id: string;
   uid: string;
@@ -19,6 +21,9 @@ export interface GrafanaFolder {
   updated: string;
   createdBy: string | null;
   updatedBy: string | null;
+  /** Origin marker — see writable-gate.ts. Treat absence as `'manual'`. */
+  source?: ResourceSource;
+  provenance?: ResourceProvenance;
 }
 
 export interface NewGrafanaFolder {
@@ -30,6 +35,8 @@ export interface NewGrafanaFolder {
   parentUid?: string | null;
   createdBy?: string | null;
   updatedBy?: string | null;
+  source?: ResourceSource;
+  provenance?: ResourceProvenance;
 }
 
 export interface GrafanaFolderPatch {

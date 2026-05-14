@@ -5,6 +5,8 @@ import type {
   GrafanaFolder,
   NewGrafanaFolder,
   GrafanaFolderPatch,
+  ResourceSource,
+  ResourceProvenance,
 } from '@agentic-obs/common';
 import { FOLDER_MAX_DEPTH } from '@agentic-obs/common';
 import { uid, nowIso } from './shared.js';
@@ -20,10 +22,19 @@ interface Row {
   updated: string;
   created_by: string | null;
   updated_by: string | null;
+  source: string;
+  provenance: string | null;
 }
 
 function rowTo(r: Row): GrafanaFolder {
-  return {
+  let provenance: ResourceProvenance | undefined;
+  if (r.provenance) {
+    try {
+      const parsed = JSON.parse(r.provenance);
+      if (parsed && typeof parsed === 'object') provenance = parsed as ResourceProvenance;
+    } catch { /* ignore corrupt JSON */ }
+  }
+  const f: GrafanaFolder = {
     id: r.id,
     uid: r.uid,
     orgId: r.org_id,
@@ -34,7 +45,10 @@ function rowTo(r: Row): GrafanaFolder {
     updated: r.updated,
     createdBy: r.created_by,
     updatedBy: r.updated_by,
+    source: (r.source ?? 'manual') as ResourceSource,
   };
+  if (provenance) f.provenance = provenance;
+  return f;
 }
 
 /**
@@ -57,14 +71,18 @@ export class FolderRepository implements IFolderRepository {
     }
     const id = input.id ?? uid();
     const now = nowIso();
+    const source: ResourceSource = input.source ?? 'manual';
+    const provenanceJson = input.provenance ? JSON.stringify(input.provenance) : null;
     this.db.run(sql`
       INSERT INTO folder (
         id, uid, org_id, title, description, parent_uid,
-        created, updated, created_by, updated_by
+        created, updated, created_by, updated_by,
+        source, provenance
       ) VALUES (
         ${id}, ${input.uid}, ${input.orgId}, ${input.title},
         ${input.description ?? null}, ${input.parentUid ?? null},
-        ${now}, ${now}, ${input.createdBy ?? null}, ${input.updatedBy ?? null}
+        ${now}, ${now}, ${input.createdBy ?? null}, ${input.updatedBy ?? null},
+        ${source}, ${provenanceJson}
       )
     `);
     const row = await this.findById(id);

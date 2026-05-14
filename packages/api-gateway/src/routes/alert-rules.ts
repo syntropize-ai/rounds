@@ -5,6 +5,8 @@ import {
   ACTIONS,
   ac,
   AuditAction,
+  assertWritable,
+  ProvisionedResourceError,
 } from '@agentic-obs/common';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import type { IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
@@ -91,6 +93,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       parentUid: null,
       createdBy: userId ?? null,
       updatedBy: userId ?? null,
+      source: 'api',
     });
     return created.uid;
   }
@@ -98,6 +101,29 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   function requestFolderUid(req: Request): string {
     const raw = (req.body as { folderUid?: unknown } | undefined)?.folderUid;
     return typeof raw === 'string' ? raw.trim() : '';
+  }
+
+  /**
+   * Refuse the request when the rule is provisioned (file/git). Returns true
+   * after writing the 409 response — caller should `return` immediately.
+   */
+  function refuseIfProvisioned(res: Response, rule: AlertRule): boolean {
+    try {
+      assertWritable({ kind: 'alert_rule', id: rule.id, source: rule.source ?? 'manual' });
+      return false;
+    } catch (err) {
+      if (err instanceof ProvisionedResourceError) {
+        res.status(409).json({
+          error: {
+            code: 'PROVISIONED_RESOURCE',
+            message: err.message,
+            source: err.resource.source,
+          },
+        });
+        return true;
+      }
+      throw err;
+    }
   }
 
   async function loadOwnedRule(req: Request, res: Response): Promise<AlertRule | null> {
@@ -375,6 +401,8 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         notificationPolicyId: body.notificationPolicyId,
         workspaceId,
         folderUid,
+        // REST API created — see writable-gate.ts for the source taxonomy.
+        source: 'api',
       };
       const rule = await store.create(createInput);
 
@@ -402,6 +430,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     async (req: Request, res: Response) => {
       const existing = await loadOwnedRule(req, res);
       if (!existing) return;
+      if (refuseIfProvisioned(res, existing)) return;
       const updated = await store.update(req.params['id'] ?? '', req.body as Partial<AlertRule>);
       if (!updated) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Alert rule not found' } });
@@ -433,6 +462,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     async (req: Request, res: Response) => {
       const existing = await loadOwnedRule(req, res);
       if (!existing) return;
+      if (refuseIfProvisioned(res, existing)) return;
       if (!(await store.delete(req.params['id'] ?? ''))) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Alert rule not found' } });
         return;
@@ -459,6 +489,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     async (req: Request, res: Response) => {
       const existing = await loadOwnedRule(req, res);
       if (!existing) return;
+      if (refuseIfProvisioned(res, existing)) return;
       const rule = await store.update(req.params['id'] ?? '', { state: 'disabled' as const });
       if (!rule) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Alert rule not found' } });

@@ -1,4 +1,4 @@
-import { ac, AuditAction, type AlertCondition, type AlertOperator, type AlertSeverity } from '@agentic-obs/common';
+import { ac, AuditAction, assertWritable, ProvisionedResourceError, type AlertCondition, type AlertOperator, type AlertSeverity, type ResourceSource } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { ActionContext } from './_context.js';
 import { withWorkspaceScope } from './_shared.js';
@@ -195,6 +195,22 @@ async function createAlertRule(
     }
     const match = scopedList?.find((r) => r.name === generated.name);
     if (match) {
+      // Writable gate — refuse to upsert into a provisioned (GitOps/file) rule.
+      if (ctx.alertRuleStore.findById) {
+        const found = await ctx.alertRuleStore.findById(match.id) as { source?: ResourceSource } | undefined;
+        try {
+          assertWritable({
+            kind: 'alert_rule',
+            id: match.id,
+            source: (found?.source ?? 'manual'),
+          });
+        } catch (err) {
+          if (err instanceof ProvisionedResourceError) {
+            return `Error: ${err.message}`;
+          }
+          throw err;
+        }
+      }
       rule = await ctx.alertRuleStore.update(match.id, {
         description: generated.description,
         condition: generated.condition,
@@ -220,6 +236,8 @@ async function createAlertRule(
         labels: { ...generated.labels, ...(dashboardId ? { dashboardId } : {}) },
         folderUid,
         createdBy: 'llm',
+        // Agent-tool created — see writable-gate.ts for source taxonomy.
+        source: 'ai_generated' as ResourceSource,
       }),
     ) as Record<string, unknown>;
   }
@@ -294,6 +312,7 @@ async function resolveAlertRuleFolderUid(
     parentUid: null,
     createdBy: ctx.identity.userId,
     updatedBy: ctx.identity.userId,
+    source: 'ai_generated',
   });
   return created.uid;
 }
@@ -309,6 +328,20 @@ async function updateAlertRule(
 
   const existingRule = await ctx.alertRuleStore.findById(ruleId) as Record<string, unknown> | undefined;
   if (!existingRule) return `Error: alert rule ${ruleId} not found.`;
+
+  // Writable gate — refuse to mutate provisioned (GitOps/file) rules.
+  try {
+    assertWritable({
+      kind: 'alert_rule',
+      id: ruleId,
+      source: ((existingRule.source as ResourceSource | undefined) ?? 'manual'),
+    });
+  } catch (err) {
+    if (err instanceof ProvisionedResourceError) {
+      return `Error: ${err.message}`;
+    }
+    throw err;
+  }
 
   // RBAC: derive the rule's folder UID and require alert.rules:write on it.
   // The pre-dispatch tool gate already runs, but defense-in-depth here keeps
@@ -383,6 +416,22 @@ async function deleteAlertRule(
   const existingRule = ctx.alertRuleStore.findById
     ? await ctx.alertRuleStore.findById(ruleId) as Record<string, unknown> | undefined
     : undefined;
+
+  // Writable gate — refuse to delete provisioned (GitOps/file) rules.
+  if (existingRule) {
+    try {
+      assertWritable({
+        kind: 'alert_rule',
+        id: ruleId,
+        source: ((existingRule.source as ResourceSource | undefined) ?? 'manual'),
+      });
+    } catch (err) {
+      if (err instanceof ProvisionedResourceError) {
+        return `Error: ${err.message}`;
+      }
+      throw err;
+    }
+  }
 
   // RBAC: same guard as update — defense-in-depth in case the pre-dispatch
   // tool gate is bypassed by an internal caller.

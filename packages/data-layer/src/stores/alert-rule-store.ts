@@ -35,6 +35,8 @@ export class AlertRuleStore implements Persistable {
     const now = new Date().toISOString();
     const rule: AlertRule = {
       ...data,
+      // Default source to 'manual' when caller didn't set one — see writable-gate.ts.
+      source: data.source ?? 'manual',
       id: `alert_${randomUUID().slice(0, 12)}`,
       state: 'normal',
       stateChangedAt: now,

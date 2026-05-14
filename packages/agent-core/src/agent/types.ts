@@ -15,6 +15,9 @@ export interface IDashboardAgentStore {
     folder?: string
     workspaceId?: string
     sessionId?: string
+    /** Defaults to `'manual'` when unset. See writable-gate.ts. */
+    source?: import('@agentic-obs/common').ResourceSource
+    provenance?: import('@agentic-obs/common').ResourceProvenance
   }): import('@agentic-obs/common').Dashboard | Promise<import('@agentic-obs/common').Dashboard>
   findById(id: string): import('@agentic-obs/common').Dashboard | Promise<import('@agentic-obs/common').Dashboard | undefined> | undefined
   findAll?(): import('@agentic-obs/common').Dashboard[] | Promise<import('@agentic-obs/common').Dashboard[]>

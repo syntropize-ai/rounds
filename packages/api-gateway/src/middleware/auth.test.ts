@@ -180,6 +180,18 @@ describe('createAuthMiddleware', () => {
     expect(res._status).toBe(401);
   });
 
+  it('refuses to boot without apiKeyService outside test mode', () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() =>
+        createAuthMiddleware({ sessions, users, orgUsers, apiKeys }),
+      ).toThrow(/apiKeyService is required outside test mode/);
+    } finally {
+      process.env.NODE_ENV = prev;
+    }
+  });
+
   it('rejects an expired API key', async () => {
     const key = 'openobs_' + 'b'.repeat(32);
     const hashed = createHash('sha256').update(key, 'utf8').digest('hex');

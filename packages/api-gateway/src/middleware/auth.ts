@@ -43,8 +43,13 @@ export interface AuthMiddlewareDeps {
    * ApiKeyService path (T6.3). When provided, the bearer-token branch goes
    * through `validateAndLookup` — which honours SA vs PAT, applies
    * rate-limited `apikey.used` audit, and enforces `is_disabled` on the
-   * principal. When absent, the middleware falls back to the raw-repo path
-   * used by pre-T6 test harnesses.
+   * principal.
+   *
+   * In production this MUST be provided — `createAuthMiddleware` fails
+   * closed at construction time if it is absent. The raw-repo fallback
+   * below is permitted only under `NODE_ENV === 'test'` (pre-T6 test
+   * harnesses), and applies weaker semantics than `ApiKeyService` so it
+   * must never be reachable outside tests.
    */
   apiKeyService?: ApiKeyService;
 }
@@ -120,6 +125,17 @@ export function authMiddleware(
 }
 
 export function createAuthMiddleware(deps: AuthMiddlewareDeps) {
+  // Fail closed at boot in any non-test environment if the preferred
+  // ApiKeyService path is missing. The raw-repo fallback below has weaker
+  // semantics than `ApiKeyService` (no SA/PAT distinction, no audit, no
+  // principal-disabled enforcement on PATs) and exists only for pre-T6
+  // test harnesses that have not yet been migrated.
+  if (!deps.apiKeyService && process.env.NODE_ENV !== 'test') {
+    throw new Error(
+      'createAuthMiddleware: apiKeyService is required outside test mode — ' +
+        'refusing to boot with the weaker pre-T6 raw-repo fallback path',
+    );
+  }
   return async function authMiddleware(
     req: AuthenticatedRequest,
     res: Response,

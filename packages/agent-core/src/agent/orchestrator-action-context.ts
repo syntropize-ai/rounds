@@ -4,6 +4,7 @@ import type {
   Identity,
   IFolderRepository,
   InvestigationReportSection,
+  NewAuditLogEntry,
   Provenance,
 } from '@agentic-obs/common';
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
@@ -51,6 +52,13 @@ export interface OrchestratorActionContextDeps {
   sendEvent: (event: DashboardSseEvent) => void;
   identity: Identity;
   accessControl: IAccessControlService;
+  /**
+   * Slim fire-and-forget audit writer threaded into every handler ctx
+   * (see ActionContext.auditWriter). The agent factory bridges
+   * `AuditWriter.log` into this slot so resource-mutation handlers
+   * (dashboard_create, alert_rule_write, …) actually persist audit rows.
+   */
+  auditEntryWriter?: (entry: NewAuditLogEntry) => Promise<void>;
 }
 
 export interface OrchestratorActionRuntime {
@@ -103,6 +111,7 @@ export function buildActionContext(
     sessionId: runtime.sessionId,
     identity: deps.identity,
     accessControl: deps.accessControl,
+    auditWriter: deps.auditEntryWriter,
     actionExecutor: runtime.actionExecutor,
     emitAgentEvent: runtime.emitAgentEvent,
     makeAgentEvent: runtime.makeAgentEvent,

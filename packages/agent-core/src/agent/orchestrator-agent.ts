@@ -7,6 +7,7 @@ import type {
   Identity,
   IFolderRepository,
   InvestigationReportSection,
+  NewAuditLogEntry,
   Provenance,
 } from '@agentic-obs/common'
 import type {
@@ -95,6 +96,13 @@ export interface OrchestratorDeps {
    * `agent.tool_denied` per §D9.
    */
   auditWriter?: IAuditWriter
+  /**
+   * Slim fire-and-forget audit writer for resource-mutation handlers
+   * (`dashboard_create`, `alert_rule_write`, …). The agent factory bridges
+   * `AuditWriter.log` into this slot so handler audit rows actually persist
+   * — without it, `ctx.auditWriter?.(entry)` is a no-op.
+   */
+  auditEntryWriter?: (entry: NewAuditLogEntry) => Promise<void>
   /**
    * Which specialized agent this run uses. Defaults to `orchestrator`. Pick a
    * narrower type to tighten the allowedTools ceiling (Layer 1).

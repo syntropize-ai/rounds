@@ -3,6 +3,9 @@
 export * from './adapters/index.js';
 
 export {
+  createAgentRunner,
+  type AgentRunner,
+  type CreateAgentRunnerDeps,
   OrchestratorAgent,
   type OrchestratorDeps,
   // Compat alias — api-gateway still imports under the old name

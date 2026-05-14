@@ -12,7 +12,8 @@
  */
 
 import type { Identity } from '@agentic-obs/common';
-import type { OrchestratorAgent, OrchestratorDeps } from './orchestrator-agent.js';
+import type { OrchestratorDeps } from './orchestrator-agent.js';
+import type { AgentRunner } from './factory.js';
 import type { AgentType } from './agent-types.js';
 
 /**
@@ -70,7 +71,7 @@ export interface BackgroundRunnerDeps {
     overrides: Pick<OrchestratorDeps, 'identity'> & {
       agentType?: AgentType;
     },
-  ) => OrchestratorAgent | Promise<OrchestratorAgent>;
+  ) => AgentRunner | Promise<AgentRunner>;
 }
 
 /**

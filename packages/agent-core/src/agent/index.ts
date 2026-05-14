@@ -3,6 +3,11 @@
 export { OrchestratorAgent } from './orchestrator-agent.js'
 export type { OrchestratorDeps } from './orchestrator-agent.js'
 
+// Single entry point for api-gateway. Wires the audit-writer bridge so
+// agent-tool mutations actually persist audit rows.
+export { createAgentRunner } from './factory.js'
+export type { AgentRunner, CreateAgentRunnerDeps } from './factory.js'
+
 export { ActionExecutor } from './action-executor.js'
 
 export { ReActLoop } from './react-loop.js'

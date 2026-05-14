@@ -1,4 +1,4 @@
-import { ac, type AlertCondition, type AlertOperator, type AlertSeverity } from '@agentic-obs/common';
+import { ac, AuditAction, type AlertCondition, type AlertOperator, type AlertSeverity } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { ActionContext } from './_context.js';
 import { withWorkspaceScope } from './_shared.js';
@@ -226,6 +226,17 @@ async function createAlertRule(
 
   const rc = rule.condition as Record<string, unknown>;
   const verb = isUpdate ? 'Updated' : 'Created';
+  void ctx.auditWriter?.({
+    action: isUpdate ? AuditAction.AlertRuleUpdate : AuditAction.AlertRuleCreate,
+    actorType: 'user',
+    actorId: ctx.identity.userId,
+    orgId: ctx.identity.orgId,
+    targetType: 'alert_rule',
+    targetId: String(rule.id ?? ''),
+    targetName: String(rule.name ?? generated.name),
+    outcome: 'success',
+    metadata: { severity: rule.severity, folderUid, via: 'agent_tool' },
+  });
   ctx.pushConversationAction({
     type: 'create_alert_rule',
     ruleId: String(rule.id ?? ''),
@@ -326,6 +337,18 @@ async function updateAlertRule(
 
   const updatedRule = await ctx.alertRuleStore.update(ruleId, updatePatch) as Record<string, unknown> | undefined;
 
+  void ctx.auditWriter?.({
+    action: AuditAction.AlertRuleUpdate,
+    actorType: 'user',
+    actorId: ctx.identity.userId,
+    orgId: ctx.identity.orgId,
+    targetType: 'alert_rule',
+    targetId: ruleId,
+    targetName: String(updatedRule?.name ?? existingRule.name ?? ''),
+    outcome: 'success',
+    metadata: { patch: updatePatch, via: 'agent_tool' },
+  });
+
   ctx.pushConversationAction({
     type: 'modify_alert_rule',
     ruleId,
@@ -369,6 +392,18 @@ async function deleteAlertRule(
   }
 
   await ctx.alertRuleStore.delete(ruleId);
+
+  void ctx.auditWriter?.({
+    action: AuditAction.AlertRuleDelete,
+    actorType: 'user',
+    actorId: ctx.identity.userId,
+    orgId: ctx.identity.orgId,
+    targetType: 'alert_rule',
+    targetId: ruleId,
+    targetName: String(existingRule?.name ?? ''),
+    outcome: 'success',
+    metadata: { via: 'agent_tool' },
+  });
 
   ctx.pushConversationAction({ type: 'delete_alert_rule', ruleId });
 

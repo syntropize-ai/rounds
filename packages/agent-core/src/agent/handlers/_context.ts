@@ -12,6 +12,7 @@ import type {
   Identity,
   IFolderRepository,
   InvestigationReportSection,
+  NewAuditLogEntry,
   Provenance,
 } from '@agentic-obs/common';
 import type { LLMGateway } from '@agentic-obs/llm-gateway';
@@ -94,6 +95,14 @@ export interface ActionContext {
    */
   identity: Identity;
   accessControl: IAccessControlService;
+  /**
+   * Optional fire-and-forget audit log writer. When wired, resource-mutating
+   * handlers (alert_rule_write, investigation_create, etc.) emit audit rows
+   * via this slim function. Optional so tests / in-memory wirings can omit;
+   * production callers in api-gateway pass through `AuditWriter.log`.
+   * Failures are the caller's responsibility — handlers must not await this.
+   */
+  auditWriter?: (entry: NewAuditLogEntry) => Promise<void>;
 
   actionExecutor: ActionExecutor;
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ac } from '@agentic-obs/common';
+import { ac, AuditAction } from '@agentic-obs/common';
 import type { PendingDashboardChange, PendingDashboardChangeOp } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
@@ -94,6 +94,17 @@ export async function handleDashboardCreate(
       ctx.setNavigateTo(`/dashboards/${dashboard.id}`);
 
       createdId = dashboard.id;
+      void ctx.auditWriter?.({
+        action: AuditAction.DashboardCreate,
+        actorType: 'user',
+        actorId: ctx.identity.userId,
+        orgId: ctx.identity.orgId,
+        targetType: 'dashboard',
+        targetId: dashboard.id,
+        targetName: dashboard.title,
+        outcome: 'success',
+        metadata: { datasourceId, via: 'agent_tool' },
+      });
       // Mark this dashboard as the active one for the session — subsequent
       // dashboard_add_panels / modify_panel / etc. calls in this ReAct loop
       // pick it up implicitly instead of taking a (truncatable) id param.
@@ -193,6 +204,18 @@ export async function handleDashboardClone(
       // The freshly cloned dashboard becomes the active one (same as create).
       ctx.activeDashboardId = created.id;
       ctx.freshlyCreatedDashboards.add(created.id);
+
+      void ctx.auditWriter?.({
+        action: AuditAction.DashboardFork,
+        actorType: 'user',
+        actorId: ctx.identity.userId,
+        orgId: ctx.identity.orgId,
+        targetType: 'dashboard',
+        targetId: created.id,
+        targetName: created.title,
+        outcome: 'success',
+        metadata: { sourceDashboardId, targetDatasourceId, via: 'agent_tool' },
+      });
 
       const observation = `Cloned "${source.title}" (${clonedPanels.length} panel${clonedPanels.length === 1 ? '' : 's'}) to connector ${targetDatasourceId}. New dashboard id: ${created.id}.`;
       ctx.emitAgentEvent(

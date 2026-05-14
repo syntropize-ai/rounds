@@ -1,4 +1,4 @@
-import { ac } from '@agentic-obs/common';
+import { ac, AuditAction } from '@agentic-obs/common';
 import type { GrafanaFolder } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 
@@ -34,6 +34,18 @@ export async function handleFolderCreate(
     parentUid,
     createdBy: ctx.identity.userId,
     updatedBy: ctx.identity.userId,
+  });
+
+  void ctx.auditWriter?.({
+    action: AuditAction.FolderCreate,
+    actorType: 'user',
+    actorId: ctx.identity.userId,
+    orgId: ctx.identity.orgId,
+    targetType: 'folder',
+    targetId: folder.uid,
+    targetName: folder.title,
+    outcome: 'success',
+    metadata: { parentUid: folder.parentUid, via: 'agent_tool' },
   });
 
   const observation = `Folder "${folder.title}" created (uid=${folder.uid})${folder.parentUid ? ` under ${folder.parentUid}` : ' at root'}.`;

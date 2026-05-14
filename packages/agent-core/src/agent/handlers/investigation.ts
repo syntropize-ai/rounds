@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ac } from '@agentic-obs/common';
+import { ac, AuditAction } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import type {
   Citation,
@@ -64,6 +64,17 @@ export async function handleInvestigationCreate(
       );
 
       createdId = investigation.id;
+      void ctx.auditWriter?.({
+        action: AuditAction.InvestigationCreate,
+        actorType: 'user',
+        actorId: ctx.identity.userId,
+        orgId: ctx.identity.orgId,
+        targetType: 'investigation',
+        targetId: investigation.id,
+        targetName: question,
+        outcome: 'success',
+        metadata: { sessionId: ctx.sessionId, via: 'agent_tool' },
+      });
       // Mark this investigation as the active one for the session.
       // `add_section` and `complete` read from here; the LLM no longer
       // has to copy the id back through tool params (which it sometimes

@@ -49,8 +49,10 @@ export type {
   HealthStatus,
   AdapterHealth,
 } from './types.js';
-export type { DataAdapter, AdapterErrorKind } from './adapter.js';
-export { AdapterError, classifyAdapterHttpError } from './adapter.js';
+export type { DataAdapter, AdapterErrorKind, AdapterErrorCause } from './adapter.js';
+export { AdapterError, classifyAdapterHttpError, isAdapterError } from './adapter.js';
+// Canonical error taxonomy — preferred entry point for new code.
+export { classifyHttpError } from './errors.js';
 export { AdapterRegistry } from './registry.js';
 export type { AdapterRegistration } from './registry.js';
 

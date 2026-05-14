@@ -19,7 +19,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Identity, IFolderRepository } from '@agentic-obs/common';
 import {
-  DashboardOrchestratorAgent as OrchestratorAgent,
+  createAgentRunner,
+  type AgentRunner,
   type AgentType,
   type IConversationStore as IAgentConversationStore,
   type IInvestigationStore,
@@ -65,7 +66,7 @@ export interface BackgroundOrchestratorFactoryDeps {
 export type MakeBackgroundOrchestrator = (overrides: {
   identity: Identity;
   agentType?: AgentType;
-}) => Promise<OrchestratorAgent>;
+}) => Promise<AgentRunner>;
 
 /**
  * Build the closure passed as `BackgroundRunnerDeps.makeOrchestrator`.
@@ -95,7 +96,7 @@ export function buildBackgroundOrchestratorFactory(
       [],
     );
 
-    return new OrchestratorAgent({
+    return createAgentRunner({
       gateway,
       model: llm.model,
       store: deps.persistence.repos.dashboards,

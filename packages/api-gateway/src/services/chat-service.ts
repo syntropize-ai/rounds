@@ -10,7 +10,7 @@ import type {
 } from '@agentic-obs/common';
 import { createLlmGateway, createDbAuditSink } from '../routes/llm-factory.js';
 import {
-  DashboardOrchestratorAgent as OrchestratorAgent,
+  createAgentRunner,
   shouldCompact,
   compactMessages,
 } from '@agentic-obs/agent-core';
@@ -490,7 +490,7 @@ export class ChatService {
       },
     } as IAgentConversationStore;
 
-    const orchestrator = new OrchestratorAgent(
+    const orchestrator = createAgentRunner(
       {
         gateway,
         model,

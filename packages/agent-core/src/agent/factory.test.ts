@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { AuditAction } from '@agentic-obs/common';
-import type { Identity } from '@agentic-obs/common';
+import type { Identity, NewAuditLogEntry } from '@agentic-obs/common';
 import { AdapterRegistry } from '../adapters/index.js';
 import { ActionExecutor } from './action-executor.js';
 import { buildActionContext } from './orchestrator-action-context.js';
@@ -104,7 +104,7 @@ describe('audit-writer bridge', () => {
 // ---------------------------------------------------------------------------
 
 function makeContextDeps(overrides: {
-  auditEntryWriter?: (entry: unknown) => Promise<void>;
+  auditEntryWriter?: (entry: NewAuditLogEntry) => Promise<void>;
 }): Parameters<typeof buildActionContext>[0] {
   const created: Record<string, unknown> = {
     id: 'dash-1',

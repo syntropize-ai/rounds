@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agentic-obs/adapters": "*",
     "@agentic-obs/common": "*"
   },
   "devDependencies": {

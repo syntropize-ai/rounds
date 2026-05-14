@@ -24,15 +24,24 @@ function shouldRetryError(error: unknown): { retry: boolean; delayMs?: number } 
   if (error instanceof ProviderCapabilityError) return { retry: false };
 
   if (error instanceof ProviderError) {
-    if (error.kind === 'auth' || error.kind === 'unsupported') return { retry: false };
-    if (error.kind === 'network') {
+    // Retryable: transient transport / upstream conditions.
+    const retryableKinds = new Set([
+      'timeout',
+      'dns_failure',
+      'connection_refused',
+      'rate_limit',
+      'server_error',
+    ]);
+    if (retryableKinds.has(error.kind)) {
       const result: { retry: boolean; delayMs?: number } = { retry: true };
       if (error.retryAfterSec !== undefined) {
         result.delayMs = error.retryAfterSec * 1000;
       }
       return result;
     }
-    // 'unknown' — fail fast. Better to surface a novel error than spin.
+    // auth_failure, not_found, bad_request, malformed_response, readonly,
+    // unknown — fail fast. Surface novel / definitive failures instead of
+    // hammering.
     return { retry: false };
   }
 
@@ -52,14 +61,21 @@ function shouldRetryError(error: unknown): { retry: boolean; delayMs?: number } 
 function classifyAuditError(error: unknown): AuditErrorKind {
   if (error instanceof Error && error.name === 'AbortError') return 'aborted';
   if (error instanceof ProviderError) {
-    if (error.kind === 'auth') return 'auth';
-    if (error.kind === 'unsupported') return 'unknown';
-    if (error.kind === 'network') {
-      if (error.status === 429) return 'ratelimit';
-      if (error.status !== undefined && error.status >= 500) return 'server';
-      return 'network';
+    switch (error.kind) {
+      case 'auth_failure':
+        return 'auth';
+      case 'rate_limit':
+        return 'ratelimit';
+      case 'server_error':
+        return 'server';
+      case 'timeout':
+        return 'timeout';
+      case 'dns_failure':
+      case 'connection_refused':
+        return 'network';
+      default:
+        return 'unknown';
     }
-    return 'unknown';
   }
   if (error instanceof Error) {
     if (/timeout|ETIMEDOUT/i.test(error.message)) return 'timeout';

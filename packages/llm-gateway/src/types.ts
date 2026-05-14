@@ -128,32 +128,42 @@ export interface ToolCall {
 
 // -- Provider errors -----------------------------------------------------
 //
-// Typed error raised by provider methods (listModels, complete) when an
-// integration boundary fails. Callers branch on `kind` to decide whether
-// to retry, surface a setup error, or bubble.
+// `ProviderError` is the LLM-gateway flavor of the canonical AdapterError
+// taxonomy in `@agentic-obs/adapters`. It is the same class, with the same
+// `kind` enum — `ProviderError` exists for back-compat with callers that
+// still `instanceof ProviderError` (api-gateway setup flow). New code should
+// `instanceof AdapterError` and branch on `error.kind`.
 //
-//   - 'auth'        : credentials rejected (401, missing API key, etc).
-//                     Don't retry; surface as setup error.
-//   - 'network'     : transport-level (DNS, connection refused, timeout)
-//                     or 5xx server errors. Retryable.
-//   - 'unsupported' : operation isn't available for this provider/model
-//                     (404 on listModels, capability missing). Don't retry.
-//   - 'unknown'     : unclassified — caller decides. Default to don't retry
-//                     so we fail fast on novel errors instead of hammering.
+// `kind` values use the canonical AdapterErrorKind:
+//   timeout, dns_failure, connection_refused, auth_failure, rate_limit,
+//   not_found, bad_request, server_error, malformed_response, readonly,
+//   unknown.
 
-export type ProviderErrorKind = 'auth' | 'network' | 'unsupported' | 'unknown';
+import {
+  AdapterError,
+  classifyHttpError,
+  type AdapterErrorKind,
+} from '@agentic-obs/adapters';
 
-export class ProviderError extends Error {
-  public readonly kind: ProviderErrorKind;
+export type ProviderErrorKind = AdapterErrorKind;
+
+/**
+ * Subclass exists to preserve back-compat with `instanceof ProviderError`
+ * catch sites and to surface provider-specific accessor names (`provider`,
+ * `retryAfterSec`, `upstreamCode`, `upstreamBody`) without callers having to
+ * dig into `cause`.
+ */
+export class ProviderError extends AdapterError {
+  /** Convenience alias for `cause.adapterId`. */
   public readonly provider: string;
-  public readonly status?: number;
-  public override readonly cause?: unknown;
-  /** Seconds the upstream asked us to wait (Retry-After header). */
-  public readonly retryAfterSec?: number;
-  /** Provider-specific error code, when the upstream body exposes one. */
-  public readonly upstreamCode?: string;
-  /** Truncated upstream response body for diagnostics. Never assume it is safe to show to end users. */
-  public readonly upstreamBody?: string;
+  /** Convenience alias for `cause.status`. */
+  public readonly status: number | undefined;
+  /** Convenience alias for `cause.retryAfterSec`. */
+  public readonly retryAfterSec: number | undefined;
+  /** Convenience alias for `cause.providerCode`. */
+  public readonly upstreamCode: string | undefined;
+  /** Convenience alias for `cause.upstreamBody`. Never safe to show to users. */
+  public readonly upstreamBody: string | undefined;
 
   constructor(
     message: string,
@@ -167,52 +177,34 @@ export class ProviderError extends Error {
       upstreamBody?: string;
     },
   ) {
-    super(message);
+    super(opts.kind, message, {
+      adapterId: opts.provider,
+      operation: 'complete',
+      status: opts.status,
+      providerCode: opts.upstreamCode,
+      retryAfterSec: opts.retryAfterSec,
+      upstreamBody: opts.upstreamBody,
+      originalError: opts.cause,
+    });
     this.name = 'ProviderError';
-    this.kind = opts.kind;
     this.provider = opts.provider;
-    if (opts.status !== undefined) this.status = opts.status;
-    if (opts.cause !== undefined) this.cause = opts.cause;
-    if (opts.retryAfterSec !== undefined) this.retryAfterSec = opts.retryAfterSec;
-    if (opts.upstreamCode !== undefined) this.upstreamCode = opts.upstreamCode;
-    if (opts.upstreamBody !== undefined) this.upstreamBody = opts.upstreamBody;
+    this.status = opts.status;
+    this.retryAfterSec = opts.retryAfterSec;
+    this.upstreamCode = opts.upstreamCode;
+    this.upstreamBody = opts.upstreamBody;
   }
 }
 
 /**
- * Classify a fetch / Response failure into a ProviderErrorKind. Covers the
- * common shapes: HTTP status (401 → auth, 5xx → network, 404 → unsupported),
- * Node fetch error codes (ENOTFOUND/ECONNREFUSED/ETIMEDOUT → network), and
- * 429 rate-limit (network — retryable, the gateway honors Retry-After).
+ * Classify a fetch / Response failure into a canonical ProviderErrorKind.
+ * Thin wrapper around the shared `classifyHttpError` so provider code can
+ * keep its existing import.
  */
 export function classifyProviderHttpError(opts: {
   status?: number;
   cause?: unknown;
 }): ProviderErrorKind {
-  const { status, cause } = opts;
-  if (typeof status === 'number') {
-    if (status === 401 || status === 403) return 'auth';
-    if (status === 404) return 'unsupported';
-    if (status === 429) return 'network';
-    if (status >= 500) return 'network';
-    if (status >= 400) return 'unknown';
-  }
-  // Inspect Node fetch error code / nested cause
-  const codes: string[] = [];
-  const collect = (e: unknown) => {
-    if (!e || typeof e !== 'object') return;
-    const code = (e as { code?: unknown }).code;
-    if (typeof code === 'string') codes.push(code);
-    const inner = (e as { cause?: unknown }).cause;
-    if (inner) collect(inner);
-  };
-  collect(cause);
-  if (codes.some((c) => /^(ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|EAI_AGAIN|UND_ERR_(?:CONNECT_TIMEOUT|SOCKET))$/i.test(c))) {
-    return 'network';
-  }
-  if (cause instanceof Error && cause.name === 'AbortError') return 'network';
-  if (cause instanceof Error && /fetch failed|network|timeout|connection/i.test(cause.message)) return 'network';
-  return 'unknown';
+  return classifyHttpError(opts);
 }
 
 // -- Minimal subset of JSON Schema we care about --

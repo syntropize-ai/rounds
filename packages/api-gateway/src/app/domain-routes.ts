@@ -43,6 +43,7 @@ import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
 import { createResourcesPromoteRouter } from '../routes/resources-promote.js';
+import { createServicesRouter } from '../routes/services.js';
 import { PromoteService } from '../services/promote-service.js';
 import { createSuggestionsRouter } from '../routes/suggestions.js';
 import { defaultGenerators } from '../services/suggestion-generators.js';
@@ -217,7 +218,19 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     accessControl,
     setupConfig,
     audit: authSub.audit,
+<<<<<<< HEAD
     variableAcks: repos.dashboardVariableAcks,
+=======
+    serviceAttribution: repos.serviceAttribution,
+  }));
+  app.use('/api/services', createServicesRouter({
+    serviceAttribution: repos.serviceAttribution,
+    dashboards: repos.dashboards,
+    alertRules: eventAlertRuleStore,
+    investigations: repos.investigations,
+    accessControl,
+    audit: authSub.audit,
+>>>>>>> a1a5602 (wave2.2: services router + Tier-1 attribution on dashboard/alert-rule writes)
   }));
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,
@@ -245,6 +258,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     folderRepository: sharedFolderRepo,
     ac: accessControl,
     audit: authSub.audit,
+    serviceAttribution: repos.serviceAttribution,
     ...(deps.runner ? { runner: deps.runner } : {}),
   }));
   // /api/folders is mounted in rbac-routes.ts (T7.1).

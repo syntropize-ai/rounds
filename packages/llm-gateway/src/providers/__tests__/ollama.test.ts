@@ -366,7 +366,7 @@ describe('OllamaProvider response parsing', () => {
     const promise = provider.complete(MESSAGES, OPTS);
     await expect(promise).rejects.toMatchObject({
       name: 'ProviderError',
-      kind: 'network',
+      kind: 'server_error',
       provider: 'ollama',
       status: 503,
       upstreamBody: 'model overloaded',

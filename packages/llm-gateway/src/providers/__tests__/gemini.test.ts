@@ -351,7 +351,7 @@ describe('GeminiProvider', () => {
         provider.complete([{ role: 'user', content: 'hi' }], { model: 'gemini-2.5-flash' }),
       ).rejects.toMatchObject({
         name: 'ProviderError',
-        kind: 'network',
+        kind: 'rate_limit',
         provider: 'gemini',
         status: 429,
         upstreamBody: 'quota exceeded',
@@ -463,7 +463,7 @@ describe('GeminiProvider', () => {
       );
 
       await expect(provider.listModels()).rejects.toMatchObject({
-        kind: 'auth',
+        kind: 'auth_failure',
         provider: 'gemini',
         status: 400,
       });

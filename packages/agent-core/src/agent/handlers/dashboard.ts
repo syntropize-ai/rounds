@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ac, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common';
+import { ac, AuditAction, assertWritable, ProvisionedResourceError, personalFolderUid } from '@agentic-obs/common';
 import type { PendingDashboardChange, PendingDashboardChangeOp } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';

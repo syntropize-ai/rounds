@@ -2,7 +2,7 @@
 
 export * from './persistence.js';
 
-export * from './alert-rule-store.js';
+// alert-rule-store retired (ADR-001 M2). Use InMemoryAlertRuleRepository.
 // ApprovalStore removed in M3 (ADR-001) — use InMemoryApprovalRequestRepository
 // from @agentic-obs/data-layer/repository or one of the SQLite/Postgres impls.
 export * from './incident-store.js';
@@ -14,7 +14,7 @@ export * from './investigation-store.js';
 export * from './share-store.js';
 export * from './dashboard-store.js';
 export * from './investigation-report-store.js';
-export * from './alert-rule-provider-adapter.js';
+// alert-rule-provider-adapter retired with the store (ADR-001 M2).
 export * from './folder-store.js';
 // workspace-store removed in T9 cutover — use OrgRepository from
 // @agentic-obs/data-layer (auth repositories) instead.

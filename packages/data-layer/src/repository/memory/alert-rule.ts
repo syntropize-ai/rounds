@@ -1,3 +1,22 @@
+/**
+ * In-memory implementation of `IAlertRuleRepository`.
+ *
+ * Test fixture only. Per ADR-001 the canonical persistence abstraction is the
+ * repository, and the legacy `AlertRuleStore` has been retired. This module
+ * preserves the original store's in-memory behavior under the repository
+ * interface so existing tests + agent-core integration tests can keep
+ * exercising rule logic without spinning up SQLite.
+ *
+ * Behavior parity with the SQLite repo:
+ *   - `create()` defaults `source` to 'manual' (matches `writable-gate.ts`)
+ *   - `transition()` appends history rows and applies pendingSince /
+ *     lastFiredAt / fireCount side-effects exactly as
+ *     `SqliteAlertRuleRepository.transition()` does
+ *   - `getFolderUid()` falls back to a `folderUid` label, matching the
+ *     agent-created rule convention
+ *   - History buffer caps at 10_000 entries to bound memory growth
+ */
+
 import { randomUUID } from 'node:crypto';
 import type {
   AlertRule,
@@ -7,35 +26,30 @@ import type {
   NotificationPolicy,
   SilenceStatus,
 } from '@agentic-obs/common';
-import type { Persistable } from './persistence.js';
-import { markDirty } from './persistence.js';
+import type {
+  IAlertRuleRepository,
+  AlertRuleFindAllOptions,
+} from '../interfaces.js';
 
-export class AlertRuleStore implements Persistable {
+export class InMemoryAlertRuleRepository implements IAlertRuleRepository {
   private rules = new Map<string, AlertRule>();
   private history: AlertHistoryEntry[] = [];
   private silences = new Map<string, AlertSilence>();
   private policies = new Map<string, NotificationPolicy>();
   private readonly workspaces = new Map<string, string>();
-  private listeners: Array<(event: 'created' | 'updated' | 'deleted', rule: AlertRule) => void> = [];
 
-  /**
-   * The in-memory `AlertRule` model has no dedicated folder column, but rules
-   * created by the agent stash a `folderUid` label so folder-scoped RBAC
-   * still works for in-memory deployments. Returning null when the rule has
-   * no such label means RBAC falls back to wildcard-folder checks (which
-   * require an org-wide grant) — fail-closed for narrow grants.
-   */
-  getFolderUid(_orgId: string, ruleId: string): string | null {
+  async getFolderUid(_orgId: string, ruleId: string): Promise<string | null> {
     const rule = this.rules.get(ruleId);
     if (!rule) return null;
-    return rule.labels?.['folderUid'] ?? null;
+    return rule.folderUid ?? rule.labels?.['folderUid'] ?? null;
   }
 
-  create(data: Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>): AlertRule {
+  async create(
+    data: Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>,
+  ): Promise<AlertRule> {
     const now = new Date().toISOString();
     const rule: AlertRule = {
       ...data,
-      // Default source to 'manual' when caller didn't set one — see writable-gate.ts.
       source: data.source ?? 'manual',
       id: `alert_${randomUUID().slice(0, 12)}`,
       state: 'normal',
@@ -47,22 +61,14 @@ export class AlertRuleStore implements Persistable {
     this.rules.set(rule.id, rule);
     if (data.workspaceId)
       this.workspaces.set(rule.id, data.workspaceId);
-    markDirty();
-    this.notify('created', rule);
     return rule;
   }
 
-  findById(id: string): AlertRule | undefined {
+  async findById(id: string): Promise<AlertRule | undefined> {
     return this.rules.get(id);
   }
 
-  findAll(filter?: {
-    state?: AlertRuleState;
-    severity?: string;
-    search?: string;
-    limit?: number;
-    offset?: number;
-  }): { list: AlertRule[]; total: number } {
+  async findAll(filter?: AlertRuleFindAllOptions): Promise<{ list: AlertRule[]; total: number }> {
     let list = [...this.rules.values()];
     if (filter?.state)
       list = list.filter((r) => r.state === filter.state);
@@ -85,38 +91,33 @@ export class AlertRuleStore implements Persistable {
     return { list, total };
   }
 
-  findByWorkspace(workspaceId: string): AlertRule[] {
+  async findByWorkspace(workspaceId: string): Promise<AlertRule[]> {
     return [...this.rules.values()].filter(
-      (r) => this.workspaces.get(r.id) === workspaceId,
+      (r) => (r.workspaceId ?? this.workspaces.get(r.id)) === workspaceId,
     );
   }
 
-  getWorkspaceId(id: string): string | undefined {
-    return this.workspaces.get(id);
-  }
-
-  update(id: string, patch: Partial<Omit<AlertRule, 'id' | 'createdAt'>>): AlertRule | undefined {
+  async update(
+    id: string,
+    patch: Partial<Omit<AlertRule, 'id' | 'createdAt'>>,
+  ): Promise<AlertRule | undefined> {
     const rule = this.rules.get(id);
     if (!rule)
       return undefined;
     const updated = { ...rule, ...patch, updatedAt: new Date().toISOString() };
     this.rules.set(id, updated);
-    markDirty();
-    this.notify('updated', updated);
     return updated;
   }
 
-  delete(id: string): boolean {
-    const rule = this.rules.get(id);
-    if (!rule)
-      return false;
-    this.rules.delete(id);
-    markDirty();
-    this.notify('deleted', rule);
-    return true;
+  async delete(id: string): Promise<boolean> {
+    return this.rules.delete(id);
   }
 
-  transition(id: string, newState: AlertRuleState, value?: number): AlertRule | undefined {
+  async transition(
+    id: string,
+    newState: AlertRuleState,
+    value?: number,
+  ): Promise<AlertRule | undefined> {
     const rule = this.rules.get(id);
     if (!rule)
       return undefined;
@@ -158,57 +159,55 @@ export class AlertRuleStore implements Persistable {
     return this.update(id, patch);
   }
 
-  getHistory(ruleId: string, limit = 50): AlertHistoryEntry[] {
+  async getHistory(ruleId: string, limit = 50): Promise<AlertHistoryEntry[]> {
     return this.history
       .filter((h) => h.ruleId === ruleId)
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       .slice(0, limit);
   }
 
-  getAllHistory(limit = 100): AlertHistoryEntry[] {
-    return this.history
+  async getAllHistory(limit = 100): Promise<AlertHistoryEntry[]> {
+    return [...this.history]
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       .slice(0, limit);
   }
 
-  createSilence(data: Omit<AlertSilence, 'id' | 'createdAt'>): AlertSilence {
+  async createSilence(data: Omit<AlertSilence, 'id' | 'createdAt'>): Promise<AlertSilence> {
     const silence: AlertSilence = {
       ...data,
       id: `silence_${randomUUID().slice(0, 12)}`,
       createdAt: new Date().toISOString(),
     };
     this.silences.set(silence.id, silence);
-    markDirty();
     return silence;
   }
 
-  findSilences(): AlertSilence[] {
+  async findSilences(): Promise<AlertSilence[]> {
     const now = new Date().toISOString();
     return [...this.silences.values()]
       .filter((s) => s.endsAt > now)
       .map((s) => ({ ...s, status: this.computeSilenceStatus(s) }));
   }
 
-  findAllSilencesIncludingExpired(): AlertSilence[] {
+  async findAllSilencesIncludingExpired(): Promise<AlertSilence[]> {
     return [...this.silences.values()]
       .map((s) => ({ ...s, status: this.computeSilenceStatus(s) }));
   }
 
-  updateSilence(id: string, patch: Partial<Omit<AlertSilence, 'id' | 'createdAt'>>): AlertSilence | undefined {
+  async updateSilence(
+    id: string,
+    patch: Partial<Omit<AlertSilence, 'id' | 'createdAt'>>,
+  ): Promise<AlertSilence | undefined> {
     const silence = this.silences.get(id);
     if (!silence)
       return undefined;
     const updated: AlertSilence = { ...silence, ...patch };
     this.silences.set(id, updated);
-    markDirty();
     return { ...updated, status: this.computeSilenceStatus(updated) };
   }
 
-  deleteSilence(id: string): boolean {
-    const result = this.silences.delete(id);
-    if (result)
-      markDirty();
-    return result;
+  async deleteSilence(id: string): Promise<boolean> {
+    return this.silences.delete(id);
   }
 
   private computeSilenceStatus(silence: AlertSilence): SilenceStatus {
@@ -220,7 +219,9 @@ export class AlertRuleStore implements Persistable {
     return 'active';
   }
 
-  createPolicy(data: Omit<NotificationPolicy, 'id' | 'createdAt' | 'updatedAt'>): NotificationPolicy {
+  async createPolicy(
+    data: Omit<NotificationPolicy, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<NotificationPolicy> {
     const now = new Date().toISOString();
     const policy: NotificationPolicy = {
       ...data,
@@ -229,81 +230,30 @@ export class AlertRuleStore implements Persistable {
       updatedAt: now,
     };
     this.policies.set(policy.id, policy);
-    markDirty();
     return policy;
   }
 
-  findAllPolicies(): NotificationPolicy[] {
+  async findAllPolicies(): Promise<NotificationPolicy[]> {
     return [...this.policies.values()];
   }
 
-  findPolicyById(id: string): NotificationPolicy | undefined {
+  async findPolicyById(id: string): Promise<NotificationPolicy | undefined> {
     return this.policies.get(id);
   }
 
-  updatePolicy(id: string, patch: Partial<Omit<NotificationPolicy, 'id' | 'createdAt'>>): NotificationPolicy | undefined {
+  async updatePolicy(
+    id: string,
+    patch: Partial<Omit<NotificationPolicy, 'id' | 'createdAt'>>,
+  ): Promise<NotificationPolicy | undefined> {
     const policy = this.policies.get(id);
     if (!policy)
       return undefined;
     const updated = { ...policy, ...patch, updatedAt: new Date().toISOString() };
     this.policies.set(id, updated);
-    markDirty();
     return updated;
   }
 
-  deletePolicy(id: string): boolean {
-    const result = this.policies.delete(id);
-    if (result)
-      markDirty();
-    return result;
-  }
-
-  onChange(cb: (event: 'created' | 'updated' | 'deleted', rule: AlertRule) => void): void {
-    this.listeners.push(cb);
-  }
-
-  private notify(event: 'created' | 'updated' | 'deleted', rule: AlertRule): void {
-    for (const cb of this.listeners) {
-      try {
-        cb(event, rule);
-      } catch {
-        // Listener errors must not prevent other listeners from running.
-      }
-    }
-  }
-
-  toJSON(): unknown {
-    return {
-      rules: [...this.rules.values()],
-      history: this.history,
-      silences: [...this.silences.values()],
-      policies: [...this.policies.values()],
-    };
-  }
-
-  loadJSON(data: unknown): void {
-    const d = data as Record<string, unknown>;
-    if (Array.isArray(d.rules)) {
-      for (const r of d.rules as AlertRule[]) {
-        if (r.id)
-          this.rules.set(r.id, r);
-      }
-    }
-    if (Array.isArray(d.history))
-      this.history = d.history as AlertHistoryEntry[];
-    if (Array.isArray(d.silences)) {
-      for (const s of d.silences as AlertSilence[]) {
-        if (s.id)
-          this.silences.set(s.id, s);
-      }
-    }
-    if (Array.isArray(d.policies)) {
-      for (const p of d.policies as NotificationPolicy[]) {
-        if (p.id)
-          this.policies.set(p.id, p);
-      }
-    }
+  async deletePolicy(id: string): Promise<boolean> {
+    return this.policies.delete(id);
   }
 }
-
-export const defaultAlertRuleStore = new AlertRuleStore();

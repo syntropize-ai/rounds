@@ -39,9 +39,9 @@ export {
   setMarkDirty,
   markDirty as markStoreDirty,
 
-  // Alert Rule
-  AlertRuleStore,
-  defaultAlertRuleStore,
+  // Alert Rule: retired per ADR-001. Use IAlertRuleRepository (production)
+  // or InMemoryAlertRuleRepository (tests) from this package's repository
+  // exports above.
 
   // Approval — store removed in M3 (ADR-001); types now live in
   // ./repository/types.ts and are re-exported via ./repository/index.ts.
@@ -95,9 +95,6 @@ export {
   // Investigation Report
   InvestigationReportStore,
   defaultInvestigationReportStore,
-
-  // Alert Rule Provider Adapter
-  AlertRuleStoreProvider,
 
   // Folder
   FolderStore,

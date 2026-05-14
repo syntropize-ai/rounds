@@ -20,6 +20,7 @@ import type {
 import type { IInvestigationRepository as SqliteInvestigationRepositoryInterface } from './sqlite/investigation.js';
 import type {
   IDashboardRepository,
+  IDashboardVariableAckRepository,
   IInstanceConfigRepository,
   INotificationChannelRepository,
 } from '@agentic-obs/common';
@@ -37,6 +38,7 @@ import { SqliteFeedItemRepository } from './sqlite/feed.js';
 import { SqliteApprovalRequestRepository } from './sqlite/approval.js';
 import { SqliteShareLinkRepository } from './sqlite/share.js';
 import { DashboardRepository as SqliteDashboardRepository } from './sqlite/dashboard.js';
+import { SqliteDashboardVariableAckRepository } from './sqlite/dashboard-variable-ack.js';
 import { SqliteFolderRepository } from './sqlite/folder.js';
 import { SqliteAlertRuleRepository } from './sqlite/alert-rule.js';
 import { SqliteNotificationRepository } from './sqlite/notification.js';
@@ -56,6 +58,7 @@ import { PostgresFeedItemRepository } from './postgres/feed.js';
 import { PostgresApprovalRequestRepository } from './postgres/approval.js';
 import { PostgresShareLinkRepository } from './postgres/share.js';
 import { DashboardRepository as PostgresDashboardRepository } from './postgres/dashboard.js';
+import { PostgresDashboardVariableAckRepository } from './postgres/dashboard-variable-ack.js';
 import { PostgresFolderRepository } from './postgres/folder.js';
 import { PostgresAlertRuleRepository } from './postgres/alert-rule.js';
 import { PostgresNotificationRepository } from './postgres/notification.js';
@@ -95,6 +98,7 @@ export interface RepositoryBundle {
   approvals: IApprovalRequestRepository & IGatewayApprovalStore;
   shares: IShareLinkRepository & IGatewayShareStore;
   dashboards: IDashboardRepository;
+  dashboardVariableAcks: IDashboardVariableAckRepository;
   folders: IFolderRepository;
   alertRules: IAlertRuleRepository;
   notifications: INotificationRepository;
@@ -122,6 +126,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     approvals: new SqliteApprovalRequestRepository(db),
     shares: new SqliteShareLinkRepository(db),
     dashboards: new SqliteDashboardRepository(db),
+    dashboardVariableAcks: new SqliteDashboardVariableAckRepository(db),
     folders: new SqliteFolderRepository(db),
     alertRules: new SqliteAlertRuleRepository(db),
     notifications: new SqliteNotificationRepository(db),
@@ -150,6 +155,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     approvals: new PostgresApprovalRequestRepository(db),
     shares: new PostgresShareLinkRepository(db),
     dashboards: new PostgresDashboardRepository(db),
+    dashboardVariableAcks: new PostgresDashboardVariableAckRepository(db),
     folders: new PostgresFolderRepository(db),
     alertRules: new PostgresAlertRuleRepository(db),
     notifications: new PostgresNotificationRepository(db),

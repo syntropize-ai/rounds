@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import express from 'express'
 import request from 'supertest'
 import type { Evaluator, Identity, ResolvedPermission } from '@agentic-obs/common'
-import type { IFolderRepository, IOrgUserRepository } from '@agentic-obs/common'
+import type { IDashboardRepository, IFolderRepository, IOrgUserRepository } from '@agentic-obs/common'
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js'
 import { createSearchRouter } from './search.js'
-import type { IDashboardRepository, IAlertRuleRepository } from '@agentic-obs/data-layer'
+import type { IAlertRuleRepository } from '@agentic-obs/data-layer'
 
 const mockState = vi.hoisted(() => ({
   identity: {

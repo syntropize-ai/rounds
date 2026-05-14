@@ -87,6 +87,12 @@ export interface IDashboardRepository {
 
   delete(id: string): Promise<boolean>;
 
+  /**
+   * Resolve the folder UID for a dashboard within an org. Used by RBAC
+   * resolvers to enforce folder-scoped permissions.
+   */
+  getFolderUid(orgId: string, dashboardId: string): Promise<string | null>;
+
   // -- Persistence shim (compat with in-memory Persistable) -----------
   //
   // The legacy store implemented Persistable (toJSON / loadJSON) so the

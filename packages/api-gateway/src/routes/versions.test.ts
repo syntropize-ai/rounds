@@ -1,10 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import type { AssetVersion, Dashboard, Evaluator, Identity, ResolvedPermission } from '@agentic-obs/common';
+import type { AssetVersion, Dashboard, Evaluator, IDashboardRepository, Identity, ResolvedPermission } from '@agentic-obs/common';
 import type {
   IAlertRuleRepository,
-  IDashboardRepository,
   IInvestigationReportRepository,
   IVersionRepository,
 } from '@agentic-obs/data-layer';

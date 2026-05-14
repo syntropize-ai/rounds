@@ -3,7 +3,7 @@ export { SqliteIncidentRepository } from './incident.js';
 export { SqliteFeedItemRepository } from './feed.js';
 export { SqliteApprovalRequestRepository } from './approval.js';
 export { SqliteShareLinkRepository } from './share.js';
-export { SqliteDashboardRepository } from './dashboard.js';
+export { DashboardRepository } from './dashboard.js';
 export { SqliteFolderRepository } from './folder.js';
 export { SqliteInvestigationReportRepository } from './investigation-report.js';
 export { SqlitePostMortemRepository } from './post-mortem.js';

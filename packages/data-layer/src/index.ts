@@ -88,9 +88,9 @@ export {
   type ShareLink,
   type SharePermission,
 
-  // Dashboard
-  DashboardStore,
-  defaultDashboardStore,
+  // Dashboard store removed in M1 dashboard repo migration (ADR-001).
+  // Use IDashboardRepository (from @agentic-obs/common) and the SQLite/
+  // Postgres implementations, or InMemoryDashboardRepository for tests.
 
   // Investigation Report
   InvestigationReportStore,

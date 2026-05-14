@@ -19,7 +19,7 @@ export interface IDashboardAgentStore {
     source?: import('@agentic-obs/common').ResourceSource
     provenance?: import('@agentic-obs/common').ResourceProvenance
   }): import('@agentic-obs/common').Dashboard | Promise<import('@agentic-obs/common').Dashboard>
-  findById(id: string): import('@agentic-obs/common').Dashboard | Promise<import('@agentic-obs/common').Dashboard | undefined> | undefined
+  findById(id: string): import('@agentic-obs/common').Dashboard | Promise<import('@agentic-obs/common').Dashboard | null | undefined> | null | undefined
   findAll?(): import('@agentic-obs/common').Dashboard[] | Promise<import('@agentic-obs/common').Dashboard[]>
   update(id: string, patch: Partial<Pick<import('@agentic-obs/common').Dashboard, 'type' | 'title' | 'description' | 'panels' | 'variables' | 'refreshIntervalSec' | 'folder'>>): unknown
   updateStatus?(id: string, status: string, error?: string): unknown

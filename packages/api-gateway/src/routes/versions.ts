@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import type { AssetType, Evaluator } from '@agentic-obs/common';
+import type { AssetType, Evaluator, IDashboardRepository } from '@agentic-obs/common';
 import { ac, ACTIONS } from '@agentic-obs/common';
 import type {
   IAlertRuleRepository,
-  IDashboardRepository,
   IInvestigationReportRepository,
   IVersionRepository,
 } from '@agentic-obs/data-layer';

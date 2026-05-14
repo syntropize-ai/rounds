@@ -12,7 +12,9 @@ export * from './post-mortem-store.js';
 export * from './feed-store.js';
 export * from './investigation-store.js';
 export * from './share-store.js';
-export * from './dashboard-store.js';
+// dashboard-store removed in M1 dashboard repo migration (ADR-001).
+// Use InMemoryDashboardRepository from
+// '@agentic-obs/data-layer/repository/memory/dashboard.js' for in-memory tests.
 export * from './investigation-report-store.js';
 // alert-rule-provider-adapter retired with the store (ADR-001 M2).
 export * from './folder-store.js';

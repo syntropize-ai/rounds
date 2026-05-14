@@ -6,7 +6,6 @@ import type {
   IFeedItemRepository,
   IApprovalRequestRepository,
   IShareLinkRepository,
-  IDashboardRepository,
   IFolderRepository,
   IAlertRuleRepository,
   INotificationRepository,
@@ -20,6 +19,7 @@ import type {
 } from './interfaces.js';
 import type { IInvestigationRepository as SqliteInvestigationRepositoryInterface } from './sqlite/investigation.js';
 import type {
+  IDashboardRepository,
   IInstanceConfigRepository,
   INotificationChannelRepository,
 } from '@agentic-obs/common';
@@ -29,7 +29,6 @@ import type {
   IGatewayIncidentStore,
   IGatewayApprovalStore,
   IGatewayShareStore,
-  IGatewayDashboardStore,
 } from '../stores/interfaces.js';
 
 import { InvestigationRepository } from './sqlite/investigation.js';
@@ -37,7 +36,7 @@ import { SqliteIncidentRepository } from './sqlite/incident.js';
 import { SqliteFeedItemRepository } from './sqlite/feed.js';
 import { SqliteApprovalRequestRepository } from './sqlite/approval.js';
 import { SqliteShareLinkRepository } from './sqlite/share.js';
-import { SqliteDashboardRepository } from './sqlite/dashboard.js';
+import { DashboardRepository as SqliteDashboardRepository } from './sqlite/dashboard.js';
 import { SqliteFolderRepository } from './sqlite/folder.js';
 import { SqliteAlertRuleRepository } from './sqlite/alert-rule.js';
 import { SqliteNotificationRepository } from './sqlite/notification.js';
@@ -56,7 +55,7 @@ import { PostgresIncidentRepository } from './postgres/incident.js';
 import { PostgresFeedItemRepository } from './postgres/feed.js';
 import { PostgresApprovalRequestRepository } from './postgres/approval.js';
 import { PostgresShareLinkRepository } from './postgres/share.js';
-import { PostgresDashboardRepository } from './postgres/dashboard.js';
+import { DashboardRepository as PostgresDashboardRepository } from './postgres/dashboard.js';
 import { PostgresFolderRepository } from './postgres/folder.js';
 import { PostgresAlertRuleRepository } from './postgres/alert-rule.js';
 import { PostgresNotificationRepository } from './postgres/notification.js';
@@ -95,7 +94,7 @@ export interface RepositoryBundle {
   feedItems: IFeedItemRepository;
   approvals: IApprovalRequestRepository & IGatewayApprovalStore;
   shares: IShareLinkRepository & IGatewayShareStore;
-  dashboards: IDashboardRepository & IGatewayDashboardStore;
+  dashboards: IDashboardRepository;
   folders: IFolderRepository;
   alertRules: IAlertRuleRepository;
   notifications: INotificationRepository;

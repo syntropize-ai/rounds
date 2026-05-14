@@ -6,7 +6,7 @@ export { PostgresIncidentRepository } from './incident.js';
 export { PostgresFeedItemRepository } from './feed.js';
 export { PostgresApprovalRequestRepository } from './approval.js';
 export { PostgresShareLinkRepository } from './share.js';
-export { PostgresDashboardRepository } from './dashboard.js';
+export { DashboardRepository as PostgresDashboardRepository } from './dashboard.js';
 export { PostgresFolderRepository } from './folder.js';
 export { PostgresInvestigationReportRepository } from './investigation-report.js';
 export { PostgresPostMortemRepository } from './post-mortem.js';

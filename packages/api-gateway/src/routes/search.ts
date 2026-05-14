@@ -1,12 +1,12 @@
 import { Router } from 'express'
 import type { Response } from 'express'
 import { ac, ACTIONS } from '@agentic-obs/common'
-import type { IFolderRepository, IOrgUserRepository } from '@agentic-obs/common'
+import type { IDashboardRepository, IFolderRepository, IOrgUserRepository } from '@agentic-obs/common'
 import { authMiddleware } from '../middleware/auth.js'
 import type { AuthenticatedRequest } from '../middleware/auth.js'
 import { createOrgContextMiddleware } from '../middleware/org-context.js'
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js'
-import type { IDashboardRepository, IAlertRuleRepository } from '@agentic-obs/data-layer'
+import type { IAlertRuleRepository } from '@agentic-obs/data-layer'
 
 export interface SearchResult {
   type: 'dashboard' | 'investigation' | 'alert' | 'folder' | 'panel'

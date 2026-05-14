@@ -61,12 +61,18 @@ function makeStore(dash: Dashboard): IGatewayDashboardStore {
     create: vi.fn(),
     findById: vi.fn(async () => dash),
     findAll: vi.fn(async () => [dash]),
+    listByWorkspace: vi.fn(async () => [dash]),
     update: vi.fn(),
     updateStatus: vi.fn(),
     updatePanels: vi.fn(),
     updateVariables: vi.fn(),
     delete: vi.fn(),
-  }
+    getFolderUid: vi.fn(async () => null),
+    size: vi.fn(async () => 0),
+    clear: vi.fn(),
+    toJSON: vi.fn(async () => []),
+    loadJSON: vi.fn(),
+  } as unknown as IGatewayDashboardStore
 }
 
 function makeApp(

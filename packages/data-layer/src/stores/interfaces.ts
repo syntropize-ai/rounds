@@ -12,10 +12,7 @@ import type {
   Evidence,
   Incident,
   IncidentTimelineEntry,
-  Dashboard,
-  DashboardStatus,
-  DashboardVariable,
-  PanelConfig,
+  IDashboardRepository,
 } from '@agentic-obs/common'
 import type { ExplanationResult } from '@agentic-obs/common'
 import type {
@@ -150,28 +147,13 @@ export interface IGatewayShareStore {
 }
 
 // -- Dashboard
-
-export interface IGatewayDashboardStore {
-  create(params: {
-    title: string
-    description: string
-    prompt: string
-    userId: string
-    datasourceIds: string[]
-    useExistingMetrics?: boolean
-    folder?: string
-    workspaceId?: string
-    source?: import('@agentic-obs/common').ResourceSource
-    provenance?: import('@agentic-obs/common').ResourceProvenance
-  }): MaybeAsync<Dashboard>
-  findById(id: string): MaybeAsync<Dashboard | undefined>
-  findAll(userId?: string): MaybeAsync<Dashboard[]>
-  update(id: string, patch: Partial<Pick<Dashboard, 'type' | 'title' | 'description' | 'panels' | 'variables' | 'refreshIntervalSec' | 'folder'>>): MaybeAsync<Dashboard | undefined>
-  updateStatus(id: string, status: DashboardStatus, error?: string): MaybeAsync<Dashboard | undefined>
-  updatePanels(id: string, panels: PanelConfig[]): MaybeAsync<Dashboard | undefined>
-  updateVariables(id: string, variables: DashboardVariable[]): MaybeAsync<Dashboard | undefined>
-  delete(id: string): MaybeAsync<boolean>
-}
+//
+// Per ADR-001 M4: `IGatewayDashboardStore` is now an alias for the canonical
+// `IDashboardRepository` from `@agentic-obs/common`. Routes that still type
+// their `deps.store` as `IGatewayDashboardStore` get the canonical async,
+// null-returning shape transparently. New code should import
+// `IDashboardRepository` directly.
+export type IGatewayDashboardStore = IDashboardRepository
 
 // -- Aggregate
 

@@ -24,12 +24,10 @@ import { pgAll, pgRun } from './pg-helpers.js';
  *     version repository and should be wired at the route layer, not
  *     buried in a CRUD primitive.
  *
- * A back-compat `PostgresDashboardRepository` class is re-exported below
- * for the existing data-layer factory wiring — it delegates to the same
- * W2 repo but adapts return types to the legacy `undefined` convention
- * used by `packages/data-layer/src/repository/interfaces.ts`. The
- * A.merge parent will collapse the two once route handlers are migrated
- * to the W2 interface.
+ * Per ADR-001 M1: this is the canonical Postgres implementation of
+ * `IDashboardRepository`. The legacy `PostgresDashboardRepository`
+ * wrapper was removed when the data-layer `RepositoryBundle.dashboards`
+ * was retyped to the canonical interface.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -47,8 +45,6 @@ import type {
   ResourceSource,
   ResourceProvenance,
 } from '@agentic-obs/common';
-import type { IDashboardRepository as ILegacyDashboardRepository } from '../interfaces.js';
-
 // -- Row shape ---------------------------------------------------------
 
 interface DashboardRow {
@@ -394,68 +390,3 @@ export class DashboardRepository implements IDashboardRepository {
   }
 }
 
-/**
- * Legacy class retained for the existing data-layer factory (which still
- * wires `PostgresDashboardRepository` into the pre-W6 `IDashboardRepository`
- * from packages/data-layer/src/repository/interfaces.ts). The legacy
- * interface returns `undefined` for missing rows; the W2 impl returns
- * `null`. Adapt by mapping null → undefined at the edge, so route
- * handlers that still branch on `=== undefined` keep working until the
- * A.merge parent migrates them.
- */
-export class PostgresDashboardRepository implements ILegacyDashboardRepository {
-  private readonly inner: DashboardRepository;
-
-  constructor(db: any) {
-    this.inner = new DashboardRepository(db);
-  }
-
-  async create(params: NewDashboardInput): Promise<Dashboard> {
-    return this.inner.create(params);
-  }
-
-  async findById(id: string): Promise<Dashboard | undefined> {
-    return (await this.inner.findById(id)) ?? undefined;
-  }
-
-  async findAll(userId?: string): Promise<Dashboard[]> {
-    return this.inner.findAll(userId);
-  }
-
-  async listByWorkspace(workspaceId: string): Promise<Dashboard[]> {
-    return this.inner.listByWorkspace(workspaceId);
-  }
-
-  async update(id: string, patch: DashboardPatch): Promise<Dashboard | undefined> {
-    return (await this.inner.update(id, patch)) ?? undefined;
-  }
-
-  async updateStatus(
-    id: string,
-    status: DashboardStatus,
-    error?: string,
-  ): Promise<Dashboard | undefined> {
-    return (await this.inner.updateStatus(id, status, error)) ?? undefined;
-  }
-
-  async updatePanels(id: string, panels: PanelConfig[]): Promise<Dashboard | undefined> {
-    return (await this.inner.updatePanels(id, panels)) ?? undefined;
-  }
-
-  async updateVariables(
-    id: string,
-    variables: DashboardVariable[],
-  ): Promise<Dashboard | undefined> {
-    return (await this.inner.updateVariables(id, variables)) ?? undefined;
-  }
-
-  async delete(id: string): Promise<boolean> {
-    return this.inner.delete(id);
-  }
-
-  /** Pass-through to the W2 impl so RBAC resolver wiring can call it
-   * without reaching for the underlying SQLite client. */
-  async getFolderUid(orgId: string, dashboardId: string): Promise<string | null> {
-    return this.inner.getFolderUid(orgId, dashboardId);
-  }
-}

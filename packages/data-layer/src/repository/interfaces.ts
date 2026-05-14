@@ -489,3 +489,99 @@ export interface IChatSessionEventRepository {
   nextSeq(sessionId: string): MaybeAsync<number>;
   deleteBySession(sessionId: string): MaybeAsync<void>;
 }
+
+// — Service attribution (Wave 2 / Step 2)
+//
+// Service is a free-form string. Resources may have multiple attribution rows
+// (one per source); the visibility threshold for "this resource belongs to
+// service X" is `user_confirmed=1 OR confidence >= 0.8`.
+
+export type AttributionResourceKind = 'dashboard' | 'alert_rule' | 'investigation';
+
+export type AttributionSourceKind =
+  | 'prom_label'
+  | 'github_repo'
+  | 'k8s_label'
+  | 'ai_infer'
+  | 'manual';
+
+export interface ServiceAttribution {
+  id: string;
+  orgId: string;
+  resourceKind: AttributionResourceKind;
+  resourceId: string;
+  serviceName: string;
+  sourceTier: 1 | 2 | 3 | 4;
+  sourceKind: AttributionSourceKind;
+  confidence: number; // 0..1
+  userConfirmed: boolean;
+  createdAt: string;
+}
+
+export interface ServiceSummary {
+  name: string;
+  resourceCount: number;
+}
+
+export interface UnassignedResourceRef {
+  kind: AttributionResourceKind;
+  id: string;
+}
+
+export interface IServiceAttributionRepository {
+  /**
+   * Idempotent on UNIQUE(org_id, resource_kind, resource_id, source_kind).
+   * If a row exists for the same (resource, source_kind), it is updated.
+   */
+  upsert(
+    orgId: string,
+    attribution: Omit<ServiceAttribution, 'id' | 'orgId' | 'createdAt'> & {
+      id?: string;
+      createdAt?: string;
+    },
+  ): MaybeAsync<ServiceAttribution>;
+
+  /** All attribution rows (across sources) for a single resource. */
+  listAttributionsByResource(
+    orgId: string,
+    kind: AttributionResourceKind,
+    id: string,
+  ): MaybeAsync<ServiceAttribution[]>;
+
+  /**
+   * Services visible in the UI — grouped by service_name, filtered to
+   * attributions where `user_confirmed=1 OR confidence >= 0.8`.
+   */
+  listServices(orgId: string): MaybeAsync<ServiceSummary[]>;
+
+  /** Resources visibly attributed to `name` (visibility threshold applies). */
+  listResourcesForService(
+    orgId: string,
+    name: string,
+  ): MaybeAsync<UnassignedResourceRef[]>;
+
+  /**
+   * Resources of `kind` that have NO attribution row meeting the visibility
+   * threshold. Caller supplies the candidate resource ids (the attribution
+   * table doesn't know what exists).
+   */
+  listUnassigned(
+    orgId: string,
+    kind: AttributionResourceKind,
+    candidateIds: string[],
+  ): MaybeAsync<string[]>;
+
+  /**
+   * Manually confirm `(resource → serviceName)`. Writes a row with
+   * source_tier=4, source_kind='manual', confidence=1, user_confirmed=1.
+   * Audit is the caller's responsibility (route layer writes
+   * 'service_attribution.confirm').
+   */
+  confirmAttribution(
+    orgId: string,
+    kind: AttributionResourceKind,
+    id: string,
+    serviceName: string,
+    userId: string,
+  ): MaybeAsync<ServiceAttribution>;
+}

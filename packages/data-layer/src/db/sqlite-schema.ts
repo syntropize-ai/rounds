@@ -2,6 +2,7 @@ import {
   sqliteTable,
   text,
   integer,
+  real,
   index,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
@@ -612,5 +613,28 @@ export const dashboardVariableAck = sqliteTable(
       t.varsHash,
     ),
     index('idx_var_ack').on(t.userId, t.dashboardUid),
+  ],
+);
+
+// — resource service attribution (Wave 2 / Step 2)
+
+export const resourceServiceAttribution = sqliteTable(
+  'resource_service_attribution',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    resourceKind: text('resource_kind').notNull(),
+    resourceId: text('resource_id').notNull(),
+    serviceName: text('service_name').notNull(),
+    sourceTier: integer('source_tier').notNull(),
+    sourceKind: text('source_kind').notNull(),
+    confidence: real('confidence').notNull(),
+    userConfirmed: integer('user_confirmed', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_attr_unique').on(t.orgId, t.resourceKind, t.resourceId, t.sourceKind),
+    index('idx_attr_service').on(t.orgId, t.serviceName),
+    index('idx_attr_resource').on(t.orgId, t.resourceKind, t.resourceId),
   ],
 );

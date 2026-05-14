@@ -16,6 +16,7 @@ import type {
   IChatSessionContextRepository,
   IChatMessageRepository,
   IChatSessionEventRepository,
+  IServiceAttributionRepository,
 } from './interfaces.js';
 import type { IInvestigationRepository as SqliteInvestigationRepositoryInterface } from './sqlite/investigation.js';
 import type {
@@ -84,6 +85,8 @@ import { PostgresLlmAuditRepository } from './postgres/llm-audit-repository.js';
 import type { ILlmAuditRepository } from './sqlite/llm-audit-repository.js';
 import { SqliteAiSuggestionRepository } from './sqlite/ai-suggestion.js';
 import { PostgresAiSuggestionRepository } from './postgres/ai-suggestion.js';
+import { SqliteServiceAttributionRepository } from './sqlite/service-attribution.js';
+import { PostgresServiceAttributionRepository } from './postgres/service-attribution.js';
 
 /**
  * Complete repository bundle available behind every persistence backend.
@@ -120,6 +123,7 @@ export interface RepositoryBundle {
   notificationDispatch: INotificationDispatchRepository;
   llmAudit: ILlmAuditRepository;
   aiSuggestions: IAiSuggestionRepository;
+  serviceAttribution: IServiceAttributionRepository;
 }
 
 export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
@@ -148,6 +152,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     notificationDispatch: new SqliteNotificationDispatchRepository(db),
     llmAudit: new SqliteLlmAuditRepository(db),
     aiSuggestions: new SqliteAiSuggestionRepository(db),
+    serviceAttribution: new SqliteServiceAttributionRepository(db),
   };
 }
 
@@ -178,6 +183,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     notificationDispatch: new PostgresNotificationDispatchRepository(db),
     llmAudit: new PostgresLlmAuditRepository(db),
     aiSuggestions: new PostgresAiSuggestionRepository(db),
+    serviceAttribution: new PostgresServiceAttributionRepository(db),
   };
 }
 

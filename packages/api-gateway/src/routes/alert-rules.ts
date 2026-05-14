@@ -9,7 +9,8 @@ import {
   ProvisionedResourceError,
 } from '@agentic-obs/common';
 import type { AuditWriter } from '../auth/audit-writer.js';
-import type { IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
+import type { IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore, IInvestigationReportRepository, IServiceAttributionRepository } from '@agentic-obs/data-layer';
+import { applyTier1PromqlAttribution } from '@agentic-obs/data-layer';
 import { runBackgroundAgent, type BackgroundRunnerDeps } from '@agentic-obs/agent-core';
 import { createLogger } from '@agentic-obs/common/logging';
 import { authMiddleware } from '../middleware/auth.js';
@@ -64,6 +65,11 @@ export interface AlertRulesRouterDeps {
    * investigation.create events for manual investigate flows.
    */
   audit?: AuditWriter;
+  /**
+   * W2 step 2 — Tier-1 service-name extraction from the PromQL condition.
+   * Optional so legacy tests can construct the router without one.
+   */
+  serviceAttribution?: IServiceAttributionRepository;
 }
 
 export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
@@ -416,6 +422,16 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         outcome: 'success',
         metadata: { folderUid: rule.folderUid, severity: rule.severity },
       });
+
+      // W2 step 2 — Tier-1 attribution from `service="..."` label in the
+      // PromQL condition. Best-effort; failures are swallowed.
+      if (deps.serviceAttribution && rule.condition?.query) {
+        void applyTier1PromqlAttribution(deps.serviceAttribution, workspaceId, {
+          kind: 'alert_rule',
+          id: rule.id,
+          queries: [rule.condition.query],
+        });
+      }
 
       res.status(201).json(rule);
     },

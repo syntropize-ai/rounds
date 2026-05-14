@@ -950,3 +950,35 @@ CREATE TABLE IF NOT EXISTS ai_suggestions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_suggestions_user_state ON ai_suggestions(user_id, state);
+
+-- ============================================================================
+-- Service attribution (Wave 2 / Step 2)
+--
+-- Maps observable resources (dashboards, alert rules, investigations) to a
+-- free-form service name. Service is not a separate table per the spike doc
+-- (RFC-4 ADR) — it's just a string, populated by tiered sources:
+--   tier 1: Prometheus label / GitHub repo name (high-confidence, automatic)
+--   tier 2: k8s reconciler (future)
+--   tier 3: AI inference (future)
+--   tier 4: manual confirm by user (user_confirmed=1)
+--
+-- One row per (resource, source) — multiple sources may attribute the same
+-- resource. Visibility threshold is `user_confirmed=1 OR confidence >= 0.8`.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS resource_service_attribution (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  resource_kind  TEXT NOT NULL,
+  resource_id    TEXT NOT NULL,
+  service_name   TEXT NOT NULL,
+  source_tier    INTEGER NOT NULL,
+  source_kind    TEXT NOT NULL,
+  confidence     REAL NOT NULL,
+  user_confirmed INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL,
+  UNIQUE(org_id, resource_kind, resource_id, source_kind)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attr_service  ON resource_service_attribution(org_id, service_name);
+CREATE INDEX IF NOT EXISTS idx_attr_resource ON resource_service_attribution(org_id, resource_kind, resource_id);

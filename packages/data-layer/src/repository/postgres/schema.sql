@@ -931,3 +931,24 @@ CREATE TABLE IF NOT EXISTS ai_suggestions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_suggestions_user_state ON ai_suggestions(user_id, state);
+
+-- ============================================================================
+-- Service attribution (Wave 2 / Step 2). See sqlite-schema.sql for the contract.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS resource_service_attribution (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  resource_kind  TEXT NOT NULL,
+  resource_id    TEXT NOT NULL,
+  service_name   TEXT NOT NULL,
+  source_tier    INTEGER NOT NULL,
+  source_kind    TEXT NOT NULL,
+  confidence     DOUBLE PRECISION NOT NULL,
+  user_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at     TEXT NOT NULL,
+  UNIQUE(org_id, resource_kind, resource_id, source_kind)
+);
+
+CREATE INDEX IF NOT EXISTS idx_attr_service  ON resource_service_attribution(org_id, service_name);
+CREATE INDEX IF NOT EXISTS idx_attr_resource ON resource_service_attribution(org_id, resource_kind, resource_id);

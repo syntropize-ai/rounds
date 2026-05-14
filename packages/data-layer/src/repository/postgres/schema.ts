@@ -3,6 +3,7 @@ import {
   text,
   integer,
   boolean,
+  doublePrecision,
   jsonb,
   index,
   uniqueIndex,
@@ -322,5 +323,31 @@ export const dashboardVariableAck = pgTable(
       t.varsHash,
     ),
     index('pg_repo_idx_var_ack').on(t.userId, t.dashboardUid),
+  ],
+);
+
+export const resourceServiceAttribution = pgTable(
+  'resource_service_attribution',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    resourceKind: text('resource_kind').notNull(),
+    resourceId: text('resource_id').notNull(),
+    serviceName: text('service_name').notNull(),
+    sourceTier: integer('source_tier').notNull(),
+    sourceKind: text('source_kind').notNull(),
+    confidence: doublePrecision('confidence').notNull(),
+    userConfirmed: boolean('user_confirmed').notNull().default(false),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('pg_repo_attr_unique').on(
+      t.orgId,
+      t.resourceKind,
+      t.resourceId,
+      t.sourceKind,
+    ),
+    index('pg_repo_attr_service').on(t.orgId, t.serviceName),
+    index('pg_repo_attr_resource').on(t.orgId, t.resourceKind, t.resourceId),
   ],
 );

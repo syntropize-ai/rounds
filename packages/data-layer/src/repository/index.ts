@@ -31,6 +31,12 @@ export type {
   ChatSessionContextResourceScope,
   ChatSessionScope,
   ChatSessionEventRecord,
+  IServiceAttributionRepository,
+  ServiceAttribution,
+  ServiceSummary,
+  UnassignedResourceRef,
+  AttributionResourceKind,
+  AttributionSourceKind,
 } from './interfaces.js';
 
 export type {
@@ -76,6 +82,13 @@ export * from './event-wrappers/index.js';
 export * from './memory/index.js';
 export { createPostgresRepositories, createSqliteRepositories } from './factory.js';
 export type { RepositoryBundle, SqliteRepositories } from './factory.js';
+
+export {
+  extractPromqlServiceLabel,
+  extractServiceFromQueries,
+  applyTier1PromqlAttribution,
+  applyTier1GithubRepoAttribution,
+} from './service-attribution-tier1.js';
 
 export { SqliteLlmAuditRepository } from './sqlite/llm-audit-repository.js';
 export { PostgresLlmAuditRepository } from './postgres/llm-audit-repository.js';

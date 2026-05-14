@@ -5,7 +5,8 @@ import { randomUUID } from 'crypto'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { createRequirePermission } from '../../middleware/require-permission.js'
-import type { IGatewayDashboardStore } from '@agentic-obs/data-layer'
+import type { IGatewayDashboardStore, IServiceAttributionRepository } from '@agentic-obs/data-layer'
+import { applyTier1PromqlAttribution } from '@agentic-obs/data-layer'
 import { VariableResolver } from './variable-resolver.js'
 import { ac, ACTIONS, AuditAction, assertWritable, ProvisionedResourceError, hashVariables } from '@agentic-obs/common'
 import type { IDashboardVariableAckRepository } from '@agentic-obs/common'
@@ -44,6 +45,11 @@ export interface DashboardRouterDeps {
    * on it return 503 when missing.
    */
   variableAcks?: IDashboardVariableAckRepository
+  /**
+   * W2 step 2 — Tier-1 service-name extraction from panel PromQL. Optional
+   * so legacy tests can construct the router without one.
+   */
+  serviceAttribution?: IServiceAttributionRepository
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
@@ -52,6 +58,31 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   const setupConfig = deps.setupConfig
   const audit = deps.audit
   const variableAcks = deps.variableAcks
+  const serviceAttribution = deps.serviceAttribution
+
+  function panelsToPromqlQueries(panels: PanelConfig[]): string[] {
+    const out: string[] = []
+    for (const p of panels) {
+      if (p.query) out.push(p.query)
+      if (p.queries) for (const q of p.queries) if (q.expr) out.push(q.expr)
+    }
+    return out
+  }
+
+  /**
+   * Tier-1 service auto-fill. Best-effort: writes a `prom_label` attribution
+   * row with confidence 0.95 when any panel query contains a `service="x"`
+   * label. Runs after the primary panel write; failures are swallowed inside
+   * `applyTier1PromqlAttribution`.
+   */
+  async function autoAttributeDashboard(orgId: string, dashboardId: string, panels: PanelConfig[]): Promise<void> {
+    if (!serviceAttribution) return
+    await applyTier1PromqlAttribution(serviceAttribution, orgId, {
+      kind: 'dashboard',
+      id: dashboardId,
+      queries: panelsToPromqlQueries(panels),
+    })
+  }
 
   const router = Router()
   const requirePermission = createRequirePermission(accessControl)
@@ -370,6 +401,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
+      void autoAttributeDashboard(resolveOrgId(req), id, body.panels)
       res.json(updated)
     }
     catch (err) {
@@ -400,6 +432,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
+      void autoAttributeDashboard(resolveOrgId(req), id, updated.panels)
       res.status(201).json(updated)
     }
     catch (err) {

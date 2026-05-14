@@ -908,3 +908,26 @@ CREATE TABLE IF NOT EXISTS dashboard_variable_ack (
 
 CREATE INDEX IF NOT EXISTS idx_var_ack
   ON dashboard_variable_ack(user_id, dashboard_uid);
+
+-- ============================================================================
+-- AI Suggestions inbox (Wave 2 / step 3). Mirror of sqlite-schema.sql.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS ai_suggestions (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL,
+  user_id         TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  body            TEXT NOT NULL,
+  action_kind     TEXT NULL,
+  action_payload  TEXT NULL,
+  state           TEXT NOT NULL DEFAULT 'open',
+  snoozed_until   TEXT NULL,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  dedup_key       TEXT NOT NULL,
+  UNIQUE(user_id, dedup_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_suggestions_user_state ON ai_suggestions(user_id, state);

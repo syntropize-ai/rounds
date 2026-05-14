@@ -112,6 +112,11 @@ export const AuditAction = {
   InvestigationCreate: 'investigation.create',
   InvestigationUpdate: 'investigation.update',
   ServiceAttributionConfirm: 'service.attribution_confirm',
+
+  // Wave 2 step 3 — AI Suggestions inbox (per-user proposals).
+  SuggestionAccepted: 'suggestion.accepted',
+  SuggestionDismissed: 'suggestion.dismissed',
+  SuggestionSnoozed: 'suggestion.snoozed',
 } as const;
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];

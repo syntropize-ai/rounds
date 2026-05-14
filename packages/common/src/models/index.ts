@@ -29,6 +29,9 @@ export * from './preferences.js';
 export * from './quota.js';
 export * from './audit-log.js';
 
+// — AI Suggestions inbox (Wave 2 / step 3) —
+export * from './ai-suggestion.js';
+
 // — Instance-scoped config (LLM / notification settings) —
 export * from './instance-config.js';
 // — HTTP wire-format types for instance config (W3 / T3.3) —

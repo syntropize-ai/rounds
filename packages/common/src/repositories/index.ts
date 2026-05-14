@@ -4,3 +4,4 @@ export * from './dashboard/index.js';
 export * from './dashboard-variable-ack/index.js';
 export * from './investigation/index.js';
 export * from './alert-rule/index.js';
+export * from './ai-suggestion/index.js';

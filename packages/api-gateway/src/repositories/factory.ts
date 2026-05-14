@@ -2,7 +2,8 @@
 //
 // Backward-compatible: when DATABASE_URL is not configured, returns in-memory
 // instances. Approval moved off the legacy ApprovalStore onto
-// InMemoryApprovalRequestRepository in M3 (ADR-001).
+// InMemoryApprovalRequestRepository in M3 (ADR-001). Share moved off
+// ShareStore onto InMemoryShareLinkRepository in M4 (ADR-001).
 
 import {
   InvestigationStore,
@@ -12,8 +13,7 @@ import {
   FeedStore,
   feedStore,
   InMemoryApprovalRequestRepository,
-  ShareStore,
-  defaultShareStore,
+  InMemoryShareLinkRepository,
   DashboardStore,
   defaultDashboardStore,
 } from '@agentic-obs/data-layer'
@@ -33,7 +33,7 @@ export function createInMemoryStores(): GatewayStores {
     incidents: new IncidentStore(),
     feed: new FeedStore(),
     approvals: new InMemoryApprovalRequestRepository(),
-    shares: new ShareStore(),
+    shares: new InMemoryShareLinkRepository(),
     dashboards: new DashboardStore(),
   }
 }
@@ -49,7 +49,7 @@ export function createDefaultStores(): GatewayStores {
     incidents: incidentStore,
     feed: feedStore,
     approvals: defaultApprovalRepo,
-    shares: defaultShareStore,
+    shares: new InMemoryShareLinkRepository(),
     dashboards: defaultDashboardStore,
   }
 }

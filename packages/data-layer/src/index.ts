@@ -82,10 +82,11 @@ export {
   type FeedbackBody,
   type StoredFeedback,
 
-  // Share
-  ShareStore,
-  defaultShareStore,
+  // Share (in-memory fixture; production wires Sqlite/Postgres repo)
+  InMemoryShareLinkRepository,
   type ShareLookupResult,
+  type ShareLink,
+  type SharePermission,
 
   // Dashboard
   DashboardStore,

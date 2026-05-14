@@ -23,13 +23,13 @@ vi.mock('@agentic-obs/common/logging', async () => {
   return { ...actual, createLogger: stub };
 });
 
-import { ShareStore } from '../share-store.js';
+import { InMemoryShareLinkRepository } from '../share-store.js';
 
-describe('ShareStore.findByTokenStatus — expiry vs not-found', () => {
-  let store: ShareStore;
+describe('InMemoryShareLinkRepository.findByTokenStatus — expiry vs not-found', () => {
+  let store: InMemoryShareLinkRepository;
 
   beforeEach(() => {
-    store = new ShareStore();
+    store = new InMemoryShareLinkRepository();
     warnSpy.mockClear();
   });
 

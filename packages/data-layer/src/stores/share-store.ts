@@ -1,7 +1,14 @@
+/**
+ * In-memory share-link fixture. Per ADR-001, repositories are canonical; this
+ * file remains as a test fixture implementing `IShareLinkRepository` so unit
+ * tests can avoid spinning up SQLite. Production boot wires the SQLite or
+ * Postgres repository, never this class.
+ */
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '@agentic-obs/common/logging';
 import type { Persistable } from './persistence.js';
 import { markDirty } from './persistence.js';
+import type { IShareLinkRepository, ShareLookupResult } from '../repository/interfaces.js';
 
 export type SharePermission = 'view_only' | 'can_comment';
 
@@ -14,21 +21,12 @@ export interface ShareLink {
   expiresAt: string | null;
 }
 
-/**
- * Result type that distinguishes the three terminal states for a share-link
- * lookup: hit, expired (so the UI can say "this link expired"), and absent
- * (typo / revoked). Returned by `findByTokenStatus`. The legacy
- * `findByToken` collapses expired and not-found to `undefined` and is kept
- * for callers that don't need the distinction.
- */
-export type ShareLookupResult =
-  | { kind: 'ok'; link: ShareLink }
-  | { kind: 'expired' }
-  | { kind: 'not_found' };
+// Re-export for back-compat with the existing public type alias.
+export type { ShareLookupResult };
 
 const log = createLogger('share-store');
 
-export class ShareStore implements Persistable {
+export class InMemoryShareLinkRepository implements IShareLinkRepository, Persistable {
   private readonly shares = new Map<string, ShareLink>();
 
   create(params: {
@@ -54,16 +52,11 @@ export class ShareStore implements Persistable {
     return link;
   }
 
-  findByToken(token: string): ShareLink | undefined {
-    const result = this.findByTokenStatus(token);
-    return result.kind === 'ok' ? result.link : undefined;
-  }
-
   /**
    * Distinguishes `expired` from `not_found` so the route layer can return a
-   * specific 410 / "this link expired" message instead of a generic 404. We
-   * also log a structured warn on expiry so operators can correlate failed
-   * share visits to expired links.
+   * specific 410 / "this link expired" response instead of a generic 404.
+   * Emits a structured warn on expiry detection so operators can correlate
+   * failed share visits to expired links.
    */
   findByTokenStatus(token: string): ShareLookupResult {
     const link = this.shares.get(token);
@@ -123,5 +116,3 @@ export class ShareStore implements Persistable {
     }
   }
 }
-
-export const defaultShareStore = new ShareStore();

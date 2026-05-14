@@ -230,7 +230,12 @@ export interface IShareRepository extends IRepository<ShareLink> {
   revoke(token: string): MaybeAsync<boolean>;
 }
 
-// — ShareLink (gateway-level, matches ShareStore shape — uses store's ShareLink which has no `id`)
+// — ShareLink (gateway-level, mirrors the store's ShareLink shape — no `id`)
+
+export type ShareLookupResult =
+  | { kind: 'ok'; link: StoreShareLink }
+  | { kind: 'expired' }
+  | { kind: 'not_found' };
 
 export interface IShareLinkRepository {
   create(params: {
@@ -239,7 +244,14 @@ export interface IShareLinkRepository {
     permission?: SharePermission;
     expiresInMs?: number;
   }): MaybeAsync<StoreShareLink>;
-  findByToken(token: string): MaybeAsync<StoreShareLink | undefined>;
+  /**
+   * Distinguishes `expired` from `not_found` so the route layer can return a
+   * specific 410 / "this link expired" response instead of a generic 404.
+   * Implementations MUST emit a structured warn log on expiry detection so
+   * operators can correlate failed share visits to expired links, and SHOULD
+   * purge the expired record as a side effect.
+   */
+  findByTokenStatus(token: string): MaybeAsync<ShareLookupResult>;
   findByInvestigation(investigationId: string): MaybeAsync<StoreShareLink[]>;
   revoke(token: string): MaybeAsync<boolean>;
 }

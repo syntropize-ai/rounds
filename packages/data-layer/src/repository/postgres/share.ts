@@ -1,10 +1,13 @@
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
+import { createLogger } from '@agentic-obs/common/logging';
 import { shareLinks } from '../../db/schema.js';
-import type { IShareLinkRepository } from '../interfaces.js';
+import type { IShareLinkRepository, ShareLookupResult } from '../interfaces.js';
 import type { ShareLink, SharePermission } from '../../stores/share-store.js';
 
 type ShareRow = typeof shareLinks.$inferSelect;
+
+const log = createLogger('share-repository');
 
 function rowToShareLink(row: ShareRow): ShareLink {
   return {
@@ -45,14 +48,30 @@ export class PostgresShareLinkRepository implements IShareLinkRepository {
     return rowToShareLink(row!);
   }
 
-  async findByToken(token: string): Promise<ShareLink | undefined> {
+  /**
+   * Distinguishes expired from not_found so the route layer can return 410
+   * vs 404. Purges expired rows as a side effect and emits a structured warn.
+   */
+  async findByTokenStatus(token: string): Promise<ShareLookupResult> {
     const [row] = await this.db
       .select()
       .from(shareLinks)
       .where(eq(shareLinks.token, token));
-    if (!row) return undefined;
+    if (!row) return { kind: 'not_found' };
     const link = rowToShareLink(row);
-    return this.checkExpiry(link);
+    if (link.expiresAt && new Date(link.expiresAt).getTime() < Date.now()) {
+      await this.db.delete(shareLinks).where(eq(shareLinks.token, link.token));
+      log.warn(
+        {
+          token: link.token,
+          investigationId: link.investigationId,
+          expiresAt: link.expiresAt,
+        },
+        'share-repository: token expired — purging',
+      );
+      return { kind: 'expired' };
+    }
+    return { kind: 'ok', link };
   }
 
   async findByInvestigation(investigationId: string): Promise<ShareLink[]> {
@@ -72,13 +91,5 @@ export class PostgresShareLinkRepository implements IShareLinkRepository {
       .where(eq(shareLinks.token, token))
       .returning();
     return result.length > 0;
-  }
-
-  private checkExpiry(link: ShareLink): ShareLink | undefined {
-    if (link.expiresAt && new Date(link.expiresAt).getTime() < Date.now()) {
-      void this.db.delete(shareLinks).where(eq(shareLinks.token, link.token));
-      return undefined;
-    }
-    return link;
   }
 }

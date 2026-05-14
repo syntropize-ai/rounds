@@ -129,14 +129,12 @@ export interface IGatewayApprovalStore {
 // -- Share
 
 export interface IGatewayShareStore {
-  findByToken(token: string): MaybeAsync<ShareLink | undefined>
   /**
-   * Like findByToken but distinguishes expired from not-found so the route
-   * layer can return a specific "this link expired" response. Default
-   * implementation just calls findByToken; concrete stores override to
-   * surface the difference.
+   * Canonical share-token lookup. Distinguishes `expired` from `not_found` so
+   * the route layer can return 410 vs 404. Implementations MUST emit a
+   * structured warn on expiry detection.
    */
-  findByTokenStatus?(token: string): MaybeAsync<
+  findByTokenStatus(token: string): MaybeAsync<
     | { kind: 'ok'; link: ShareLink }
     | { kind: 'expired' }
     | { kind: 'not_found' }

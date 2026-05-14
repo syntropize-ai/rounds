@@ -11,12 +11,12 @@ import { Router } from 'express';
 import type { Router as ExpressRouter, Request, Response, NextFunction } from 'express';
 import type {
   IServiceAttributionRepository,
-  IDashboardRepository,
   IAlertRuleRepository,
   AttributionResourceKind,
 } from '@agentic-obs/data-layer';
 import type { IInvestigationRepository } from '@agentic-obs/data-layer';
 import { ac, ACTIONS, AuditAction } from '@agentic-obs/common';
+import type { IDashboardRepository } from '@agentic-obs/common';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -28,7 +28,9 @@ export interface ServicesRouterDeps {
   serviceAttribution: IServiceAttributionRepository;
   dashboards: IDashboardRepository;
   alertRules: IAlertRuleRepository;
-  investigations: IInvestigationRepository;
+  // Only uses findAll — kept narrow so RepositoryBundle.investigations (which
+  // intersects with IGatewayInvestigationStore) satisfies it structurally.
+  investigations: Pick<IInvestigationRepository, 'findAll'>;
   accessControl: AccessControlSurface;
   audit?: AuditWriter;
 }
@@ -264,7 +266,7 @@ async function listAlertRuleIds(repo: IAlertRuleRepository, orgId: string): Prom
 }
 
 async function listInvestigationIds(
-  repo: IInvestigationRepository,
+  repo: Pick<IInvestigationRepository, 'findAll'>,
   orgId: string,
 ): Promise<string[]> {
   const all = await repo.findAll({ tenantId: orgId });

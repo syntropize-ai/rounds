@@ -218,9 +218,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     accessControl,
     setupConfig,
     audit: authSub.audit,
-<<<<<<< HEAD
     variableAcks: repos.dashboardVariableAcks,
-=======
     serviceAttribution: repos.serviceAttribution,
   }));
   app.use('/api/services', createServicesRouter({
@@ -230,7 +228,6 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     investigations: repos.investigations,
     accessControl,
     audit: authSub.audit,
->>>>>>> a1a5602 (wave2.2: services router + Tier-1 attribution on dashboard/alert-rule writes)
   }));
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,

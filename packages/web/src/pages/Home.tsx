@@ -14,6 +14,7 @@ import {
 } from '../components/chat/MessageComponents.js';
 import AgentActivityBlock from '../components/chat/AgentActivityBlock.js';
 import { RoundsLogo } from '../components/RoundsLogo.js';
+import { AISuggestionsInbox } from '../components/AISuggestionsInbox.js';
 
 // Types
 
@@ -336,6 +337,16 @@ export default function Home() {
                   <span className="truncate">{action.label}</span>
                 </button>
               ))}
+            </motion.div>
+
+            <motion.div
+              className="mt-8"
+              variants={fadeIn}
+              initial="hidden"
+              animate="visible"
+              transition={{ delay: 0.23 }}
+            >
+              <AISuggestionsInbox />
             </motion.div>
 
             {sessions.length > 0 && (

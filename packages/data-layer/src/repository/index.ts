@@ -14,7 +14,6 @@ export type {
   IApprovalRepository,
   IApprovalRequestRepository,
   ApprovalScopeFilter,
-  IShareRepository,
   IShareLinkRepository,
   IDashboardRepository,
   IFolderRepository,
@@ -43,8 +42,6 @@ export type {
   ApprovalAction,
   ApprovalContext,
   SubmitApprovalParams,
-  ShareLink,
-  SharePermission,
 } from './types.js';
 
 export { InMemoryApprovalRequestRepository } from './memory/approval.js';

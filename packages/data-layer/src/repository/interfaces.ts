@@ -29,7 +29,7 @@ import type {
   ChatMessage,
 } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
-import type { FeedEvent, Case, ApprovalRecord, ShareLink } from './types.js';
+import type { FeedEvent, Case, ApprovalRecord } from './types.js';
 import type { FollowUpRecord, FeedbackBody, StoredFeedback } from './types/investigation.js';
 import type {
   FeedItem,
@@ -220,14 +220,6 @@ export interface IApprovalRequestRepository {
   approve(id: string, by: string, roles?: string[]): Promise<ApprovalRequest | undefined>;
   reject(id: string, by: string, roles?: string[]): Promise<ApprovalRequest | undefined>;
   override(id: string, by: string, roles?: string[]): Promise<ApprovalRequest | undefined>;
-}
-
-// — ShareLink
-
-export interface IShareRepository extends IRepository<ShareLink> {
-  findByToken(token: string): MaybeAsync<ShareLink | undefined>;
-  findByInvestigation(investigationId: string): MaybeAsync<ShareLink[]>;
-  revoke(token: string): MaybeAsync<boolean>;
 }
 
 // — ShareLink (gateway-level, mirrors the store's ShareLink shape — no `id`)

@@ -64,18 +64,6 @@ export interface ApprovalRecord {
   resolvedAt?: string;
 }
 
-export type SharePermission = 'view_only' | 'can_comment';
-
-export interface ShareLink {
-  id: string;
-  investigationId: string;
-  token: string;
-  createdBy: string;
-  permission: SharePermission;
-  expiresAt: string | null;
-  createdAt: string;
-}
-
 export interface FeedEvent {
   id: string;
   tenantId: string;

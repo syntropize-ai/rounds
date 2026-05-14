@@ -43,11 +43,8 @@ export {
   AlertRuleStore,
   defaultAlertRuleStore,
 
-  // Approval
-  ApprovalStore,
-  approvalStore,
-  type ApprovalRequest,
-  type SubmitApprovalParams,
+  // Approval — store removed in M3 (ADR-001); types now live in
+  // ./repository/types.ts and are re-exported via ./repository/index.ts.
 
   // Incident
   IncidentStore,

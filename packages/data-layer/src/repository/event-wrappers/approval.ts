@@ -1,15 +1,16 @@
 import { createLogger } from '@agentic-obs/common/logging';
 import type { MaybeAsync, IApprovalRequestRepository } from '../interfaces.js';
+import type { ApprovalRequest } from '../types.js';
+import type { IGatewayApprovalStore } from '../../stores/interfaces.js';
 
 const log = createLogger('approval-events');
-import type { ApprovalRequest } from '../../stores/approval-store.js';
-import type { IGatewayApprovalStore } from '../../stores/interfaces.js';
 
 type ResolvedCallback = (request: ApprovalRequest) => void;
 
 /**
  * Wraps an IApprovalRequestRepository with in-memory pub/sub (onResolved()).
- * Implements IGatewayApprovalStore so it's a drop-in replacement for ApprovalStore.
+ * Implements IGatewayApprovalStore so it's a drop-in replacement for the
+ * deprecated ApprovalStore (see ADR-001 §M3).
  */
 export class EventEmittingApprovalRepository implements IGatewayApprovalStore {
   private readonly callbacks = new Set<ResolvedCallback>();
@@ -48,11 +49,25 @@ export class EventEmittingApprovalRepository implements IGatewayApprovalStore {
   }
 
   private notify(request: ApprovalRequest): void {
+    // Each callback runs in isolation: a throwing listener is logged with
+    // structured context but must not block the remaining listeners (the
+    // plan executor's onResolved hook is one of these — losing its signal
+    // because an unrelated subscriber threw would leave plan steps stuck
+    // in 'paused_for_approval' forever). Preserved from R-5 (#193).
     for (const cb of this.callbacks) {
       try {
         cb(request);
       } catch (err) {
-        log.warn({ err }, 'approval resolved callback threw');
+        log.warn(
+          {
+            requestId: request.id,
+            action: request.action.type,
+            status: request.status,
+            errClass: err instanceof Error ? err.constructor.name : typeof err,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          'approval events: onResolved callback threw — continuing',
+        );
       }
     }
   }

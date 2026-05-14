@@ -16,6 +16,38 @@ export interface ApprovalContext {
   [key: string]: unknown;
 }
 
+/**
+ * Gateway-level approval request. Used by `IApprovalRequestRepository` and
+ * the event-emitting wrapper. Moved here from the deprecated approval-store
+ * in M3 (ADR-001).
+ */
+export interface ApprovalRequest {
+  id: string;
+  action: ApprovalAction;
+  context: ApprovalContext;
+  status: ApprovalStatus;
+  createdAt: string;
+  /** ISO timestamp when the approval request expires */
+  expiresAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  /** Roles held by the user who approved/rejected this request */
+  resolvedByRoles?: string[];
+  /** ops connector this approval gates (NULL for non-ops approvals). See approvals-multi-team-scope §3.2. */
+  opsConnectorId?: string | null;
+  /** kubernetes namespace (NULL for cluster-scoped plans). See approvals-multi-team-scope §3.2. */
+  targetNamespace?: string | null;
+  /** team that owns the originating investigation (NULL for SA / pre-multi-team). */
+  requesterTeamId?: string | null;
+}
+
+export interface SubmitApprovalParams {
+  action: ApprovalAction;
+  context: ApprovalContext;
+  /** TTL in milliseconds, defaults to 24 hours */
+  ttlMs?: number;
+}
+
 export interface ApprovalRecord {
   id: string;
   tenantId: string;

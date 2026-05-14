@@ -38,12 +38,16 @@ export type {
   FeedEvent,
   Case,
   ApprovalRecord,
+  ApprovalRequest,
   ApprovalStatus,
   ApprovalAction,
   ApprovalContext,
+  SubmitApprovalParams,
   ShareLink,
   SharePermission,
 } from './types.js';
+
+export { InMemoryApprovalRequestRepository } from './memory/approval.js';
 
 export type {
   IConnectorRepository,

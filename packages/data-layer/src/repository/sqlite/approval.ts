@@ -4,7 +4,7 @@ import type { SqliteClient } from '../../db/sqlite-client.js';
 import { toJsonColumn } from '../json-column.js';
 import { approvals } from '../../db/sqlite-schema.js';
 import type { ApprovalScopeFilter, IApprovalRequestRepository } from '../interfaces.js';
-import type { ApprovalAction, ApprovalContext, ApprovalRequest, ApprovalStatus } from '../../stores/approval-store.js';
+import type { ApprovalAction, ApprovalContext, ApprovalRequest, ApprovalStatus } from '../types.js';
 
 type ApprovalRow = typeof approvals.$inferSelect;
 

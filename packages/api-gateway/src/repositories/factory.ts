@@ -1,11 +1,9 @@
 // Store factory - creates all gateway stores based on runtime config.
 //
-// Backward-compatible: when DATABASE_URL is not configured, returns the
-// existing in-memory store instances. This means all current behaviour and
-// tests continue to work without changes.
-//
-// Future extension: when DATABASE_URL is set, return repository-backed
-// adapters that delegate to the Postgres implementations in @agentic-obs/data-layer.
+// Backward-compatible: when DATABASE_URL is not configured, returns in-memory
+// instances. Approval moved off the legacy ApprovalStore onto
+// InMemoryApprovalRequestRepository in M3 (ADR-001). Share moved off
+// ShareStore onto InMemoryShareLinkRepository in M4 (ADR-001).
 
 import {
   InvestigationStore,
@@ -14,13 +12,19 @@ import {
   incidentStore,
   FeedStore,
   feedStore,
-  ApprovalStore,
-  approvalStore,
+  InMemoryApprovalRequestRepository,
   InMemoryShareLinkRepository,
   DashboardStore,
   defaultDashboardStore,
 } from '@agentic-obs/data-layer'
 import type { GatewayStores } from './types.js'
+
+/**
+ * Singleton in-memory approval repository for the default mode. Mirrors the
+ * old `approvalStore` singleton so the proactive pipeline and route handlers
+ * still share the same instance.
+ */
+const defaultApprovalRepo = new InMemoryApprovalRequestRepository();
 
 /** Create a set of in-memory stores (default mode, no external dependencies). */
 export function createInMemoryStores(): GatewayStores {
@@ -28,7 +32,7 @@ export function createInMemoryStores(): GatewayStores {
     investigations: new InvestigationStore(),
     incidents: new IncidentStore(),
     feed: new FeedStore(),
-    approvals: new ApprovalStore(),
+    approvals: new InMemoryApprovalRequestRepository(),
     shares: new InMemoryShareLinkRepository(),
     dashboards: new DashboardStore(),
   }
@@ -44,7 +48,7 @@ export function createDefaultStores(): GatewayStores {
     investigations: defaultInvestigationStore,
     incidents: incidentStore,
     feed: feedStore,
-    approvals: approvalStore,
+    approvals: defaultApprovalRepo,
     shares: new InMemoryShareLinkRepository(),
     dashboards: defaultDashboardStore,
   }

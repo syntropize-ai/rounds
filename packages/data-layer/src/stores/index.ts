@@ -3,7 +3,8 @@
 export * from './persistence.js';
 
 export * from './alert-rule-store.js';
-export * from './approval-store.js';
+// ApprovalStore removed in M3 (ADR-001) — use InMemoryApprovalRequestRepository
+// from @agentic-obs/data-layer/repository or one of the SQLite/Postgres impls.
 export * from './incident-store.js';
 export * from './notification-store.js';
 export * from './notification-dispatch.js';

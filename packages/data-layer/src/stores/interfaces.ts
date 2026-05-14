@@ -36,7 +36,7 @@ import type {
   StoredFeedback,
 } from './investigation-store.js'
 import type { CreateIncidentParamsWithTenant, UpdateIncidentParams } from './incident-store.js'
-import type { ApprovalRequest } from './approval-store.js'
+import type { ApprovalRequest } from '../repository/types.js'
 import type { ShareLink, SharePermission } from './share-store.js'
 
 export type MaybeAsync<T> = T | Promise<T>

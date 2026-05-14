@@ -43,7 +43,7 @@ import type {
   FeedbackStats,
   FeedTenantOptions,
 } from './types/feed.js';
-import type { ApprovalAction, ApprovalContext, ApprovalRequest, ApprovalStatus } from '../stores/approval-store.js';
+import type { ApprovalAction, ApprovalContext, ApprovalRequest, ApprovalStatus } from './types.js';
 import type { SharePermission, ShareLink as StoreShareLink } from '../stores/share-store.js';
 import type { Folder } from '../stores/folder-store.js';
 

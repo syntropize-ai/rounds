@@ -329,6 +329,40 @@ describe('FolderService.getParents / getChildren / getCounts', () => {
   });
 });
 
+describe('FolderService.list counts', () => {
+  let db: SqliteClient;
+  beforeEach(async () => {
+    db = createTestDb();
+    await bootstrap(db);
+  });
+
+  it('returns mixed-resource counts per folder (RFC-1)', async () => {
+    const svc = makeService(db);
+    const alertsOnly = await seedFolder(svc, 'Alerts Only');
+    const empty = await seedFolder(svc, 'Empty');
+    // Two alert rules in `alertsOnly`, zero dashboards.
+    for (const id of ['ar1', 'ar2']) {
+      db.run(sql`
+        INSERT INTO alert_rules (
+          id, name, description, condition, evaluation_interval_sec,
+          severity, state, state_changed_at, created_by,
+          fire_count, created_at, updated_at, org_id, folder_uid
+        ) VALUES (
+          ${id}, ${id}, '', 'true', 60, 'warning', 'normal',
+          '2026-04-17T00:00:00Z', 'u', 0,
+          '2026-04-17T00:00:00Z', '2026-04-17T00:00:00Z',
+          'org_main', ${alertsOnly}
+        )
+      `);
+    }
+    const items = await svc.list('org_main', { parentUid: null });
+    const a = items.find((f) => f.uid === alertsOnly)!;
+    const e = items.find((f) => f.uid === empty)!;
+    expect(a.counts).toEqual({ dashboards: 0, alertRules: 2, subfolders: 0 });
+    expect(e.counts).toEqual({ dashboards: 0, alertRules: 0, subfolders: 0 });
+  });
+});
+
 describe('slugifyUid', () => {
   it('lowercases and replaces non-alnum runs with _', () => {
     expect(slugifyUid('Hello World!')).toBe('hello_world');

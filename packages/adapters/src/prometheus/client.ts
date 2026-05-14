@@ -2,8 +2,10 @@
 
 import { createLogger } from '@agentic-obs/common/logging';
 import { checkEndpointHealth } from '../shared/health-check.js';
+import { AdapterError, classifyHttpError } from '../errors.js';
 
 const log = createLogger('prometheus-client');
+const ADAPTER_ID = 'prometheus';
 
 import type {
   PrometheusAdapterConfig,
@@ -66,14 +68,42 @@ export class PrometheusHttpClient implements IPrometheusClient {
   }
 
   private async fetch(path: string): Promise<unknown> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: this.headers,
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
-    if (!res.ok) {
-      throw new Error(`Prometheus HTTP error ${res.status}: ${await res.text()}`);
+    const op = 'fetch';
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, {
+        headers: this.headers,
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new AdapterError(
+        classifyHttpError({ cause: err }),
+        `Prometheus client fetch transport failure: ${err instanceof Error ? err.message : String(err)}`,
+        { adapterId: ADAPTER_ID, operation: op, originalError: err },
+      );
     }
-    return res.json();
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new AdapterError(
+        classifyHttpError({ status: res.status }),
+        `Prometheus HTTP error ${res.status}`,
+        {
+          adapterId: ADAPTER_ID,
+          operation: op,
+          status: res.status,
+          upstreamBody: body.slice(0, 1000),
+        },
+      );
+    }
+    try {
+      return await res.json();
+    } catch (err) {
+      throw new AdapterError(
+        'malformed_response',
+        'Prometheus client fetch: malformed JSON body',
+        { adapterId: ADAPTER_ID, operation: op, originalError: err },
+      );
+    }
   }
 }
 

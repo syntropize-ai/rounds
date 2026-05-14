@@ -309,11 +309,15 @@ export class SetupLlmService {
       log.warn({ err, provider: cfg.provider, baseUrl: cfg.baseUrl }, 'fetchModels failed');
       if (err instanceof ProviderError) {
         const detail =
-          err.kind === 'auth'
+          err.kind === 'auth_failure'
             ? 'API key was rejected'
-            : err.kind === 'network'
+            : err.kind === 'timeout' ||
+                err.kind === 'dns_failure' ||
+                err.kind === 'connection_refused' ||
+                err.kind === 'server_error' ||
+                err.kind === 'rate_limit'
               ? 'could not reach the provider'
-              : err.kind === 'unsupported'
+              : err.kind === 'not_found'
                 ? 'provider does not expose a model list endpoint'
                 : err.message;
         throw new SetupLlmServiceError(

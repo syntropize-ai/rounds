@@ -712,7 +712,7 @@ describe('AnthropicProvider — response parsing', () => {
       }),
     ).rejects.toMatchObject({
       name: 'ProviderError',
-      kind: 'network',
+      kind: 'server_error',
       provider: 'anthropic',
       status: 529,
       upstreamBody: 'overloaded',

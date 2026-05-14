@@ -3,7 +3,7 @@
 import { getErrorMessage } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
 import { checkEndpointHealth } from '../shared/health-check.js';
-import { AdapterError, classifyAdapterHttpError } from '../adapter.js';
+import { AdapterError, classifyHttpError } from '../errors.js';
 import type {
   IMetricsAdapter,
   MetricSample,
@@ -13,7 +13,7 @@ import type {
 
 const log = createLogger('metrics-adapter');
 
-const ADAPTER_NAME = 'prometheus';
+const ADAPTER_ID = 'prometheus';
 
 interface PrometheusMetadataEntry {
   type: string;
@@ -37,6 +37,36 @@ interface PrometheusMatrixResult {
   values: Array<[number, string]>;
 }
 
+function transportError(op: string, err: unknown): AdapterError {
+  const kind = classifyHttpError({ cause: err });
+  return new AdapterError(
+    kind,
+    `Prometheus ${op} transport failure: ${err instanceof Error ? err.message : String(err)}`,
+    { adapterId: ADAPTER_ID, operation: op, originalError: err },
+  );
+}
+
+function httpError(op: string, status: number): AdapterError {
+  const kind = classifyHttpError({ status });
+  return new AdapterError(
+    kind,
+    `Prometheus ${op} HTTP ${status}`,
+    { adapterId: ADAPTER_ID, operation: op, status },
+  );
+}
+
+async function parseJson<T>(res: Response, op: string): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch (err) {
+    throw new AdapterError(
+      'malformed_response',
+      `Prometheus ${op}: malformed response body`,
+      { adapterId: ADAPTER_ID, operation: op, originalError: err },
+    );
+  }
+}
+
 export class PrometheusMetricsAdapter implements IMetricsAdapter {
   constructor(
     private baseUrl: string,
@@ -45,16 +75,25 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
   ) {}
 
   async listMetricNames(): Promise<string[]> {
+    const op = 'listMetricNames';
     const url = `${this.base}/api/v1/label/__name__/values`;
-    const res = await this.fetch(url);
-    if (!res.ok) {
-      throw new Error(`Prometheus returned HTTP ${res.status} fetching metric names`);
+    let res: Response;
+    try {
+      res = await this.fetch(url);
+    } catch (err) {
+      log.warn({ err, url, op }, 'prometheus listMetricNames transport failure');
+      throw transportError(op, err);
     }
-    const body = (await res.json()) as PrometheusApiResponse<string[]>;
+    if (!res.ok) {
+      log.warn({ url, status: res.status, op }, 'prometheus returned non-ok');
+      throw httpError(op, res.status);
+    }
+    const body = await parseJson<PrometheusApiResponse<string[]>>(res, op);
     return Array.isArray(body.data) ? body.data : [];
   }
 
   async listLabels(metric: string): Promise<string[]> {
+    const op = 'listLabels';
     const params = new URLSearchParams();
     params.set('match[]', metric);
     const url = `${this.base}/api/v1/labels?${params}`;
@@ -62,53 +101,39 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
     try {
       res = await this.fetch(url);
     } catch (err) {
-      const kind = classifyAdapterHttpError({ cause: err });
-      log.warn({ err, url, metric, op: 'listLabels', kind }, 'prometheus listLabels transport failure');
-      throw new AdapterError(
-        `Prometheus listLabels failed: ${err instanceof Error ? err.message : String(err)}`,
-        { kind, adapter: ADAPTER_NAME, cause: err },
-      );
+      log.warn({ err, url, metric, op }, 'prometheus listLabels transport failure');
+      throw transportError(op, err);
     }
     if (!res.ok) {
-      const kind = classifyAdapterHttpError({ status: res.status });
-      log.warn({ url, status: res.status, metric, op: 'listLabels', kind }, 'prometheus returned non-ok');
-      throw new AdapterError(
-        `Prometheus listLabels HTTP ${res.status}`,
-        { kind, adapter: ADAPTER_NAME, status: res.status },
-      );
+      log.warn({ url, status: res.status, metric, op }, 'prometheus returned non-ok');
+      throw httpError(op, res.status);
     }
-    const body = (await res.json()) as PrometheusApiResponse<string[]>;
+    const body = await parseJson<PrometheusApiResponse<string[]>>(res, op);
     const labels = Array.isArray(body.data) ? body.data : [];
     return labels.filter((l) => l !== '__name__');
   }
 
   async listLabelValues(label: string): Promise<string[]> {
+    const op = 'listLabelValues';
     const url = `${this.base}/api/v1/label/${encodeURIComponent(label)}/values`;
     let res: Response;
     try {
       res = await this.fetch(url);
     } catch (err) {
-      const kind = classifyAdapterHttpError({ cause: err });
-      log.warn({ err, url, label, op: 'listLabelValues', kind }, 'prometheus listLabelValues transport failure');
-      throw new AdapterError(
-        `Prometheus listLabelValues failed: ${err instanceof Error ? err.message : String(err)}`,
-        { kind, adapter: ADAPTER_NAME, cause: err },
-      );
+      log.warn({ err, url, label, op }, 'prometheus listLabelValues transport failure');
+      throw transportError(op, err);
     }
     if (!res.ok) {
-      const kind = classifyAdapterHttpError({ status: res.status });
-      log.warn({ url, status: res.status, label, op: 'listLabelValues', kind }, 'prometheus returned non-ok');
-      throw new AdapterError(
-        `Prometheus listLabelValues HTTP ${res.status}`,
-        { kind, adapter: ADAPTER_NAME, status: res.status },
-      );
+      log.warn({ url, status: res.status, label, op }, 'prometheus returned non-ok');
+      throw httpError(op, res.status);
     }
-    const body = (await res.json()) as PrometheusApiResponse<string[]>;
+    const body = await parseJson<PrometheusApiResponse<string[]>>(res, op);
     return Array.isArray(body.data) ? body.data : [];
   }
 
   async findSeries(matchers: string[]): Promise<string[]> {
     if (matchers.length === 0) return [];
+    const op = 'findSeries';
     const params = new URLSearchParams();
     for (const m of matchers) params.append('match[]', m);
     const now = Math.floor(Date.now() / 1000);
@@ -120,22 +145,14 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
     try {
       res = await this.fetch(url);
     } catch (err) {
-      const kind = classifyAdapterHttpError({ cause: err });
-      log.warn({ err, url, matchers, op: 'findSeries', kind }, 'prometheus findSeries transport failure');
-      throw new AdapterError(
-        `Prometheus findSeries failed: ${err instanceof Error ? err.message : String(err)}`,
-        { kind, adapter: ADAPTER_NAME, cause: err },
-      );
+      log.warn({ err, url, matchers, op }, 'prometheus findSeries transport failure');
+      throw transportError(op, err);
     }
     if (!res.ok) {
-      const kind = classifyAdapterHttpError({ status: res.status });
-      log.warn({ url, status: res.status, matchers, op: 'findSeries', kind }, 'prometheus returned non-ok');
-      throw new AdapterError(
-        `Prometheus findSeries HTTP ${res.status}`,
-        { kind, adapter: ADAPTER_NAME, status: res.status },
-      );
+      log.warn({ url, status: res.status, matchers, op }, 'prometheus returned non-ok');
+      throw httpError(op, res.status);
     }
-    const body = (await res.json()) as PrometheusApiResponse<Array<Record<string, string>>>;
+    const body = await parseJson<PrometheusApiResponse<Array<Record<string, string>>>>(res, op);
     const names = new Set<string>();
     for (const series of body.data ?? []) {
       if (series['__name__']) names.add(series['__name__']);
@@ -144,20 +161,30 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
   }
 
   async instantQuery(expr: string, time?: Date): Promise<MetricSample[]> {
+    const op = 'instantQuery';
     const params = new URLSearchParams();
     params.set('query', expr);
     params.set('time', String(Math.floor((time ?? new Date()).getTime() / 1000)));
     const url = `${this.base}/api/v1/query?${params}`;
-    const res = await this.fetch(url);
-    if (!res.ok) {
-      throw new Error(`Prometheus returned HTTP ${res.status} for instant query`);
+    let res: Response;
+    try {
+      res = await this.fetch(url);
+    } catch (err) {
+      throw transportError(op, err);
     }
-    const body = (await res.json()) as PrometheusApiResponse<{
+    if (!res.ok) {
+      throw httpError(op, res.status);
+    }
+    const body = await parseJson<PrometheusApiResponse<{
       resultType: string;
       result: PrometheusVectorResult[];
-    }>;
+    }>>(res, op);
     if (body.status !== 'success') {
-      throw new Error(body.error ?? 'Query failed');
+      throw new AdapterError(
+        'bad_request',
+        `Prometheus ${op} returned status=${body.status}: ${body.error ?? 'no error field'}`,
+        { adapterId: ADAPTER_ID, operation: op, providerCode: body.error },
+      );
     }
     return (body.data?.result ?? []).map((r) => ({
       labels: r.metric,
@@ -167,22 +194,32 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
   }
 
   async rangeQuery(expr: string, start: Date, end: Date, step: string): Promise<RangeResult[]> {
+    const op = 'rangeQuery';
     const params = new URLSearchParams();
     params.set('query', expr);
     params.set('start', String(Math.floor(start.getTime() / 1000)));
     params.set('end', String(Math.floor(end.getTime() / 1000)));
     params.set('step', step);
     const url = `${this.base}/api/v1/query_range?${params}`;
-    const res = await this.fetch(url);
-    if (!res.ok) {
-      throw new Error(`Prometheus returned HTTP ${res.status} for range query`);
+    let res: Response;
+    try {
+      res = await this.fetch(url);
+    } catch (err) {
+      throw transportError(op, err);
     }
-    const body = (await res.json()) as PrometheusApiResponse<{
+    if (!res.ok) {
+      throw httpError(op, res.status);
+    }
+    const body = await parseJson<PrometheusApiResponse<{
       resultType: string;
       result: PrometheusMatrixResult[];
-    }>;
+    }>>(res, op);
     if (body.status !== 'success') {
-      throw new Error(body.error ?? 'Range query failed');
+      throw new AdapterError(
+        'bad_request',
+        `Prometheus ${op} returned status=${body.status}: ${body.error ?? 'no error field'}`,
+        { adapterId: ADAPTER_ID, operation: op, providerCode: body.error },
+      );
     }
     return (body.data?.result ?? []).map((r) => ({
       metric: r.metric,
@@ -191,6 +228,7 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
   }
 
   async fetchMetadata(metricNames?: string[]): Promise<Record<string, MetricMetadata>> {
+    const op = 'fetchMetadata';
     const params = new URLSearchParams();
     if (metricNames) {
       for (const name of metricNames) params.append('metric', name);
@@ -200,37 +238,31 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
     try {
       res = await this.fetch(url);
     } catch (err) {
-      const kind = classifyAdapterHttpError({ cause: err });
-      log.warn({ err, url, op: 'fetchMetadata', kind }, 'prometheus fetchMetadata transport failure');
-      throw new AdapterError(
-        `Prometheus fetchMetadata failed: ${err instanceof Error ? err.message : String(err)}`,
-        { kind, adapter: ADAPTER_NAME, cause: err },
-      );
+      log.warn({ err, url, op }, 'prometheus fetchMetadata transport failure');
+      throw transportError(op, err);
     }
     if (!res.ok) {
-      const kind = classifyAdapterHttpError({ status: res.status });
-      log.warn({ url, status: res.status, op: 'fetchMetadata', kind }, 'prometheus returned non-ok');
-      throw new AdapterError(
-        `Prometheus fetchMetadata HTTP ${res.status}`,
-        { kind, adapter: ADAPTER_NAME, status: res.status },
-      );
+      log.warn({ url, status: res.status, op }, 'prometheus returned non-ok');
+      throw httpError(op, res.status);
     }
     let body: PrometheusApiResponse<Record<string, PrometheusMetadataEntry[]>>;
     try {
       body = (await res.json()) as PrometheusApiResponse<Record<string, PrometheusMetadataEntry[]>>;
     } catch (err) {
-      log.warn({ err, url, op: 'fetchMetadata' }, 'prometheus fetchMetadata: malformed JSON body');
+      log.warn({ err, url, op }, 'prometheus fetchMetadata: malformed JSON body');
       throw new AdapterError(
-        `Prometheus fetchMetadata: malformed response body`,
-        { kind: 'malformed', adapter: ADAPTER_NAME, cause: err },
+        'malformed_response',
+        `Prometheus ${op}: malformed response body`,
+        { adapterId: ADAPTER_ID, operation: op, originalError: err },
       );
     }
     if (body.status !== 'success' || !body.data) {
       // status=error with a populated error field is the documented Prometheus
       // failure shape; treat it the same as a malformed body.
       throw new AdapterError(
-        `Prometheus fetchMetadata returned status=${body.status}: ${body.error ?? 'no error field'}`,
-        { kind: 'malformed', adapter: ADAPTER_NAME },
+        'malformed_response',
+        `Prometheus ${op} returned status=${body.status}: ${body.error ?? 'no error field'}`,
+        { adapterId: ADAPTER_ID, operation: op, providerCode: body.error },
       );
     }
 

@@ -427,7 +427,7 @@ describe('OpenAIProvider — response parsing', () => {
 
     await expect(provider.complete(messages, { model: 'gpt-4o' })).rejects.toMatchObject({
       name: 'ProviderError',
-      kind: 'network',
+      kind: 'server_error',
       provider: 'openai',
       status: 500,
       upstreamCode: 'server_error',
@@ -444,7 +444,7 @@ describe('OpenAIProvider — response parsing', () => {
     const provider = new OpenAIProvider({ apiKey: 'sk-test' });
 
     await expect(provider.complete(messages, { model: 'gpt-4o' })).rejects.toMatchObject({
-      kind: 'network',
+      kind: 'rate_limit',
       status: 429,
       retryAfterSec: 7,
       upstreamCode: 'rate_limit_exceeded',
@@ -466,7 +466,7 @@ describe('OpenAIProvider — response parsing', () => {
 
     await expect(provider.complete(messages, { model: 'gpt-4o' })).rejects.toBeInstanceOf(ProviderError);
     await expect(provider.complete(messages, { model: 'gpt-4o' })).rejects.toMatchObject({
-      kind: 'network',
+      kind: 'connection_refused',
       provider: 'openai',
     });
   });

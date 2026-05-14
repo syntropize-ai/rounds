@@ -1,7 +1,7 @@
 // Concrete Loki implementation of the canonical ILogsAdapter.
 
-import { getErrorMessage } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/common/logging';
+import { AdapterError, classifyHttpError } from '../errors.js';
 import type {
   ILogsAdapter,
   LogEntry,
@@ -10,6 +10,8 @@ import type {
 } from '../interfaces.js';
 
 const log = createLogger('loki-logs-adapter');
+
+const ADAPTER_ID = 'loki';
 
 interface LokiStream {
   stream: Record<string, string>;
@@ -33,6 +35,45 @@ interface LokiListResponse {
 
 const DEFAULT_LIMIT = 100;
 
+function transportError(op: string, err: unknown): AdapterError {
+  // Internal-facing message preserves legacy wording so existing log-greps
+  // and the test suite still match. User-facing strings come from
+  // `toUserMessage()` and never include this detail.
+  const opLabel = op === 'query' ? 'query_range request' : `${op} request`;
+  return new AdapterError(
+    classifyHttpError({ cause: err }),
+    `Loki ${opLabel} failed: ${err instanceof Error ? err.message : String(err)}`,
+    { adapterId: ADAPTER_ID, operation: op, originalError: err },
+  );
+}
+
+async function httpError(op: string, res: Response): Promise<AdapterError> {
+  const preview = await readBodyPreview(res);
+  const opLabel = op === 'query' ? 'query_range' : op;
+  return new AdapterError(
+    classifyHttpError({ status: res.status }),
+    `Loki returned HTTP ${res.status} for ${opLabel}: ${preview}`,
+    {
+      adapterId: ADAPTER_ID,
+      operation: op,
+      status: res.status,
+      upstreamBody: preview,
+    },
+  );
+}
+
+async function parseJson<T>(res: Response, op: string): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch (err) {
+    throw new AdapterError(
+      'malformed_response',
+      `Loki ${op}: malformed response body`,
+      { adapterId: ADAPTER_ID, operation: op, originalError: err },
+    );
+  }
+}
+
 export class LokiLogsAdapter implements ILogsAdapter {
   constructor(
     private baseUrl: string,
@@ -41,6 +82,7 @@ export class LokiLogsAdapter implements ILogsAdapter {
   ) {}
 
   async query(input: LogsQueryInput): Promise<LogsQueryResult> {
+    const op = 'query';
     const limit = input.limit ?? DEFAULT_LIMIT;
     const params = new URLSearchParams();
     params.set('query', input.query);
@@ -54,17 +96,14 @@ export class LokiLogsAdapter implements ILogsAdapter {
     try {
       res = await this.fetch(url);
     } catch (err) {
-      throw new Error(`Loki query_range request failed: ${getErrorMessage(err)}`);
+      throw transportError(op, err);
     }
 
     if (!res.ok) {
-      const preview = await readBodyPreview(res);
-      throw new Error(
-        `Loki returned HTTP ${res.status} for query_range: ${preview}`,
-      );
+      throw await httpError(op, res);
     }
 
-    const body = (await res.json()) as LokiQueryRangeResponse;
+    const body = await parseJson<LokiQueryRangeResponse>(res, op);
     const resultType = body.data?.resultType ?? 'streams';
     const warnings: string[] = Array.isArray(body.warnings) ? [...body.warnings] : [];
 
@@ -110,36 +149,34 @@ export class LokiLogsAdapter implements ILogsAdapter {
   }
 
   async listLabels(): Promise<string[]> {
+    const op = 'listLabels';
     const url = `${this.base}/loki/api/v1/labels`;
     let res: Response;
     try {
       res = await this.fetch(url);
     } catch (err) {
-      throw new Error(`Loki labels request failed: ${getErrorMessage(err)}`);
+      throw transportError(op, err);
     }
     if (!res.ok) {
-      const preview = await readBodyPreview(res);
-      throw new Error(`Loki returned HTTP ${res.status} fetching labels: ${preview}`);
+      throw await httpError(op, res);
     }
-    const body = (await res.json()) as LokiListResponse;
+    const body = await parseJson<LokiListResponse>(res, op);
     return Array.isArray(body.data) ? body.data : [];
   }
 
   async listLabelValues(label: string): Promise<string[]> {
+    const op = 'listLabelValues';
     const url = `${this.base}/loki/api/v1/label/${encodeURIComponent(label)}/values`;
     let res: Response;
     try {
       res = await this.fetch(url);
     } catch (err) {
-      throw new Error(`Loki label values request failed: ${getErrorMessage(err)}`);
+      throw transportError(op, err);
     }
     if (!res.ok) {
-      const preview = await readBodyPreview(res);
-      throw new Error(
-        `Loki returned HTTP ${res.status} fetching label values for "${label}": ${preview}`,
-      );
+      throw await httpError(op, res);
     }
-    const body = (await res.json()) as LokiListResponse;
+    const body = await parseJson<LokiListResponse>(res, op);
     return Array.isArray(body.data) ? body.data : [];
   }
 

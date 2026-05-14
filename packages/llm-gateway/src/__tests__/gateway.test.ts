@@ -37,7 +37,7 @@ describe('LLMGateway', () => {
     const primary = new MockProvider({
       name: 'primary',
       shouldFail: true,
-      failKind: 'network',
+      failKind: 'server_error',
       failMessage: 'Mock provider error',
     });
     const gateway = new LLMGateway({ primary, maxRetries: 3, retryDelayMs: 1 });
@@ -54,7 +54,7 @@ describe('LLMGateway', () => {
     const primary = new MockProvider({
       name: 'primary',
       shouldFail: true,
-      failKind: 'auth',
+      failKind: 'auth_failure',
       failMessage: 'API key invalid',
     });
     const gateway = new LLMGateway({ primary, maxRetries: 3, retryDelayMs: 1 });
@@ -71,7 +71,7 @@ describe('LLMGateway', () => {
     const primary = new MockProvider({
       name: 'primary',
       shouldFail: true,
-      failKind: 'unsupported',
+      failKind: 'not_found',
       failMessage: 'feature not supported',
     });
     const gateway = new LLMGateway({ primary, maxRetries: 3, retryDelayMs: 1 });
@@ -166,7 +166,7 @@ describe('LLMGateway', () => {
   it('persists failure entries with success=false and errorKind set', async () => {
     const primary = new MockProvider({
       shouldFail: true,
-      failKind: 'auth',
+      failKind: 'auth_failure',
       failMessage: 'API key invalid',
     });
     const sink = new InMemoryAuditSink();

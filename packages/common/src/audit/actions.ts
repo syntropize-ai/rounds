@@ -104,6 +104,10 @@ export const AuditAction = {
   AlertRuleCreate: 'alert_rule.create',
   AlertRuleUpdate: 'alert_rule.update',
   AlertRuleDelete: 'alert_rule.delete',
+  // Wave 2 step 1 — promotion of a personal draft alert rule into a
+  // shared/team folder. Crosses a permission boundary; written by the
+  // promote handler in addition to the GuardedAction audit.
+  AlertRulePromote: 'alert_rule.promote',
   InvestigationCreate: 'investigation.create',
   InvestigationUpdate: 'investigation.update',
   ServiceAttributionConfirm: 'service.attribution_confirm',

@@ -10,6 +10,17 @@
  */
 import type { ResourceSource, ResourceProvenance } from '../resources/writable-gate.js';
 
+/**
+ * Workspace kind. `'personal'` folders are scoped to a single user's
+ * "My Workspace" — drafts live here while being authored. `'shared'`
+ * folders are team/service folders that other people can read. The
+ * promote flow (Wave 2 step 1) moves a resource personal → shared.
+ *
+ * Treat absence as `'shared'` (most folders pre-dating this field are
+ * team folders; personal folders are explicitly seeded with the marker).
+ */
+export type FolderKind = 'personal' | 'shared';
+
 export interface GrafanaFolder {
   id: string;
   uid: string;
@@ -17,6 +28,10 @@ export interface GrafanaFolder {
   title: string;
   description: string | null;
   parentUid: string | null;
+  /** See {@link FolderKind}. Absence → `'shared'`. */
+  kind?: FolderKind;
+  /** When `kind === 'personal'`, the userId that owns the workspace. */
+  ownerUserId?: string | null;
   created: string;
   updated: string;
   createdBy: string | null;
@@ -33,6 +48,8 @@ export interface NewGrafanaFolder {
   title: string;
   description?: string | null;
   parentUid?: string | null;
+  kind?: FolderKind;
+  ownerUserId?: string | null;
   createdBy?: string | null;
   updatedBy?: string | null;
   source?: ResourceSource;

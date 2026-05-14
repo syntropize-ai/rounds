@@ -42,6 +42,7 @@ export {
   handleNavigate,
   handleFolderCreate,
   handleFolderList,
+  handleResourcePromote,
   handleOpsRunCommand,
   handleRemediationPlanCreate,
   handleRemediationPlanCreateRescue,

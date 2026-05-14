@@ -42,6 +42,8 @@ import { createQueryRouter } from '../routes/dashboard/query.js';
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
+import { createResourcesPromoteRouter } from '../routes/resources-promote.js';
+import { PromoteService } from '../services/promote-service.js';
 import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
@@ -243,6 +245,16 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     ...(deps.runner ? { runner: deps.runner } : {}),
   }));
   // /api/folders is mounted in rbac-routes.ts (T7.1).
+  // Wave 2 step 1 — cross-folder promote endpoint for dashboards + alert rules.
+  app.use('/api/resources', createResourcesPromoteRouter({
+    promoteService: new PromoteService({
+      dashboards: repos.dashboards,
+      alertRules: eventAlertRuleStore,
+      folders: sharedFolderRepo,
+      accessControl,
+      audit: authSub.audit,
+    }),
+  }));
   app.use('/api/search', createSearchRouter({
     dashboardStore: repos.dashboards,
     alertRuleStore: eventAlertRuleStore,

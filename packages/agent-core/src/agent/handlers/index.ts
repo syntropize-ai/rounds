@@ -58,6 +58,7 @@ export {
 export { handleWebSearch } from './web.js';
 export { handleNavigate } from './navigation.js';
 export { handleFolderCreate, handleFolderList } from './folder.js';
+export { handleResourcePromote } from './promote.js';
 export { handleOpsRunCommand } from './ops.js';
 
 export { handleRemediationPlanCreate, handleRemediationPlanCreateRescue } from './remediation-plan.js';

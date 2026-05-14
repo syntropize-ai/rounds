@@ -56,6 +56,8 @@ agentRegistry.register({
     'web_search',
     // Alert rules
     'alert_rule_write', 'alert_rule_list', 'alert_rule_history',
+    // Cross-folder promote (Wave 2 step 1)
+    'resource_promote',
     // Navigation
     'navigate',
     // Connector-model setup and allowlisted settings.

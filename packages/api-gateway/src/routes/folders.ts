@@ -226,6 +226,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
           req.query['forceDeleteRules'] === '1';
         await deps.folderService.delete(req.auth!.orgId, req.params['uid']!, {
           forceDeleteRules: force,
+          actorId: req.auth!.userId,
         });
         res.status(200).json({ message: 'Folder deleted' });
       } catch (err) {

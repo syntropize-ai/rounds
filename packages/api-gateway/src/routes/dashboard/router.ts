@@ -7,9 +7,10 @@ import { authMiddleware } from '../../middleware/auth.js'
 import { createRequirePermission } from '../../middleware/require-permission.js'
 import type { IGatewayDashboardStore } from '@agentic-obs/data-layer'
 import { VariableResolver } from './variable-resolver.js'
-import { ac, ACTIONS } from '@agentic-obs/common'
+import { ac, ACTIONS, AuditAction } from '@agentic-obs/common'
 import type { Dashboard, PanelConfig } from '@agentic-obs/common'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
+import type { AuditWriter } from '../../auth/audit-writer.js'
 import { getOrgId } from '../../middleware/workspace-context.js'
 
 /**
@@ -30,12 +31,19 @@ export interface DashboardRouterDeps {
   accessControl: AccessControlSurface
   /** W2 / T2.4 — LLM + datasource config source. */
   setupConfig: SetupConfigService
+  /**
+   * Audit writer — records resource mutation events (dashboard.create/update/
+   * delete/move). Optional so legacy tests can construct the router without
+   * one; production wires the same writer used by auth routes.
+   */
+  audit?: AuditWriter
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
   const store = deps.store
   const accessControl = deps.accessControl
   const setupConfig = deps.setupConfig
+  const audit = deps.audit
 
   const router = Router()
   const requirePermission = createRequirePermission(accessControl)
@@ -82,6 +90,18 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         useExistingMetrics: body.useExistingMetrics ?? true,
         folder: body.folder,
         workspaceId,
+      })
+
+      void audit?.log({
+        action: AuditAction.DashboardCreate,
+        actorType: 'user',
+        actorId: userId,
+        orgId: workspaceId,
+        targetType: 'dashboard',
+        targetId: dashboard.id,
+        targetName: dashboard.title,
+        outcome: 'success',
+        metadata: { folder: dashboard.folder ?? null },
       })
 
       res.status(201).json(dashboard)
@@ -160,6 +180,24 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
+      const actorId = (req as AuthenticatedRequest).auth?.userId ?? null
+      const orgId = resolveOrgId(req)
+      const folderChanged = patch.folder !== undefined && patch.folder !== dashboard.folder
+      void audit?.log({
+        action: folderChanged ? AuditAction.DashboardMove : AuditAction.DashboardUpdate,
+        actorType: 'user',
+        actorId,
+        orgId,
+        targetType: 'dashboard',
+        targetId: id,
+        targetName: updated.title,
+        outcome: 'success',
+        metadata: {
+          before: { title: dashboard.title, folder: dashboard.folder ?? null },
+          after: { title: updated.title, folder: updated.folder ?? null },
+        },
+      })
+
       res.json(updated)
     }
     catch (err) {
@@ -181,6 +219,16 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         dashboardNotFound(res)
         return
       }
+      void audit?.log({
+        action: AuditAction.DashboardDelete,
+        actorType: 'user',
+        actorId: (req as AuthenticatedRequest).auth?.userId ?? null,
+        orgId: resolveOrgId(req),
+        targetType: 'dashboard',
+        targetId: id,
+        targetName: dashboard.title,
+        outcome: 'success',
+      })
       res.status(204).send()
     }
     catch (err) {

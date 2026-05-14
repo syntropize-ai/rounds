@@ -23,8 +23,9 @@ import type {
   NewGrafanaFolder,
   GrafanaFolderPatch,
 } from '@agentic-obs/common';
-import { FOLDER_MAX_DEPTH } from '@agentic-obs/common';
+import { AuditAction, FOLDER_MAX_DEPTH } from '@agentic-obs/common';
 import type { QueryClient } from '@agentic-obs/data-layer';
+import type { AuditWriter } from '../auth/audit-writer.js';
 
 export class FolderServiceError extends Error {
   constructor(
@@ -75,6 +76,11 @@ export interface FolderServiceDeps {
    * the cascade delete that walks multiple tables in one transaction.
    */
   db: QueryClient;
+  /**
+   * Audit writer — records folder.create/update/delete events. Optional so
+   * tests can construct the service without one.
+   */
+  audit?: AuditWriter;
 }
 
 /** Slugify a title into a URL-safe UID. Mirrors Grafana's folder UID rule. */
@@ -151,7 +157,19 @@ export class FolderService {
       updatedBy: userId,
     };
     try {
-      return await this.deps.folders.create(payload);
+      const folder = await this.deps.folders.create(payload);
+      void this.deps.audit?.log({
+        action: AuditAction.FolderCreate,
+        actorType: 'user',
+        actorId: userId,
+        orgId,
+        targetType: 'folder',
+        targetId: folder.uid,
+        targetName: folder.title,
+        outcome: 'success',
+        metadata: { parentUid: folder.parentUid },
+      });
+      return folder;
     } catch (err) {
       // Repo throws plain Error; map to 400 for operator-friendly feedback.
       throw new FolderServiceError(
@@ -241,6 +259,20 @@ export class FolderService {
       if (!updated) {
         throw new FolderServiceError('not_found', `folder not found: ${uid}`, 404);
       }
+      void this.deps.audit?.log({
+        action: AuditAction.FolderUpdate,
+        actorType: 'user',
+        actorId: userId,
+        orgId,
+        targetType: 'folder',
+        targetId: updated.uid,
+        targetName: updated.title,
+        outcome: 'success',
+        metadata: {
+          before: { title: existing.title, parentUid: existing.parentUid },
+          after: { title: updated.title, parentUid: updated.parentUid },
+        },
+      });
       return updated;
     } catch (err) {
       if (err instanceof FolderServiceError) throw err;
@@ -255,7 +287,7 @@ export class FolderService {
   async delete(
     orgId: string,
     uid: string,
-    opts: { forceDeleteRules: boolean },
+    opts: { forceDeleteRules: boolean; actorId?: string },
   ): Promise<void> {
     const existing = await this.deps.folders.findByUid(orgId, uid);
     if (!existing) {
@@ -307,6 +339,17 @@ export class FolderService {
           sql`DELETE FROM folder WHERE org_id = ${orgId} AND uid = ${u}`,
         );
       }
+    });
+    void this.deps.audit?.log({
+      action: AuditAction.FolderDelete,
+      actorType: 'user',
+      actorId: opts.actorId ?? null,
+      orgId,
+      targetType: 'folder',
+      targetId: existing.uid,
+      targetName: existing.title,
+      outcome: 'success',
+      metadata: { cascadedUids: uidList, forceDeleteRules: opts.forceDeleteRules },
     });
   }
 

@@ -265,6 +265,7 @@ export async function mountRbacRoutes(
   const folderService = new FolderService({
     folders: sharedFolderRepo,
     db,
+    audit: authSub.audit,
   });
   const resourcePermissionService = new ResourcePermissionService({
     roles: rbacRoleRepo,

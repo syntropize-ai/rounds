@@ -212,6 +212,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     store: repos.dashboards,
     accessControl,
     setupConfig,
+    audit: authSub.audit,
   }));
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,
@@ -238,6 +239,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     setupConfig,
     folderRepository: sharedFolderRepo,
     ac: accessControl,
+    audit: authSub.audit,
     ...(deps.runner ? { runner: deps.runner } : {}),
   }));
   // /api/folders is mounted in rbac-routes.ts (T7.1).

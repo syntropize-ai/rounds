@@ -4,7 +4,9 @@ import type { AlertRule, AlertSilence, NotificationPolicy, IFolderRepository } f
 import {
   ACTIONS,
   ac,
+  AuditAction,
 } from '@agentic-obs/common';
+import type { AuditWriter } from '../auth/audit-writer.js';
 import type { IAlertRuleRepository, IGatewayInvestigationStore, IGatewayFeedStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
 import { defaultAlertRuleStore } from '@agentic-obs/data-layer';
 import { runBackgroundAgent, type BackgroundRunnerDeps } from '@agentic-obs/agent-core';
@@ -56,12 +58,18 @@ export interface AlertRulesRouterDeps {
    * (the legacy half-finished behavior).
    */
   runner?: BackgroundRunnerDeps;
+  /**
+   * Audit writer — records alert_rule.create/update/delete and
+   * investigation.create events for manual investigate flows.
+   */
+  audit?: AuditWriter;
 }
 
 export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   const store = deps.alertRuleStore ?? defaultAlertRuleStore;
   const router = Router();
   const alertRuleService = new AlertRuleService(store, deps.setupConfig);
+  const audit = deps.audit;
   const requirePermission = createRequirePermission(deps.ac);
 
   async function resolveAlertRuleFolderUid(
@@ -370,6 +378,18 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       };
       const rule = await store.create(createInput);
 
+      void audit?.log({
+        action: AuditAction.AlertRuleCreate,
+        actorType: 'user',
+        actorId: (req as AuthenticatedRequest).auth?.userId ?? null,
+        orgId: workspaceId,
+        targetType: 'alert_rule',
+        targetId: rule.id,
+        targetName: rule.name,
+        outcome: 'success',
+        metadata: { folderUid: rule.folderUid, severity: rule.severity },
+      });
+
       res.status(201).json(rule);
     },
   );
@@ -387,6 +407,20 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Alert rule not found' } });
         return;
       }
+      void audit?.log({
+        action: AuditAction.AlertRuleUpdate,
+        actorType: 'user',
+        actorId: (req as AuthenticatedRequest).auth?.userId ?? null,
+        orgId: resolveOrgId(req),
+        targetType: 'alert_rule',
+        targetId: updated.id,
+        targetName: updated.name,
+        outcome: 'success',
+        metadata: {
+          before: { severity: existing.severity, state: existing.state, condition: existing.condition },
+          after: { severity: updated.severity, state: updated.state, condition: updated.condition },
+        },
+      });
       res.json(updated);
     },
   );
@@ -403,6 +437,16 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Alert rule not found' } });
         return;
       }
+      void audit?.log({
+        action: AuditAction.AlertRuleDelete,
+        actorType: 'user',
+        actorId: (req as AuthenticatedRequest).auth?.userId ?? null,
+        orgId: resolveOrgId(req),
+        targetType: 'alert_rule',
+        targetId: existing.id,
+        targetName: existing.name,
+        outcome: 'success',
+      });
       res.status(204).end();
     },
   );
@@ -515,6 +559,18 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         });
 
         await store.update(rule.id, { investigationId: investigation.id });
+
+        void audit?.log({
+          action: AuditAction.InvestigationCreate,
+          actorType: 'user',
+          actorId: identity.userId,
+          orgId: workspaceId,
+          targetType: 'investigation',
+          targetId: investigation.id,
+          targetName: question,
+          outcome: 'success',
+          metadata: { alertRuleId: rule.id, manual: true },
+        });
 
         // Spawn the orchestrator in the background under the clicker's
         // identity. We respond immediately so the UI can subscribe to the

@@ -151,7 +151,11 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   app.use(
     '/api/system',
     bootstrapAwareAuthOnly,
-    createSystemRouter({ setupConfig, ac: accessControl }),
+    createSystemRouter({
+      setupConfig,
+      ac: accessControl,
+      notificationStore: repos.notifications,
+    }),
   );
   app.use(
     '/api/query',

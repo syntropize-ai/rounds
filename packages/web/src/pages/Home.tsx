@@ -128,23 +128,10 @@ export default function Home() {
   const blocks = useMemo(() => groupEvents(events), [events]);
   const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
 
-  const chatIdFromUrl = useMemo(
-    () => new URLSearchParams(location.search).get('chat'),
-    [location.search],
-  );
-
-  // Home is the new conversation entry point unless the URL explicitly names
-  // a durable personal chat to reopen.
-  useEffect(() => {
-    if (chatIdFromUrl) {
-      if (chatIdFromUrl !== currentSessionId) {
-        void loadSession(chatIdFromUrl);
-      }
-    } else {
-      globalChat.startNewSession();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatIdFromUrl, currentSessionId]);
+  // Session id is owned by ChatProvider's React state (currentSessionId), not
+  // the URL. Refresh / new tab = empty state = new conversation. Explicit
+  // resume = Recents click in Navigation.tsx, which calls loadSession(id).
+  // Home renders whatever state globalChat currently holds.
 
   const handleDeleteDashboard = useCallback(async (id: string) => {
     const res = await apiClient.delete(`/dashboards/${id}`);
@@ -171,16 +158,6 @@ export default function Home() {
   useEffect(() => {
     refreshSessions();
   }, [refreshSessions]);
-
-  useEffect(() => {
-    if (!currentSessionId || currentSessionId === chatIdFromUrl) return;
-    const params = new URLSearchParams(location.search);
-    params.set('chat', currentSessionId);
-    navigate(
-      { pathname: '/', search: `?${params.toString()}` },
-      { replace: true },
-    );
-  }, [chatIdFromUrl, currentSessionId, location.search, navigate]);
 
   const wasGeneratingRef = useRef(false);
   useEffect(() => {
@@ -216,12 +193,12 @@ export default function Home() {
   const handleOpenSession = useCallback(
     (sessionId: string) => {
       void loadSession(sessionId);
-      navigate({
-        pathname: '/',
-        search: `?chat=${encodeURIComponent(sessionId)}`,
-      });
+      // No URL mutation — session id lives in React state, the route stays '/'.
+      // Browser back-button still works via the normal history stack since
+      // we don't push entries for chat switches anymore.
+      if (location.pathname !== '/') navigate('/');
     },
-    [loadSession, navigate],
+    [loadSession, navigate, location.pathname],
   );
 
   // Reusable input component (used in both modes)

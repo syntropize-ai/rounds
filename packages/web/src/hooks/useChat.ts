@@ -240,16 +240,11 @@ export function rebuildChatEventsFromSession(
   );
 }
 
-function withChatQuery(path: string, sessionId: string): string {
-  if (!sessionId || !path.startsWith('/')) return path;
-  try {
-    const url = new URL(path, window.location.origin);
-    url.searchParams.set('chat', sessionId);
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return path;
-  }
-}
+// withChatQuery used to append `?chat=<id>` to agent-emitted navigation paths
+// so the destination page could rebind the same chat. That's now redundant:
+// currentSessionId lives in ChatProvider's React state and persists across
+// route changes within the tab. URL-based session restore was also a source
+// of stale-id bugs (see preceding commits) and is no longer the model.
 
 /**
  * Global chat hook — not tied to any specific dashboard.
@@ -384,7 +379,7 @@ export function useChat(): UseChatResult {
         case 'navigate': {
           const path = (parsed.path as string) ?? '';
           if (path) {
-            setPendingNavigation(withChatQuery(path, sessionIdRef.current));
+            setPendingNavigation(path);
           }
           break;
         }
@@ -427,12 +422,7 @@ export function useChat(): UseChatResult {
           // Check if done carries a navigate directive as well
           const navigateTo = parsed.navigate as string | undefined;
           if (navigateTo) {
-            setPendingNavigation(
-              withChatQuery(
-                navigateTo,
-                durableSessionId || sessionIdRef.current,
-              ),
-            );
+            setPendingNavigation(navigateTo);
           }
           appendEvent({ id, kind: 'done', content: 'Generation complete' });
           break;

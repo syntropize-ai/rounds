@@ -369,24 +369,22 @@ export default function Navigation() {
     wasGeneratingRef.current = globalChat.isGenerating;
   }, [activeTab, globalChat.isGenerating, refreshSessions]);
 
-  const chatIdFromUrl =
-    new URLSearchParams(location.search).get('chat') ?? undefined;
+  const activeSessionId = globalChat.currentSessionId || undefined;
 
   const openSession = useCallback(
     (sessionId: string) => {
       void globalChat.loadSession(sessionId);
-      navigate({
-        pathname: '/',
-        search: `?chat=${encodeURIComponent(sessionId)}`,
-      });
+      // No URL mutation — session id lives in ChatProvider's React state.
+      // Just ensure we're on Home so the conversation surface is visible.
+      if (location.pathname !== '/') navigate('/');
     },
-    [globalChat, navigate],
+    [globalChat, navigate, location.pathname],
   );
 
   const startNew = useCallback(() => {
     globalChat.startNewSession();
-    navigate('/', { replace: true });
-  }, [globalChat, navigate]);
+    if (location.pathname !== '/') navigate('/');
+  }, [globalChat, navigate, location.pathname]);
 
   // Pending-plan badge for the Action Center entry. Polled every 30s
   // (per the UX brief) so operators see remediation work waiting on them
@@ -534,7 +532,7 @@ export default function Navigation() {
             ) : (
               <ul className="flex flex-col gap-0.5">
                 {sessions.map((s) => {
-                  const active = s.id === chatIdFromUrl;
+                  const active = s.id === activeSessionId;
                   return (
                     <li key={s.id}>
                       <button

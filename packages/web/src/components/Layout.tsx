@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import Navigation from './Navigation.js';
 import GlobalSearch from './GlobalSearch.js';
@@ -18,11 +18,7 @@ function LayoutInner() {
     clearPendingNavigation,
     loadError,
     retryLoadSession,
-    loadSession,
-    currentSessionId,
-    startNewSession,
   } = useGlobalChat();
-  const loadedUrlChatRef = useRef<string | null>(null);
 
   // Hide the global ChatPanel on Home, the top-level list pages
   // (Dashboards / Investigations / Alerts), and configuration surfaces
@@ -42,42 +38,11 @@ function LayoutInner() {
       (p) => pathname === p || pathname.startsWith(`${p}/`),
     );
 
-  // URL chat identity is canonical on resource pages. Loading here keeps
-  // dashboards, investigations, and future resource details on the same path.
-  useEffect(() => {
-    const chatId = new URLSearchParams(location.search).get('chat');
-    if (!chatId) {
-      if (showChat) {
-        loadedUrlChatRef.current = null;
-        startNewSession();
-      }
-      return;
-    }
-    if (chatId === currentSessionId) {
-      loadedUrlChatRef.current = chatId;
-      return;
-    }
-    if (loadedUrlChatRef.current === chatId) return;
-    loadedUrlChatRef.current = chatId;
-    void loadSession(chatId);
-  }, [currentSessionId, location.search, loadSession, showChat, startNewSession]);
-
-  useEffect(() => {
-    if (!showChat || !currentSessionId) return;
-    const params = new URLSearchParams(location.search);
-    if (params.get('chat') === currentSessionId) return;
-    params.set('chat', currentSessionId);
-    navigate(
-      { pathname: location.pathname, search: `?${params.toString()}` },
-      { replace: true },
-    );
-  }, [
-    currentSessionId,
-    location.pathname,
-    location.search,
-    navigate,
-    showChat,
-  ]);
+  // Session id no longer lives in the URL. ChatProvider's React state holds
+  // currentSessionId and persists across route changes within the tab, so
+  // the ChatPanel here just reflects whatever conversation is live.
+  // Refresh / new tab = empty state = new conversation, matching the
+  // "open page = fresh slate" UX appropriate for an SRE tool.
 
   // Handle agent-initiated navigation
   useEffect(() => {

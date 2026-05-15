@@ -23,7 +23,6 @@ export * from './models/index.js';
 export * from './repositories/index.js';
 export * from './adapter-types.js';
 export * from './resources/index.js';
-export * from './utils/variable-hash.js';
 
 // Auth / perm types + pure helpers.
 export * from './auth/index.js';

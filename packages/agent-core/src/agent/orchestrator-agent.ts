@@ -104,6 +104,14 @@ export interface OrchestratorDeps {
    */
   auditEntryWriter?: (entry: NewAuditLogEntry) => Promise<void>
   /**
+   * Optional chat-event lookup (most-recent by kind in this session).
+   * Wired by chat-service from the chat-session-event repository so
+   * `metric_explore` can inherit timeRange from a prior `inline_chart`.
+   */
+  recentEventLookup?: (
+    kind: string,
+  ) => Promise<{ payload: Record<string, unknown>; timestamp: string } | null>
+  /**
    * Which specialized agent this run uses. Defaults to `orchestrator`. Pick a
    * narrower type to tighten the allowedTools ceiling (Layer 1).
    */

@@ -11,8 +11,16 @@
  * label set + a small LLM scaffolding pass).
  */
 
-import { AuditAction, summarizeChart, type ChartMetricKind } from '@agentic-obs/common';
+import {
+  AuditAction,
+  suggestPivots,
+  summarizeChart,
+  type ChartMetricKind,
+} from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
+
+/** How fresh the prior chart's end must be to inherit silently (no warning). */
+const INHERIT_FRESH_WINDOW_MS = 5 * 60 * 1000;
 
 const RELATIVE_HINT_MS: Record<string, number> = {
   '1h': 60 * 60 * 1000,
@@ -134,6 +142,44 @@ function resolveDatasourceId(
   return primary?.id;
 }
 
+/**
+ * Look up the most recent `inline_chart` event in this session and return
+ * its timeRange. When the chart is older than `INHERIT_FRESH_WINDOW_MS`, the
+ * range is still inherited but a `warning` is attached so the UI can
+ * surface it. Returns `null` when no prior chart exists or the lookup is
+ * not wired.
+ */
+export async function tryInheritRange(
+  ctx: ActionContext,
+  nowMs: number,
+): Promise<{ range: ParsedRange; warning?: string } | null> {
+  if (!ctx.recentEventLookup) return null;
+  try {
+    const prior = await ctx.recentEventLookup('inline_chart');
+    if (!prior) return null;
+    const tr = (prior.payload['timeRange'] as { start?: unknown; end?: unknown } | undefined);
+    const startStr = typeof tr?.start === 'string' ? tr.start : '';
+    const endStr = typeof tr?.end === 'string' ? tr.end : '';
+    if (!startStr || !endStr) return null;
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    const ageMs = nowMs - end.getTime();
+    const range: ParsedRange = { start, end };
+    if (ageMs > INHERIT_FRESH_WINDOW_MS) {
+      const minutes = Math.round(ageMs / 60_000);
+      return {
+        range,
+        warning: `Inherited time range from earlier chart (${minutes} min ago)`,
+      };
+    }
+    return { range };
+  } catch {
+    // Lookup failures should never break the handler — fall back to default.
+    return null;
+  }
+}
+
 export async function handleMetricExplore(
   ctx: ActionContext,
   args: Record<string, unknown>,
@@ -155,7 +201,16 @@ export async function handleMetricExplore(
   }
 
   const hint = typeof args['timeRangeHint'] === 'string' ? args['timeRangeHint'] : undefined;
-  const range = parseTimeRangeHint(hint, Date.now());
+  const nowMs = Date.now();
+  const parsed = parseTimeRangeHint(hint, nowMs);
+  // Inherit prior chart's range when the LLM didn't supply an explicit hint
+  // (parseTimeRangeHint falls back to "1h" — distinguishable by `hint` being
+  // absent or the warning marker on garbage input).
+  const hintAbsent = !hint || hint.trim() === '';
+  const inherited = hintAbsent ? await tryInheritRange(ctx, nowMs) : null;
+  const range = inherited?.range ?? parsed;
+  const warnings: string[] = [];
+  if (inherited?.warning) warnings.push(inherited.warning);
   const step = pickStep(range.start, range.end);
 
   const kindInput = typeof args['metricKind'] === 'string' ? args['metricKind'] as ChartMetricKind : undefined;
@@ -172,6 +227,7 @@ export async function handleMetricExplore(
   try {
     const series = await adapter.rangeQuery(query, range.start, range.end, step);
     const summary = summarizeChart(series, kind);
+    const pivotSuggestions = suggestPivots({ query, metricKind: kind, summary });
 
     // Emit the inline chart bubble payload.
     ctx.sendEvent({
@@ -186,7 +242,8 @@ export async function handleMetricExplore(
       metricKind: kind,
       series,
       summary,
-      pivotSuggestions: [],
+      pivotSuggestions,
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
 
     // Audit (fire-and-forget). Mirrors the REST endpoint's audit row.

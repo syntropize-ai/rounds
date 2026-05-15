@@ -1,4 +1,4 @@
-import { asc, eq, max } from 'drizzle-orm';
+import { and, asc, desc, eq, max } from 'drizzle-orm';
 import { chatSessionEvents } from '../../db/schema.js';
 import type {
   ChatSessionEventRecord,
@@ -51,5 +51,19 @@ export class PostgresChatSessionEventRepository implements IChatSessionEventRepo
 
   async deleteBySession(sessionId: string): Promise<void> {
     await this.db.delete(chatSessionEvents).where(eq(chatSessionEvents.sessionId, sessionId));
+  }
+
+  async findLatestByKind(
+    sessionId: string,
+    kind: string,
+  ): Promise<ChatSessionEventRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(chatSessionEvents)
+      .where(and(eq(chatSessionEvents.sessionId, sessionId), eq(chatSessionEvents.kind, kind)))
+      .orderBy(desc(chatSessionEvents.seq))
+      .limit(1);
+    const row = rows[0];
+    return row ? rowToEvent(row) : null;
   }
 }

@@ -104,6 +104,16 @@ export interface ActionContext {
    */
   auditWriter?: (entry: NewAuditLogEntry) => Promise<void>;
 
+  /**
+   * Optional chat-event lookup — used by `metric_explore` to inherit the
+   * prior chart's timeRange on follow-up questions. The fixed interface
+   * shape (`findLatestByKind`) avoids pulling the full repository surface
+   * into agent-core; chat-service supplies a bound closure.
+   */
+  recentEventLookup?: (
+    kind: string,
+  ) => Promise<{ payload: Record<string, unknown>; timestamp: string } | null>;
+
   actionExecutor: ActionExecutor;
 
   emitAgentEvent(event: AgentEvent): void;

@@ -1,4 +1,4 @@
-import { asc, eq, max } from 'drizzle-orm';
+import { and, asc, desc, eq, max } from 'drizzle-orm';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { chatSessionEvents } from '../../db/sqlite-schema.js';
 import type {
@@ -52,5 +52,19 @@ export class SqliteChatSessionEventRepository implements IChatSessionEventReposi
 
   async deleteBySession(sessionId: string): Promise<void> {
     await this.db.delete(chatSessionEvents).where(eq(chatSessionEvents.sessionId, sessionId));
+  }
+
+  async findLatestByKind(
+    sessionId: string,
+    kind: string,
+  ): Promise<ChatSessionEventRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(chatSessionEvents)
+      .where(and(eq(chatSessionEvents.sessionId, sessionId), eq(chatSessionEvents.kind, kind)))
+      .orderBy(desc(chatSessionEvents.seq))
+      .limit(1);
+    const row = rows[0];
+    return row ? rowToEvent(row) : null;
   }
 }

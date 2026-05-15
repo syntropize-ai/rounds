@@ -59,6 +59,14 @@ export interface OrchestratorActionContextDeps {
    * (dashboard_create, alert_rule_write, …) actually persist audit rows.
    */
   auditEntryWriter?: (entry: NewAuditLogEntry) => Promise<void>;
+  /**
+   * Optional lookup for the most recent chat-event of a given kind in this
+   * session. Used by metric_explore to inherit timeRange from a prior
+   * inline_chart event. Chat-service binds this to the repository.
+   */
+  recentEventLookup?: (
+    kind: string,
+  ) => Promise<{ payload: Record<string, unknown>; timestamp: string } | null>;
 }
 
 export interface OrchestratorActionRuntime {
@@ -112,6 +120,7 @@ export function buildActionContext(
     identity: deps.identity,
     accessControl: deps.accessControl,
     auditWriter: deps.auditEntryWriter,
+    recentEventLookup: deps.recentEventLookup,
     actionExecutor: runtime.actionExecutor,
     emitAgentEvent: runtime.emitAgentEvent,
     makeAgentEvent: runtime.makeAgentEvent,

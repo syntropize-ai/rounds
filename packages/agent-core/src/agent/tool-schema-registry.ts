@@ -209,7 +209,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'PromQL expression' },
-          timeRangeHint: { type: 'string', description: 'Time window hint: "1h" | "6h" | "24h" | "7d" | "since 14:00" | "30m around 14:23". Defaults to 1h.' },
+          timeRangeHint: { type: 'string', description: 'Time window hint: "1h" | "6h" | "24h" | "7d" | "since 14:00" | "30m around 14:23". Omit on follow-ups about the same incident/metric to inherit the previous chart\'s range automatically (a small note is surfaced if the prior chart is stale).' },
           datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource for the workspace.' },
           metricKind: {
             type: 'string',

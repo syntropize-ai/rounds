@@ -488,4 +488,13 @@ export interface IChatSessionEventRepository {
   listBySession(sessionId: string): MaybeAsync<ChatSessionEventRecord[]>;
   nextSeq(sessionId: string): MaybeAsync<number>;
   deleteBySession(sessionId: string): MaybeAsync<void>;
+  /**
+   * Find the most recent event of a given kind in a session (by seq desc).
+   * Used by metric_explore to inherit the prior chart's time range on
+   * follow-up questions. Returns `null` when none exist.
+   */
+  findLatestByKind(
+    sessionId: string,
+    kind: string,
+  ): MaybeAsync<ChatSessionEventRecord | null>;
 }

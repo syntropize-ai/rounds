@@ -518,6 +518,19 @@ export class ChatService {
           ? { approvalRequests: this.deps.approvalStore }
           : {}),
         sendEvent: wrappedSendEvent,
+        // Recent-event lookup for handlers that want to peek at prior SSE
+        // payloads (e.g. metric_explore inheriting the last chart's range).
+        // Bound to this session; null when no event store is wired.
+        ...(eventStore
+          ? {
+              recentEventLookup: async (kind: string) => {
+                const row = await eventStore.findLatestByKind(resolvedSessionId, kind);
+                return row
+                  ? { payload: row.payload, timestamp: row.timestamp }
+                  : null;
+              },
+            }
+          : {}),
         timeRange,
         conversationSummary,
         identity,

@@ -40,6 +40,7 @@ import { createWebhookRouter } from '../routes/webhooks.js';
 import { createConnectorsRouter } from '../routes/connectors.js';
 import { createQueryRouter } from '../routes/dashboard/query.js';
 import { createMetricsQueryRouter } from '../routes/metrics-query.js';
+import { createMetricsSaveAsDashboardRouter } from '../routes/metrics-save-as-dashboard.js';
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
@@ -241,6 +242,12 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   // Auth + per-datasource RBAC + 30/min rate limit are inside the router.
   app.use('/api/metrics', userRateLimiter, createMetricsQueryRouter({
     setupConfig,
+    ac: accessControl,
+    audit: authSub.audit,
+  }));
+  // PR-C — save inline chart as a dashboard panel (new or append).
+  app.use('/api/metrics', userRateLimiter, createMetricsSaveAsDashboardRouter({
+    dashboardStore: repos.dashboards,
     ac: accessControl,
     audit: authSub.audit,
   }));

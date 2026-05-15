@@ -161,6 +161,10 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
     ac.eval('connectors:query', resolveConnectorScope(args)),
   'metrics_validate': (args: Record<string, unknown>) =>
     ac.eval('connectors:query', resolveConnectorScope(args)),
+  // metric_explore — inline chart bubble in chat. Same scope as the
+  // other read-side metrics primitives.
+  'metric_explore': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
 
   // -- Logs primitives (source-agnostic; sourceId is required) -------------
   'logs_query': (args: Record<string, unknown>) =>

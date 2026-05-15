@@ -21,6 +21,8 @@ export type AgentToolName =
   | 'navigate'
   // Source-agnostic metrics primitives (each requires `sourceId`)
   | 'metrics_query' | 'metrics_range_query' | 'metrics_discover' | 'metrics_validate'
+  // Inline chart bubble in chat (uses shared chart-summary helper)
+  | 'metric_explore'
   // Source-agnostic logs primitives (each requires `sourceId`)
   | 'logs_query' | 'logs_labels' | 'logs_label_values'
   // Recent change events (deploys, config rollouts, incidents)

@@ -39,6 +39,7 @@ import { mountPlans } from './plans-boot.js';
 import { createWebhookRouter } from '../routes/webhooks.js';
 import { createConnectorsRouter } from '../routes/connectors.js';
 import { createQueryRouter } from '../routes/dashboard/query.js';
+import { createMetricsQueryRouter } from '../routes/metrics-query.js';
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
@@ -235,6 +236,15 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     setupConfig,
     llmAuditStore: repos.llmAudit,
   }));
+  // Inline-chart metrics query — POST /api/metrics/query. Mounted after the
+  // /api/metrics exposition router so the POST verb doesn't shadow the GET /.
+  // Auth + per-datasource RBAC + 30/min rate limit are inside the router.
+  app.use('/api/metrics', userRateLimiter, createMetricsQueryRouter({
+    setupConfig,
+    ac: accessControl,
+    audit: authSub.audit,
+  }));
+
   app.use('/api/alert-rules', createAlertRulesRouter({
     alertRuleStore: eventAlertRuleStore,
     investigationStore: repos.investigations,

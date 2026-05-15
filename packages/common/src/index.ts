@@ -46,3 +46,12 @@ export { DEFAULT_LLM_MODEL } from './config/index.js';
 // grep EventTypes without pulling ioredis into the web bundle.
 export { EventTypes, type EventType, type EventEnvelope } from './events/types.js';
 export type { IEventBus, EventHandler } from './events/interface.js';
+
+// Pure utility helpers. `chart-summary` is consumed by both the REST
+// /api/metrics/query endpoint and the agent `metric_explore` tool.
+export { summarize as summarizeChart } from './utils/chart-summary.js';
+export type {
+  ChartMetricKind,
+  ChartSummary,
+  SummarySeries,
+} from './utils/chart-summary.js';

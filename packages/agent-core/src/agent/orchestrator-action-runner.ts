@@ -27,6 +27,7 @@ import {
   handleMetricsRangeQuery,
   handleMetricsDiscover,
   handleMetricsValidate,
+  handleMetricExplore,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,
@@ -207,6 +208,8 @@ async function dispatchAction(
     case 'metrics_range_query': return handleMetricsRangeQuery(ctx, args);
     case 'metrics_discover': return handleMetricsDiscover(ctx, args);
     case 'metrics_validate': return handleMetricsValidate(ctx, args);
+    // Inline chart bubble in chat (PR-A backend; PR-B frontend renders the bubble).
+    case 'metric_explore': return handleMetricExplore(ctx, args);
     // Source-agnostic logs primitives
     case 'logs_query': return handleLogsQuery(ctx, args);
     case 'logs_labels': return handleLogsLabels(ctx, args);

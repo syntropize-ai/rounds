@@ -260,6 +260,23 @@ export type DashboardSseEvent =
       confidence: 'high' | 'medium' | 'low';
       alternatives: Array<{ id: string; name: string; environment?: string; cluster?: string }>;
     }
+  | {
+      // Inline chart bubble rendered in the chat for throwaway exploration.
+      // Emitted by the `metric_explore` agent tool — PR-B renders the chart
+      // component from this payload. `series` and `summary` are the same
+      // shapes used by the REST endpoint at /api/metrics/query.
+      type: 'inline_chart';
+      query: string;
+      datasourceId: string;
+      timeRange: { start: string; end: string };
+      step: string;
+      metricKind: 'latency' | 'counter' | 'gauge' | 'errors';
+      series: Array<{ metric: Record<string, string>; values: Array<[number, string]> }>;
+      summary: { kind: 'latency' | 'counter' | 'gauge' | 'errors'; oneLine: string; stats: Record<string, number | string> };
+      // PR-C will populate pivot suggestions ("by route", "p99 only", etc).
+      // Empty array in v1 so the frontend can render the affordance shape stably.
+      pivotSuggestions: Array<{ id: string; label: string }>;
+    }
   | { type: 'done'; messageId: string }
   | { type: 'error'; message: string };
 

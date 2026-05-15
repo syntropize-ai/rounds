@@ -30,6 +30,7 @@ export {
   handleMetricsRangeQuery,
   handleMetricsDiscover,
   handleMetricsValidate,
+  handleMetricExplore,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,

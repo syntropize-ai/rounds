@@ -42,6 +42,8 @@ export {
   handleMetricsValidate,
 } from './metrics.js';
 
+export { handleMetricExplore } from './metric-explore.js';
+
 export {
   handleLogsQuery,
   handleLogsLabels,

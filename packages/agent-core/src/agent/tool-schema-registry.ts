@@ -199,6 +199,28 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  'metric_explore': {
+    category: 'always-on',
+    schema: {
+      name: 'metric_explore',
+      description:
+        'Query a time-series metric and render an interactive chart inline in the chat. Use for "show me / what is / how is" questions about metrics. Do NOT use for persistent dashboards (use dashboard_create for that). The chart appears in the chat; you should NOT describe its contents in your response — just acknowledge what you queried.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'PromQL expression' },
+          timeRangeHint: { type: 'string', description: 'Time window hint: "1h" | "6h" | "24h" | "7d" | "since 14:00" | "30m around 14:23". Defaults to 1h.' },
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource for the workspace.' },
+          metricKind: {
+            type: 'string',
+            enum: ['latency', 'counter', 'gauge', 'errors'],
+            description: 'Optional explicit kind. Omit to let the server infer from the query (histogram_quantile→latency, rate()→counter, errors/5xx→errors, else gauge).',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  },
 
   // -------------------------------------------------------------------------
   // Logs primitives (read-only, source-agnostic). The query string is backend-native.

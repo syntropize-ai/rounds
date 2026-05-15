@@ -106,6 +106,10 @@ export const AuditAction = {
   AlertRuleFork: 'alert_rule.fork',
   InvestigationCreate: 'investigation.create',
   InvestigationUpdate: 'investigation.update',
+
+  // Inline metric exploration (REST + agent metric_explore tool).
+  // Rate-limited (30/min/user/datasource), so volume is bounded.
+  MetricsQuery: 'metrics.query',
 } as const;
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];

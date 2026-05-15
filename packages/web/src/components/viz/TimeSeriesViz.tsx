@@ -529,14 +529,22 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
       }
     };
 
-    const setScaleHook = (u: uPlot, scaleKey: string): void => {
-      if (scaleKey !== 'x') return;
+    // User-initiated zoom only: `setSelect` fires when the user releases a
+    // drag-selection on the chart. We deliberately avoid `setScale` here —
+    // `setScale` ALSO fires whenever uPlot re-derives the X scale from new
+    // data, which means feeding the chart fresh series after a re-query
+    // would re-fire the zoom callback → re-trigger the same fetch → infinite
+    // loop (observed: 240 queries/min until the rate limiter cut in).
+    // `setSelect` is keyed to user input, not data updates.
+    const setSelectHook = (u: uPlot): void => {
       const cb = onZoomRef.current;
       if (!cb) return;
-      const xScale = u.scales.x;
-      if (!xScale || xScale.min === undefined || xScale.max === undefined) return;
-      if (xScale.min === null || xScale.max === null) return;
-      cb(xScale.min, xScale.max);
+      const sel = u.select;
+      if (!sel || sel.width <= 0) return;
+      const fromMs = u.posToVal(sel.left, 'x');
+      const toMs = u.posToVal(sel.left + sel.width, 'x');
+      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return;
+      cb(fromMs, toMs);
     };
 
     const merged: uPlot.Options = {
@@ -564,9 +572,9 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
           ...((base.hooks?.setCursor as Array<(u: uPlot) => void> | undefined) ?? []),
           setCursor,
         ],
-        setScale: [
-          ...((base.hooks?.setScale as Array<(u: uPlot, k: string) => void> | undefined) ?? []),
-          setScaleHook,
+        setSelect: [
+          ...((base.hooks?.setSelect as Array<(u: uPlot) => void> | undefined) ?? []),
+          setSelectHook,
         ],
       },
       legend: { show: false },

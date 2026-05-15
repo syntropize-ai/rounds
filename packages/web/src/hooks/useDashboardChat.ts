@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Provenance } from '@agentic-obs/common';
+import type { Provenance, ChartMetricKind, ChartSummary } from '@agentic-obs/common';
 import { apiClient } from '../api/client.js';
 import type { PanelConfig } from '../components/DashboardPanelCard.js';
 
@@ -35,8 +35,104 @@ export type ChatEventKind =
   | 'investigation_report'
   | 'ask_user'
   | 'ds_choice'
+  | 'inline_chart'
   | 'done'
   | 'error';
+
+/**
+ * Inline chart payload carried by a ChatEvent (kind = 'inline_chart').
+ * Mirrors the SSE event shape one-to-one — see DashboardSseEvent in
+ * packages/common/src/models/dashboard.ts.
+ */
+export interface InlineChartSeries {
+  metric: Record<string, string>;
+  values: Array<[number, string]>;
+}
+
+export interface InlineChartPivotSuggestion {
+  id: string;
+  label: string;
+}
+
+export interface InlineChartPayload {
+  /**
+   * Synthesized client-side from query + datasourceId + timeRange so the
+   * same content collapses to the same bubble. The SSE event itself
+   * carries no id (see PR-A backend handler).
+   */
+  id: string;
+  query: string;
+  datasourceId: string;
+  timeRange: { start: string; end: string };
+  step: string;
+  metricKind: ChartMetricKind;
+  series: InlineChartSeries[];
+  summary: ChartSummary;
+  pivotSuggestions: InlineChartPivotSuggestion[];
+}
+
+/**
+ * Derive a stable id from the load-bearing fields. Same (query, ds, range)
+ * arriving twice in the same session collapses to one bubble. Cheap-hash
+ * (no crypto needed — collisions across unrelated charts don't matter).
+ */
+export function deriveInlineChartId(
+  query: string,
+  datasourceId: string,
+  start: string,
+  end: string,
+): string {
+  return `chart:${datasourceId}:${start}:${end}:${query}`;
+}
+
+/**
+ * Parse a raw SSE `inline_chart` payload into the typed shape we render.
+ * Returns `null` if the payload is unusable (missing query / datasource /
+ * timeRange) — the UI silently drops it rather than crashing.
+ */
+export function parseInlineChartPayload(
+  raw: Record<string, unknown>,
+): InlineChartPayload | null {
+  const query = typeof raw.query === 'string' ? raw.query : '';
+  const datasourceId = typeof raw.datasourceId === 'string' ? raw.datasourceId : '';
+  const tr = raw.timeRange as { start?: unknown; end?: unknown } | undefined;
+  const start = typeof tr?.start === 'string' ? tr.start : '';
+  const end = typeof tr?.end === 'string' ? tr.end : '';
+  if (!query || !datasourceId || !start || !end) return null;
+
+  const step = typeof raw.step === 'string' ? raw.step : '60s';
+  const kind = (raw.metricKind === 'latency' || raw.metricKind === 'counter' ||
+    raw.metricKind === 'gauge' || raw.metricKind === 'errors')
+    ? raw.metricKind
+    : 'gauge';
+  const series = Array.isArray(raw.series) ? (raw.series as InlineChartSeries[]) : [];
+  const summary: ChartSummary = (raw.summary && typeof raw.summary === 'object')
+    ? raw.summary as ChartSummary
+    : { kind, oneLine: '', stats: {} };
+  const rawPivots = Array.isArray(raw.pivotSuggestions) ? raw.pivotSuggestions : [];
+  const pivotSuggestions = rawPivots
+    .map((p) => {
+      if (!p || typeof p !== 'object') return null;
+      const obj = p as Record<string, unknown>;
+      const id = typeof obj.id === 'string' ? obj.id : '';
+      const label = typeof obj.label === 'string' ? obj.label : '';
+      if (!id || !label) return null;
+      return { id, label };
+    })
+    .filter((p): p is InlineChartPivotSuggestion => p !== null);
+
+  return {
+    id: deriveInlineChartId(query, datasourceId, start, end),
+    query,
+    datasourceId,
+    timeRange: { start, end },
+    step,
+    metricKind: kind,
+    series,
+    summary,
+    pivotSuggestions,
+  };
+}
 
 export interface AskUserOption {
   id: string;
@@ -132,6 +228,8 @@ export interface ChatEvent {
   evidenceId?: string;
   cost?: number;
   durationMs?: number;
+  // For 'inline_chart' — the full chart bubble payload.
+  inlineChart?: InlineChartPayload;
 }
 
 interface UseDashboardChatResult {
@@ -220,6 +318,22 @@ export function useDashboardChat(
 
   const appendEvent = useCallback((evt: ChatEvent) => {
     setEvents((prev) => [...prev, evt]);
+  }, []);
+
+  /**
+   * Append OR replace by `inline_chart`'s derived id. Same content arriving
+   * twice updates the existing bubble in place; new content appends.
+   */
+  const upsertInlineChart = useCallback((evt: ChatEvent, chartId: string) => {
+    setEvents((prev) => {
+      const idx = prev.findIndex(
+        (e) => e.kind === 'inline_chart' && e.inlineChart?.id === chartId,
+      );
+      if (idx === -1) return [...prev, evt];
+      const next = prev.slice();
+      next[idx] = evt;
+      return next;
+    });
   }, []);
 
   const handleSSEEvent = useCallback(
@@ -374,6 +488,17 @@ export function useDashboardChat(
           break;
         }
 
+        case 'inline_chart': {
+          const payload = parseInlineChartPayload(parsed);
+          if (payload) {
+            upsertInlineChart(
+              { id: payload.id, kind: 'inline_chart', inlineChart: payload },
+              payload.id,
+            );
+          }
+          break;
+        }
+
         case 'ds_choice': {
           const chosenId = typeof parsed.chosenId === 'string' ? parsed.chosenId : '';
           const chosenName = typeof parsed.name === 'string' ? parsed.name : '';
@@ -418,7 +543,7 @@ export function useDashboardChat(
           break;
       }
     },
-    [appendEvent, dashboardId, navigate],
+    [appendEvent, upsertInlineChart, dashboardId, navigate],
   );
 
   const sendMessage = useCallback(

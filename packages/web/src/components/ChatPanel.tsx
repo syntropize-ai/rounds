@@ -7,6 +7,7 @@ import { UserMessage, AssistantMessage, ErrorMessage } from './chat/MessageCompo
 import AgentActivityBlock from './chat/AgentActivityBlock.js';
 import AskUserPrompt from './chat/AskUserPrompt.js';
 import { DatasourceChoiceChip } from './chat/DatasourceChoiceChip.js';
+import InlineChartMessage from './InlineChartMessage.js';
 import { RoundsLogo } from './RoundsLogo.js';
 
 // Types
@@ -241,6 +242,23 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
                   question={evt.question ?? ''}
                   options={evt.options ?? []}
                   onSelect={(id) => onSendMessage(`option:${id}`)}
+                />
+              );
+            }
+            if (evt.kind === 'inline_chart' && evt.inlineChart) {
+              const c = evt.inlineChart;
+              return (
+                <InlineChartMessage
+                  key={evt.id}
+                  id={c.id}
+                  initialQuery={c.query}
+                  initialTimeRange={c.timeRange}
+                  initialSeries={c.series}
+                  initialSummary={c.summary}
+                  metricKind={c.metricKind}
+                  datasourceId={c.datasourceId}
+                  pivotSuggestions={c.pivotSuggestions}
+                  onSendMessage={onSendMessage}
                 />
               );
             }

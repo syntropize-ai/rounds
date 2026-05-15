@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { apiClient } from '../api/client.js';
 import type { ChatMessage, ChatEvent } from './useDashboardChat.js';
-import { parseAskUserPayload } from './useDashboardChat.js';
+import { parseAskUserPayload, parseInlineChartPayload } from './useDashboardChat.js';
 
 /** Page context — tells the agent what the user is currently looking at. */
 export interface PageContext {
@@ -130,6 +130,11 @@ export function payloadToChatEvent(
     case 'ask_user': {
       const { question, options } = parseAskUserPayload(payload);
       return { id, kind: 'ask_user', question, options };
+    }
+    case 'inline_chart': {
+      const chart = parseInlineChartPayload(payload);
+      if (!chart) return null;
+      return { id: chart.id, kind: 'inline_chart', inlineChart: chart };
     }
     case 'ds_choice': {
       const chosenId =
@@ -294,6 +299,22 @@ export function useChat(): UseChatResult {
     setEvents((prev) => [...prev, evt]);
   }, []);
 
+  /**
+   * Append OR replace by `inline_chart`'s derived id (same content collapses
+   * to one bubble across the session). Mirrors useDashboardChat.
+   */
+  const upsertInlineChart = useCallback((evt: ChatEvent, chartId: string) => {
+    setEvents((prev) => {
+      const idx = prev.findIndex(
+        (e) => e.kind === 'inline_chart' && e.inlineChart?.id === chartId,
+      );
+      if (idx === -1) return [...prev, evt];
+      const next = prev.slice();
+      next[idx] = evt;
+      return next;
+    });
+  }, []);
+
   const clearPendingNavigation = useCallback(() => {
     setPendingNavigation(null);
   }, []);
@@ -409,6 +430,17 @@ export function useChat(): UseChatResult {
           break;
         }
 
+        case 'inline_chart': {
+          const chart = parseInlineChartPayload(parsed);
+          if (chart) {
+            upsertInlineChart(
+              { id: chart.id, kind: 'inline_chart', inlineChart: chart },
+              chart.id,
+            );
+          }
+          break;
+        }
+
         case 'done': {
           const durableSessionId =
             typeof parsed.sessionId === 'string' && parsed.sessionId.trim()
@@ -441,7 +473,7 @@ export function useChat(): UseChatResult {
           break;
       }
     },
-    [appendEvent],
+    [appendEvent, upsertInlineChart],
   );
 
   const sendMessage = useCallback(

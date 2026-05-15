@@ -273,20 +273,27 @@ export function useChat(): UseChatResult {
   const loadTokenRef = useRef(0);
   const pageContextRef = useRef<PageContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const [currentSessionId, setCurrentSessionId] = useState<string>(
-    () => localStorage.getItem('chat_session_id') ?? '',
-  );
-  const sessionIdRef = useRef<string>(currentSessionId);
+  // Session id source of truth: the URL (`?chat=<id>`) for deeplinks plus the
+  // Recents list on Home for picking a prior conversation. There used to be a
+  // `localStorage.chat_session_id` mirror here so a new tab would auto-resume
+  // the last conversation — but that cached a server-side session id without
+  // any validation contract, so when the server-side session was gone (DB
+  // reset, expired, different user) the client cheerfully POSTed a stale id
+  // to /api/chat and got a 404. localStorage is removed: URL is canonical,
+  // empty initial state = new conversation, Recents covers explicit resume.
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
+  const sessionIdRef = useRef<string>('');
 
   // Keep ref in sync with state
   useEffect(() => {
     sessionIdRef.current = currentSessionId;
-    if (currentSessionId) {
-      localStorage.setItem('chat_session_id', currentSessionId);
-    } else {
-      localStorage.removeItem('chat_session_id');
-    }
   }, [currentSessionId]);
+
+  // Best-effort cleanup of any stale id from previous app versions. Run once
+  // on mount; ignored if the key was already cleared.
+  useEffect(() => {
+    try { localStorage.removeItem('chat_session_id'); } catch { /* ignore */ }
+  }, []);
 
   const appendEvent = useCallback((evt: ChatEvent) => {
     setEvents((prev) => [...prev, evt]);
@@ -488,15 +495,16 @@ export function useChat(): UseChatResult {
         setLoadError(null);
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
-          const id = crypto.randomUUID();
-          // Provide a friendlier message when the endpoint doesn't exist yet
-          const is404 = err.message.includes('404');
+          // Genuine failures now: auth gate (handled with its own message in
+          // streaming.ts), permission denied (ditto), transport / 5xx, or a
+          // 404 caused by a session that was deleted server-side mid-flight
+          // (rare; deserves an honest message). The old "endpoint not available
+          // yet" fallback was misleading: the endpoint exists, the stale
+          // sessionId was the bug, and that bug is now fixed at its source.
           appendEvent({
-            id,
+            id: crypto.randomUUID(),
             kind: 'error',
-            content: is404
-              ? 'The /api/chat endpoint is not available yet. The backend team is still working on it.'
-              : err.message,
+            content: err.message,
           });
         }
       } finally {

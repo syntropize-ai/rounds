@@ -43,18 +43,6 @@ function HomeIcon({ className }: { className?: string }) {
   );
 }
 
-/* Services — concentric rings to evoke the service-mesh /
-   service-as-primary concept (Wave 2 / Step 2). */
-function ServicesIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="12" cy="12" r="5" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-    </svg>
-  );
-}
-
 function DashboardIcon({ className }: { className?: string }) {
   return (
     <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -498,7 +486,6 @@ export default function Navigation() {
       {(activeTab === 'nav' || !expanded) && (
         <div className={`flex flex-col gap-1 flex-1 ${expanded ? '' : 'items-center'}`}>
           <SidebarItem to="/" label="Home" icon={<HomeIcon />} end expanded={expanded} />
-          <SidebarItem to="/services" label="Services" icon={<ServicesIcon />} expanded={expanded} />
           <SidebarItem to="/dashboards" label="Dashboards" icon={<DashboardIcon />} expanded={expanded} />
           <SidebarItem to="/investigations" label="Investigations" icon={<InvestigationIcon />} expanded={expanded} />
           <SidebarItem to="/alerts" label="Alerts" icon={<AlertsIcon />} expanded={expanded} />

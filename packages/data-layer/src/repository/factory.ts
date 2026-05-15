@@ -16,15 +16,12 @@ import type {
   IChatSessionContextRepository,
   IChatMessageRepository,
   IChatSessionEventRepository,
-  IServiceAttributionRepository,
 } from './interfaces.js';
 import type { IInvestigationRepository as SqliteInvestigationRepositoryInterface } from './sqlite/investigation.js';
 import type {
   IDashboardRepository,
-  IDashboardVariableAckRepository,
   IInstanceConfigRepository,
   INotificationChannelRepository,
-  IAiSuggestionRepository,
 } from '@agentic-obs/common';
 import type { IConnectorRepository } from './types/connector.js';
 import type {
@@ -40,7 +37,6 @@ import { SqliteFeedItemRepository } from './sqlite/feed.js';
 import { SqliteApprovalRequestRepository } from './sqlite/approval.js';
 import { SqliteShareLinkRepository } from './sqlite/share.js';
 import { DashboardRepository as SqliteDashboardRepository } from './sqlite/dashboard.js';
-import { SqliteDashboardVariableAckRepository } from './sqlite/dashboard-variable-ack.js';
 import { SqliteFolderRepository } from './sqlite/folder.js';
 import { SqliteAlertRuleRepository } from './sqlite/alert-rule.js';
 import { SqliteNotificationRepository } from './sqlite/notification.js';
@@ -60,7 +56,6 @@ import { PostgresFeedItemRepository } from './postgres/feed.js';
 import { PostgresApprovalRequestRepository } from './postgres/approval.js';
 import { PostgresShareLinkRepository } from './postgres/share.js';
 import { DashboardRepository as PostgresDashboardRepository } from './postgres/dashboard.js';
-import { PostgresDashboardVariableAckRepository } from './postgres/dashboard-variable-ack.js';
 import { PostgresFolderRepository } from './postgres/folder.js';
 import { PostgresAlertRuleRepository } from './postgres/alert-rule.js';
 import { PostgresNotificationRepository } from './postgres/notification.js';
@@ -83,10 +78,6 @@ import { PostgresNotificationDispatchRepository } from './postgres/notification-
 import { SqliteLlmAuditRepository } from './sqlite/llm-audit-repository.js';
 import { PostgresLlmAuditRepository } from './postgres/llm-audit-repository.js';
 import type { ILlmAuditRepository } from './sqlite/llm-audit-repository.js';
-import { SqliteAiSuggestionRepository } from './sqlite/ai-suggestion.js';
-import { PostgresAiSuggestionRepository } from './postgres/ai-suggestion.js';
-import { SqliteServiceAttributionRepository } from './sqlite/service-attribution.js';
-import { PostgresServiceAttributionRepository } from './postgres/service-attribution.js';
 
 /**
  * Complete repository bundle available behind every persistence backend.
@@ -104,7 +95,6 @@ export interface RepositoryBundle {
   approvals: IApprovalRequestRepository & IGatewayApprovalStore;
   shares: IShareLinkRepository & IGatewayShareStore;
   dashboards: IDashboardRepository;
-  dashboardVariableAcks: IDashboardVariableAckRepository;
   folders: IFolderRepository;
   alertRules: IAlertRuleRepository;
   notifications: INotificationRepository;
@@ -122,8 +112,6 @@ export interface RepositoryBundle {
   remediationPlans: IRemediationPlanRepository;
   notificationDispatch: INotificationDispatchRepository;
   llmAudit: ILlmAuditRepository;
-  aiSuggestions: IAiSuggestionRepository;
-  serviceAttribution: IServiceAttributionRepository;
 }
 
 export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
@@ -134,7 +122,6 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     approvals: new SqliteApprovalRequestRepository(db),
     shares: new SqliteShareLinkRepository(db),
     dashboards: new SqliteDashboardRepository(db),
-    dashboardVariableAcks: new SqliteDashboardVariableAckRepository(db),
     folders: new SqliteFolderRepository(db),
     alertRules: new SqliteAlertRuleRepository(db),
     notifications: new SqliteNotificationRepository(db),
@@ -151,8 +138,6 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     remediationPlans: new SqliteRemediationPlanRepository(db),
     notificationDispatch: new SqliteNotificationDispatchRepository(db),
     llmAudit: new SqliteLlmAuditRepository(db),
-    aiSuggestions: new SqliteAiSuggestionRepository(db),
-    serviceAttribution: new SqliteServiceAttributionRepository(db),
   };
 }
 
@@ -165,7 +150,6 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     approvals: new PostgresApprovalRequestRepository(db),
     shares: new PostgresShareLinkRepository(db),
     dashboards: new PostgresDashboardRepository(db),
-    dashboardVariableAcks: new PostgresDashboardVariableAckRepository(db),
     folders: new PostgresFolderRepository(db),
     alertRules: new PostgresAlertRuleRepository(db),
     notifications: new PostgresNotificationRepository(db),
@@ -182,8 +166,6 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     remediationPlans: new PostgresRemediationPlanRepository(db),
     notificationDispatch: new PostgresNotificationDispatchRepository(db),
     llmAudit: new PostgresLlmAuditRepository(db),
-    aiSuggestions: new PostgresAiSuggestionRepository(db),
-    serviceAttribution: new PostgresServiceAttributionRepository(db),
   };
 }
 

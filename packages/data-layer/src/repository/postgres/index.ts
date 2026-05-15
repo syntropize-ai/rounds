@@ -23,4 +23,3 @@ export { PostgresConnectorRepository } from './connector.js';
 export { applyPostgresSchema } from './schema-applier.js';
 
 export { PostgresRemediationPlanRepository } from './remediation-plan.js';
-export { PostgresServiceAttributionRepository } from './service-attribution.js';

@@ -258,6 +258,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
                   metricKind={c.metricKind}
                   datasourceId={c.datasourceId}
                   pivotSuggestions={c.pivotSuggestions}
+                  warnings={c.warnings}
                   onSendMessage={onSendMessage}
                 />
               );

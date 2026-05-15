@@ -26,11 +26,25 @@ interface Props {
   metricKind: ChartMetricKind;
   datasourceId: string;
   pivotSuggestions?: InlineChartPivotSuggestion[];
+  /** Optional notes from the backend (e.g. "Inherited time range…"). */
+  warnings?: string[];
   /** Optional callback when a pivot chip is clicked — caller sends this as a new chat message. */
   onSendMessage?: (prompt: string) => void;
-  /** Optional stub — opens the save-as-dashboard flow (PR-C). */
-  onSaveAsDashboard?: () => void;
 }
+
+interface SavePreviewMatch {
+  dashboardId: string;
+  title: string;
+  similarityPct: number;
+}
+
+type SaveStage =
+  | { kind: 'idle' }
+  | { kind: 'loading-preview' }
+  | { kind: 'preview'; matches: SavePreviewMatch[] }
+  | { kind: 'saving' }
+  | { kind: 'saved'; title: string; url: string }
+  | { kind: 'error'; message: string };
 
 interface QueryResponse {
   series: InlineChartSeries[];
@@ -123,8 +137,8 @@ export default function InlineChartMessage(props: Props): JSX.Element {
     metricKind,
     datasourceId,
     pivotSuggestions = [],
+    warnings,
     onSendMessage,
-    onSaveAsDashboard,
   } = props;
 
   const [query, setQuery] = useState(initialQuery);
@@ -140,6 +154,7 @@ export default function InlineChartMessage(props: Props): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   const [rangeMenuOpen, setRangeMenuOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
+  const [saveStage, setSaveStage] = useState<SaveStage>({ kind: 'idle' });
 
   // Sync props → state when SSE updates push a new payload with the same id.
   // The parent calls upsertInlineChart which replaces the event; React
@@ -266,8 +281,71 @@ export default function InlineChartMessage(props: Props): JSX.Element {
   );
 
   const onPivotClick = (p: InlineChartPivotSuggestion) => {
-    onSendMessage?.(p.label);
+    onSendMessage?.(p.prompt);
   };
+
+  // -- Save-as-dashboard flow --
+  const defaultTitle = useMemo(() => {
+    const date = new Date().toISOString().slice(0, 10);
+    return `${title} (${date})`;
+  }, [title]);
+
+  const beginSavePreview = useCallback(async () => {
+    setMenuOpen(false);
+    setSaveStage({ kind: 'loading-preview' });
+    try {
+      const { data, error: apiErr } = await apiClient.post<{ matches: SavePreviewMatch[] }>(
+        '/metrics/save-as-dashboard/preview',
+        { query },
+      );
+      if (apiErr) {
+        setSaveStage({ kind: 'error', message: apiErr.message });
+        return;
+      }
+      setSaveStage({ kind: 'preview', matches: data?.matches ?? [] });
+    } catch (err) {
+      setSaveStage({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [query]);
+
+  const doSave = useCallback(
+    async (addToExistingDashboardId?: string) => {
+      setSaveStage({ kind: 'saving' });
+      try {
+        const { data, error: apiErr } = await apiClient.post<{
+          dashboardId: string;
+          panelId: string;
+          url: string;
+        }>('/metrics/save-as-dashboard', {
+          title: defaultTitle,
+          query,
+          datasourceId,
+          metricKind,
+          ...(addToExistingDashboardId ? { addToExistingDashboardId } : {}),
+        });
+        if (apiErr) {
+          setSaveStage({ kind: 'error', message: apiErr.message });
+          return;
+        }
+        if (!data) {
+          setSaveStage({ kind: 'error', message: 'Empty response' });
+          return;
+        }
+        setSaveStage({ kind: 'saved', title: defaultTitle, url: data.url });
+      } catch (err) {
+        setSaveStage({
+          kind: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [defaultTitle, query, datasourceId, metricKind],
+  );
+
+  const cancelSave = useCallback(() => setSaveStage({ kind: 'idle' }), []);
 
   const onRunEditor = () => {
     const q = draftQuery.trim();
@@ -310,10 +388,8 @@ export default function InlineChartMessage(props: Props): JSX.Element {
                 Copy query
               </MenuItem>
               <MenuItem
-                disabled={!onSaveAsDashboard}
                 onClick={() => {
-                  setMenuOpen(false);
-                  onSaveAsDashboard?.();
+                  void beginSavePreview();
                 }}
               >
                 Save as dashboard
@@ -323,6 +399,16 @@ export default function InlineChartMessage(props: Props): JSX.Element {
           )}
         </div>
       </div>
+
+      {/* Warning notes (e.g. inherited time range) */}
+      {warnings && warnings.length > 0 && (
+        <div
+          className="px-3 py-1 bg-tertiary/10 text-on-surface-variant text-xs border-b border-outline-variant"
+          data-testid="chart-warnings"
+        >
+          {warnings.join(' · ')}
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (
@@ -413,7 +499,7 @@ export default function InlineChartMessage(props: Props): JSX.Element {
           )}
         </div>
         {pivotSuggestions.map((p) => (
-          <Chip key={p.id} onClick={() => onPivotClick(p)}>{p.label}</Chip>
+          <Chip key={p.label} onClick={() => onPivotClick(p)}>{p.label}</Chip>
         ))}
         <div className="flex-1" />
         <button
@@ -425,6 +511,17 @@ export default function InlineChartMessage(props: Props): JSX.Element {
           {queryEditorExpanded ? '▲ Query' : '▼ Query'}
         </button>
       </div>
+
+      {/* Save-as-dashboard inline panel (PR-C). No modal — sits below action chips. */}
+      {saveStage.kind !== 'idle' && (
+        <SavePanel
+          stage={saveStage}
+          onSaveNew={() => void doSave()}
+          onAppend={(id) => void doSave(id)}
+          onCancel={cancelSave}
+          onDismissError={cancelSave}
+        />
+      )}
 
       {/* Query editor */}
       {queryEditorExpanded && (
@@ -490,6 +587,121 @@ function MenuItem({
     >
       {children}
     </button>
+  );
+}
+
+function SavePanel({
+  stage,
+  onSaveNew,
+  onAppend,
+  onCancel,
+  onDismissError,
+}: {
+  stage: SaveStage;
+  onSaveNew: () => void;
+  onAppend: (dashboardId: string) => void;
+  onCancel: () => void;
+  onDismissError: () => void;
+}): JSX.Element | null {
+  if (stage.kind === 'idle') return null;
+  if (stage.kind === 'loading-preview') {
+    return (
+      <div
+        className="px-3 py-2 border-t border-outline-variant text-xs text-on-surface-variant"
+        data-testid="save-panel"
+      >
+        Checking for similar dashboards…
+      </div>
+    );
+  }
+  if (stage.kind === 'saving') {
+    return (
+      <div
+        className="px-3 py-2 border-t border-outline-variant text-xs text-on-surface-variant"
+        data-testid="save-panel"
+      >
+        Saving…
+      </div>
+    );
+  }
+  if (stage.kind === 'saved') {
+    return (
+      <div
+        className="px-3 py-2 border-t border-outline-variant text-xs text-on-surface flex items-center gap-2"
+        data-testid="save-panel-saved"
+      >
+        <span>✓ Saved as &lsquo;{stage.title}&rsquo;.</span>
+        <a
+          className="underline text-primary hover:opacity-80"
+          href={stage.url}
+          data-testid="save-panel-open"
+        >
+          Open
+        </a>
+      </div>
+    );
+  }
+  if (stage.kind === 'error') {
+    return (
+      <div
+        className="px-3 py-2 border-t border-outline-variant text-xs text-error flex items-center gap-2"
+        data-testid="save-panel-error"
+      >
+        <span>Save failed: {stage.message}</span>
+        <button
+          type="button"
+          className="ml-auto px-2 py-0.5 rounded border border-outline-variant"
+          onClick={onDismissError}
+        >
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+  // Preview stage.
+  const top = stage.matches[0];
+  return (
+    <div
+      className="px-3 py-2 border-t border-outline-variant text-xs space-y-2"
+      data-testid="save-panel-preview"
+    >
+      <div className="font-medium text-on-surface">Save as dashboard?</div>
+      {top ? (
+        <div className="text-on-surface-variant">
+          Found &lsquo;{top.title}&rsquo; ({top.similarityPct}% similar).
+        </div>
+      ) : (
+        <div className="text-on-surface-variant">No similar dashboards found.</div>
+      )}
+      <div className="flex items-center gap-2">
+        {top && (
+          <button
+            type="button"
+            className="px-2 py-1 rounded border border-outline-variant hover:bg-surface text-on-surface"
+            onClick={() => onAppend(top.dashboardId)}
+            data-testid="save-panel-append"
+          >
+            Add to that dashboard
+          </button>
+        )}
+        <button
+          type="button"
+          className="px-2 py-1 rounded bg-primary text-on-primary hover:opacity-90"
+          onClick={onSaveNew}
+          data-testid="save-panel-save-new"
+        >
+          {top ? 'Save as new' : 'Save as new dashboard'}
+        </button>
+        <button
+          type="button"
+          className="px-2 py-1 rounded border border-outline-variant hover:bg-surface text-on-surface-variant"
+          onClick={onCancel}
+          data-testid="save-panel-cancel"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

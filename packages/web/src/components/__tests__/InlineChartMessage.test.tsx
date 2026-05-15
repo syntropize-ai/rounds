@@ -131,9 +131,14 @@ describe('parseInlineChartPayload', () => {
   it('drops malformed pivot suggestions', () => {
     const parsed = parseInlineChartPayload({
       ...goodPayload,
-      pivotSuggestions: [{ id: 'a', label: 'A' }, { id: '', label: 'bad' }, null, { id: 'b' }],
+      pivotSuggestions: [
+        { label: 'A', prompt: 'do A' },
+        { label: 'bad' },
+        null,
+        { prompt: 'no label' },
+      ],
     });
-    expect(parsed!.pivotSuggestions).toEqual([{ id: 'a', label: 'A' }]);
+    expect(parsed!.pivotSuggestions).toEqual([{ label: 'A', prompt: 'do A' }]);
   });
 
   it('falls back to gauge for an unknown metricKind', () => {
@@ -186,7 +191,7 @@ describe('InlineChartMessage SSR', () => {
   it('renders pivot chips when suggestions are present', () => {
     const html = renderToStaticMarkup(React.createElement(InlineChartMessage, {
       ...baseProps,
-      pivotSuggestions: [{ id: 'p1', label: 'by route' }],
+      pivotSuggestions: [{ label: 'by route', prompt: 'break by route' }],
     }));
     expect(html).toContain('by route');
   });
@@ -197,5 +202,30 @@ describe('InlineChartMessage SSR', () => {
     const html = renderToStaticMarkup(React.createElement(InlineChartMessage, baseProps));
     expect(html).toContain('Query');
     expect(html).toContain('data-testid="inline-chart-message"');
+  });
+
+  it('renders inherited-range warnings when present', () => {
+    const html = renderToStaticMarkup(React.createElement(InlineChartMessage, {
+      ...baseProps,
+      warnings: ['Inherited time range from earlier chart (3 min ago)'],
+    }));
+    expect(html).toContain('Inherited time range');
+    expect(html).toContain('data-testid="chart-warnings"');
+  });
+
+  it('renders pivot chip text using the label field (prompt is sent on click)', () => {
+    const html = renderToStaticMarkup(React.createElement(InlineChartMessage, {
+      ...baseProps,
+      pivotSuggestions: [{ label: 'Show p99', prompt: 'Show p99 instead' }],
+    }));
+    expect(html).toContain('Show p99');
+    // The prompt text is bound to the click handler, not rendered as content.
+    expect(html).not.toContain('Show p99 instead');
+  });
+
+  it('does not render a save panel by default', () => {
+    const html = renderToStaticMarkup(React.createElement(InlineChartMessage, baseProps));
+    expect(html).not.toContain('data-testid="save-panel-preview"');
+    expect(html).not.toContain('data-testid="save-panel-saved"');
   });
 });

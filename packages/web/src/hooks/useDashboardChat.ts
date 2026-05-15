@@ -50,8 +50,9 @@ export interface InlineChartSeries {
 }
 
 export interface InlineChartPivotSuggestion {
-  id: string;
   label: string;
+  /** Prompt sent as a new chat message when the chip is clicked. */
+  prompt: string;
 }
 
 export interface InlineChartPayload {
@@ -69,6 +70,8 @@ export interface InlineChartPayload {
   series: InlineChartSeries[];
   summary: ChartSummary;
   pivotSuggestions: InlineChartPivotSuggestion[];
+  /** Optional notes from the backend (e.g. inherited time range). */
+  warnings?: string[];
 }
 
 /**
@@ -114,12 +117,16 @@ export function parseInlineChartPayload(
     .map((p) => {
       if (!p || typeof p !== 'object') return null;
       const obj = p as Record<string, unknown>;
-      const id = typeof obj.id === 'string' ? obj.id : '';
       const label = typeof obj.label === 'string' ? obj.label : '';
-      if (!id || !label) return null;
-      return { id, label };
+      const prompt = typeof obj.prompt === 'string' ? obj.prompt : '';
+      if (!label || !prompt) return null;
+      return { label, prompt };
     })
     .filter((p): p is InlineChartPivotSuggestion => p !== null);
+
+  const warnings = Array.isArray(raw.warnings)
+    ? (raw.warnings as unknown[]).filter((w): w is string => typeof w === 'string')
+    : undefined;
 
   return {
     id: deriveInlineChartId(query, datasourceId, start, end),
@@ -131,6 +138,7 @@ export function parseInlineChartPayload(
     series,
     summary,
     pivotSuggestions,
+    ...(warnings && warnings.length > 0 ? { warnings } : {}),
   };
 }
 

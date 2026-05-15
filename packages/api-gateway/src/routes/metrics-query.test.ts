@@ -161,8 +161,8 @@ describe('POST /api/metrics/query', () => {
       now: () => t,
     });
 
-    // 30 allowed — burn them all.
-    for (let i = 0; i < 30; i++) {
+    // 240 allowed — burn them all.
+    for (let i = 0; i < 240; i++) {
       const res = await request(app)
         .post('/api/metrics/query')
         .send({ query: 'up', timeRange: { relative: '1h' } });

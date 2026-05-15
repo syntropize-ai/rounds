@@ -8,7 +8,7 @@
  *
  * Auth: requires `connectors:query` permission on the datasource (Rounds'
  * closest analog to "metrics:read" — see packages/common/src/rbac/actions.ts).
- * Rate limit: 30 queries/min per user per datasource (in-memory token bucket).
+ * Rate limit: 240 queries/min per user per datasource (in-memory token bucket).
  */
 
 import { Router } from 'express';
@@ -49,12 +49,17 @@ export interface MetricsQueryRouterDeps {
 }
 
 // -- Rate limit (per user per datasource, in-memory token bucket) ----------
-// 30 queries/min — same shape as a simple sliding window. We keep it
-// in-memory because the surface is "throwaway exploration in chat"; a
-// per-process counter is fine. If we ever need cross-replica coherence we
-// can swap in the Redis bucket the connector-test surface uses.
+// 240 queries/min — at one every 0.25s this is way past human pacing for
+// drag-zoom / chip-switch / chip-pivot bursts, but still catches a runaway
+// browser bug or a leaked retry loop. Per-process is fine since the
+// surface is "throwaway exploration in chat" and multi-replica setups can
+// migrate to the Redis bucket later.
+//
+// History: initial value was 30/min, which a real user hit in 15s by
+// clicking through a few time-range chips. The chart UI is designed for
+// fast iteration; the limit must not be felt by humans.
 
-const RATE_LIMIT_PER_MIN = 30;
+const RATE_LIMIT_PER_MIN = 240;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
 interface BucketEntry {

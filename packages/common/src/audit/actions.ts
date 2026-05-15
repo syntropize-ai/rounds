@@ -97,26 +97,15 @@ export const AuditAction = {
   DashboardDelete: 'dashboard.delete',
   DashboardMove: 'dashboard.move',
   DashboardFork: 'dashboard.fork',
-  DashboardPromote: 'dashboard.promote',
   FolderCreate: 'folder.create',
   FolderUpdate: 'folder.update',
   FolderDelete: 'folder.delete',
   AlertRuleCreate: 'alert_rule.create',
   AlertRuleUpdate: 'alert_rule.update',
   AlertRuleDelete: 'alert_rule.delete',
-  // Wave 2 step 1 — promotion of a personal draft alert rule into a
-  // shared/team folder. Crosses a permission boundary; written by the
-  // promote handler in addition to the GuardedAction audit.
-  AlertRulePromote: 'alert_rule.promote',
   AlertRuleFork: 'alert_rule.fork',
   InvestigationCreate: 'investigation.create',
   InvestigationUpdate: 'investigation.update',
-  ServiceAttributionConfirm: 'service.attribution_confirm',
-
-  // Wave 2 step 3 — AI Suggestions inbox (per-user proposals).
-  SuggestionAccepted: 'suggestion.accepted',
-  SuggestionDismissed: 'suggestion.dismissed',
-  SuggestionSnoozed: 'suggestion.snoozed',
 } as const;
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];

@@ -39,7 +39,6 @@ import {
   handleNavigate,
   handleFolderCreate,
   handleFolderList,
-  handleResourcePromote,
   handleOpsRunCommand,
   handleRemediationPlanCreate,
   handleRemediationPlanCreateRescue,
@@ -195,8 +194,6 @@ async function dispatchAction(
     // Folder lifecycle (minimal — organize dashboards)
     case 'folder_create': return handleFolderCreate(ctx, args);
     case 'folder_list': return handleFolderList(ctx, args);
-    // Wave 2 step 1 — promote a personal-draft resource into a shared folder
-    case 'resource_promote': return handleResourcePromote(ctx, args);
     // Navigation
     case 'navigate': return handleNavigate(ctx, args);
     // Connector discovery (always allowed)

@@ -10,8 +10,6 @@ export type AgentToolName =
   | 'dashboard_rearrange' | 'dashboard_add_variable' | 'dashboard_set_title'
   // Folder tools (Wave 7)
   | 'folder_create' | 'folder_list'
-  // Promote a personal-draft resource into a shared/team folder (Wave 2 step 1)
-  | 'resource_promote'
   // Investigation lifecycle
   | 'investigation_create' | 'investigation_list'
   | 'investigation_add_section'

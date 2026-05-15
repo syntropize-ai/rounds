@@ -44,8 +44,6 @@ const MUTATION_ACTIONS: ReadonlySet<string> = new Set([
   'investigation_create', 'investigation_add_section', 'investigation_complete',
   // alert_rule_write covers create / update / delete via the `op` discriminator
   'alert_rule_write',
-  // Wave 2 step 1 — moves a resource into a shared folder
-  'resource_promote',
 ]);
 
 /**

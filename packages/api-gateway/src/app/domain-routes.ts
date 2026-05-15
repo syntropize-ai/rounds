@@ -42,11 +42,6 @@ import { createQueryRouter } from '../routes/dashboard/query.js';
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
-import { createResourcesPromoteRouter } from '../routes/resources-promote.js';
-import { createServicesRouter } from '../routes/services.js';
-import { PromoteService } from '../services/promote-service.js';
-import { createSuggestionsRouter } from '../routes/suggestions.js';
-import { defaultGenerators } from '../services/suggestion-generators.js';
 import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
@@ -218,16 +213,6 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     accessControl,
     setupConfig,
     audit: authSub.audit,
-    variableAcks: repos.dashboardVariableAcks,
-    serviceAttribution: repos.serviceAttribution,
-  }));
-  app.use('/api/services', createServicesRouter({
-    serviceAttribution: repos.serviceAttribution,
-    dashboards: repos.dashboards,
-    alertRules: eventAlertRuleStore,
-    investigations: repos.investigations,
-    accessControl,
-    audit: authSub.audit,
   }));
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,
@@ -255,31 +240,9 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     folderRepository: sharedFolderRepo,
     ac: accessControl,
     audit: authSub.audit,
-    serviceAttribution: repos.serviceAttribution,
     ...(deps.runner ? { runner: deps.runner } : {}),
   }));
   // /api/folders is mounted in rbac-routes.ts (T7.1).
-  // Wave 2 step 1 — cross-folder promote endpoint for dashboards + alert rules.
-  app.use('/api/resources', createResourcesPromoteRouter({
-    promoteService: new PromoteService({
-      dashboards: repos.dashboards,
-      alertRules: eventAlertRuleStore,
-      folders: sharedFolderRepo,
-      accessControl,
-      audit: authSub.audit,
-    }),
-  }));
-  // Wave 2 step 3 — AI Suggestions inbox (one inbox on Home).
-  app.use('/api/suggestions', createSuggestionsRouter({
-    repo: repos.aiSuggestions,
-    generators: defaultGenerators(),
-    generatorDeps: {
-      dashboards: repos.dashboards,
-      alertRules: eventAlertRuleStore,
-    },
-    actionDeps: {},
-    audit: authSub.audit,
-  }));
   app.use('/api/search', createSearchRouter({
     dashboardStore: repos.dashboards,
     alertRuleStore: eventAlertRuleStore,

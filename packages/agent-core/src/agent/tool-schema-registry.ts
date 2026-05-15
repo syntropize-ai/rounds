@@ -970,39 +970,6 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     },
   },
 
-  // -------------------------------------------------------------------------
-  // Promote (Wave 2 step 1) — personal draft → shared folder
-  // -------------------------------------------------------------------------
-  'resource_promote': {
-    category: 'deferred',
-    schema: {
-      name: 'resource_promote',
-      description:
-        'Promote a personal-draft dashboard or alert rule into a shared/team folder. ' +
-        'Crosses a permission boundary — the move is HIGH risk and (when invoked from a ' +
-        'user conversation) requires `strong_user_confirm`; the background agent gets ' +
-        '`formal_approval`. The resource UID stays the same so existing links keep ' +
-        'working. Provisioned resources are refused — fork them first.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          kind: {
-            type: 'string',
-            enum: ['dashboard', 'alert_rule'],
-            description: 'Which resource type to promote.',
-          },
-          id: { type: 'string', description: 'Resource id (dashboard.id or alert rule id).' },
-          target_folder_uid: {
-            type: 'string',
-            description: 'Destination shared folder uid. Must have folder.kind === "shared".',
-          },
-          owner: { type: 'string', description: 'Optional new owner userId. Defaults to current owner.' },
-          description: { type: 'string', description: 'Optional updated description.' },
-        },
-        required: ['kind', 'id', 'target_folder_uid'],
-      },
-    },
-  },
 };
 
 /**

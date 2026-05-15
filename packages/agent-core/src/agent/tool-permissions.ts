@@ -100,16 +100,6 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
     ),
   'folder_list': () => ac.eval('folders:read', 'folders:*'),
 
-  // -- Promote (Wave 2 step 1) ---------------------------------------------
-  // Layer-3 gate covers ONE side of the boundary — write on the source UID.
-  // The handler itself runs the second check (write on target folder) because
-  // the destination is only known once `target_folder_uid` is parsed.
-  'resource_promote': (args: Record<string, unknown>) => {
-    const kind = args.kind === 'alert_rule' ? 'alert.rules' : 'dashboards';
-    const resourceId = String(args.id ?? '*');
-    return ac.eval(`${kind}:write`, `${kind}:uid:${resourceId}`);
-  },
-
   // -- Investigation lifecycle ---------------------------------------------
   'investigation_create': () => ac.eval('investigations:create'),
   'investigation_list': () =>

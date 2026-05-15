@@ -5,11 +5,9 @@ import { randomUUID } from 'crypto'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { createRequirePermission } from '../../middleware/require-permission.js'
-import type { IGatewayDashboardStore, IServiceAttributionRepository } from '@agentic-obs/data-layer'
-import { applyTier1PromqlAttribution } from '@agentic-obs/data-layer'
+import type { IGatewayDashboardStore } from '@agentic-obs/data-layer'
 import { VariableResolver } from './variable-resolver.js'
-import { ac, ACTIONS, AuditAction, assertWritable, ProvisionedResourceError, hashVariables } from '@agentic-obs/common'
-import type { IDashboardVariableAckRepository } from '@agentic-obs/common'
+import { ac, ACTIONS, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common'
 import type { Dashboard, PanelConfig } from '@agentic-obs/common'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
 import type { AuditWriter } from '../../auth/audit-writer.js'
@@ -39,17 +37,6 @@ export interface DashboardRouterDeps {
    * one; production wires the same writer used by auth routes.
    */
   audit?: AuditWriter
-  /**
-   * Wave 2 / Step 4 — per-user-per-dashboard ack store for inferred URL
-   * variables. Optional so legacy tests can omit it; routes that depend
-   * on it return 503 when missing.
-   */
-  variableAcks?: IDashboardVariableAckRepository
-  /**
-   * W2 step 2 — Tier-1 service-name extraction from panel PromQL. Optional
-   * so legacy tests can construct the router without one.
-   */
-  serviceAttribution?: IServiceAttributionRepository
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
@@ -57,32 +44,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   const accessControl = deps.accessControl
   const setupConfig = deps.setupConfig
   const audit = deps.audit
-  const variableAcks = deps.variableAcks
-  const serviceAttribution = deps.serviceAttribution
-
-  function panelsToPromqlQueries(panels: PanelConfig[]): string[] {
-    const out: string[] = []
-    for (const p of panels) {
-      if (p.query) out.push(p.query)
-      if (p.queries) for (const q of p.queries) if (q.expr) out.push(q.expr)
-    }
-    return out
-  }
-
-  /**
-   * Tier-1 service auto-fill. Best-effort: writes a `prom_label` attribution
-   * row with confidence 0.95 when any panel query contains a `service="x"`
-   * label. Runs after the primary panel write; failures are swallowed inside
-   * `applyTier1PromqlAttribution`.
-   */
-  async function autoAttributeDashboard(orgId: string, dashboardId: string, panels: PanelConfig[]): Promise<void> {
-    if (!serviceAttribution) return
-    await applyTier1PromqlAttribution(serviceAttribution, orgId, {
-      kind: 'dashboard',
-      id: dashboardId,
-      queries: panelsToPromqlQueries(panels),
-    })
-  }
 
   const router = Router()
   const requirePermission = createRequirePermission(accessControl)
@@ -401,7 +362,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
-      void autoAttributeDashboard(resolveOrgId(req), id, body.panels)
       res.json(updated)
     }
     catch (err) {
@@ -432,7 +392,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
-      void autoAttributeDashboard(resolveOrgId(req), id, updated.panels)
       res.status(201).json(updated)
     }
     catch (err) {
@@ -513,77 +472,6 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       next(err)
     }
   })
-
-  // ── Wave 2 / Step 4: variable-inference ack endpoints ────────────────
-  //
-  // GET  /:uid/variable-ack?vars=<hash>     → { acked: boolean }
-  // POST /:uid/variable-ack body { vars }   → server hashes, upserts row
-  //
-  // Both require dashboards:read on the target dashboard. Ack is keyed by
-  // (userId, dashboardUid, varsHash) — see packages/common/src/utils/variable-hash.ts.
-
-  router.get(
-    '/:uid/variable-ack',
-    requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['uid']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
-      try {
-        if (!variableAcks) {
-          res.status(503).json({ error: { code: 'NOT_CONFIGURED', message: 'variable-ack repository not wired' } })
-          return
-        }
-        const uid = req.params['uid'] ?? ''
-        const varsHash = typeof req.query['vars'] === 'string' ? req.query['vars'] : ''
-        if (!varsHash) {
-          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'vars query param required' } })
-          return
-        }
-        const userId = (req as AuthenticatedRequest).auth?.userId ?? 'anonymous'
-        const row = await variableAcks.findAck(userId, uid, varsHash)
-        res.json({ acked: row != null })
-      }
-      catch (err) {
-        next(err)
-      }
-    },
-  )
-
-  router.post(
-    '/:uid/variable-ack',
-    requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['uid']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
-      try {
-        if (!variableAcks) {
-          res.status(503).json({ error: { code: 'NOT_CONFIGURED', message: 'variable-ack repository not wired' } })
-          return
-        }
-        const uid = req.params['uid'] ?? ''
-        const body = req.body as { vars?: Record<string, unknown> } | undefined
-        const rawVars = body?.vars
-        if (!rawVars || typeof rawVars !== 'object' || Array.isArray(rawVars)) {
-          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'vars object required' } })
-          return
-        }
-        // Coerce all values to strings — anything else (e.g. someone POSTing
-        // a nested object) is rejected so the hash domain stays {string→string}.
-        const vars: Record<string, string> = {}
-        for (const [k, v] of Object.entries(rawVars)) {
-          if (typeof v !== 'string') {
-            res.status(400).json({ error: { code: 'INVALID_INPUT', message: `vars.${k} must be a string` } })
-            return
-          }
-          vars[k] = v
-        }
-        const userId = (req as AuthenticatedRequest).auth?.userId ?? 'anonymous'
-        const orgId = resolveOrgId(req)
-        const varsHash = hashVariables(vars)
-        await variableAcks.ackVariables({ orgId, userId, dashboardUid: uid, varsHash })
-        res.json({ acked: true })
-      }
-      catch (err) {
-        next(err)
-      }
-    },
-  )
 
   return router
 }

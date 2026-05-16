@@ -26,7 +26,6 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  AppError,
   AuditAction,
   ForbiddenError,
   NotFoundError,
@@ -46,34 +45,6 @@ import type { AuditWriter } from '../auth/audit-writer.js';
 export const TOKEN_PREFIX_SA = 'openobs_sa_';
 export const TOKEN_PREFIX_PAT = 'openobs_pat_';
 const log = createLogger('apikey-service');
-
-/**
- * @deprecated Kept only so existing `instanceof` checks (e.g. in
- * `apikey-service.test.ts`) keep working. New throws use the proper
- * `AppError` subclasses — `ValidationError`, `NotFoundError`,
- * `ConflictError`, `ForbiddenError` — so the global error-handler
- * middleware renders them with the canonical `{ error: { code, message } }`
- * envelope. Remove the shim once every caller has been migrated off
- * `ApiKeyServiceError`.
- */
-export class ApiKeyServiceError extends AppError {
-  constructor(
-    public readonly kind:
-      | 'validation'
-      | 'not_found'
-      | 'quota_exceeded'
-      | 'conflict',
-    message: string,
-    statusCode: number,
-  ) {
-    const code = kind === 'validation' ? 'VALIDATION'
-      : kind === 'not_found' ? 'NOT_FOUND'
-      : kind === 'quota_exceeded' ? 'QUOTA_EXCEEDED'
-      : 'CONFLICT';
-    super(code, statusCode, message);
-    this.name = 'ApiKeyServiceError';
-  }
-}
 
 export interface IssueSATokenInput {
   name: string;

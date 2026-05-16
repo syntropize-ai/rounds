@@ -11,6 +11,43 @@ function requestError(code: string, message: string): import('@agentic-obs/commo
   return { code, message } as import('@agentic-obs/common').ApiError;
 }
 
+/**
+ * Thrown when transport detects an unauthenticated session — either from a
+ * 401 response or from `authHeaders()` finding a malformed token blob. The
+ * auth-boundary handler registered via `setUnauthorizedHandler` decides what
+ * to do (clear local storage, redirect). Transport itself is kept free of
+ * DOM and storage side effects so it remains testable in node.
+ */
+export class UnauthorizedError extends Error {
+  readonly code = 'UNAUTHORIZED';
+  constructor(message = 'Unauthorized') {
+    super(message);
+    this.name = 'UnauthorizedError';
+  }
+}
+
+let unauthorizedHandler: ((err: UnauthorizedError) => void) | null = null;
+
+/**
+ * Register a single handler invoked when transport detects an
+ * unauthenticated state. Returns the previously-registered handler (or null)
+ * so callers can chain or restore in tests.
+ *
+ * The handler is responsible for idempotency — transport may invoke it on
+ * every 401 in a burst of concurrent requests.
+ */
+export function setUnauthorizedHandler(
+  handler: ((err: UnauthorizedError) => void) | null,
+): ((err: UnauthorizedError) => void) | null {
+  const prev = unauthorizedHandler;
+  unauthorizedHandler = handler;
+  return prev;
+}
+
+function notifyUnauthorized(err: UnauthorizedError): void {
+  if (unauthorizedHandler) unauthorizedHandler(err);
+}
+
 export class ApiClient {
   private baseUrl: string;
 
@@ -37,6 +74,22 @@ export class ApiClient {
       upstreamSignal?.addEventListener('abort', abortFromUpstream, { once: true });
     }
 
+    let builtAuthHeaders: Record<string, string>;
+    try {
+      builtAuthHeaders = authHeaders();
+    } catch (err) {
+      // authHeaders() throws UnauthorizedError when the stored token blob is
+      // malformed. Surface via the registered handler and return the same
+      // envelope shape the 401 path uses, so callers don't need a special case.
+      clearTimeout(timeout);
+      upstreamSignal?.removeEventListener('abort', abortFromUpstream);
+      if (err instanceof UnauthorizedError) {
+        notifyUnauthorized(err);
+        return { data: null as T, error: { code: 'UNAUTHORIZED', message: err.message } };
+      }
+      throw err;
+    }
+
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}${path}`, {
@@ -45,7 +98,7 @@ export class ApiClient {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          ...authHeaders(),
+          ...builtAuthHeaders,
           ...csrfHeaders(method),
           ...options.headers,
         },
@@ -67,16 +120,17 @@ export class ApiClient {
 
     if (!res.ok) {
       if (res.status === 401) {
-        // Unify DEV and prod: both redirect to /login. Previously DEV silently
-        // returned a fake `{ error: { code: 'UNKNOWN' } }` envelope, which let
-        // pages render in a half-broken state. The DEV-only console.warn keeps
-        // the local-dev signal that something needs attention (likely a
-        // missing or expired backend session).
+        // Notify the registered auth-boundary handler — it decides whether
+        // to clear local storage and redirect. Transport stays free of DOM
+        // and storage side effects so it remains node-testable. The DEV-only
+        // console.warn keeps the local-dev signal that something needs
+        // attention (likely a missing or expired backend session).
         if (import.meta.env.DEV) {
-          console.warn('[api] 401 from', path, '— redirecting to /login');
+          console.warn('[api] 401 from', path);
         }
-        if (typeof window !== 'undefined') window.location.href = '/login';
-        return { data: null as T, error: { code: 'UNAUTHORIZED', message: 'Redirecting to login...' } };
+        const err = new UnauthorizedError(`401 from ${path}`);
+        notifyUnauthorized(err);
+        return { data: null as T, error: { code: 'UNAUTHORIZED', message: err.message } };
       }
       // Canonical error envelope is `{ error: { code, message, details? } }`
       // (see `middleware/error-handler.ts`). Fall back to the unwrapped shape

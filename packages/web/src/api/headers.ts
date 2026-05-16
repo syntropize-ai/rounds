@@ -1,3 +1,5 @@
+import { UnauthorizedError } from './transport.js';
+
 const CSRF_COOKIE_NAME = 'openobs_csrf';
 const CSRF_HEADER_NAME = 'X-CSRF-Token';
 const NON_MUTATING_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -49,17 +51,12 @@ export function authHeaders(): Record<string, string> {
     } catch (err) {
       // A malformed token blob means this session is wedged — the user will
       // get 401s on every request with no way to recover short of clearing
-      // storage manually. Surface it, clear the bad blob, and redirect to
-      // login so the next load starts fresh.
-      console.warn('[api] auth token blob in localStorage is malformed; clearing and redirecting to /login', err);
-      try {
-        localStorage.removeItem('agentic_obs_auth');
-        localStorage.removeItem('api_key');
-      } catch {
-        // Can't clear — nothing more we can do. The redirect still helps.
-      }
-      if (typeof window !== 'undefined') window.location.href = '/login';
-      return {};
+      // storage manually. Throw UnauthorizedError; the transport layer
+      // surfaces it to the registered auth-boundary handler, which clears
+      // storage and redirects. Keeping side effects out of header decoding
+      // means this function stays pure-ish and node-testable.
+      console.warn('[api] auth token blob in localStorage is malformed', err);
+      throw new UnauthorizedError('Malformed auth token blob');
     }
   }
   // Fall back to API key from localStorage (set during setup or login)

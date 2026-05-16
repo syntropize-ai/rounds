@@ -5,6 +5,28 @@ import { ThemeProvider } from './contexts/ThemeContext.js';
 import Layout from './components/Layout.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { apiClient } from './api/client.js';
+import { setUnauthorizedHandler } from './api/transport.js';
+
+// Single auth-boundary handler for transport-layer 401s. Registered at
+// module load (before AuthProvider mounts) so even early requests funnel
+// through here. Idempotent: a burst of concurrent 401s redirects exactly
+// once. We deliberately leave `/login` and `/login/callback` alone so the
+// login page doesn't bounce in a loop when /api/user returns 401.
+let redirectingToLogin = false;
+setUnauthorizedHandler(() => {
+  if (redirectingToLogin) return;
+  if (typeof window === 'undefined') return;
+  const path = window.location.pathname;
+  if (path === '/login' || path === '/login/callback') return;
+  redirectingToLogin = true;
+  try {
+    localStorage.removeItem('agentic_obs_auth');
+    localStorage.removeItem('api_key');
+  } catch {
+    // localStorage can throw in privacy-mode iframes; the redirect still helps.
+  }
+  window.location.href = '/login';
+});
 
 const Home = lazy(() => import('./pages/Home.js'));
 const Feed = lazy(() => import('./pages/Feed.js'));

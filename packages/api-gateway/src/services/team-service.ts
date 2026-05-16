@@ -43,8 +43,11 @@ import {
   TEAM_MEMBER_PERMISSION_MEMBER,
   TEAM_MEMBER_PERMISSION_ADMIN,
 } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { QueryClient } from '@agentic-obs/data-layer';
 import type { AuditWriter } from '../auth/audit-writer.js';
+
+const log = createLogger('team-service');
 
 export class TeamServiceError extends Error {
   constructor(
@@ -229,9 +232,13 @@ export class TeamService {
       await this.deps.db.run(
         sql.raw(`DELETE FROM dashboard_acl WHERE team_id = '${sanitized}'`),
       );
-    } catch {
+    } catch (err) {
       // dashboard_acl may not exist in some mini integration DBs. Best-effort
       // cleanup — swallow and continue; team delete is still the contract.
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), orgId, teamId: id },
+        'team delete: failed to cleanup dashboard ACL rows',
+      );
     }
 
     await this.deps.teams.delete(id);

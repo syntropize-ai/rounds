@@ -24,6 +24,7 @@ pictures/
 .vscode/
 .idea/
 .codex
+internal-docs/
 
 # e2e testkit runtime state (cluster url, tokens, port-forward pid/log).
 tests/e2e/.state/*

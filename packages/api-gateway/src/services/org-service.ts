@@ -41,9 +41,12 @@ import type {
   OrgUser,
 } from '@agentic-obs/common';
 import { AuditAction, ORG_ROLES } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { QueryClient } from '@agentic-obs/data-layer';
 import { seedRbacForOrg } from '@agentic-obs/data-layer';
 import type { AuditWriter } from '../auth/audit-writer.js';
+
+const log = createLogger('org-service');
 
 const DEFAULT_QUOTA_TARGETS = [
   'users',
@@ -286,10 +289,14 @@ export class OrgService {
     for (const table of ORG_SCOPED_TABLES) {
       try {
         await this.deps.db.run(sql.raw(`DELETE FROM ${table} WHERE org_id = '${id.replace(/'/g, "''")}'`));
-      } catch (_err) {
+      } catch (err) {
         // Some tables may not exist on older schemas or in mini integration
         // DBs. Best-effort — swallow and continue; the delete() API contract
         // is "cascades where possible".
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), orgId: id, table },
+          'org delete: failed to cleanup org-scoped table',
+        );
       }
     }
     // Reassign user.org_id for any user whose default org was this one —
@@ -335,8 +342,12 @@ export class OrgService {
     for (const t of cascadeTables) {
       try {
         await this.deps.db.run(sql.raw(`DELETE FROM ${t} WHERE org_id = '${sanitized}'`));
-      } catch (_err) {
+      } catch (err) {
         // Tables may not exist in some schemas; best-effort cascade.
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), orgId: id, table: t },
+          'org delete: failed to cleanup auth table',
+        );
       }
     }
 

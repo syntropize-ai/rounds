@@ -81,6 +81,21 @@ async function queuePending(
   return change;
 }
 
+function formatToolError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function emitToolFailure(
+  ctx: ActionContext,
+  tool: string,
+  err: unknown,
+): string {
+  const msg = formatToolError(err);
+  const observationText = `Error: ${msg}`;
+  ctx.sendEvent({ type: 'tool_result', tool, summary: observationText, success: false });
+  return observationText;
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard lifecycle
 // ---------------------------------------------------------------------------
@@ -467,34 +482,36 @@ export async function handleDashboardRemovePanels(
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_remove_panels', args: { panelIds }, displayText: `Removing ${panelIds.length} panel(s)` });
 
-  // Task 09 — removing panels on a pre-existing (shared) dashboard goes to
-  // pendingChanges so the user reviews each removal before the dashboard is
-  // mutated. Freshly-created dashboards in this session apply directly.
-  if (!isFreshlyCreated(ctx, dashboardId)) {
-    const proposed: PendingDashboardChange[] = [];
-    for (const panelId of panelIds) {
-      const change = await queuePending(
-        ctx,
-        dashboardId,
-        { kind: 'remove_panel', panelId },
-        `Remove panel ${panelId}`,
-      );
-      proposed.push(change);
+  try {
+    // Task 09 — removing panels on a pre-existing (shared) dashboard goes to
+    // pendingChanges so the user reviews each removal before the dashboard is
+    // mutated. Freshly-created dashboards in this session apply directly.
+    if (!isFreshlyCreated(ctx, dashboardId)) {
+      for (const panelId of panelIds) {
+        await queuePending(
+          ctx,
+          dashboardId,
+          { kind: 'remove_panel', panelId },
+          `Remove panel ${panelId}`,
+        );
+      }
+      const observationText = `Proposed removal of ${panelIds.length} panel(s); pending user review.`;
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
+      return observationText;
     }
-    const observationText = `Proposed removal of ${panelIds.length} panel(s); pending user review.`;
+
+    await ctx.actionExecutor.execute(dashboardId, [{ type: 'remove_panels', panelIds }]);
+
+    const observationText = `Removed ${panelIds.length} panel(s).`;
     ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
+    // Stream `panel_removed` per id so the live view drops them without F5.
+    for (const panelId of panelIds) {
+      ctx.sendEvent({ type: 'panel_removed', panelId } as never);
+    }
     return observationText;
+  } catch (err) {
+    return emitToolFailure(ctx, 'dashboard_remove_panels', err);
   }
-
-  await ctx.actionExecutor.execute(dashboardId, [{ type: 'remove_panels', panelIds }]);
-
-  const observationText = `Removed ${panelIds.length} panel(s).`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
-  // Stream `panel_removed` per id so the live view drops them without F5.
-  for (const panelId of panelIds) {
-    ctx.sendEvent({ type: 'panel_removed', panelId } as never);
-  }
-  return observationText;
 }
 
 // TODO: migrate to withToolEventBoundary
@@ -527,27 +544,31 @@ export async function handleDashboardModifyPanel(
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_modify_panel', args: { panelId, patch }, displayText: `Modifying panel ${panelId}` });
 
-  // Task 09 — modifying a panel on a pre-existing dashboard goes to
-  // pendingChanges (the dashboard may be shared; the user must accept).
-  if (!isFreshlyCreated(ctx, dashboardId)) {
-    await queuePending(
-      ctx,
-      dashboardId,
-      { kind: 'modify_panel', panelId, patch },
-      `Modify panel ${panelId}`,
-    );
-    const observationText = `Proposed modification of panel ${panelId}; pending user review.`;
+  try {
+    // Task 09 — modifying a panel on a pre-existing dashboard goes to
+    // pendingChanges (the dashboard may be shared; the user must accept).
+    if (!isFreshlyCreated(ctx, dashboardId)) {
+      await queuePending(
+        ctx,
+        dashboardId,
+        { kind: 'modify_panel', panelId, patch },
+        `Modify panel ${panelId}`,
+      );
+      const observationText = `Proposed modification of panel ${panelId}; pending user review.`;
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
+      return observationText;
+    }
+
+    await ctx.actionExecutor.execute(dashboardId, [{ type: 'modify_panel', panelId, patch }]);
+
+    const observationText = `Modified panel ${panelId}.`;
     ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
+    // Stream `panel_modified` so the live view applies the patch without F5.
+    ctx.sendEvent({ type: 'panel_modified', panelId, patch } as never);
     return observationText;
+  } catch (err) {
+    return emitToolFailure(ctx, 'dashboard_modify_panel', err);
   }
-
-  await ctx.actionExecutor.execute(dashboardId, [{ type: 'modify_panel', panelId, patch }]);
-
-  const observationText = `Modified panel ${panelId}.`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
-  // Stream `panel_modified` so the live view applies the patch without F5.
-  ctx.sendEvent({ type: 'panel_modified', panelId, patch } as never);
-  return observationText;
 }
 
 // TODO: migrate to withToolEventBoundary
@@ -571,26 +592,30 @@ export async function handleDashboardAddVariable(
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_add_variable', args: { name: variable.name }, displayText: `Adding variable: $${variable.name}` });
 
-  // Task 09 — variable changes on a pre-existing dashboard route through
-  // pendingChanges. Variables affect every panel's query, so silently mutating
-  // a shared dashboard's variable set would be especially disruptive.
-  if (!isFreshlyCreated(ctx, dashboardId)) {
-    await queuePending(
-      ctx,
-      dashboardId,
-      { kind: 'add_variable', variable },
-      `Add variable $${variable.name}`,
-    );
-    const observationText = `Proposed variable $${variable.name}; pending user review.`;
+  try {
+    // Task 09 — variable changes on a pre-existing dashboard route through
+    // pendingChanges. Variables affect every panel's query, so silently mutating
+    // a shared dashboard's variable set would be especially disruptive.
+    if (!isFreshlyCreated(ctx, dashboardId)) {
+      await queuePending(
+        ctx,
+        dashboardId,
+        { kind: 'add_variable', variable },
+        `Add variable $${variable.name}`,
+      );
+      const observationText = `Proposed variable $${variable.name}; pending user review.`;
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
+      return observationText;
+    }
+
+    await ctx.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }]);
+
+    const observationText = `Added variable $${variable.name}.`;
     ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
     return observationText;
+  } catch (err) {
+    return emitToolFailure(ctx, 'dashboard_add_variable', err);
   }
-
-  await ctx.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }]);
-
-  const observationText = `Added variable $${variable.name}.`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
-  return observationText;
 }
 
 // ---------------------------------------------------------------------------

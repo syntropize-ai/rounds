@@ -304,6 +304,26 @@ describe('dashboard handlers', () => {
       );
       expect(proposed).toBeDefined();
     });
+
+    it('emits a failed tool_result when remove fails', async () => {
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd1',
+        freshlyCreatedDashboards: new Set(['d1']),
+      });
+      vi.mocked(ctx.actionExecutor.execute).mockRejectedValueOnce(new Error('store offline'));
+
+      const observation = await handleDashboardRemovePanels(ctx, { panelIds: ['p1'] });
+
+      expect(observation).toBe('Error: store offline');
+      expect(ctx.sendEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'tool_result',
+          tool: 'dashboard_remove_panels',
+          success: false,
+          summary: 'Error: store offline',
+        }),
+      );
+    });
   });
 
   describe('handleDashboardModifyPanel', () => {
@@ -345,6 +365,26 @@ describe('dashboard handlers', () => {
       expect(persisted[0]!.op.panelId).toBe('p1');
       expect(persisted[0]!.op.patch.title).toBe('Renamed');
     });
+
+    it('emits a failed tool_result when modify fails', async () => {
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd1',
+        freshlyCreatedDashboards: new Set(['d1']),
+      });
+      vi.mocked(ctx.actionExecutor.execute).mockRejectedValueOnce(new Error('write failed'));
+
+      const observation = await handleDashboardModifyPanel(ctx, { panelId: 'p1', title: 'Renamed' });
+
+      expect(observation).toBe('Error: write failed');
+      expect(ctx.sendEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'tool_result',
+          tool: 'dashboard_modify_panel',
+          success: false,
+          summary: 'Error: write failed',
+        }),
+      );
+    });
   });
 
   describe('handleDashboardAddVariable', () => {
@@ -356,6 +396,26 @@ describe('dashboard handlers', () => {
       });
       expect(observation).toBe('Added variable $env.');
       expect(ctx.actionExecutor.execute).toHaveBeenCalled();
+    });
+
+    it('emits a failed tool_result when adding a variable fails', async () => {
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd1',
+        freshlyCreatedDashboards: new Set(['d1']),
+      });
+      vi.mocked(ctx.actionExecutor.execute).mockRejectedValueOnce(new Error('variable write failed'));
+
+      const observation = await handleDashboardAddVariable(ctx, { name: 'env', type: 'custom' });
+
+      expect(observation).toBe('Error: variable write failed');
+      expect(ctx.sendEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'tool_result',
+          tool: 'dashboard_add_variable',
+          success: false,
+          summary: 'Error: variable write failed',
+        }),
+      );
     });
 
     it('queues a pending change for variable additions on an existing dashboard', async () => {

@@ -636,6 +636,15 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
           return;
         }
 
+        if (!deps.runner) {
+          log.warn(
+            { ruleId: rule.id },
+            'manual investigate rejected: no background runner wired',
+          );
+          res.status(503).json({ error: { code: 'NOT_CONFIGURED', message: 'Background investigation runner not configured' } });
+          return;
+        }
+
         const identity = (req as AuthenticatedRequest).auth;
         if (!identity) {
           res.status(401).json({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required' } });
@@ -676,24 +685,17 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         // investigation SSE stream; the agent advances status as it runs.
         // Errors are isolated — they're logged but don't fail the HTTP
         // response (Task C handles forced terminal-status fallback).
-        if (deps.runner) {
-          const runner = deps.runner;
-          void (async () => {
-            try {
-              await runBackgroundAgent(runner, { identity, message: question });
-            } catch (err) {
-              log.error(
-                { err: err instanceof Error ? err.message : String(err), ruleId: rule.id, investigationId: investigation.id },
-                'manual investigate: background agent failed',
-              );
-            }
-          })();
-        } else {
-          log.warn(
-            { ruleId: rule.id, investigationId: investigation.id },
-            'manual investigate: no background runner wired — investigation row created but no agent will run',
-          );
-        }
+        const runner = deps.runner;
+        void (async () => {
+          try {
+            await runBackgroundAgent(runner, { identity, message: question });
+          } catch (err) {
+            log.error(
+              { err: err instanceof Error ? err.message : String(err), ruleId: rule.id, investigationId: investigation.id },
+              'manual investigate: background agent failed',
+            );
+          }
+        })();
 
         res.json({ investigationId: investigation.id, existing: false });
       } catch (err) {

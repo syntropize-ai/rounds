@@ -109,6 +109,16 @@ function makeApp(opts: {
   return app;
 }
 
+function makeRunner() {
+  const fakeOrchestrator = {
+    handleMessage: vi.fn(async () => 'done'),
+  } as unknown as Awaited<ReturnType<NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>['makeOrchestrator']>>;
+  return {
+    saTokens: { validateAndLookup: vi.fn() } as unknown as NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>['saTokens'],
+    makeOrchestrator: vi.fn(async () => fakeOrchestrator),
+  } as NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>;
+}
+
 describe('POST /api/alert-rules/:id/investigate', () => {
   it('passes the rule\'s workspaceId to investigationStore.create', async () => {
     const create = vi.fn(async (input: { workspaceId?: string }) => ({
@@ -119,6 +129,7 @@ describe('POST /api/alert-rules/:id/investigate', () => {
       rule: makeRule({ workspaceId: 'ws_team_a' }),
       identity: { userId: 'u1', orgId: 'ws_team_a', orgRole: 'Editor', isServerAdmin: false, authenticatedBy: 'session' },
       capturedCreate: create,
+      runner: makeRunner(),
     });
 
     const res = await request(app)
@@ -129,6 +140,26 @@ describe('POST /api/alert-rules/:id/investigate', () => {
     expect(res.body).toEqual({ investigationId: 'inv_1', existing: false });
     expect(create).toHaveBeenCalledTimes(1);
     expect((create.mock.calls[0] as unknown[])?.[0]).toMatchObject({ workspaceId: 'ws_team_a' });
+  });
+
+  it('rejects manual investigate when no background runner is configured', async () => {
+    const create = vi.fn(async () => ({ id: 'inv_not_created' }));
+    const app = makeApp({
+      rule: makeRule({ workspaceId: 'ws_team_a' }),
+      identity: { userId: 'u1', orgId: 'ws_team_a', orgRole: 'Editor', isServerAdmin: false, authenticatedBy: 'session' },
+      capturedCreate: create,
+    });
+
+    const res = await request(app)
+      .post('/api/alert-rules/r1/investigate')
+      .send({});
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatchObject({
+      code: 'NOT_CONFIGURED',
+      message: 'Background investigation runner not configured',
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('spawns the background agent under the clicker\'s identity and advances investigation status', async () => {

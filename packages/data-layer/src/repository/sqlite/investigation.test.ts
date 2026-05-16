@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+import { sql } from 'drizzle-orm';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { createTestDb } from '../../test-support/test-db.js';
 import { InvestigationRepository } from './investigation.js';
@@ -387,6 +388,16 @@ describe('InvestigationRepository (W6/T6.A2)', () => {
       await repo.archive(inv.id);
       expect(await repo.delete(inv.id)).toBe(true);
       expect(await repo.findById(inv.id)).toBeNull();
+    });
+  });
+
+  // P1 — corrupt JSON columns must throw (was silently returning a default
+  // shape like emptyPlan() / []), which hid data corruption from operators.
+  describe('corrupt JSON guard', () => {
+    it('findById throws when the plan column is corrupt instead of returning emptyPlan()', async () => {
+      const inv = await repo.create({ question: 'q', sessionId: 's', userId: 'u' });
+      db.run(sql`UPDATE investigations SET plan = ${'{not json'} WHERE id = ${inv.id}`);
+      await expect(repo.findById(inv.id)).rejects.toThrow(/corrupt JSON in column "plan"/);
     });
   });
 });

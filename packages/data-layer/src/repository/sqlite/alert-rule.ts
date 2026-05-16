@@ -32,6 +32,7 @@
 
 import { sql, type SQL } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+import { createLogger } from '@agentic-obs/common/logging';
 import type {
   AlertRule,
   AlertRuleState,
@@ -48,6 +49,8 @@ import type {
 } from '../interfaces.js';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { nowIso } from './instance-shared.js';
+
+const log = createLogger('alert-rule-repository');
 
 // -- Row shapes (snake_case, matches `SELECT *` output) ----------------
 
@@ -115,16 +118,30 @@ interface PolicyRow {
 // -- JSON helpers -----------------------------------------------------
 
 /**
- * Parse a JSON column with a fallback. A corrupt row must not wedge the
- * repo — we log nothing here (route layer will surface the problem) and
- * return the default shape so callers get a well-formed object.
+ * Parse a JSON column. Corrupt rows are surfaced — silent fallback masked
+ * production data corruption (e.g. an unparseable `condition` would have
+ * returned threshold=0, silently disarming the alert). We log the row id +
+ * column and re-throw so the route layer fails loud.
  */
-function parseJsonOr<T>(raw: string | null | undefined, dflt: T): T {
+function parseJsonOr<T>(
+  raw: string | null | undefined,
+  dflt: T,
+  rowId: string,
+  column: string,
+): T {
   if (raw === null || raw === undefined || raw === '') return dflt;
   try {
     return JSON.parse(raw) as T;
-  } catch {
-    return dflt;
+  } catch (err) {
+    log.error(
+      { rowId, column, err: err instanceof Error ? err.message : String(err) },
+      'corrupt JSON in alert-rule row — refusing to return fallback',
+    );
+    throw new Error(
+      `[AlertRuleRepository] corrupt JSON in column "${column}" for row ${rowId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
 }
 
@@ -140,7 +157,7 @@ function stringifyJsonOrNull(value: unknown): string | null {
 // -- Row → domain mappers ---------------------------------------------
 
 function rowToRule(r: RuleRow): AlertRule {
-  const labels = parseJsonOr<Record<string, string> | null>(r.labels, null);
+  const labels = parseJsonOr<Record<string, string> | null>(r.labels, null, r.id, 'labels');
   const rule: AlertRule = {
     id: r.id,
     name: r.name,
@@ -150,7 +167,7 @@ function rowToRule(r: RuleRow): AlertRule {
       operator: '>',
       threshold: 0,
       forDurationSec: 0,
-    }),
+    }, r.id, 'condition'),
     evaluationIntervalSec: r.evaluation_interval_sec,
     severity: r.severity as AlertRule['severity'],
     state: r.state as AlertRuleState,
@@ -169,7 +186,7 @@ function rowToRule(r: RuleRow): AlertRule {
   if (r.workspace_id !== null) rule.workspaceId = r.workspace_id;
   if (r.last_evaluated_at !== null) rule.lastEvaluatedAt = r.last_evaluated_at;
   if (r.last_fired_at !== null) rule.lastFiredAt = r.last_fired_at;
-  const prov = parseJsonOr<ResourceProvenance | null>(r.provenance, null);
+  const prov = parseJsonOr<ResourceProvenance | null>(r.provenance, null, r.id, 'provenance');
   if (prov) rule.provenance = prov;
   return rule;
 }
@@ -184,7 +201,7 @@ function rowToHistoryEntry(r: HistoryRow): AlertHistoryEntry {
     value: r.value,
     threshold: r.threshold,
     timestamp: r.timestamp,
-    labels: parseJsonOr<Record<string, string>>(r.labels, {}),
+    labels: parseJsonOr<Record<string, string>>(r.labels, {}, r.id, 'history.labels'),
   };
 }
 
@@ -198,7 +215,7 @@ function computeSilenceStatus(silence: { startsAt: string; endsAt: string }): Si
 function rowToSilence(r: SilenceRow): AlertSilence {
   const base = {
     id: r.id,
-    matchers: parseJsonOr<AlertSilence['matchers']>(r.matchers, []),
+    matchers: parseJsonOr<AlertSilence['matchers']>(r.matchers, [], r.id, 'silence.matchers'),
     startsAt: r.starts_at,
     endsAt: r.ends_at,
     comment: r.comment,
@@ -212,12 +229,12 @@ function rowToPolicy(r: PolicyRow): NotificationPolicy {
   const p: NotificationPolicy = {
     id: r.id,
     name: r.name,
-    matchers: parseJsonOr<NotificationPolicy['matchers']>(r.matchers, []),
-    channels: parseJsonOr<NotificationPolicy['channels']>(r.channels, []),
+    matchers: parseJsonOr<NotificationPolicy['matchers']>(r.matchers, [], r.id, 'policy.matchers'),
+    channels: parseJsonOr<NotificationPolicy['channels']>(r.channels, [], r.id, 'policy.channels'),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
-  if (r.group_by !== null) p.groupBy = parseJsonOr<string[]>(r.group_by, []);
+  if (r.group_by !== null) p.groupBy = parseJsonOr<string[]>(r.group_by, [], r.id, 'policy.group_by');
   if (r.group_wait_sec !== null) p.groupWaitSec = r.group_wait_sec;
   if (r.group_interval_sec !== null) p.groupIntervalSec = r.group_interval_sec;
   if (r.repeat_interval_sec !== null) p.repeatIntervalSec = r.repeat_interval_sec;
@@ -313,7 +330,7 @@ export class AlertRuleRepository implements IAlertRuleRepository {
     if (filter.search) {
       const q = filter.search.toLowerCase();
       rows = rows.filter((r) => {
-        const labels = parseJsonOr<Record<string, string>>(r.labels, {});
+        const labels = parseJsonOr<Record<string, string>>(r.labels, {}, r.id, 'labels');
         return (
           r.name.toLowerCase().includes(q)
           || r.description.toLowerCase().includes(q)

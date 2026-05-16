@@ -20,7 +20,7 @@ export type { ProviderCapabilities } from './providers/capabilities.js';
 export { getCapabilities, ProviderCapabilityError } from './providers/capabilities.js';
 export { LLMGateway } from './gateway.js';
 export type { GatewayConfig, TokenMetrics, AuditContext } from './gateway.js';
-export { InMemoryAuditSink, AuditLogger } from './audit.js';
+export { InMemoryAuditSink } from './audit.js';
 export type { AuditSink, AuditEntry, AuditErrorKind } from './audit.js';
 export { computeCostUsd, lookupPricing } from './pricing.js';
 export { OpenAIProvider, OpenAICompatibleProvider } from './providers/openai.js';

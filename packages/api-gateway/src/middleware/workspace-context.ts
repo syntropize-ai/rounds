@@ -18,11 +18,3 @@ export function getOrgId(req: Request): string {
   if (typeof queryOrgId === 'string' && queryOrgId) return queryOrgId;
   throw new Error('org context missing');
 }
-
-/**
- * @deprecated — legacy alias kept temporarily for tests and out-of-scope
- * callers. New code should call `getOrgId`. Both return the same value; this
- * name will be removed once remaining callers migrate (tracked via the
- * public search in scripts/lint-workspace-id.ts to be added post-cutover).
- */
-export const getWorkspaceId = getOrgId;

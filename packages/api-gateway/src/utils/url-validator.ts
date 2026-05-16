@@ -76,9 +76,6 @@ export function isPrivateHost(hostname: string): boolean {
   return false;
 }
 
-/** Back-compat alias — older callers used `isBlockedHost`. */
-export const isBlockedHost = isPrivateHost;
-
 async function lookupHostname(hostname: string): Promise<string | null> {
   let timeout: NodeJS.Timeout | undefined;
   try {

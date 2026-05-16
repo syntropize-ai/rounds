@@ -90,9 +90,3 @@ export class InMemoryAuditSink implements AuditSink {
   }
 }
 
-/**
- * @deprecated Renamed to `InMemoryAuditSink`. Kept as an alias so existing
- * tests / callers that reach into the gateway's in-memory sink keep working.
- */
-export const AuditLogger = InMemoryAuditSink;
-export type AuditLogger = InMemoryAuditSink;

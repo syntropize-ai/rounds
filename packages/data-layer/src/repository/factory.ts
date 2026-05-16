@@ -169,5 +169,3 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
   };
 }
 
-/** @deprecated Use RepositoryBundle. */
-export type SqliteRepositories = RepositoryBundle;

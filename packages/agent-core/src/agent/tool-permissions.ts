@@ -180,6 +180,24 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'changes_list_recent': () =>
     ac.eval('investigations:read', 'investigations:*'),
 
+  // -- Remediation plans (proposal only) ----------------------------------
+  // A plan is a write proposal attached to an investigation; the per-step
+  // kubectl run is re-gated at execution time by PlanExecutorService via
+  // ops_run_command. Here we mirror investigation_add_section — the proposer
+  // must have investigations:write on the parent investigation. Rescue plans
+  // share the gate because they belong to the same investigation as the
+  // primary plan they pair with.
+  'remediation_plan_create': (args: Record<string, unknown>) =>
+    ac.eval(
+      'investigations:write',
+      `investigations:uid:${String(args.investigationId ?? '*')}`,
+    ),
+  'remediation_plan_create_rescue': (args: Record<string, unknown>) =>
+    ac.eval(
+      'investigations:write',
+      `investigations:uid:${String(args.investigationId ?? '*')}`,
+    ),
+
   // -- Kubernetes / Ops integrations --------------------------------------
   'ops_run_command': (args: Record<string, unknown>) =>
     ac.any(

@@ -37,6 +37,8 @@ agentRegistry.register({
     // applies a 'rearrange' action internally for layout). Until a real
     // handler lands, keep it out of the LLM-facing tool surface.
     'dashboard_add_variable', 'dashboard_set_title',
+    // Folder lifecycle
+    'folder_create', 'folder_list',
     // Investigation lifecycle
     'investigation_create', 'investigation_list',
     'investigation_add_section',
@@ -54,6 +56,8 @@ agentRegistry.register({
     'changes_list_recent',
     // Kubernetes / Ops integrations (requires configured connector + RBAC)
     'ops_run_command',
+    // Remediation plans — proposal only; PlanExecutorService runs approved steps
+    'remediation_plan_create', 'remediation_plan_create_rescue',
     // Knowledge
     'web_search',
     // Alert rules
@@ -66,6 +70,8 @@ agentRegistry.register({
     'setting_get', 'setting_set',
     // Lazy tool loading — fetches deferred schemas on demand
     'tool_search',
+    // Clarifying question — terminal tool handled inside ReActLoop
+    'ask_user',
   ],
   inputKinds: ['dashboard'],
   outputKinds: ['dashboard', 'panel', 'dashboard_variable', 'investigation_report', 'alert_rule'],

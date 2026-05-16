@@ -578,6 +578,43 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
 
   // -------------------------------------------------------------------------
+  // Folder lifecycle — organize dashboards/alerts. The handler runs against
+  // the configured folder backend (Grafana-shaped today).
+  // -------------------------------------------------------------------------
+  'folder_create': {
+    category: 'deferred',
+    schema: {
+      name: 'folder_create',
+      description:
+        'Create a folder for organizing dashboards or alert rules. Returns the new folder uid. Use ONLY when the user explicitly asks to create a folder; do NOT pre-create folders for dashboard_create / alert_rule_write (those default to wildcard / "alerts" when folderUid is omitted).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Folder title shown in the UI' },
+          parentUid: { type: 'string', description: 'Optional parent folder uid for nested folders. Omit for top-level.' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  'folder_list': {
+    category: 'deferred',
+    schema: {
+      name: 'folder_list',
+      description:
+        'List folders. Use when the user asks "what folders exist" or to discover a folderUid to pass into dashboard_create / alert_rule_write.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          parentUid: { type: 'string', description: 'Optional parent uid to list children of one folder. Omit for top-level.' },
+          limit: { type: 'integer', description: 'Maximum rows to return (default 50)' },
+        },
+        required: [],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // Investigation lifecycle
   // -------------------------------------------------------------------------
   'investigation_create': {

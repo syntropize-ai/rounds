@@ -29,6 +29,8 @@ export type AgentToolName =
   | 'changes_list_recent'
   // Kubernetes / Ops integrations
   | 'ops_run_command'
+  // Remediation plans (proposal-only; PlanExecutorService runs approved steps)
+  | 'remediation_plan_create' | 'remediation_plan_create_rescue'
   // Connector discovery (always-allowed, no RBAC)
   | 'connectors_list' | 'connectors_suggest' | 'connectors_pin' | 'connectors_unpin'
   // Connector-model setup and allowlisted org settings
@@ -39,7 +41,9 @@ export type AgentToolName =
   | 'web_search' | 'llm.complete'
   | 'verifier.run'
   // Lazy tool loading (fetches deferred-tool schemas on demand)
-  | 'tool_search';
+  | 'tool_search'
+  // Clarifying question — terminal tool handled inside ReActLoop
+  | 'ask_user';
 
 export type ArtifactKind =
   | 'dashboard' | 'panel' | 'dashboard_variable'

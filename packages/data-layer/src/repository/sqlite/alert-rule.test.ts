@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { sql } from 'drizzle-orm';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { createTestDb } from '../../test-support/test-db.js';
 import { AlertRuleRepository } from './alert-rule.js';
@@ -374,6 +375,16 @@ describe('AlertRuleRepository', () => {
       expect(await repo.deletePolicy(p.id)).toBe(true);
       expect(await repo.findPolicyById(p.id)).toBeUndefined();
       expect(await repo.deletePolicy(p.id)).toBe(false);
+    });
+  });
+
+  // P1 — corrupt JSON columns must throw (was silently returning a default
+  // condition with threshold=0, which silently disarmed the alert).
+  describe('corrupt JSON guard', () => {
+    it('findById throws when the condition column is corrupt instead of returning threshold=0', async () => {
+      const rule = await repo.create(sampleInput());
+      db.run(sql`UPDATE alert_rules SET condition = ${'{not json'} WHERE id = ${rule.id}`);
+      await expect(repo.findById(rule.id)).rejects.toThrow(/corrupt JSON in column "condition"/);
     });
   });
 });

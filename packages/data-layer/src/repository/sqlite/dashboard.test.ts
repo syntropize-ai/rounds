@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { sql } from 'drizzle-orm';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { createTestDb } from '../../test-support/test-db.js';
 import { DashboardRepository } from './dashboard.js';
@@ -333,5 +334,16 @@ describe('DashboardRepository', () => {
     await expect(repo.loadJSON('not an array')).resolves.toBeUndefined();
     await expect(repo.loadJSON({ id: 'x' })).resolves.toBeUndefined();
     expect(await repo.size()).toBe(0);
+  });
+
+  // P1 — corrupt JSON columns must NOT be silently replaced with an empty
+  // fallback. A corrupt `panels` field used to return [], hiding the data
+  // corruption from operators. The repo now throws with the row id.
+  it('findById() throws when a JSON column is corrupt instead of returning a default dashboard', async () => {
+    const d = await repo.create({
+      title: 't', description: 'd', prompt: 'p', userId: 'u', datasourceIds: [],
+    });
+    db.run(sql`UPDATE dashboards SET panels = ${'{not json'} WHERE id = ${d.id}`);
+    await expect(repo.findById(d.id)).rejects.toThrow(/corrupt JSON in column "panels"/);
   });
 });

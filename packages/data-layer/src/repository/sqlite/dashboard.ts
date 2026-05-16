@@ -31,6 +31,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
+import { createLogger } from '@agentic-obs/common/logging';
 import type {
   Dashboard,
   DashboardStatus,
@@ -45,6 +46,8 @@ import type {
   ResourceProvenance,
 } from '@agentic-obs/common';
 import type { SqliteClient } from '../../db/sqlite-client.js';
+
+const log = createLogger('dashboard-repository');
 
 // -- Row shape ---------------------------------------------------------
 
@@ -77,14 +80,32 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function parseJsonArray<T>(raw: string | null | undefined, fallback: T[] = []): T[] {
-  if (raw === null || raw === undefined || raw === '') return fallback;
+function parseJsonArray<T>(raw: string | null | undefined, rowId: string, column: string): T[] {
+  if (raw === null || raw === undefined || raw === '') return [];
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : fallback;
-  } catch {
-    return fallback;
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    log.error(
+      { rowId, column, err: err instanceof Error ? err.message : String(err) },
+      'corrupt JSON in dashboards row — refusing to return fallback',
+    );
+    throw new Error(
+      `[DashboardRepository] corrupt JSON in column "${column}" for row ${rowId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
+  if (!Array.isArray(parsed)) {
+    log.error(
+      { rowId, column, actualType: typeof parsed },
+      'dashboards JSON column is not an array — refusing to return fallback',
+    );
+    throw new Error(
+      `[DashboardRepository] expected array in column "${column}" for row ${rowId}, got ${typeof parsed}`,
+    );
+  }
+  return parsed as T[];
 }
 
 function toBool(v: unknown): boolean {
@@ -96,14 +117,23 @@ function fromBool(v: boolean | undefined, dflt = false): number {
   return (v ?? dflt) ? 1 : 0;
 }
 
-function parseProvenance(raw: string | null): ResourceProvenance | undefined {
+function parseProvenance(raw: string | null, rowId: string): ResourceProvenance | undefined {
   if (raw === null || raw === undefined || raw === '') return undefined;
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as ResourceProvenance) : undefined;
-  } catch {
-    return undefined;
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    log.error(
+      { rowId, column: 'provenance', err: err instanceof Error ? err.message : String(err) },
+      'corrupt JSON in dashboards.provenance — refusing to return fallback',
+    );
+    throw new Error(
+      `[DashboardRepository] corrupt JSON in column "provenance" for row ${rowId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
+  return parsed && typeof parsed === 'object' ? (parsed as ResourceProvenance) : undefined;
 }
 
 function rowToDashboard(r: DashboardRow): Dashboard {
@@ -115,10 +145,10 @@ function rowToDashboard(r: DashboardRow): Dashboard {
     prompt: r.prompt,
     userId: r.user_id,
     status: r.status as DashboardStatus,
-    panels: parseJsonArray<PanelConfig>(r.panels, []),
-    variables: parseJsonArray<DashboardVariable>(r.variables, []),
+    panels: parseJsonArray<PanelConfig>(r.panels, r.id, 'panels'),
+    variables: parseJsonArray<DashboardVariable>(r.variables, r.id, 'variables'),
     refreshIntervalSec: r.refresh_interval_sec,
-    datasourceIds: parseJsonArray<string>(r.datasource_ids, []),
+    datasourceIds: parseJsonArray<string>(r.datasource_ids, r.id, 'datasource_ids'),
     useExistingMetrics: toBool(r.use_existing_metrics),
     source: (r.source ?? 'manual') as ResourceSource,
     createdAt: r.created_at,
@@ -129,7 +159,7 @@ function rowToDashboard(r: DashboardRow): Dashboard {
   if (r.version !== null) base.version = r.version;
   if (r.publish_status !== null) base.publishStatus = r.publish_status as PublishStatus;
   if (r.error !== null) base.error = r.error;
-  const prov = parseProvenance(r.provenance);
+  const prov = parseProvenance(r.provenance, r.id);
   if (prov) base.provenance = prov;
   return base;
 }

@@ -30,6 +30,7 @@ import {
   type ConsumerInvestigationStore,
 } from '../services/auto-investigation-consumer.js';
 import { LeaderLock } from '../services/leader-lock.js';
+import { setPipelineRunning } from '../routes/health.js';
 import {
   resolvePrometheusConnector,
   type PrometheusConnector,
@@ -273,6 +274,7 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
   // Listener wiring is done — now safe to start the evaluator.
   await evaluator.start();
   log.info('alert evaluator started');
+  setPipelineRunning(true);
 
   return {
     evaluator,
@@ -280,6 +282,7 @@ export async function startAlerts(deps: MountAlertsDeps): Promise<{
     stop: () => {
       consumer?.stop();
       evaluator.stop();
+      setPipelineRunning(false);
     },
   };
 }

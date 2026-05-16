@@ -2,7 +2,7 @@ import { eq, isNull } from 'drizzle-orm';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { folders } from '../../db/sqlite-schema.js';
 import type { IFolderRepository } from '../interfaces.js';
-import type { Folder } from '../../stores/folder-store.js';
+import type { Folder } from '../types/folder.js';
 
 type DbRow = typeof folders.$inferSelect;
 

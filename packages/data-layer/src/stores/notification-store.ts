@@ -8,7 +8,7 @@ import type {
 } from '@agentic-obs/common';
 import type { Persistable } from './persistence.js';
 import { markDirty } from './persistence.js';
-import { routeIntoTree, isMutedByTimings } from './notification-dispatch.js';
+import { routeIntoTree, isMutedByTimings } from '../repository/notification-routing.js';
 
 // -- Store
 

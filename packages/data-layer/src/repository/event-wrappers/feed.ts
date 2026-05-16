@@ -11,7 +11,7 @@ import type {
   FeedbackStats,
   FeedTenantOptions,
 } from '../types/feed.js';
-import type { IGatewayFeedStore } from '../../stores/interfaces.js';
+import type { IGatewayFeedStore } from '../gateway-interfaces.js';
 
 type FeedSubscriber = (item: FeedItem) => void;
 type FeedSubscriberRecord = { fn: FeedSubscriber; tenantId?: string };

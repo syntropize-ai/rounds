@@ -4,7 +4,7 @@ import { createLogger } from '@agentic-obs/common/logging';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { shareLinks } from '../../db/sqlite-schema.js';
 import type { IShareLinkRepository, ShareLookupResult } from '../interfaces.js';
-import type { ShareLink, SharePermission } from '../../stores/share-store.js';
+import type { ShareLink, SharePermission } from '../types/share.js';
 
 type ShareRow = typeof shareLinks.$inferSelect;
 

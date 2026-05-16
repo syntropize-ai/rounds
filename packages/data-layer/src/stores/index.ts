@@ -1,24 +1,10 @@
-// Store implementations and interfaces
+// Remaining in-memory stores (post-Sprint 4 store→repository migration).
+//
+// Retired in Sprint 4 (ADR-001 final): IncidentStore, FeedStore,
+// InvestigationStore, InMemoryShareLinkRepository, FolderStore,
+// VersionStore, PostMortemStore, InvestigationReportStore. Use the
+// canonical SQLite/Postgres repositories instead. The gateway-facing
+// `IGateway*` interfaces moved to `repository/gateway-interfaces.ts`.
 
 export * from './persistence.js';
-
-// alert-rule-store retired (ADR-001 M2). Use InMemoryAlertRuleRepository.
-// ApprovalStore removed in M3 (ADR-001) — use InMemoryApprovalRequestRepository
-// from @agentic-obs/data-layer/repository or one of the SQLite/Postgres impls.
-export * from './incident-store.js';
 export * from './notification-store.js';
-export * from './notification-dispatch.js';
-export * from './post-mortem-store.js';
-export * from './feed-store.js';
-export * from './investigation-store.js';
-export * from './share-store.js';
-// dashboard-store removed in M1 dashboard repo migration (ADR-001).
-// Use InMemoryDashboardRepository from
-// '@agentic-obs/data-layer/repository/memory/dashboard.js' for in-memory tests.
-export * from './investigation-report-store.js';
-// alert-rule-provider-adapter retired with the store (ADR-001 M2).
-export * from './folder-store.js';
-// workspace-store removed in T9 cutover — use OrgRepository from
-// @agentic-obs/data-layer (auth repositories) instead.
-export * from './version-store.js';
-export * from './interfaces.js';

@@ -12,7 +12,6 @@
     { "path": "../common/tsconfig.build.json" },
     { "path": "../llm-gateway/tsconfig.build.json" },
     { "path": "../data-layer/tsconfig.build.json" },
-    { "path": "../agent-core/tsconfig.build.json" },
-    { "path": "../guardrails/tsconfig.build.json" }
+    { "path": "../agent-core/tsconfig.build.json" }
   ]
 }

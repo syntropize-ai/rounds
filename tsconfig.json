@@ -7,7 +7,6 @@
     { "path": "packages/agent-core" },
     { "path": "packages/data-layer" },
     { "path": "packages/adapters" },
-    { "path": "packages/guardrails" },
     { "path": "packages/web" }
   ]
 }

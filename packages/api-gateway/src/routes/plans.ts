@@ -29,10 +29,14 @@ import type { ActionRisk, ActionSource, ConfirmationMode } from '@agentic-obs/co
 import { authMiddleware } from '../middleware/auth.js';
 
 /**
- * Source × risk → confirmationMode. Mirrors guardrails' pickConfirmationMode
- * but inlined here to avoid pulling guardrails into api-gateway as a runtime
- * dep just for this read-only lookup. Keep in sync with
- * packages/guardrails/src/action-guard/action-guard.ts:pickConfirmationMode.
+ * Source × risk → confirmationMode lookup.
+ *
+ * - background_agent + high|critical → formal_approval
+ * - background_agent + low|medium    → none
+ * - user_conversation / manual_ui + critical|high → strong_user_confirm
+ * - user_conversation / manual_ui + medium → user_confirm
+ * - user_conversation / manual_ui + low → none
+ * - system → none (already pre-approved upstream)
  */
 function pickConfirmationMode(source: ActionSource, risk: ActionRisk): ConfirmationMode {
   if (source === 'background_agent') {

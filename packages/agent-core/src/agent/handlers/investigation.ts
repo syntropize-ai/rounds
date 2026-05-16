@@ -116,7 +116,6 @@ export async function handleInvestigationCreate(
 // concurrent runs reused investigation ids.
 // ---------------------------------------------------------------------------
 
-// TODO: migrate to withToolEventBoundary
 export async function handleInvestigationAddSection(
   ctx: ActionContext,
   args: Record<string, unknown>,
@@ -134,193 +133,197 @@ export async function handleInvestigationAddSection(
   const content = String(args.content ?? '');
   if (!content) return 'Error: "content" is required.';
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'investigation_add_section', args: { investigationId, type: sectionType }, displayText: `Adding ${sectionType} section to investigation` });
+  return withToolEventBoundary(
+    ctx.sendEvent,
+    'investigation_add_section',
+    { investigationId, type: sectionType },
+    `Adding ${sectionType} section to investigation`,
+    async () => {
+      const section: InvestigationReportSection = { type: sectionType, content };
 
-  const section: InvestigationReportSection = { type: sectionType, content };
-
-  // Build panel config and capture snapshot for evidence sections
-  if (sectionType === 'evidence' && args.panel && typeof args.panel === 'object') {
-    const p = args.panel as Record<string, unknown>;
-    const viz = (p.visualization ?? 'time_series') as PanelVisualization;
-    const dims = panelSize(viz);
-    const panelConfig: PanelConfig = {
-      id: randomUUID(),
-      title: String(p.title ?? 'Evidence'),
-      description: typeof p.description === 'string' ? p.description : '',
-      visualization: viz,
-      queries: Array.isArray(p.queries) ? (p.queries as Record<string, unknown>[]).map((q) => ({
-        refId: String(q.refId ?? 'A'),
-        expr: String(q.expr ?? ''),
-        legendFormat: typeof q.legendFormat === 'string' ? q.legendFormat : undefined,
-        instant: q.instant === true,
-      })) : [],
-      row: 0,
-      col: 0,
-      width: dims.width,
-      height: dims.height,
-      unit: typeof p.unit === 'string' ? p.unit : undefined,
-      // Visual polish hints — pass through whatever the agent emitted.
-      ...(typeof p.sparkline === 'boolean' ? { sparkline: p.sparkline } : {}),
-      ...(typeof p.colorMode === 'string' ? { colorMode: p.colorMode as PanelConfig['colorMode'] } : {}),
-      ...(typeof p.graphMode === 'string' ? { graphMode: p.graphMode as PanelConfig['graphMode'] } : {}),
-      ...(typeof p.lineWidth === 'number' ? { lineWidth: p.lineWidth } : {}),
-      ...(typeof p.fillOpacity === 'number' ? { fillOpacity: p.fillOpacity } : {}),
-      ...(Array.isArray(p.legendStats) ? { legendStats: p.legendStats as PanelConfig['legendStats'] } : {}),
-      ...(typeof p.legendPlacement === 'string' ? { legendPlacement: p.legendPlacement as PanelConfig['legendPlacement'] } : {}),
-      ...(typeof p.colorScale === 'string' ? { colorScale: p.colorScale as PanelConfig['colorScale'] } : {}),
-    };
-
-    // Capture snapshot data if any metrics adapter is available in the
-    // registry. Evidence panels don't carry a sourceId today — pick the
-    // first registered metrics connector (preferring default) so snapshot
-    // capture keeps working during the migration. Phase 2 may plumb the
-    // sourceId through the panel config.
-    const queries = panelConfig.queries ?? [];
-    const metricsSources = ctx.adapters.list({ signalType: 'metrics' });
-    const chosenSource = metricsSources.find((d) => d.isDefault) ?? metricsSources[0];
-    const evidenceAdapter = chosenSource ? ctx.adapters.metrics(chosenSource.id) : undefined;
-    if (evidenceAdapter && queries.length > 0) {
-      const adapterId = chosenSource?.id ?? 'unknown';
-      try {
-        const hasInstantQuery = queries.some((q) => q.instant);
-        if (hasInstantQuery) {
-          // Instant snapshot
-          const results = await evidenceAdapter.instantQuery(queries[0]!.expr);
-          // For stat panels with sparkline=true, also capture a range so the
-          // saved investigation renders the trend without needing live data.
-          // Failure here is non-fatal — we keep the instant snapshot either way.
-          let sparkline: { timestamps: number[]; values: number[] } | undefined;
-          if (panelConfig.visualization === 'stat' && panelConfig.sparkline) {
-            try {
-              const end = new Date();
-              const start = new Date(end.getTime() - 60 * 60_000);
-              const sparkResults = await evidenceAdapter.rangeQuery(
-                queries[0]!.expr,
-                start,
-                end,
-                '60s',
-              );
-              const first = sparkResults[0];
-              if (first && first.values.length > 0) {
-                sparkline = {
-                  timestamps: first.values.map(([ts]) => ts * 1000),
-                  values: first.values.map(([, v]) => Number(v)).filter(Number.isFinite),
-                };
-              }
-            } catch (sparkErr) {
-              // Non-fatal: instant snapshot still wins. Operators get a trail
-              // so missing sparklines are explicable rather than mysterious.
-              log.warn(
-                {
-                  investigationId,
-                  panelTitle: panelConfig.title,
-                  queryKind: 'sparkline',
-                  adapterId,
-                  errorClass: sparkErr instanceof Error ? sparkErr.constructor.name : typeof sparkErr,
-                  error: sparkErr instanceof Error ? sparkErr.message : String(sparkErr),
-                },
-                'investigation sparkline capture failed',
-              );
-            }
-          }
-          panelConfig.snapshotData = {
-            instant: {
-              data: {
-                result: results.map((r) => ({
-                  metric: r.labels,
-                  value: [r.timestamp, String(r.value)] as [number, string],
-                })),
-              },
-            },
-            ...(sparkline ? { sparkline } : {}),
-            capturedAt: new Date().toISOString(),
-          };
-        } else {
-          // Range snapshot
-          const end = new Date();
-          const start = new Date(end.getTime() - 60 * 60_000); // default 1 hour
-          const step = '60s';
-          const rangeResults = await Promise.all(
-            queries.map(async (q) => {
-              const results = await evidenceAdapter.rangeQuery(q.expr, start, end, step);
-              return {
-                refId: q.refId,
-                series: results.map((r) => ({
-                  labels: r.metric,
-                  points: r.values.map(([ts, val]) => ({ ts, value: Number(val) })),
-                })),
-                totalSeries: results.length,
-              };
-            }),
-          );
-          panelConfig.snapshotData = {
-            range: rangeResults,
-            capturedAt: new Date().toISOString(),
-          };
-        }
-      } catch (capErr) {
-        // Snapshot capture failed — investigation still completes (the
-        // evidence is optional polish, not the report itself). Log so
-        // operators can correlate empty evidence panels with adapter
-        // failures, and stamp a `captureError` provenance marker on the
-        // panel so the UI can render "(capture failed)" instead of an
-        // empty chart.
-        const queryKind = queries.some((q) => q.instant) ? 'instant' : 'range';
-        const errMsg = capErr instanceof Error ? capErr.message : String(capErr);
-        log.warn(
-          {
-            investigationId,
-            panelTitle: panelConfig.title,
-            queryKind,
-            adapterId,
-            errorClass: capErr instanceof Error ? capErr.constructor.name : typeof capErr,
-            error: errMsg,
-          },
-          'investigation snapshot capture failed',
-        );
-        panelConfig.snapshotData = {
-          capturedAt: new Date().toISOString(),
-          captureError: errMsg,
+      // Build panel config and capture snapshot for evidence sections
+      if (sectionType === 'evidence' && args.panel && typeof args.panel === 'object') {
+        const p = args.panel as Record<string, unknown>;
+        const viz = (p.visualization ?? 'time_series') as PanelVisualization;
+        const dims = panelSize(viz);
+        const panelConfig: PanelConfig = {
+          id: randomUUID(),
+          title: String(p.title ?? 'Evidence'),
+          description: typeof p.description === 'string' ? p.description : '',
+          visualization: viz,
+          queries: Array.isArray(p.queries) ? (p.queries as Record<string, unknown>[]).map((q) => ({
+            refId: String(q.refId ?? 'A'),
+            expr: String(q.expr ?? ''),
+            legendFormat: typeof q.legendFormat === 'string' ? q.legendFormat : undefined,
+            instant: q.instant === true,
+          })) : [],
+          row: 0,
+          col: 0,
+          width: dims.width,
+          height: dims.height,
+          unit: typeof p.unit === 'string' ? p.unit : undefined,
+          // Visual polish hints — pass through whatever the agent emitted.
+          ...(typeof p.sparkline === 'boolean' ? { sparkline: p.sparkline } : {}),
+          ...(typeof p.colorMode === 'string' ? { colorMode: p.colorMode as PanelConfig['colorMode'] } : {}),
+          ...(typeof p.graphMode === 'string' ? { graphMode: p.graphMode as PanelConfig['graphMode'] } : {}),
+          ...(typeof p.lineWidth === 'number' ? { lineWidth: p.lineWidth } : {}),
+          ...(typeof p.fillOpacity === 'number' ? { fillOpacity: p.fillOpacity } : {}),
+          ...(Array.isArray(p.legendStats) ? { legendStats: p.legendStats as PanelConfig['legendStats'] } : {}),
+          ...(typeof p.legendPlacement === 'string' ? { legendPlacement: p.legendPlacement as PanelConfig['legendPlacement'] } : {}),
+          ...(typeof p.colorScale === 'string' ? { colorScale: p.colorScale as PanelConfig['colorScale'] } : {}),
         };
+
+        // Capture snapshot data if any metrics adapter is available in the
+        // registry. Evidence panels don't carry a sourceId today — pick the
+        // first registered metrics connector (preferring default) so snapshot
+        // capture keeps working during the migration. Phase 2 may plumb the
+        // sourceId through the panel config.
+        const queries = panelConfig.queries ?? [];
+        const metricsSources = ctx.adapters.list({ signalType: 'metrics' });
+        const chosenSource = metricsSources.find((d) => d.isDefault) ?? metricsSources[0];
+        const evidenceAdapter = chosenSource ? ctx.adapters.metrics(chosenSource.id) : undefined;
+        if (evidenceAdapter && queries.length > 0) {
+          const adapterId = chosenSource?.id ?? 'unknown';
+          try {
+            const hasInstantQuery = queries.some((q) => q.instant);
+            if (hasInstantQuery) {
+              // Instant snapshot
+              const results = await evidenceAdapter.instantQuery(queries[0]!.expr);
+              // For stat panels with sparkline=true, also capture a range so the
+              // saved investigation renders the trend without needing live data.
+              // Failure here is non-fatal — we keep the instant snapshot either way.
+              let sparkline: { timestamps: number[]; values: number[] } | undefined;
+              if (panelConfig.visualization === 'stat' && panelConfig.sparkline) {
+                try {
+                  const end = new Date();
+                  const start = new Date(end.getTime() - 60 * 60_000);
+                  const sparkResults = await evidenceAdapter.rangeQuery(
+                    queries[0]!.expr,
+                    start,
+                    end,
+                    '60s',
+                  );
+                  const first = sparkResults[0];
+                  if (first && first.values.length > 0) {
+                    sparkline = {
+                      timestamps: first.values.map(([ts]) => ts * 1000),
+                      values: first.values.map(([, v]) => Number(v)).filter(Number.isFinite),
+                    };
+                  }
+                } catch (sparkErr) {
+                  // Non-fatal: instant snapshot still wins. Operators get a trail
+                  // so missing sparklines are explicable rather than mysterious.
+                  log.warn(
+                    {
+                      investigationId,
+                      panelTitle: panelConfig.title,
+                      queryKind: 'sparkline',
+                      adapterId,
+                      errorClass: sparkErr instanceof Error ? sparkErr.constructor.name : typeof sparkErr,
+                      error: sparkErr instanceof Error ? sparkErr.message : String(sparkErr),
+                    },
+                    'investigation sparkline capture failed',
+                  );
+                }
+              }
+              panelConfig.snapshotData = {
+                instant: {
+                  data: {
+                    result: results.map((r) => ({
+                      metric: r.labels,
+                      value: [r.timestamp, String(r.value)] as [number, string],
+                    })),
+                  },
+                },
+                ...(sparkline ? { sparkline } : {}),
+                capturedAt: new Date().toISOString(),
+              };
+            } else {
+              // Range snapshot
+              const end = new Date();
+              const start = new Date(end.getTime() - 60 * 60_000); // default 1 hour
+              const step = '60s';
+              const rangeResults = await Promise.all(
+                queries.map(async (q) => {
+                  const results = await evidenceAdapter.rangeQuery(q.expr, start, end, step);
+                  return {
+                    refId: q.refId,
+                    series: results.map((r) => ({
+                      labels: r.metric,
+                      points: r.values.map(([ts, val]) => ({ ts, value: Number(val) })),
+                    })),
+                    totalSeries: results.length,
+                  };
+                }),
+              );
+              panelConfig.snapshotData = {
+                range: rangeResults,
+                capturedAt: new Date().toISOString(),
+              };
+            }
+          } catch (capErr) {
+            // Snapshot capture failed — investigation still completes (the
+            // evidence is optional polish, not the report itself). Log so
+            // operators can correlate empty evidence panels with adapter
+            // failures, and stamp a `captureError` provenance marker on the
+            // panel so the UI can render "(capture failed)" instead of an
+            // empty chart.
+            const queryKind = queries.some((q) => q.instant) ? 'instant' : 'range';
+            const errMsg = capErr instanceof Error ? capErr.message : String(capErr);
+            log.warn(
+              {
+                investigationId,
+                panelTitle: panelConfig.title,
+                queryKind,
+                adapterId,
+                errorClass: capErr instanceof Error ? capErr.constructor.name : typeof capErr,
+                error: errMsg,
+              },
+              'investigation snapshot capture failed',
+            );
+            panelConfig.snapshotData = {
+              capturedAt: new Date().toISOString(),
+              captureError: errMsg,
+            };
+          }
+        }
+
+        section.panel = panelConfig;
       }
-    }
 
-    section.panel = panelConfig;
-  }
+      // Accumulate section in the per-session map
+      const existing = ctx.investigationSections.get(investigationId) ?? [];
+      existing.push(section);
+      ctx.investigationSections.set(investigationId, existing);
 
-  // Accumulate section in the per-session map
-  const existing = ctx.investigationSections.get(investigationId) ?? [];
-  existing.push(section);
-  ctx.investigationSections.set(investigationId, existing);
+      // Provenance bookkeeping (Task 10). Each add_section call is one tool
+      // call from the agent's perspective; evidence sections also bump the
+      // evidence counter. We harvest inline citations into the report-level
+      // citation list so the UI can render <CitationChip /> with summaries.
+      const prov = ctx.investigationProvenance.get(investigationId);
+      if (prov) {
+        prov.toolCalls = (prov.toolCalls ?? 0) + 1;
+        if (sectionType === 'evidence') {
+          prov.evidenceCount = (prov.evidenceCount ?? 0) + 1;
+        }
+        const sectionIndex = existing.length - 1;
+        const list = prov.citations ?? (prov.citations = []);
+        for (const m of content.matchAll(CITATION_RX)) {
+          const prefix = m[1]!;
+          const ref = `${prefix}${m[2]!}`;
+          if (list.some((c) => c.ref === ref)) continue;
+          list.push({
+            ref,
+            kind: KIND_BY_PREFIX[prefix]!,
+            summary: section.panel?.title ?? content.slice(0, 80),
+            sectionIndex,
+          });
+        }
+      }
 
-  // Provenance bookkeeping (Task 10). Each add_section call is one tool
-  // call from the agent's perspective; evidence sections also bump the
-  // evidence counter. We harvest inline citations into the report-level
-  // citation list so the UI can render <CitationChip /> with summaries.
-  const prov = ctx.investigationProvenance.get(investigationId);
-  if (prov) {
-    prov.toolCalls = (prov.toolCalls ?? 0) + 1;
-    if (sectionType === 'evidence') {
-      prov.evidenceCount = (prov.evidenceCount ?? 0) + 1;
-    }
-    const sectionIndex = existing.length - 1;
-    const list = prov.citations ?? (prov.citations = []);
-    for (const m of content.matchAll(CITATION_RX)) {
-      const prefix = m[1]!;
-      const ref = `${prefix}${m[2]!}`;
-      if (list.some((c) => c.ref === ref)) continue;
-      list.push({
-        ref,
-        kind: KIND_BY_PREFIX[prefix]!,
-        summary: section.panel?.title ?? content.slice(0, 80),
-        sectionIndex,
-      });
-    }
-  }
-
-  const observationText = `Added ${sectionType} section to investigation ${investigationId} (${existing.length} sections total).`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'investigation_add_section', summary: observationText, success: true });
-  return observationText;
+      return `Added ${sectionType} section to investigation ${investigationId} (${existing.length} sections total).`;
+    },
+  );
 }
 
 export async function handleInvestigationComplete(

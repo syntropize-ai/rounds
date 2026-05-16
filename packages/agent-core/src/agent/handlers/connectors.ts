@@ -7,7 +7,6 @@ import { withToolEventBoundary } from './_shared.js';
 // Connector discovery (always allowed — required before metrics/logs/changes)
 // ---------------------------------------------------------------------------
 
-// TODO: migrate to withToolEventBoundary
 export async function handleConnectorsList(
   ctx: ActionContext,
   args: Record<string, unknown>,
@@ -17,33 +16,27 @@ export async function handleConnectorsList(
     signalType === 'metrics' || signalType === 'logs' || signalType === 'changes'
       ? { signalType }
       : undefined;
-  ctx.sendEvent({
-    type: 'tool_call',
-    tool: 'connectors_list',
-    args: filter ? filter : {},
-    displayText: filter ? `Listing ${filter.signalType} connectors` : 'Listing connectors',
-  });
 
-  const infos = ctx.adapters.list(filter);
-  if (infos.length === 0) {
-    const msg = filter
-      ? `No ${filter.signalType} connectors are configured.`
-      : 'No connectors are configured.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'connectors_list', summary: msg, success: true });
-    return msg;
-  }
-  const lines = infos.map((d) => {
-    const tail = d.isDefault ? ' — default' : '';
-    return `id: ${d.id} (${d.type}, ${d.signalType})${tail}`;
-  });
-  const summary = lines.join('\n');
-  ctx.sendEvent({
-    type: 'tool_result',
-    tool: 'connectors_list',
-    summary: `${infos.length} connector(s)`,
-    success: true,
-  });
-  return summary;
+  return withToolEventBoundary(
+    ctx.sendEvent,
+    'connectors_list',
+    filter ? filter : {},
+    filter ? `Listing ${filter.signalType} connectors` : 'Listing connectors',
+    async () => {
+      const infos = ctx.adapters.list(filter);
+      if (infos.length === 0) {
+        return filter
+          ? `No ${filter.signalType} connectors are configured.`
+          : 'No connectors are configured.';
+      }
+      const lines = infos.map((d) => {
+        const tail = d.isDefault ? ' — default' : '';
+        return `id: ${d.id} (${d.type}, ${d.signalType})${tail}`;
+      });
+      const observation = lines.join('\n');
+      return { observation, summary: `${infos.length} connector(s)` };
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

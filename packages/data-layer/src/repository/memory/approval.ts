@@ -9,7 +9,7 @@ import type {
   ApprovalScopeFilter,
   IApprovalRequestRepository,
 } from '../interfaces.js';
-import type { IGatewayApprovalStore } from '../../stores/interfaces.js';
+import type { IGatewayApprovalStore } from '../gateway-interfaces.js';
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 

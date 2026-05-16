@@ -1,7 +1,7 @@
 import { createLogger } from '@agentic-obs/common/logging';
 import type { MaybeAsync, IApprovalRequestRepository } from '../interfaces.js';
 import type { ApprovalRequest } from '../types.js';
-import type { IGatewayApprovalStore } from '../../stores/interfaces.js';
+import type { IGatewayApprovalStore } from '../gateway-interfaces.js';
 
 const log = createLogger('approval-events');
 

@@ -1,7 +1,7 @@
 import { eq, isNull } from 'drizzle-orm';
 import { folders } from '../../db/schema.js';
 import type { IFolderRepository } from '../interfaces.js';
-import type { Folder } from '../../stores/folder-store.js';
+import type { Folder } from '../types/folder.js';
 
 type DbRow = typeof folders.$inferSelect;
 

@@ -29,7 +29,7 @@ import type {
   IGatewayIncidentStore,
   IGatewayApprovalStore,
   IGatewayShareStore,
-} from '../stores/interfaces.js';
+} from './gateway-interfaces.js';
 
 import { InvestigationRepository } from './sqlite/investigation.js';
 import { SqliteIncidentRepository } from './sqlite/incident.js';

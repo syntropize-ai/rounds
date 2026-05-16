@@ -15,7 +15,7 @@ import {
   muteTimings,
 } from '../../db/sqlite-schema.js';
 import type { INotificationRepository } from '../interfaces.js';
-import { isMutedByTimings, routeIntoTree } from '../../stores/notification-dispatch.js';
+import { isMutedByTimings, routeIntoTree } from '../notification-routing.js';
 
 type ContactPointRow = typeof contactPoints.$inferSelect;
 type MuteTimingRow = typeof muteTimings.$inferSelect;

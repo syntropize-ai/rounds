@@ -2,8 +2,12 @@
 //
 // Naming convention:
 //   I*Repository  — abstract persistence interfaces (repository/)
-//   *Store        — in-memory implementations (stores/)
-//   IGateway*     — gateway-facing subset interfaces (stores/)
+//   IGateway*     — gateway-facing subset interfaces (repository/gateway-interfaces.ts)
+//
+// Note: in-memory `*Store` classes (incident, feed, investigation, share,
+// folder, version, post-mortem, investigation-report) were retired in
+// Sprint 4. The only remaining `stores/` exports are `NotificationStore`
+// (still in use by routes) and the `Persistable` persistence shim.
 
 // ── Domain models (re-exported from common) ──────────────────────────────
 export type { Service, Change, Symptom, Evidence, Investigation, Action } from '@agentic-obs/common';
@@ -30,90 +34,53 @@ export { seedRbacForOrg, type SeedRbacResult } from './seed/rbac-seed.js';
 // ── use them in integration tests).
 export * from './test-support/index.js';
 
-// ── Store implementations ────────────────────────────────────────────────
-// Re-exported selectively to avoid name conflicts with repository types.
-// For the full store API, import from '@agentic-obs/data-layer/stores'.
+// ── Remaining store implementations (persistence shim + NotificationStore) ─
 export {
-  // Persistence helpers
   type Persistable,
   setMarkDirty,
   markDirty as markStoreDirty,
-
-  // Alert Rule: retired per ADR-001. Use IAlertRuleRepository (production)
-  // or InMemoryAlertRuleRepository (tests) from this package's repository
-  // exports above.
-
-  // Approval — store removed in M3 (ADR-001); types now live in
-  // ./repository/types.ts and are re-exported via ./repository/index.ts.
-
-  // Incident
-  IncidentStore,
-  incidentStore,
-  type CreateIncidentParams,
-  type UpdateIncidentParams,
-  type CreateIncidentParamsWithTenant,
-
-  // Notification
   NotificationStore,
   defaultNotificationStore,
-
-  // Post Mortem
-  PostMortemStore,
-  postMortemStore,
-
-  // Feed
-  FeedStore,
-  feedStore,
-  type FeedEventType,
-  type FeedSeverity,
-  type FeedStatus,
-  type FeedFeedback,
-  type HypothesisFeedback,
-  type ActionFeedback,
-  type FeedItem,
-  type FeedPage,
-  type FeedListOptions,
-  type FeedbackStats,
-
-  // Investigation
-  InvestigationStore,
-  defaultInvestigationStore,
-  type FollowUpRecord,
-  type FeedbackBody,
-  type StoredFeedback,
-
-  // Share (in-memory fixture; production wires Sqlite/Postgres repo)
-  InMemoryShareLinkRepository,
-  type ShareLookupResult,
-  type ShareLink,
-  type SharePermission,
-
-  // Dashboard store removed in M1 dashboard repo migration (ADR-001).
-  // Use IDashboardRepository (from @agentic-obs/common) and the SQLite/
-  // Postgres implementations, or InMemoryDashboardRepository for tests.
-
-  // Investigation Report
-  InvestigationReportStore,
-  defaultInvestigationReportStore,
-
-  // Folder
-  FolderStore,
-  defaultFolderStore,
-  type Folder,
-
-  // Workspace: removed in T9 cutover; use OrgRepository.
-
-  // Version
-  VersionStore,
-  defaultVersionStore,
-
-  // Gateway interfaces (subset of store APIs consumed by the API gateway)
-  type MaybeAsync,
-  type IGatewayInvestigationStore,
-  type IGatewayIncidentStore,
-  type IGatewayFeedStore,
-  type IGatewayApprovalStore,
-  type IGatewayShareStore,
-  type IGatewayDashboardStore,
-  type GatewayStores,
 } from './stores/index.js';
+
+// ── Repository type re-exports (canonical homes after store→repo migration) ─
+export type {
+  CreateIncidentParams,
+  UpdateIncidentParams,
+  CreateIncidentParamsWithTenant,
+} from './repository/types/incident.js';
+export type {
+  FeedEventType,
+  FeedSeverity,
+  FeedStatus,
+  FeedFeedback,
+  HypothesisFeedback,
+  ActionFeedback,
+  FeedItem,
+  FeedPage,
+  FeedListOptions,
+  FeedbackStats,
+} from './repository/types/feed.js';
+export type {
+  FollowUpRecord,
+  FeedbackBody,
+  StoredFeedback,
+} from './repository/types/investigation.js';
+export type {
+  ShareLookupResult,
+  ShareLink,
+  SharePermission,
+} from './repository/types/share.js';
+export type { Folder } from './repository/types/folder.js';
+
+// ── Gateway-facing interfaces (DI shapes consumed by the API gateway) ────
+export type {
+  MaybeAsync,
+  IGatewayInvestigationStore,
+  IGatewayIncidentStore,
+  IGatewayFeedStore,
+  IGatewayApprovalStore,
+  IGatewayShareStore,
+  IGatewayDashboardStore,
+  GatewayStores,
+} from './repository/gateway-interfaces.js';

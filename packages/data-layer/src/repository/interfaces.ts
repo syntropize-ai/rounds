@@ -44,8 +44,8 @@ import type {
   FeedTenantOptions,
 } from './types/feed.js';
 import type { ApprovalAction, ApprovalContext, ApprovalRequest, ApprovalStatus } from './types.js';
-import type { SharePermission, ShareLink as StoreShareLink } from '../stores/share-store.js';
-import type { Folder } from '../stores/folder-store.js';
+import type { SharePermission, ShareLink as StoreShareLink } from './types/share.js';
+import type { Folder } from './types/folder.js';
 
 // — Utility
 

@@ -45,6 +45,15 @@ export {
 export { handleMetricExplore } from './metric-explore.js';
 
 export {
+  handleMetricsListNames,
+  handleMetricsGetLabels,
+  handleMetricsGetLabelValues,
+  handleMetricsGetCardinality,
+  handleMetricsSampleSeries,
+  handleMetricsFindRelated,
+} from './metric-discovery.js';
+
+export {
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,

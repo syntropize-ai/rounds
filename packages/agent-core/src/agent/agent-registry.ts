@@ -48,6 +48,10 @@ agentRegistry.register({
     'connectors_suggest', 'connectors_pin', 'connectors_unpin',
     // Source-agnostic metrics primitives (each requires sourceId)
     'metrics_query', 'metrics_range_query', 'metrics_discover', 'metrics_validate',
+    // Narrow per-shape discovery primitives — preferred over metrics_discover
+    // for new flows (one tool name = one intent).
+    'metrics_list_names', 'metrics_get_labels', 'metrics_get_label_values',
+    'metrics_get_cardinality', 'metrics_sample_series', 'metrics_find_related',
     // Inline chart bubble in chat — for "show me / what is" type questions.
     'metric_explore',
     // Source-agnostic logs primitives (each requires sourceId)

@@ -28,6 +28,12 @@ import {
   handleMetricsDiscover,
   handleMetricsValidate,
   handleMetricExplore,
+  handleMetricsListNames,
+  handleMetricsGetLabels,
+  handleMetricsGetLabelValues,
+  handleMetricsGetCardinality,
+  handleMetricsSampleSeries,
+  handleMetricsFindRelated,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,
@@ -210,6 +216,13 @@ async function dispatchAction(
     case 'metrics_validate': return handleMetricsValidate(ctx, args);
     // Inline chart bubble in chat (PR-A backend; PR-B frontend renders the bubble).
     case 'metric_explore': return handleMetricExplore(ctx, args);
+    // Narrow per-shape discovery primitives — one tool per lookup shape.
+    case 'metrics_list_names': return handleMetricsListNames(ctx, args);
+    case 'metrics_get_labels': return handleMetricsGetLabels(ctx, args);
+    case 'metrics_get_label_values': return handleMetricsGetLabelValues(ctx, args);
+    case 'metrics_get_cardinality': return handleMetricsGetCardinality(ctx, args);
+    case 'metrics_sample_series': return handleMetricsSampleSeries(ctx, args);
+    case 'metrics_find_related': return handleMetricsFindRelated(ctx, args);
     // Source-agnostic logs primitives
     case 'logs_query': return handleLogsQuery(ctx, args);
     case 'logs_labels': return handleLogsLabels(ctx, args);

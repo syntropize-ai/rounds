@@ -165,6 +165,19 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   // other read-side metrics primitives.
   'metric_explore': (args: Record<string, unknown>) =>
     ac.eval('connectors:query', resolveConnectorScope(args)),
+  // Narrow discovery primitives — same connector-scoped read as metrics_query.
+  'metrics_list_names': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_get_labels': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_get_label_values': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_get_cardinality': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_sample_series': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_find_related': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
 
   // -- Logs primitives (source-agnostic; sourceId is required) -------------
   'logs_query': (args: Record<string, unknown>) =>

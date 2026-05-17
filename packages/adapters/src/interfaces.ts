@@ -33,6 +33,15 @@ export interface IMetricsAdapter {
   listLabels(metric: string): Promise<string[]>;
   listLabelValues(label: string): Promise<string[]>;
   findSeries(matchers: string[]): Promise<string[]>;
+  /**
+   * Variant of `findSeries` that returns the FULL label-set per series rather
+   * than just deduped metric names. Used by the agent's discovery tools
+   * (cardinality, sample, find-related) where the label values matter. The
+   * optional `limit` caps the result count at the transport layer when the
+   * backend supports it; the adapter MUST still tolerate `limit=undefined`
+   * by returning everything and letting the caller truncate.
+   */
+  findSeriesFull(matchers: string[], limit?: number): Promise<Array<Record<string, string>>>;
   fetchMetadata(metricNames?: string[]): Promise<Record<string, MetricMetadata>>;
   instantQuery(expr: string, time?: Date): Promise<MetricSample[]>;
   rangeQuery(expr: string, start: Date, end: Date, step: string): Promise<RangeResult[]>;

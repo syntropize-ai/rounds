@@ -13,6 +13,7 @@ const metricsStub: IMetricsAdapter = {
   listLabels: async () => [],
   listLabelValues: async () => [],
   findSeries: async () => [],
+  findSeriesFull: async () => [],
   fetchMetadata: async () => ({}),
   instantQuery: async () => [],
   rangeQuery: async () => [],

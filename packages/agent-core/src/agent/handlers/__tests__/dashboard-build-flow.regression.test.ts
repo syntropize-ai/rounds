@@ -40,6 +40,7 @@ function fakeMetricsAdapter(): IMetricsAdapter {
     listLabels: vi.fn().mockResolvedValue(['job', 'instance']),
     listLabelValues: vi.fn().mockResolvedValue([]),
     findSeries: vi.fn().mockResolvedValue([]),
+    findSeriesFull: vi.fn().mockResolvedValue([]),
     fetchMetadata: vi.fn().mockResolvedValue({}),
     listMetricNames: vi
       .fn()

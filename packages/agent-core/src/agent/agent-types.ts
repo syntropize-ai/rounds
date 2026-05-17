@@ -21,6 +21,9 @@ export type AgentToolName =
   | 'navigate'
   // Source-agnostic metrics primitives (each requires `sourceId`)
   | 'metrics_query' | 'metrics_range_query' | 'metrics_discover' | 'metrics_validate'
+  // Narrow per-shape metric discovery primitives (Read/Grep/Glob style)
+  | 'metrics_list_names' | 'metrics_get_labels' | 'metrics_get_label_values'
+  | 'metrics_get_cardinality' | 'metrics_sample_series' | 'metrics_find_related'
   // Inline chart bubble in chat (uses shared chart-summary helper)
   | 'metric_explore'
   // Source-agnostic logs primitives (each requires `sourceId`)

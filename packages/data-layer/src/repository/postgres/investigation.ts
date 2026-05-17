@@ -1,4 +1,5 @@
 import { pgAll, pgRun } from './pg-helpers.js';
+import { createLogger } from '@agentic-obs/server-utils/logging';
 import { sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import type {
@@ -10,6 +11,8 @@ import type {
 } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
 import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../types/investigation.js';
+
+const log = createLogger('investigation-repository');
 
 // =====================================================================
 // Postgres implementation of the canonical investigation repository contract.
@@ -63,12 +66,25 @@ interface ConclusionRow {
 
 // -- JSON helpers -----------------------------------------------------
 
-function parseJson<T>(raw: string | null | undefined, fallback: T): T {
+function parseJson<T>(
+  raw: string | null | undefined,
+  fallback: T,
+  rowId: string,
+  column: string,
+): T {
   if (raw === null || raw === undefined || raw === '') return fallback;
   try {
     return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
+  } catch (err) {
+    log.error(
+      { rowId, column, err: err instanceof Error ? err.message : String(err) },
+      'corrupt JSON in investigations row — refusing to return fallback',
+    );
+    throw new Error(
+      `[InvestigationRepository] corrupt JSON in column "${column}" for row ${rowId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
 }
 
@@ -94,13 +110,15 @@ function rowToInvestigationV6(r: InvestigationRow): Investigation {
         timeRange: { start: '', end: '' },
         goal: r.intent,
       },
+      r.id,
+      'structured_intent',
     ),
-    plan: parseJson<Investigation['plan']>(r.plan, emptyPlan()),
+    plan: parseJson<Investigation['plan']>(r.plan, emptyPlan(), r.id, 'plan'),
     status: r.status as Investigation['status'],
-    hypotheses: parseJson<Investigation['hypotheses']>(r.hypotheses, []),
-    actions: parseJson<Investigation['actions']>(r.actions, []),
-    evidence: parseJson<Investigation['evidence']>(r.evidence, []),
-    symptoms: parseJson<Investigation['symptoms']>(r.symptoms, []),
+    hypotheses: parseJson<Investigation['hypotheses']>(r.hypotheses, [], r.id, 'hypotheses'),
+    actions: parseJson<Investigation['actions']>(r.actions, [], r.id, 'actions'),
+    evidence: parseJson<Investigation['evidence']>(r.evidence, [], r.id, 'evidence'),
+    symptoms: parseJson<Investigation['symptoms']>(r.symptoms, [], r.id, 'symptoms'),
     ...(r.workspace_id ? { workspaceId: r.workspace_id } : {}),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -130,11 +148,15 @@ function rowToFeedback(r: FeedbackRow): StoredFeedback {
   const hyp = parseJson<StoredFeedback['hypothesisFeedbacks'] | null>(
     r.hypothesis_feedbacks,
     null,
+    r.id,
+    'feedback.hypothesis_feedbacks',
   );
   if (hyp !== null) base.hypothesisFeedbacks = hyp;
   const act = parseJson<StoredFeedback['actionFeedbacks'] | null>(
     r.action_feedbacks,
     null,
+    r.id,
+    'feedback.action_feedbacks',
   );
   if (act !== null) base.actionFeedbacks = act;
   return base;
@@ -435,7 +457,12 @@ export class PostgresInvestigationRepository implements IInvestigationRepository
       SELECT * FROM investigation_conclusions WHERE investigation_id = ${id}
     `);
     if (rows.length === 0) return null;
-    return parseJson<ExplanationResult | null>(rows[0]!.conclusion, null);
+    return parseJson<ExplanationResult | null>(
+      rows[0]!.conclusion,
+      null,
+      rows[0]!.investigation_id,
+      'conclusion',
+    );
   }
 
   async setConclusion(id: string, conclusion: ExplanationResult): Promise<void> {

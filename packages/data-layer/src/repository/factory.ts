@@ -16,6 +16,7 @@ import type {
   IChatSessionContextRepository,
   IChatMessageRepository,
   IChatSessionEventRepository,
+  IKnowledgeRepository,
 } from './interfaces.js';
 import type {
   IDashboardRepository,
@@ -78,6 +79,8 @@ import { PostgresNotificationDispatchRepository } from './postgres/notification-
 import { SqliteLlmAuditRepository } from './sqlite/llm-audit-repository.js';
 import { PostgresLlmAuditRepository } from './postgres/llm-audit-repository.js';
 import type { ILlmAuditRepository } from './sqlite/llm-audit-repository.js';
+import { SqliteKnowledgeRepository } from './sqlite/knowledge.js';
+import { PostgresKnowledgeRepository } from './postgres/knowledge.js';
 
 /**
  * Complete repository bundle available behind every persistence backend.
@@ -112,6 +115,7 @@ export interface RepositoryBundle {
   remediationPlans: IRemediationPlanRepository;
   notificationDispatch: INotificationDispatchRepository;
   llmAudit: ILlmAuditRepository;
+  knowledge: IKnowledgeRepository;
 }
 
 export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
@@ -138,6 +142,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     remediationPlans: new SqliteRemediationPlanRepository(db),
     notificationDispatch: new SqliteNotificationDispatchRepository(db),
     llmAudit: new SqliteLlmAuditRepository(db),
+    knowledge: new SqliteKnowledgeRepository(db),
   };
 }
 
@@ -166,6 +171,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     remediationPlans: new PostgresRemediationPlanRepository(db),
     notificationDispatch: new PostgresNotificationDispatchRepository(db),
     llmAudit: new PostgresLlmAuditRepository(db),
+    knowledge: new PostgresKnowledgeRepository(queryClient),
   };
 }
 

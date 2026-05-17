@@ -64,6 +64,10 @@ export { handleOpsRunCommand } from './ops.js';
 
 export { handleRemediationPlanCreate, handleRemediationPlanCreateRescue } from './remediation-plan.js';
 
+export { handleKbSearch } from './kb-search.js';
+export { handleKbGet } from './kb-get.js';
+export { handleKbRecommend } from './kb-recommend.js';
+
 export {
   handleConnectorList,
   handleConnectorTemplateList,

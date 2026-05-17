@@ -37,6 +37,8 @@ export type AgentToolName =
   | 'connector_list' | 'connector_template_list' | 'connector_detect'
   | 'connector_propose' | 'connector_apply' | 'connector_test'
   | 'setting_get' | 'setting_set'
+  // Knowledge base (TF-IDF over saved/distilled/bundled patterns + templates)
+  | 'kb_search' | 'kb_get' | 'kb_recommend'
   // Knowledge & utility
   | 'web_search' | 'llm.complete'
   | 'verifier.run'

@@ -60,6 +60,8 @@ agentRegistry.register({
     'remediation_plan_create', 'remediation_plan_create_rescue',
     // Knowledge
     'web_search',
+    // Knowledge base — TF-IDF + bundled seeds
+    'kb_search', 'kb_get', 'kb_recommend',
     // Alert rules
     'alert_rule_write', 'alert_rule_list', 'alert_rule_history',
     // Navigation

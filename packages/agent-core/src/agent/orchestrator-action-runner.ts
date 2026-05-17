@@ -51,6 +51,9 @@ import {
   handleConnectorTest,
   handleSettingGet,
   handleSettingSet,
+  handleKbSearch,
+  handleKbGet,
+  handleKbRecommend,
 } from './orchestrator-action-handlers.js';
 import type { ToolAuditReporter } from './orchestrator-audit-reporter.js';
 
@@ -232,6 +235,10 @@ async function dispatchAction(
     case 'setting_set': return handleSettingSet(ctx, args);
     // Web search
     case 'web_search': return handleWebSearch(ctx, args);
+    // Knowledge base
+    case 'kb_search': return handleKbSearch(ctx, args);
+    case 'kb_get': return handleKbGet(ctx, args);
+    case 'kb_recommend': return handleKbRecommend(ctx, args);
     // `tool_search` is intercepted by ReActLoop before dispatch — it
     // resolves deferred-tool schemas and feeds them back as an observation
     // without round-tripping through the dispatcher. Listed here as a

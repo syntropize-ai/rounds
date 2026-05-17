@@ -218,6 +218,15 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
 
   // -- Web / knowledge ------------------------------------------------------
   'web_search': () => ac.eval('chat:use'),
+
+  // -- Knowledge base -------------------------------------------------------
+  // KB read tools. The dedicated `kb:read` action is landing in B1's RBAC
+  // change; until it merges these read tools are gated on `chat:use` (the
+  // lowest read scope an agent caller already needs). One-line swap to
+  // `kb:read` when B1's enum addition lands.
+  'kb_search': () => ac.eval('chat:use'),
+  'kb_get': () => ac.eval('chat:use'),
+  'kb_recommend': () => ac.eval('chat:use'),
 };
 
 /**

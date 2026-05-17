@@ -11,6 +11,7 @@ import type {
   DashboardSseEvent,
   Identity,
   IFolderRepository,
+  IKnowledgeRepository,
   InvestigationReportSection,
   NewAuditLogEntry,
   Provenance,
@@ -85,6 +86,13 @@ export interface ActionContext {
    * Optional while backend workers land /api/connectors.
    */
   configService?: AgentConfigService;
+  /**
+   * Knowledge-base repository. When wired, the `kb_search` / `kb_get` /
+   * `kb_recommend` tools are usable. Optional so test/in-memory setups can
+   * omit; handlers return a clear "knowledge base not configured" observation
+   * when absent.
+   */
+  knowledge?: IKnowledgeRepository;
   sendEvent: (event: DashboardSseEvent) => void;
   sessionId: string;
 

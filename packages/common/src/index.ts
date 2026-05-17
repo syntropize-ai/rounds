@@ -54,3 +54,10 @@ export type {
 } from './utils/chart-summary.js';
 export { suggestPivots } from './utils/chart-pivots.js';
 export type { PivotSuggestion, SuggestPivotsArgs } from './utils/chart-pivots.js';
+
+// Knowledge base — TF-IDF, bundled seeds, and the IKnowledgeRepository surface
+// the agent handlers / loader / template route consume. The repository
+// interface here is the contract; B1's data-layer implementation will satisfy
+// it. When B1's types land in @agentic-obs/data-layer, this re-export can
+// either delegate to those (one-line change) or be removed.
+export * from './kb/index.js';

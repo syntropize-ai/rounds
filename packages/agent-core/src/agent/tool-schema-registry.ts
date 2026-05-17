@@ -998,6 +998,66 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
 
   // -------------------------------------------------------------------------
+  // Knowledge base (TF-IDF over bundled + saved + distilled entries)
+  // -------------------------------------------------------------------------
+  'kb_search': {
+    category: 'deferred',
+    schema: {
+      name: 'kb_search',
+      description:
+        'Keyword-search the workspace knowledge base (bundled patterns/templates + user-saved templates + distilled facts). Returns top entries with a short snippet. Use when the user names a known system (Redis, Kafka, Istio, Postgres, ...) BEFORE web_search — KB hits are higher quality than web priors.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Free-text search query' },
+          kind: {
+            type: 'string',
+            enum: ['pattern', 'template', 'metric_doc', 'system_fact'],
+            description: 'Optional kind filter.',
+          },
+          limit: { type: 'integer', description: 'Max entries to return (default 5, capped at 20)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  'kb_get': {
+    category: 'deferred',
+    schema: {
+      name: 'kb_get',
+      description:
+        'Fetch a single knowledge-base entry by id. Use after kb_search / kb_recommend to retrieve the full content (panels, variables, notes) for the entry you intend to apply.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'KB entry id from kb_search / kb_recommend' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  'kb_recommend': {
+    category: 'deferred',
+    schema: {
+      name: 'kb_recommend',
+      description:
+        'Given a free-text intent and (optionally) the metric names actually exposed in the workspace, return the top-3 KB templates/patterns ranked by intent-match + metric-coverage. Call BEFORE dashboard_create when the request maps to a known system. Pass the result of metrics_discover kind="names" as availableMetrics to penalize templates whose required metrics aren\'t scraped.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          intent: { type: 'string', description: 'Free-text description of what the user wants, e.g. "kafka consumer lag dashboard"' },
+          availableMetrics: {
+            type: 'array',
+            description: 'Optional — metric names exposed in the workspace, e.g. from metrics_discover kind="names". Templates whose required metrics aren\'t covered get penalized.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['intent'],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // Clarifying question — only tool besides "no tool call" that ends a turn.
   // -------------------------------------------------------------------------
   'ask_user': {

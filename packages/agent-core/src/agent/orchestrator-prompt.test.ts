@@ -220,3 +220,94 @@ describe('per-tool behavior guidance is now inlined into schema descriptions', (
     expect(prompt).not.toContain('# Tool Behaviors');
   });
 });
+
+describe('buildSystemPrompt — deferred tools listing', () => {
+  it('omits the <deferred-tools> block when allowedTools is not provided', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+    });
+    expect(prompt).not.toContain('<deferred-tools>');
+  });
+
+  it('emits a <deferred-tools> block listing cold-tier tools but NOT always-on tools', () => {
+    // Mix of always-on (metrics_discover, web_search) and deferred (metrics_query, alert_rule_write).
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+      allowedTools: ['metrics_discover', 'web_search', 'metrics_query', 'alert_rule_write'],
+    });
+    expect(prompt).toContain('<deferred-tools>');
+    expect(prompt).toContain('</deferred-tools>');
+    // Deferred tools appear by name.
+    expect(prompt).toContain('metrics_query:');
+    expect(prompt).toContain('alert_rule_write:');
+    // Always-on tools do NOT appear in the deferred listing — they already
+    // ship as full schemas via the native tool_use channel.
+    const block = prompt.slice(prompt.indexOf('<deferred-tools>'), prompt.indexOf('</deferred-tools>'));
+    expect(block).not.toContain('metrics_discover:');
+    expect(block).not.toContain('web_search:');
+  });
+
+  it('skips the block entirely when no deferred tools are in scope', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+      allowedTools: ['metrics_discover', 'web_search'],  // both always-on
+    });
+    expect(prompt).not.toContain('<deferred-tools>');
+  });
+});
+
+describe('getDeferredToolsSection — budget enforcement', () => {
+  it('respects the budget cap on the live registry surface', async () => {
+    const { DEFERRED_TOOLS_LISTING_BUDGET, getDeferredToolsSection } = await import('./orchestrator-prompt.js');
+    const { TOOL_REGISTRY } = await import('./tool-schema-registry.js');
+    const allDeferred = Object.entries(TOOL_REGISTRY)
+      .filter(([, e]) => e.category === 'deferred')
+      .map(([name]) => name);
+    const section = getDeferredToolsSection(allDeferred);
+    expect(section.length).toBeLessThanOrEqual(DEFERRED_TOOLS_LISTING_BUDGET);
+  });
+
+  it('truncates alphabetically with a "+N more" footer when the listing overflows the budget', async () => {
+    const { DEFERRED_TOOLS_LISTING_BUDGET, getDeferredToolsSection } = await import('./orchestrator-prompt.js');
+    const { TOOL_REGISTRY } = await import('./tool-schema-registry.js');
+    // Inject synthetic deferred entries so the listing definitively overflows.
+    const created: string[] = [];
+    try {
+      for (let i = 0; i < 40; i++) {
+        const name = `deferred_padding_tool_${String(i).padStart(3, '0')}`;
+        TOOL_REGISTRY[name] = {
+          category: 'deferred',
+          schema: {
+            name,
+            description: 'Synthetic padding tool used by the truncation budget test only.',
+            input_schema: { type: 'object', properties: {}, required: [] },
+          },
+        };
+        created.push(name);
+      }
+      const section = getDeferredToolsSection(created);
+      expect(section.length).toBeLessThanOrEqual(DEFERRED_TOOLS_LISTING_BUDGET);
+      expect(section).toMatch(/\+\d+ more \(truncated to fit budget\)/);
+      // Earliest alphabetical entries are kept; latest are dropped.
+      expect(section).toContain('deferred_padding_tool_000:');
+      expect(section).not.toContain('deferred_padding_tool_039:');
+    }
+    finally {
+      for (const name of created) delete (TOOL_REGISTRY as Record<string, unknown>)[name];
+    }
+  });
+
+  it('produces alphabetically-sorted listing so truncation is deterministic', async () => {
+    const { getDeferredToolsSection } = await import('./orchestrator-prompt.js');
+    const section = getDeferredToolsSection(['metrics_query', 'alert_rule_list', 'logs_query']);
+    const aIdx = section.indexOf('alert_rule_list:');
+    const lIdx = section.indexOf('logs_query:');
+    const mIdx = section.indexOf('metrics_query:');
+    expect(aIdx).toBeGreaterThan(-1);
+    expect(lIdx).toBeGreaterThan(aIdx);
+    expect(mIdx).toBeGreaterThan(lIdx);
+  });
+});

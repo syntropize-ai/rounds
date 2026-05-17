@@ -99,6 +99,19 @@ export class MockMetricsAdapter implements IMetricsAdapter {
       .map((s) => s.metric);
   }
 
+  async findSeriesFull(
+    matchers: string[],
+    limit?: number,
+  ): Promise<Array<Record<string, string>>> {
+    const matched = FIXTURE
+      .filter((s) => matchers.some((m) => matchesMetric(m, s.metric)))
+      .map((s) => ({ __name__: s.metric, ...s.labels }));
+    if (limit !== undefined && limit > 0 && matched.length > limit) {
+      return matched.slice(0, limit);
+    }
+    return matched;
+  }
+
   async fetchMetadata(metricNames?: string[]): Promise<Record<string, MetricMetadata>> {
     const all: Record<string, MetricMetadata> = {
       api_request_rate_total: { type: 'counter', help: 'Requests per second', unit: 'req/s' },

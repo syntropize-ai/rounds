@@ -223,6 +223,113 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
 
   // -------------------------------------------------------------------------
+  // Narrow per-shape metric discovery primitives — Read/Grep/Glob style.
+  // Each does ONE specific lookup so the model's intent is unambiguous from
+  // the tool name alone. The legacy `metrics_discover` collapse-tool stays
+  // available; these are the preferred entry points for new discovery flows.
+  // -------------------------------------------------------------------------
+  'metrics_list_names': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_list_names',
+      description:
+        'List metric names available on a metrics connector, optionally filtered by a JS-flavored case-insensitive regex via `match`. Use BEFORE drafting any PromQL when you are unsure whether a metric exists or what naming convention the cluster uses. Returns at most 500 names per call — refine `match` if truncated.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          match: { type: 'string', description: 'Optional case-insensitive regex applied to metric names (e.g. "http|grpc").' },
+        },
+        required: [],
+      },
+    },
+  },
+  'metrics_get_labels': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_get_labels',
+      description:
+        'List the label keys present on a specific metric. Use to discover which dimensions a metric can be sliced by BEFORE writing a selector like `metric{label="value"}`. Never invent label names — query them here first.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric whose label keys to enumerate.' },
+        },
+        required: ['metricName'],
+      },
+    },
+  },
+  'metrics_get_label_values': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_get_label_values',
+      description:
+        'Sample the values for ONE label on ONE metric. Use when you have a metric + label in hand and need to know which values to filter on (e.g. which values of `namespace` exist on `http_requests_total`). Returns at most `limit` values (default 50, max 500) plus a `truncated` flag.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric to scope to.' },
+          label: { type: 'string', description: 'The label whose values to sample.' },
+          limit: { type: 'integer', description: 'Max values to return (default 50, max 500).' },
+        },
+        required: ['metricName', 'label'],
+      },
+    },
+  },
+  'metrics_get_cardinality': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_get_cardinality',
+      description:
+        'Count total series for a metric. Use to gauge whether a query will be cheap or fan out to thousands of series before you commit to it. Returns `{ seriesCount, truncated }` — `truncated` is true when the metric exceeds the internal pull cap (50k); treat the count as a lower bound in that case.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric whose total series count to report.' },
+        },
+        required: ['metricName'],
+      },
+    },
+  },
+  'metrics_sample_series': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_sample_series',
+      description:
+        'Return a handful of current series for a metric, each with its full label set and current value. Use to confirm the shape of the data before writing a more complex query — answers "what does this metric actually look like right now?". Returns up to `limit` series (default 10, max 100).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric to sample.' },
+          limit: { type: 'integer', description: 'Max series to return (default 10, max 100).' },
+        },
+        required: ['metricName'],
+      },
+    },
+  },
+  'metrics_find_related': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_find_related',
+      description:
+        'Find other metrics that share label keys with this one — a proxy for "which metrics are produced by the same job / sidecar / exporter". Use during investigations to surface neighboring signals (e.g. given `http_request_duration_seconds`, returns `http_requests_total`, `http_request_size_bytes`, ...). Ranked by number of shared label keys (not values). Structural labels (`le`, `quantile`) are ignored.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The seed metric.' },
+          limit: { type: 'integer', description: 'Max related metrics to return (default 10, max 50).' },
+        },
+        required: ['metricName'],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // Logs primitives (read-only, source-agnostic). The query string is backend-native.
   // -------------------------------------------------------------------------
   'logs_query': {

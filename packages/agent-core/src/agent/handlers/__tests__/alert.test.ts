@@ -23,6 +23,7 @@ function fakeMetricsAdapter(values: Array<[number, string]>): IMetricsAdapter {
     listLabels: vi.fn(),
     listLabelValues: vi.fn(),
     findSeries: vi.fn(),
+    findSeriesFull: vi.fn(),
     fetchMetadata: vi.fn(),
     instantQuery: vi.fn(),
     rangeQuery: vi.fn(async () => [{ metric: { __name__: 'up' }, values }]),

@@ -16,6 +16,7 @@ function buildFakeMetricsAdapters(overrides: Partial<IMetricsAdapter> = {}): Ada
     listLabels: vi.fn().mockResolvedValue([]),
     listLabelValues: vi.fn().mockResolvedValue([]),
     findSeries: vi.fn().mockResolvedValue([]),
+    findSeriesFull: vi.fn().mockResolvedValue([]),
     fetchMetadata: vi.fn().mockResolvedValue({}),
     instantQuery: vi.fn().mockResolvedValue([]),
     rangeQuery: vi.fn().mockResolvedValue([]),

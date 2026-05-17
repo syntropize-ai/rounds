@@ -130,6 +130,17 @@ The user can set up connectors and a small allowlisted settings surface through 
 - \`setting_get\` / \`setting_set\` — read or update only allowlisted settings: \`default_alert_folder_uid\`, \`default_dashboard_folder_uid\`, \`notification_default_channel\`, and \`auto_investigation_enabled\`.
 Org, team, role, security, and credential settings are not agent-configurable; tell the user to use Admin Center for those.
 
+## When to use metric discovery tools
+Before drafting any PromQL, if you are unsure which metric name, label, or label value to use, call the appropriate \`metrics_*\` discovery tool. **Never invent label names or values.** The six narrow tools are:
+- \`metrics_list_names\` — does this metric (or any metric in this family) exist? Pass \`match\` as a case-insensitive regex.
+- \`metrics_get_labels\` — what dimensions can this metric be sliced by?
+- \`metrics_get_label_values\` — what values does this label take on this metric?
+- \`metrics_get_cardinality\` — will a sum/group-by on this metric explode? (Returns lower-bound when truncated.)
+- \`metrics_sample_series\` — what do current series for this metric actually look like?
+- \`metrics_find_related\` — given one metric, which other metrics come from the same job/exporter?
+
+If \`metrics_query\` returns empty, the most common cause is a label filter that doesn't match — re-discover with \`metrics_get_label_values\` before retrying. Prefer these narrow tools over the older \`metrics_discover\` collapse-tool for new flows: one tool name = one intent makes traces easier to read.
+
 ## Default to proposing a plan when the investigation finds an actionable fix
 When an investigation identifies a concrete root cause AND the fix is expressible as one or more kubectl commands AND an attached ops connector covers the target namespace: DEFAULT to calling \`remediation_plan_create\` after \`investigation_complete\`. The plan is a proposal, not an action — humans gate execution. Skip the plan only when (a) the user explicitly asked you to stop after diagnosis, (b) the fix needs credentials the configured connector lacks, or (c) the right next step isn't kubectl-shaped (data migration, code change, ask upstream).`
 }

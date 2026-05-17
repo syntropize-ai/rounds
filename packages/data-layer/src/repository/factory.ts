@@ -16,6 +16,7 @@ import type {
   IChatSessionContextRepository,
   IChatMessageRepository,
   IChatSessionEventRepository,
+  IKnowledgeRepository,
 } from './interfaces.js';
 import type {
   IDashboardRepository,
@@ -81,6 +82,8 @@ import type { ILlmAuditRepository } from './sqlite/llm-audit-repository.js';
 import { SqlitePanelEventRepository } from './sqlite/panel-event.js';
 import { PostgresPanelEventRepository } from './postgres/panel-event.js';
 import type { IPanelEventRepository } from './types/panel-event.js';
+import { SqliteKnowledgeRepository } from './sqlite/knowledge.js';
+import { PostgresKnowledgeRepository } from './postgres/knowledge.js';
 
 /**
  * Complete repository bundle available behind every persistence backend.
@@ -116,6 +119,7 @@ export interface RepositoryBundle {
   notificationDispatch: INotificationDispatchRepository;
   llmAudit: ILlmAuditRepository;
   panelEvents: IPanelEventRepository;
+  knowledge: IKnowledgeRepository;
 }
 
 export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
@@ -143,6 +147,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     notificationDispatch: new SqliteNotificationDispatchRepository(db),
     llmAudit: new SqliteLlmAuditRepository(db),
     panelEvents: new SqlitePanelEventRepository(db),
+    knowledge: new SqliteKnowledgeRepository(db),
   };
 }
 
@@ -172,6 +177,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     notificationDispatch: new PostgresNotificationDispatchRepository(db),
     llmAudit: new PostgresLlmAuditRepository(db),
     panelEvents: new PostgresPanelEventRepository(db),
+    knowledge: new PostgresKnowledgeRepository(queryClient),
   };
 }
 

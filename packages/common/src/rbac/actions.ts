@@ -165,6 +165,13 @@ export const ACTIONS = {
   // the same audience (an Admin configuring the instance).
   InstanceConfigRead: 'instance.config:read',
   InstanceConfigWrite: 'instance.config:write',
+
+  // [rounds-extension] — Knowledge base (B1 foundation). KB is fully
+  // org-scoped — every query has WHERE org_id = ?. Read is bundled into
+  // Viewer; Write into Editor; Admin curation (delete/override) into Admin.
+  KbRead: 'kb:read',
+  KbWrite: 'kb:write',
+  KbAdmin: 'kb:admin',
 } as const;
 
 /**

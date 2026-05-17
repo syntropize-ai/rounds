@@ -498,3 +498,47 @@ export interface IChatSessionEventRepository {
     kind: string,
   ): MaybeAsync<ChatSessionEventRecord | null>;
 }
+
+// — KnowledgeEntry (B1 — KB foundation)
+
+export interface KnowledgeEntry {
+  id: string;
+  orgId: string;
+  source: 'bundled' | 'saved' | 'distilled';
+  sourceRef: string | null;
+  kind: 'pattern' | 'template' | 'metric_doc' | 'system_fact';
+  title: string;
+  intentTags: string[];
+  content: unknown;
+  useCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IKnowledgeRepository {
+  insert(
+    input: Omit<
+      KnowledgeEntry,
+      'createdAt' | 'updatedAt' | 'useCount' | 'approvedCount' | 'rejectedCount'
+    >,
+  ): Promise<KnowledgeEntry>;
+  getById(orgId: string, id: string): Promise<KnowledgeEntry | null>;
+  list(
+    orgId: string,
+    opts?: {
+      kind?: KnowledgeEntry['kind'];
+      source?: KnowledgeEntry['source'];
+      limit?: number;
+    },
+  ): Promise<KnowledgeEntry[]>;
+  bumpUseCount(orgId: string, id: string): Promise<void>;
+  recordFeedback(orgId: string, id: string, approved: boolean): Promise<void>;
+  delete(orgId: string, id: string): Promise<void>;
+  listForSearch(
+    orgId: string,
+    opts?: { kind?: KnowledgeEntry['kind'] },
+  ): Promise<KnowledgeEntry[]>;
+}

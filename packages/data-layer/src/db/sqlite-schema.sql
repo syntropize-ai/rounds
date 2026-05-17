@@ -684,6 +684,25 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 CREATE INDEX IF NOT EXISTS ix_alert_rules_org_id     ON alert_rules(org_id);
 CREATE INDEX IF NOT EXISTS ix_alert_rules_folder_uid ON alert_rules(org_id, folder_uid);
 
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL DEFAULT 'org_main',
+  source          TEXT NOT NULL,
+  source_ref      TEXT,
+  kind            TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  intent_tags     TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  use_count        INTEGER NOT NULL DEFAULT 0,
+  approved_count   INTEGER NOT NULL DEFAULT 0,
+  rejected_count   INTEGER NOT NULL DEFAULT 0,
+  created_by       TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_kb_org_kind ON knowledge_entries(org_id, kind);
+CREATE INDEX IF NOT EXISTS ix_kb_source   ON knowledge_entries(source);
+
 CREATE TABLE IF NOT EXISTS alert_history (
   id        TEXT PRIMARY KEY,
   org_id    TEXT NOT NULL DEFAULT 'org_main',

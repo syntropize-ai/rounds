@@ -6,6 +6,20 @@ import { llmBaseUrlPlaceholder } from '../constants/placeholders.js';
 import { LLM_PROVIDERS } from './setup/types.js';
 import type { LlmProvider, LlmConfig } from './setup/types.js';
 import { useAuth } from '../contexts/AuthContext.js';
+import type { ConnectorType } from '@agentic-obs/common';
+
+const CONNECTOR_TYPES: ConnectorType[] = [
+  'prometheus',
+  'victoria-metrics',
+  'loki',
+  'elasticsearch',
+  'clickhouse',
+  'tempo',
+  'jaeger',
+  'otel',
+  'kubernetes',
+  'github',
+];
 
 interface ModelInfo { id: string; name: string; provider: string; description?: string; }
 
@@ -334,6 +348,13 @@ function ConnectorsTab({ canWrite }: { canWrite: boolean }) {
   const [connectors, setConnectors] = useState<ConnectorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [formType, setFormType] = useState<ConnectorType>('prometheus');
+  const [formName, setFormName] = useState('');
+  const [formId, setFormId] = useState('');
+  const [formUrl, setFormUrl] = useState('');
+  const [formIsDefault, setFormIsDefault] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -349,6 +370,35 @@ function ConnectorsTab({ canWrite }: { canWrite: boolean }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const resetForm = () => {
+    setFormType('prometheus');
+    setFormName('');
+    setFormId('');
+    setFormUrl('');
+    setFormIsDefault(false);
+  };
+
+  const handleCreate = async () => {
+    setSubmitting(true);
+    setError(null);
+    const body: Record<string, unknown> = {
+      type: formType,
+      name: formName,
+      config: { url: formUrl },
+      isDefault: formIsDefault,
+    };
+    if (formId.trim()) body['id'] = formId.trim();
+    const res = await apiClient.post<{ connector: ConnectorRow }>('/connectors', body);
+    setSubmitting(false);
+    if (res.error) {
+      setError(res.error.message ?? 'Failed to create connector');
+      return;
+    }
+    setShowForm(false);
+    resetForm();
+    await load();
+  };
 
   return (
     <div className="space-y-5">
@@ -371,13 +421,83 @@ function ConnectorsTab({ canWrite }: { canWrite: boolean }) {
           type="button"
           disabled={!canWrite}
           className={btnPrimary}
-          onClick={() => setError('Connector creation will call POST /api/connectors once the backend route lands.')}
+          onClick={() => { setError(null); setShowForm((v) => !v); }}
         >
-          Add Connector
+          {showForm ? 'Cancel' : 'Add Connector'}
         </button>
       </div>
 
-      {!loading && connectors.length === 0 && !error && (
+      {showForm && (
+        <form
+          onSubmit={(e) => { e.preventDefault(); void handleCreate(); }}
+          className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface)] p-4 space-y-3"
+        >
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">Type</label>
+            <select
+              value={formType}
+              onChange={(e) => setFormType(e.target.value as ConnectorType)}
+              className={selectCls}
+            >
+              {CONNECTOR_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">Name</label>
+            <input
+              type="text"
+              value={formName}
+              onChange={(e) => setFormName(e.target.value)}
+              placeholder="e.g. Prod Prometheus"
+              className={inputCls}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">ID (optional)</label>
+            <input
+              type="text"
+              value={formId}
+              onChange={(e) => setFormId(e.target.value)}
+              placeholder="auto-generated if blank"
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">URL</label>
+            <input
+              type="url"
+              value={formUrl}
+              onChange={(e) => setFormUrl(e.target.value)}
+              placeholder="http://prometheus.monitoring.svc:9090"
+              className={inputCls}
+              required
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[var(--color-on-surface)]">
+            <input type="checkbox" checked={formIsDefault} onChange={(e) => setFormIsDefault(e.target.checked)} />
+            Set as default for this type
+          </label>
+          <p className="text-xs text-[var(--color-on-surface-variant)]">
+            Advanced config (auth headers, TLS, etc.): edit via Policies after creation.
+          </p>
+          <div className="flex justify-end gap-2 pt-2 border-t border-[var(--color-outline-variant)]/30">
+            <button
+              type="button"
+              onClick={() => { setShowForm(false); resetForm(); }}
+              className={btnSecondary}
+              disabled={submitting}
+            >
+              Cancel
+            </button>
+            <button type="submit" className={btnPrimary} disabled={submitting || !formName || !formUrl}>
+              {submitting ? 'Creating...' : 'Create'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {!loading && connectors.length === 0 && !error && !showForm && (
         <div className="rounded-lg border border-dashed border-[var(--color-outline-variant)] p-6 text-sm text-[var(--color-on-surface-variant)]">
           No connectors yet.
         </div>

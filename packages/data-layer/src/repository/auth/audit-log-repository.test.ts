@@ -33,6 +33,23 @@ describe('AuditLogRepository', () => {
     expect(JSON.parse(e.metadata!)).toEqual({ teamId: 't1', userId: 'u2' });
   });
 
+  it('stores a structured marker when metadata is not JSON-serializable', async () => {
+    const metadata: Record<string, unknown> = { action: 'cycle' };
+    metadata['self'] = metadata;
+
+    const e = await repo.log({
+      action: 'team.updated',
+      actorType: 'user',
+      outcome: 'success',
+      metadata,
+    });
+
+    expect(JSON.parse(e.metadata!)).toMatchObject({
+      serializationError: expect.stringContaining('circular'),
+      valuePreview: '[object Object]',
+    });
+  });
+
   it('findById() returns the row', async () => {
     const e = await repo.log({ action: 'x', actorType: 'system', outcome: 'success' });
     expect((await repo.findById(e.id))!.id).toBe(e.id);

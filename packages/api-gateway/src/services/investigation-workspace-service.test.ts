@@ -30,6 +30,9 @@ function investigation(partial: Partial<Investigation>): Investigation {
 function store(investigations: Investigation[]): IGatewayInvestigationStore {
   return {
     findAll: vi.fn().mockResolvedValue(investigations),
+    findByWorkspace: vi.fn(async (workspaceId: string) =>
+      investigations.filter((inv) => inv.workspaceId === workspaceId),
+    ),
     getArchived: vi.fn().mockResolvedValue(investigations),
     restoreFromArchive: vi.fn(async (id: string) => investigations.find((inv) => inv.id === id) ?? null),
     restoreFromArchiveInWorkspace: vi.fn(async (id: string, workspaceId: string) =>
@@ -51,14 +54,12 @@ function reports(): IInvestigationReportRepository {
 
 describe('InvestigationWorkspaceService', () => {
   it('lists summaries for the requested workspace only', async () => {
-    const svc = new InvestigationWorkspaceService(
-      store([
-        investigation({ id: 'inv_a', workspaceId: 'org_a' }),
-        investigation({ id: 'inv_b', workspaceId: 'org_b' }),
-        investigation({ id: 'inv_default' }),
-      ]),
-      reports(),
-    );
+    const investigationStore = store([
+      investigation({ id: 'inv_a', workspaceId: 'org_a' }),
+      investigation({ id: 'inv_b', workspaceId: 'org_b' }),
+      investigation({ id: 'inv_default' }),
+    ]);
+    const svc = new InvestigationWorkspaceService(investigationStore, reports());
 
     await expect(svc.listSummaries('org_a')).resolves.toEqual([
       {
@@ -70,6 +71,9 @@ describe('InvestigationWorkspaceService', () => {
         updatedAt: '2026-04-25T00:00:00.000Z',
       },
     ]);
+
+    expect(investigationStore.findByWorkspace).toHaveBeenCalledWith('org_a');
+    expect(investigationStore.findAll).not.toHaveBeenCalled();
   });
 
   it('deletes an investigation and cascades its reports within the workspace', async () => {

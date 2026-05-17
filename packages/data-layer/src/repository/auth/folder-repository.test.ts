@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { sql } from 'drizzle-orm';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import { createTestDb } from '../../test-support/test-db.js';
 import { FolderRepository } from './folder-repository.js';
@@ -35,6 +36,19 @@ describe('FolderRepository', () => {
   it('findByUid() returns the folder', async () => {
     await repo.create({ orgId: 'org_main', uid: 'f', title: 'F' });
     expect((await repo.findByUid('org_main', 'f'))!.title).toBe('F');
+  });
+
+  it('drops corrupt provenance without dropping the folder', async () => {
+    await repo.create({ orgId: 'org_main', uid: 'bad-prov', title: 'Bad provenance' });
+    db.run(sql`
+      UPDATE folder
+      SET provenance = ${'{bad json'}
+      WHERE org_id = ${'org_main'} AND uid = ${'bad-prov'}
+    `);
+
+    const folder = await repo.findByUid('org_main', 'bad-prov');
+    expect(folder).toMatchObject({ uid: 'bad-prov', title: 'Bad provenance' });
+    expect(folder?.provenance).toBeUndefined();
   });
 
   it('listAncestors() returns parent chain root-last', async () => {

@@ -19,9 +19,8 @@ export class InvestigationWorkspaceService {
   ) {}
 
   async listSummaries(workspaceId: string): Promise<InvestigationSummary[]> {
-    const investigations = await this.store.findAll();
+    const investigations = await this.store.findByWorkspace(workspaceId);
     return investigations
-      .filter((inv) => this.belongsToWorkspace(inv, workspaceId))
       .map((inv) => ({
         id: inv.id,
         status: inv.status,

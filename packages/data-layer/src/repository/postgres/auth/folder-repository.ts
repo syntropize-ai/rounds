@@ -1,4 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm';
+import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { DbClient } from '../../../db/client.js';
 import { pgAll, pgRun } from '../pg-helpers.js';
 import type { IFolderRepository, ListFoldersOptions, Page } from '@agentic-obs/common';
@@ -11,6 +12,8 @@ import type {
 } from '@agentic-obs/common';
 import { FOLDER_MAX_DEPTH } from '@agentic-obs/common';
 import { uid, nowIso } from './shared.js';
+
+const log = createLogger('folder-repository');
 
 interface Row {
   id: string;
@@ -33,7 +36,12 @@ function rowTo(r: Row): GrafanaFolder {
     try {
       const parsed = typeof r.provenance === 'string' ? JSON.parse(r.provenance) : r.provenance;
       if (parsed && typeof parsed === 'object') provenance = parsed as ResourceProvenance;
-    } catch { /* ignore corrupt JSON */ }
+    } catch (err) {
+      log.warn(
+        { err, folderId: r.id, folderUid: r.uid, orgId: r.org_id },
+        'folder provenance JSON parse failed; dropping provenance',
+      );
+    }
   }
   const f: GrafanaFolder = {
     id: r.id,

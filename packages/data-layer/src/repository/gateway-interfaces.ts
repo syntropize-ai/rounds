@@ -59,6 +59,7 @@ export interface IGatewayInvestigationStore {
   }): MaybeAsync<Investigation>;
   findById(id: string): MaybeAsync<Investigation | null | undefined>;
   findAll(): MaybeAsync<Investigation[]>;
+  findByWorkspace(workspaceId: string): MaybeAsync<Investigation[]>;
   getArchived(): MaybeAsync<Investigation[]>;
   restoreFromArchive(id: string): MaybeAsync<Investigation | null | undefined>;
   restoreFromArchiveInWorkspace(id: string, workspaceId: string): MaybeAsync<Investigation | null | undefined>;

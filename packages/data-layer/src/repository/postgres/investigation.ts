@@ -4,85 +4,17 @@ import { randomUUID } from 'crypto';
 import type {
   Investigation,
   InvestigationStatus,
-  Hypothesis,
-  Evidence,
+  CreateInvestigationInput,
+  UpdateResultInput,
+  IInvestigationRepository,
 } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
 import type { FollowUpRecord, FeedbackBody, StoredFeedback } from '../types/investigation.js';
 
 // =====================================================================
-// W6 / T6.A2 — Investigation store → SQLite repository
-//
-// `InvestigationRepository` is the W6-pattern replacement for the
-// in-memory `InvestigationStore` at
-// `packages/data-layer/src/stores/investigation-store.ts`. It mirrors
-// the W2 `InstanceConfigRepository` style: `sql` template literals, no
-// Drizzle fluent builders, JSON columns handled with JSON.stringify /
-// JSON.parse.
-//
-// The canonical interface lives in
-// `packages/common/src/repositories/investigation/interfaces.ts`. It is
-// NOT yet re-exported from the top-level `@agentic-obs/common` barrel
-// (touching barrels is out of scope for Team A.2 — parent reconciles).
-// Until that wiring lands, the interface is declared locally below so
-// this file compiles. The shapes MUST be kept in sync with
-// `common/src/repositories/investigation/interfaces.ts`.
+// Postgres implementation of the canonical investigation repository contract.
 //
 // =====================================================================
-
-/**
- * Creation params matching `InvestigationStore.create`. Kept identical
- * so the parent can swap the store for the repository without touching
- * call sites.
- */
-export interface CreateInvestigationInput {
-  question: string;
-  sessionId: string;
-  userId: string;
-  entity?: string;
-  timeRange?: { start: string; end: string };
-  tenantId?: string;
-  workspaceId?: string;
-}
-
-/** Payload for `updateResult`. */
-export interface UpdateResultInput {
-  hypotheses: Hypothesis[];
-  evidence: Evidence[];
-  conclusion: ExplanationResult | null;
-}
-
-/**
- * Local mirror of `IInvestigationRepository` from
- * `@agentic-obs/common/repositories/investigation/interfaces.ts`. Remove
- * this declaration and `implements`-reference the common export once the
- * parent wires the barrel.
- */
-export interface IInvestigationRepository {
-  create(input: CreateInvestigationInput): Promise<Investigation>;
-  findById(id: string): Promise<Investigation | null>;
-  findAll(tenantId?: string): Promise<Investigation[]>;
-  findByWorkspace(workspaceId: string): Promise<Investigation[]>;
-  delete(id: string): Promise<boolean>;
-
-  updateStatus(id: string, status: InvestigationStatus): Promise<Investigation | null>;
-  updatePlan(id: string, plan: Investigation['plan']): Promise<Investigation | null>;
-  updateResult(id: string, result: UpdateResultInput): Promise<Investigation | null>;
-
-  archive(id: string): Promise<Investigation | null>;
-  restoreFromArchive(id: string): Promise<Investigation | null>;
-  restoreFromArchiveInWorkspace(id: string, workspaceId: string): Promise<Investigation | null>;
-  getArchived(): Promise<Investigation[]>;
-
-  addFollowUp(investigationId: string, question: string): Promise<FollowUpRecord>;
-  getFollowUps(investigationId: string): Promise<FollowUpRecord[]>;
-
-  addFeedback(investigationId: string, body: FeedbackBody): Promise<StoredFeedback>;
-  listFeedback(investigationId: string): Promise<StoredFeedback[]>;
-
-  getConclusion(id: string): Promise<ExplanationResult | null>;
-  setConclusion(id: string, conclusion: ExplanationResult): Promise<void>;
-}
 
 // -- Row types --------------------------------------------------------
 

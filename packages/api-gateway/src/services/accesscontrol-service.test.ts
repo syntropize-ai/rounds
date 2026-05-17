@@ -3,7 +3,7 @@
  * docs/auth-perm-design/03-rbac-model.md §test-scenarios.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   createTestDb,
   seedDefaultOrg,
@@ -325,5 +325,26 @@ describe('AccessControlService — Grafana-parity scenarios', () => {
       ac.eval('dashboards:read', 'dashboards:uid:abc'),
     );
     expect(await h.service.evaluate(id, e)).toBe(true);
+  });
+
+  it('denies when legacy dashboard ACL fallback fails', async () => {
+    const service = new AccessControlService({
+      permissions: h.permissions,
+      roles: h.roles,
+      userRoles: h.userRoles,
+      teamRoles: h.teamRoles,
+      teamMembers: h.teamMembers,
+      orgUsers: h.orgUsers,
+      legacyAcl: {
+        grantsAtLeast: vi.fn().mockRejectedValue(new Error('acl unavailable')),
+      } as never,
+    });
+
+    await expect(
+      service.evaluate(
+        identity({ orgRole: 'None' }),
+        ac.eval('dashboards:read', 'dashboards:uid:abc'),
+      ),
+    ).resolves.toBe(false);
   });
 });

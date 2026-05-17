@@ -33,8 +33,11 @@ import type {
 } from '@agentic-obs/common';
 import { PermissionLevel } from '@agentic-obs/common';
 import type { Evaluator } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { ResolverRegistry } from '../rbac/resolvers/index.js';
 import type { DashboardAclService } from './dashboard-acl-service.js';
+
+const log = createLogger('accesscontrol-service');
 
 export interface AccessControlDeps {
   permissions: IPermissionRepository;
@@ -155,7 +158,17 @@ export class AccessControlService {
             identity,
             target.level,
           );
-        } catch {
+        } catch (err) {
+          log.warn(
+            {
+              err,
+              orgId: identity.orgId,
+              userId: identity.userId,
+              dashboardUid: target.uid,
+              requiredLevel: target.level,
+            },
+            'legacy dashboard ACL fallback failed; denying access',
+          );
           // Fallback failure is a miss, not an allow.
           return false;
         }

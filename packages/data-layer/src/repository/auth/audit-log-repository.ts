@@ -1,8 +1,11 @@
 import { sql, type SQL } from 'drizzle-orm';
+import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { SqliteClient } from '../../db/sqlite-client.js';
 import type { IAuditLogRepository, Page } from '@agentic-obs/common';
 import type { AuditLogEntry, NewAuditLogEntry, AuditLogQuery, AuditActorType, AuditOutcome } from '@agentic-obs/common';
 import { uid, nowIso } from './shared.js';
+
+const log = createLogger('audit-log-repository');
 
 interface Row {
   id: string;
@@ -45,8 +48,16 @@ function serializeMetadata(m: unknown): string | null {
   if (typeof m === 'string') return m;
   try {
     return JSON.stringify(m);
-  } catch {
-    return String(m);
+  } catch (err) {
+    const valuePreview = String(m);
+    log.warn(
+      { err, valuePreview },
+      'audit metadata JSON serialization failed; storing fallback marker',
+    );
+    return JSON.stringify({
+      serializationError: err instanceof Error ? err.message : 'metadata serialization failed',
+      valuePreview,
+    });
   }
 }
 

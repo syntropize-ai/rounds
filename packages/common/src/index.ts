@@ -54,3 +54,8 @@ export type {
 } from './utils/chart-summary.js';
 export { suggestPivots } from './utils/chart-pivots.js';
 export type { PivotSuggestion, SuggestPivotsArgs } from './utils/chart-pivots.js';
+
+// PromQL signature normalization — consumed by the panel-event repository
+// to aggregate "same query shape, different filter values" into a single
+// bucket. See packages/common/src/lint/promql-signature.ts.
+export { querySignature } from './lint/promql-signature.js';

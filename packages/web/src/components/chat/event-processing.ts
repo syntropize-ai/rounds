@@ -90,6 +90,21 @@ export interface ToolCallCard {
   durationMs?: number;
 }
 
+export interface ToolActivityGroup {
+  id: string;
+  phase: string;
+  tool: string;
+  label: string;
+  status: ToolCallCard['status'];
+  count: number;
+  params?: Record<string, unknown>;
+  output?: string;
+  summary?: string;
+  evidenceId?: string;
+  cost?: number;
+  durationMs?: number;
+}
+
 export const USER_VISIBLE_TOOLS = new Set([
   // Orchestrator-level actions
   'generate_dashboard',
@@ -379,11 +394,11 @@ export function buildSteps(events: ChatEvent[]): { steps: StepRow[]; preStatus: 
 }
 
 /**
- * Build one card per user-visible tool_call event. Each card pairs to the
- * NEXT matching tool_result for the same tool name (FIFO within a tool).
+ * Build one data object per user-visible tool_call event. Each card pairs to
+ * the NEXT matching tool_result for the same tool name (FIFO within a tool).
  *
- * This is intentionally per-call (not phase-merged) so users see every step
- * the agent ran — five `metrics_query` calls produce five cards.
+ * The chat UI should group these for display; this lower-level shape stays
+ * per-call so audit/debug surfaces can still inspect exact tool activity.
  */
 export function buildToolCalls(events: ChatEvent[]): ToolCallCard[] {
   const cards: ToolCallCard[] = [];
@@ -429,4 +444,54 @@ export function buildToolCalls(events: ChatEvent[]): ToolCallCard[] {
   }
 
   return cards;
+}
+
+export function buildToolActivityGroups(events: ChatEvent[]): ToolActivityGroup[] {
+  const groups: ToolActivityGroup[] = [];
+  const byPhase = new Map<string, ToolActivityGroup>();
+
+  for (const card of buildToolCalls(events)) {
+    const phase = phaseOf(card.tool);
+    const existing = byPhase.get(phase);
+    if (!existing) {
+      const group: ToolActivityGroup = {
+        id: card.id,
+        phase,
+        tool: card.tool,
+        label: TOOL_LABELS[phase] ?? card.label,
+        status: card.status,
+        count: 1,
+        ...(card.params ? { params: card.params } : {}),
+        ...(card.output ? { output: card.output } : {}),
+        ...(card.summary ? { summary: card.summary } : {}),
+        ...(card.evidenceId ? { evidenceId: card.evidenceId } : {}),
+        ...(typeof card.cost === 'number' ? { cost: card.cost } : {}),
+        ...(typeof card.durationMs === 'number' ? { durationMs: card.durationMs } : {}),
+      };
+      groups.push(group);
+      byPhase.set(phase, group);
+      continue;
+    }
+
+    existing.count += 1;
+    existing.tool = card.tool;
+    existing.label = TOOL_LABELS[phase] ?? card.label;
+    if (card.status === 'running') {
+      existing.status = 'running';
+    } else if (card.status === 'error' && existing.status !== 'running') {
+      existing.status = 'error';
+    } else if (existing.status !== 'running' && existing.status !== 'error') {
+      existing.status = 'done';
+    }
+    if (card.params) existing.params = card.params;
+    if (card.output) existing.output = card.output;
+    if (card.summary) existing.summary = card.summary;
+    if (card.evidenceId) existing.evidenceId = card.evidenceId;
+    if (typeof card.cost === 'number') existing.cost = (existing.cost ?? 0) + card.cost;
+    if (typeof card.durationMs === 'number') {
+      existing.durationMs = (existing.durationMs ?? 0) + card.durationMs;
+    }
+  }
+
+  return groups;
 }

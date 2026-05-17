@@ -125,6 +125,14 @@ const VALID_KINDS: ReadonlySet<ChartMetricKind> = new Set([
   'latency', 'counter', 'gauge', 'errors',
 ]);
 
+function hasFiniteSamples(
+  series: Array<{ values: Array<[number, string]> }>,
+): boolean {
+  return series.some((s) =>
+    s.values.some(([, raw]) => Number.isFinite(Number.parseFloat(raw))),
+  );
+}
+
 /** Resolve the metrics datasource id — explicit > session pin > primary. */
 function resolveDatasourceId(
   ctx: ActionContext,
@@ -226,6 +234,37 @@ export async function handleMetricExplore(
 
   try {
     const series = await adapter.rangeQuery(query, range.start, range.end, step);
+    if (!hasFiniteSamples(series)) {
+      const summary = `No data returned for query "${query}" in the selected time range.`;
+
+      if (ctx.auditWriter) {
+        void ctx.auditWriter({
+          action: AuditAction.MetricsQuery,
+          actorType: 'user',
+          actorId: ctx.identity.userId,
+          targetType: 'connector',
+          targetId: datasourceId,
+          outcome: 'success',
+          metadata: {
+            orgId: ctx.identity.orgId,
+            query: query.slice(0, 500),
+            step,
+            source: 'agent_tool',
+            sessionId: ctx.sessionId,
+            noData: true,
+          },
+        });
+      }
+
+      ctx.sendEvent({
+        type: 'tool_result',
+        tool: 'metric_explore',
+        summary,
+        success: true,
+      });
+      return summary;
+    }
+
     const summary = summarizeChart(series, kind);
     const pivotSuggestions = suggestPivots({ query, metricKind: kind, summary });
 

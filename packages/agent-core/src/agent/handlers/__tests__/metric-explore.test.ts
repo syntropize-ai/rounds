@@ -10,7 +10,11 @@ import { makeFakeActionContext } from '../_test-helpers.js';
 import { AdapterRegistry } from '../../../adapters/registry.js';
 import type { ActionContext } from '../_context.js';
 
-function makeAdapters(rangeQuery = vi.fn().mockResolvedValue([])): AdapterRegistry {
+const NON_EMPTY_SERIES = [
+  { metric: { __name__: 'up' }, values: [[1, '1'], [2, '2']] },
+];
+
+function makeAdapters(rangeQuery = vi.fn().mockResolvedValue(NON_EMPTY_SERIES)): AdapterRegistry {
   const reg = new AdapterRegistry();
   reg.register({
     info: { id: 'prom', name: 'prom', type: 'prometheus', signalType: 'metrics' },
@@ -89,7 +93,7 @@ describe('handleMetricExplore — timeRange inheritance', () => {
     vi.useRealTimers();
   });
 
-  it('falls back to default 1h when no prior chart and no hint', async () => {
+  it('uses the default 1h range when no prior chart and no hint are available', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(FIXED_NOW);
     const lookup = vi.fn().mockResolvedValue(null);
@@ -107,6 +111,31 @@ describe('handleMetricExplore — timeRange inheritance', () => {
       new Date(inlineChart.timeRange.end).getTime() -
       new Date(inlineChart.timeRange.start).getTime();
     expect(span).toBe(60 * 60_000);
+    vi.useRealTimers();
+  });
+
+  it('does not emit an inline chart when the query returns no samples', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+    const ctx = makeFakeActionContext({
+      adapters: makeAdapters(vi.fn().mockResolvedValue([])),
+      allConnectors: [{ id: 'prom', type: 'prometheus' } as never],
+    });
+    const observation = await handleMetricExplore(ctx, {
+      query: 'rate(process_cpu_seconds_total{job="istio-sidecars"}[5m])',
+      timeRangeHint: '1h',
+    });
+
+    const events = (ctx.sendEvent as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0]);
+    expect(events.some((e) => e?.type === 'inline_chart')).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'tool_result',
+      tool: 'metric_explore',
+      success: true,
+      summary: expect.stringContaining('No data returned'),
+    }));
+    expect(observation).toContain('No data returned');
     vi.useRealTimers();
   });
 

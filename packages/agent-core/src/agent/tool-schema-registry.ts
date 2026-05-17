@@ -552,6 +552,40 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  'dashboard_lint': {
+    category: 'always-on',
+    schema: {
+      name: 'dashboard_lint',
+      description:
+        'Validate a drafted DashboardSpec against the built-in rule set (data presence, label validity, unit/viz match, histogram_quantile form, grouping cardinality, duplicate-query detection, panel-as-question discipline, time-range sanity, ...). Returns a flat list of issues; each has a severity (`error` | `warn` | `info`), `ruleName`, optional `panelId`, message, and a fixHint.\n\n' +
+        'Call this AFTER drafting panels and BEFORE saving. Treat every `error` as blocking — fix the cause and re-lint. For `warn`-severity issues, either fix or briefly justify why the warning is acceptable for this dashboard. `info` is advisory.\n\n' +
+        'When no metrics connector is wired, query-execution rules (panel-returns-data, query-uses-known-labels, high-cardinality-grouping) self-skip with a single `info`-severity issue per skipped rule; the pure structural rules still run.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          spec: {
+            type: 'object',
+            description: 'The full DashboardSpec to lint — panels[], variables[], refreshIntervalSec, etc. Pass the exact shape you intend to save.',
+          },
+          datasourceId: {
+            type: 'string',
+            description: 'Connector id used for query/label/cardinality probes. Omit to use the session-pinned metrics connector or the default.',
+          },
+          only: {
+            type: 'array',
+            description: 'Optional allowlist of rule names; when set only these rules run.',
+            items: { type: 'string' },
+          },
+          skip: {
+            type: 'array',
+            description: 'Optional denylist of rule names to exclude. Applied after `only`.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['spec'],
+      },
+    },
+  },
   'dashboard_add_variable': {
     category: 'always-on',
     schema: {

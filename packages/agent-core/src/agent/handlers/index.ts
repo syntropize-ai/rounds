@@ -44,6 +44,8 @@ export {
 
 export { handleMetricExplore } from './metric-explore.js';
 
+export { handleDashboardLint } from './dashboard-lint.js';
+
 export {
   handleLogsQuery,
   handleLogsLabels,

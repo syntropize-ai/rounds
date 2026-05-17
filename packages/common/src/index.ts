@@ -44,6 +44,20 @@ export { DEFAULT_LLM_MODEL } from './config/index.js';
 export { EventTypes, type EventType, type EventEnvelope } from './events/types.js';
 export type { IEventBus, EventHandler } from './events/interface.js';
 
+// Dashboard lint engine + built-in rules. Pure (no Node deps); safe in
+// the web bundle so the future "show lint issues in the UI" path can
+// import the types directly.
+export {
+  LintEngine,
+  BUILTIN_RULES,
+  type DashboardSpec,
+  type LintContext,
+  type LintIssue,
+  type LintRule,
+  type LintRunOptions,
+  type LintSeverity,
+} from './lint/index.js';
+
 // Pure utility helpers. `chart-summary` is consumed by both the REST
 // /api/metrics/query endpoint and the agent `metric_explore` tool.
 export { summarize as summarizeChart } from './utils/chart-summary.js';

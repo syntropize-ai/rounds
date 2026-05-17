@@ -31,6 +31,7 @@ export {
   handleMetricsDiscover,
   handleMetricsValidate,
   handleMetricExplore,
+  handleDashboardLint,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,

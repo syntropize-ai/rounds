@@ -2,6 +2,7 @@ import type { Dashboard, DashboardMessage, Identity } from '@agentic-obs/common'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import type { ConnectorConfig, OpsConnectorConfig } from './types.js'
 import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
+import { TOOL_REGISTRY, deferredToolNamesForAgent } from './tool-schema-registry.js'
 
 /**
  * Boundary marker separating static (cacheable across sessions) content
@@ -494,6 +495,66 @@ function getAlertRulesSection(
   return parts.join('\n')
 }
 
+/**
+ * Maximum total characters the deferred-tools listing may consume in the
+ * system prompt. Mirrors the Claude Code "deferred tool" budget discipline:
+ * the listing is a hint surface, not a documentation dump. Over-budget tools
+ * are dropped (alphabetical truncation, with a trailing "+N more" line) so
+ * the section never balloons the prompt as the registry grows.
+ */
+export const DEFERRED_TOOLS_LISTING_BUDGET = 2000
+
+/**
+ * One-line summary per deferred tool: `name: <first-sentence-of-description>`,
+ * capped at 60 chars. Source-of-truth is the schema description; we never
+ * hand-edit the listing.
+ */
+function summarizeDeferredTool(name: string): string {
+  const desc = TOOL_REGISTRY[name]?.schema.description ?? ''
+  // First sentence-ish chunk: stop at the first newline or period-space.
+  const firstChunk = desc.split(/\n|\.\s/)[0]?.trim() ?? ''
+  const short = firstChunk.length > 60 ? firstChunk.slice(0, 57).trimEnd() + '...' : firstChunk
+  return `${name}: ${short}`
+}
+
+/**
+ * Render the deferred-tools system reminder — bare tool names + one-liner
+ * descriptions, wrapped in a `<deferred-tools>` block. The model uses this to
+ * decide which deferred tool to fetch via `tool_search`; without the listing
+ * it has no idea what's available beyond the always-on schemas.
+ *
+ * Exported for unit tests asserting the 2000-char budget.
+ */
+export function getDeferredToolsSection(allowedTools: readonly string[]): string {
+  const names = deferredToolNamesForAgent(allowedTools).slice().sort()
+  if (names.length === 0) return ''
+
+  const header = '<deferred-tools>\nThe following tools are available via tool_search. Call tool_search to load their schemas before invoking them.'
+  const footerOpen = '\n</deferred-tools>'
+
+  const lines: string[] = []
+  let used = header.length + footerOpen.length
+  let truncatedAt = -1
+  for (let i = 0; i < names.length; i++) {
+    const line = '\n' + summarizeDeferredTool(names[i]!)
+    // Reserve room for a possible "+N more" line so we don't over-allocate.
+    const remainingTrunc = `\n+${names.length - i} more (truncated to fit budget)`
+    if (used + line.length + remainingTrunc.length > DEFERRED_TOOLS_LISTING_BUDGET) {
+      truncatedAt = i
+      break
+    }
+    lines.push(line)
+    used += line.length
+  }
+
+  let body = lines.join('')
+  if (truncatedAt >= 0) {
+    body += `\n+${names.length - truncatedAt} more (truncated to fit budget)`
+  }
+
+  return `${header}${body}${footerOpen}`
+}
+
 function getSessionModeSection(): string {
   return `# Session Mode
 Not scoped to a dashboard. Call dashboard_create to start one — it becomes the active target for subsequent dashboard.* tools automatically.`
@@ -521,6 +582,13 @@ export interface SystemPromptOptions {
   /** Override for deterministic tests. Defaults to `new Date().toISOString()`. */
   now?: string
   opsConnectors?: OpsConnectorConfig[]
+  /**
+   * The agent's allowedTools list — used to compute which deferred tools to
+   * advertise in the `<deferred-tools>` system reminder. Omit (or pass
+   * `undefined`) to skip the listing entirely; callers without an agent
+   * context (e.g. some unit tests) don't need it.
+   */
+  allowedTools?: readonly string[]
 }
 
 /**
@@ -610,6 +678,10 @@ export function buildSystemPrompt(
     now,
   )
 
+  const deferredSection = options?.allowedTools
+    ? getDeferredToolsSection(options.allowedTools)
+    : ''
+
   const staticSections = [
     getIntroSection(),
     identitySection,
@@ -619,6 +691,7 @@ export function buildSystemPrompt(
     getExamplesSection(),
     getQueryKnowledgeSection(),
     getToneSection(),
+    deferredSection,
   ]
 
   const dynamicSections = [

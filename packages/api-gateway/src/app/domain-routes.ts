@@ -26,7 +26,7 @@ import {
   EventEmittingApprovalRepository,
   EventEmittingFeedRepository,
 } from '@agentic-obs/data-layer';
-import type { IFolderRepository } from '@agentic-obs/common';
+import { PermissionLevel, type IFolderRepository } from '@agentic-obs/common';
 import { healthRouter } from '../routes/health.js';
 import { sessionsRouter } from '../routes/sessions.js';
 import { metricsRouter } from '../routes/metrics.js';
@@ -53,6 +53,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { createOrgContextMiddleware } from '../middleware/org-context.js';
 import { SetupConfigService } from '../services/setup-config-service.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
+import { ResourcePermissionService } from '../services/resource-permission-service.js';
 import type { AuthSubsystem } from '../auth/auth-manager.js';
 import type { AuthRepositories } from './auth-routes.js';
 import type { Persistence } from './persistence.js';
@@ -170,6 +171,16 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   const eventApprovalStore = new EventEmittingApprovalRepository(repos.approvals);
   const eventAlertRuleStore = deps.eventAlertRuleStore
     ?? new EventEmittingAlertRuleRepository(repos.alertRules);
+  const rbacRepos = deps.persistence.rbacRepos;
+  const resourcePermissionService = new ResourcePermissionService({
+    roles: rbacRepos.roles,
+    permissions: rbacRepos.permissions,
+    userRoles: rbacRepos.userRoles,
+    teamRoles: rbacRepos.teamRoles,
+    folders: rbacRepos.folders,
+    users: authRepos.users,
+    teams: rbacRepos.teams,
+  });
 
   app.use('/api/investigations', createInvestigationRouter({
     store: repos.investigations,
@@ -208,6 +219,20 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     connectors: repos.connectors,
     ac: accessControl,
     audit: authSub.audit,
+    resolveRequesterTeamId: async (orgId, investigationId) => {
+      const { list } = await eventAlertRuleStore.findAll();
+      const rule = list.find((r) => r.investigationId === investigationId);
+      if (!rule?.folderUid) return null;
+      const entries = await resourcePermissionService.list(
+        orgId,
+        'alert.rules',
+        rule.folderUid,
+      );
+      const teamEntry =
+        entries.find((e) => e.teamId && e.permission >= PermissionLevel.Edit)
+        ?? entries.find((e) => e.teamId);
+      return teamEntry?.teamId ?? null;
+    },
   });
   app.use('/api/notifications', createNotificationsRouter({
     notificationStore: repos.notifications,

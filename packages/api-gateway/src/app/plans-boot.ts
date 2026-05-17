@@ -41,6 +41,8 @@ export interface MountPlansDeps {
   ac: AccessControlSurface;
   /** Optional audit writer; one row per plan-step execution when wired. */
   audit?: import('../auth/audit-writer.js').AuditWriter;
+  /** Resolve the team that owns the investigation's alert/folder context. */
+  resolveRequesterTeamId?: (orgId: string, investigationId: string) => Promise<string | null>;
   /** Override for tests; defaults to env-backed `DefaultOpsSecretRefResolver`. */
   secretResolver?: OpsSecretRefResolver;
 }
@@ -97,6 +99,7 @@ export function mountPlans(deps: MountPlansDeps): void {
     approvals: deps.approvals,
     adapterFor,
     ...(deps.audit ? { audit: deps.audit } : {}),
+    ...(deps.resolveRequesterTeamId ? { resolveRequesterTeamId: deps.resolveRequesterTeamId } : {}),
   });
 
   deps.app.use('/api/plans', createPlansRouter({

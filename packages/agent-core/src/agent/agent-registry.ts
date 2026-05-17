@@ -50,6 +50,8 @@ agentRegistry.register({
     'metrics_query', 'metrics_range_query', 'metrics_discover', 'metrics_validate',
     // Inline chart bubble in chat — for "show me / what is" type questions.
     'metric_explore',
+    // Panel preview — server-side renders + validates a single panel spec.
+    'panel_preview',
     // Source-agnostic logs primitives (each requires sourceId)
     'logs_query', 'logs_labels', 'logs_label_values',
     // Recent change events

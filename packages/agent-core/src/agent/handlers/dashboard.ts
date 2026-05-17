@@ -5,6 +5,12 @@ import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { applyLayout } from '../layout-engine.js';
+import {
+  isVerifyGateEnabled,
+  runDashboardVerifyGate,
+  formatVerifyReport,
+  logGateOffIssues,
+} from './verify-gate.js';
 
 const log = createLogger('dashboard-handler');
 
@@ -334,6 +340,24 @@ export async function handleDashboardAddPanels(
   }
 
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_add_panels', args: { count: panels.length }, displayText: `Adding ${panels.length} panel(s)` });
+
+  // ---- Verify-gate (Wave: AI-first authoring) ---------------------------
+  // Runs panel_preview + dashboard_lint server-side on the panel set about
+  // to be persisted. ON by default in production; toggle with
+  // DASHBOARD_VERIFY_GATE=0. See handlers/verify-gate.ts.
+  const verifyReport = await runDashboardVerifyGate(ctx, { panels });
+  if (!verifyReport.ok) {
+    if (isVerifyGateEnabled()) {
+      const detail = formatVerifyReport(verifyReport);
+      const observation =
+        `Error: dashboard_add_panels rejected by verify-gate. Fix the following before retrying:\n${detail}`;
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observation, success: false });
+      return observation;
+    }
+    // Gate OFF: log + accept. We still surface the issues to operators via
+    // a structured WARN log so production telemetry catches the regressions.
+    logGateOffIssues(verifyReport);
+  }
 
   try {
     return await runAddPanels(ctx, dashboardId, panels);

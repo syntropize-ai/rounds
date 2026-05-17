@@ -199,6 +199,48 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  'panel_preview': {
+    category: 'always-on',
+    schema: {
+      name: 'panel_preview',
+      description:
+        'Verify a panel spec against the live datasource BEFORE calling dashboard_add_panels. Runs each query as a range query, reports series counts + a tiny sample, flags viz/query mismatches (stat+rate, heatmap without by(le), bar with multi-series), and returns ok:false when any query failed or every query returned zero series. Use as step 5 of the panel-authoring protocol. The verify-gate around dashboard_add_panels runs the same check on the server; passing here keeps the gate green.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Optional. Connector id; omit to use the session pin or workspace primary.' },
+          panel: {
+            type: 'object',
+            description: 'Single panel spec to validate.',
+            properties: {
+              title: { type: 'string' },
+              description: { type: 'string', description: 'One-line. Should start with "Q: <the question>" per the panel-authoring protocol.' },
+              visualization: { type: 'string', enum: ['time_series', 'stat', 'bar', 'heatmap', 'gauge', 'table'] },
+              queries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    expr: { type: 'string', description: 'Backend-native query expression (PromQL).' },
+                    legendFormat: { type: 'string' },
+                    instant: { type: 'boolean' },
+                  },
+                  required: ['expr'],
+                },
+              },
+              unit: { type: 'string' },
+            },
+            required: ['title', 'visualization', 'queries'],
+          },
+          timeRange: {
+            type: 'object',
+            description: 'Time window to run queries against. Pass `{relative: "1h"}` for a relative span, or `{from, to}` for explicit epoch ms. Default 1h.',
+          },
+        },
+        required: ['panel'],
+      },
+    },
+  },
   'metric_explore': {
     category: 'always-on',
     schema: {

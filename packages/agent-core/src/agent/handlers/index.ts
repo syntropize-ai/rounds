@@ -43,6 +43,14 @@ export {
 } from './metrics.js';
 
 export { handleMetricExplore } from './metric-explore.js';
+export { handlePanelPreview, runPanelPreviewProgrammatic } from './panel-preview.js';
+export type {
+  PanelPreviewArgs,
+  PanelPreviewSpec,
+  PanelPreviewResult,
+  PanelPreviewIssue,
+  PerQueryResult,
+} from './panel-preview.js';
 
 export {
   handleLogsQuery,

@@ -38,6 +38,7 @@ export {
   handleMetricsSampleSeries,
   handleMetricsFindRelated,
   handleDashboardLint,
+  handlePanelPreview,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,

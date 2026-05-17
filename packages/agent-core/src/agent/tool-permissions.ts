@@ -183,6 +183,14 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'metrics_find_related': (args: Record<string, unknown>) =>
     ac.eval('connectors:query', resolveConnectorScope(args)),
 
+  // panel_preview — server-side renders + validates a single panel spec.
+  // Gated on dashboards:write because it's part of the authoring flow; we
+  // don't want unauthenticated probing of query shapes / data through this
+  // surface. Active dashboard scope when known, wildcard otherwise (same
+  // pattern as dashboard_add_panels).
+  'panel_preview': (_args: Record<string, unknown>, ctx: ActionContext) =>
+    ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+
   // -- Logs primitives (source-agnostic; sourceId is required) -------------
   'logs_query': (args: Record<string, unknown>) =>
     ac.eval('connectors:query', resolveConnectorScope(args)),

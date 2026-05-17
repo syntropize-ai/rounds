@@ -56,6 +56,8 @@ agentRegistry.register({
     'metrics_get_cardinality', 'metrics_sample_series', 'metrics_find_related',
     // Inline chart bubble in chat — for "show me / what is" type questions.
     'metric_explore',
+    // Panel preview — server-side renders + validates a single panel spec.
+    'panel_preview',
     // Source-agnostic logs primitives (each requires sourceId)
     'logs_query', 'logs_labels', 'logs_label_values',
     // Recent change events

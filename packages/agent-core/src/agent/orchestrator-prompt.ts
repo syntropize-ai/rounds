@@ -378,7 +378,20 @@ After drafting panels with \`dashboard_add_panels\` (or modifying with \`dashboa
 - **RED** for request-driven services — sections "Rate" / "Errors" / "Duration"
 - **USE** for resources (nodes, pods, queues) — sections "Utilization" / "Saturation" / "Errors"
 
-Each section: one \`stat\` header row + 1-2 detail panels below.`
+Each section: one \`stat\` header row + 1-2 detail panels below.
+
+## Authoring panels — required protocol
+For EVERY panel you propose, follow this sequence:
+
+1. STATE the question. Write a one-line "Q: <SRE-relevant question>" — what the user would actually ask. e.g. "Q: Which istio sidecar pods are exceeding CPU limit?"
+2. CHECK the KB (optional, recommended for unfamiliar systems). Call \`kb_search\` to find existing templates or patterns that already answer this question. If a template matches, prefer parameterizing it over inventing fresh PromQL.
+3. EXPLORE the actual data. Use \`metrics_discover\` (kind=names / labels / label_values / series) to confirm: the metric exists, the labels you plan to filter by exist, the label values you'll filter on exist. NEVER invent label names or values.
+4. DRAFT the PromQL. Include description: "Q: <the question>".
+5. VERIFY with \`panel_preview\`. If result is empty / NaN / cardinality blown:
+   - go back to step 3, re-explore.
+   - max 3 attempts. If still failing, report "cannot answer Q: <...> in this deployment because <reason>" and skip the panel.
+6. LINT with \`dashboard_lint\` after all panels drafted. Fix every error-severity issue before saving. Justify or fix every warn-severity issue.
+7. SAVE only after both verify and lint clear.`
 }
 
 function getQueryKnowledgeSection(): string {

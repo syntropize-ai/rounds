@@ -35,6 +35,7 @@ import {
   handleMetricsSampleSeries,
   handleMetricsFindRelated,
   handleDashboardLint,
+  handlePanelPreview,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,
@@ -225,6 +226,7 @@ async function dispatchAction(
     case 'metrics_get_cardinality': return handleMetricsGetCardinality(ctx, args);
     case 'metrics_sample_series': return handleMetricsSampleSeries(ctx, args);
     case 'metrics_find_related': return handleMetricsFindRelated(ctx, args);
+    case 'panel_preview': return handlePanelPreview(ctx, args);
     // Source-agnostic logs primitives
     case 'logs_query': return handleLogsQuery(ctx, args);
     case 'logs_labels': return handleLogsLabels(ctx, args);

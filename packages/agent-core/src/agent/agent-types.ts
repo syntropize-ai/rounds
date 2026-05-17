@@ -28,6 +28,8 @@ export type AgentToolName =
   | 'metrics_get_cardinality' | 'metrics_sample_series' | 'metrics_find_related'
   // Inline chart bubble in chat (uses shared chart-summary helper)
   | 'metric_explore'
+  // Panel-spec preview — server-side renders + validates one panel before save
+  | 'panel_preview'
   // Source-agnostic logs primitives (each requires `sourceId`)
   | 'logs_query' | 'logs_labels' | 'logs_label_values'
   // Recent change events (deploys, config rollouts, incidents)

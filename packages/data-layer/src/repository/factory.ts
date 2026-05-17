@@ -17,11 +17,11 @@ import type {
   IChatMessageRepository,
   IChatSessionEventRepository,
 } from './interfaces.js';
-import type { IInvestigationRepository as SqliteInvestigationRepositoryInterface } from './sqlite/investigation.js';
 import type {
   IDashboardRepository,
   IInstanceConfigRepository,
   INotificationChannelRepository,
+  IInvestigationRepository,
 } from '@agentic-obs/common';
 import type { IConnectorRepository } from './types/connector.js';
 import type {
@@ -89,7 +89,7 @@ import type { ILlmAuditRepository } from './sqlite/llm-audit-repository.js';
  * only want the gateway surface can consume them directly without casts.
  */
 export interface RepositoryBundle {
-  investigations: SqliteInvestigationRepositoryInterface & IGatewayInvestigationStore;
+  investigations: IInvestigationRepository & IGatewayInvestigationStore;
   incidents: IIncidentRepository & IGatewayIncidentStore;
   feedItems: IFeedItemRepository;
   approvals: IApprovalRequestRepository & IGatewayApprovalStore;

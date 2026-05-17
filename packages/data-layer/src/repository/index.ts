@@ -85,3 +85,15 @@ export type {
   LlmAuditErrorKind,
   NewLlmAuditRecord,
 } from './sqlite/llm-audit-repository.js';
+
+// Panel-event behavior tracking (created/edited/deleted/cloned/viewed for
+// dashboard panels). Append-only; consumed by offline lint-rule mining.
+export { SqlitePanelEventRepository } from './sqlite/panel-event.js';
+export { PostgresPanelEventRepository } from './postgres/panel-event.js';
+export type {
+  IPanelEventRepository,
+  PanelEvent,
+  PanelEventType,
+  PanelEventAggregateRow,
+  AggregateBySignatureOptions,
+} from './types/panel-event.js';

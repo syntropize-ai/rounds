@@ -43,6 +43,7 @@ import { createMetricsQueryRouter } from '../routes/metrics-query.js';
 import { createMetricsSaveAsDashboardRouter } from '../routes/metrics-save-as-dashboard.js';
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
+import { createAdminPanelEventsRouter } from '../routes/admin-panel-events.js';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
 import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
@@ -219,7 +220,17 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     accessControl,
     setupConfig,
     audit: authSub.audit,
+    panelEvents: repos.panelEvents,
   }));
+  // Server-admin read API over the panel-events collection (offline lint
+  // analysis bootstrap). Auth middleware is applied inside the router via
+  // requireServerAdmin; we still want it behind the main authMiddleware so
+  // `req.auth` is populated.
+  app.use(
+    '/api/admin/panel-events',
+    authMiddleware,
+    createAdminPanelEventsRouter({ panelEvents: repos.panelEvents }),
+  );
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,
     investigationReportStore: repos.investigationReports,

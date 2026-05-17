@@ -903,3 +903,30 @@ CREATE INDEX IF NOT EXISTS ix_llm_audit_org_id      ON llm_audit(org_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_user_id     ON llm_audit(user_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_session_id  ON llm_audit(session_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_model       ON llm_audit(model);
+
+-- ============================================================================
+-- Panel events (behavior tracking for dashboards / panels).
+-- Recorded fire-and-forget after each successful dashboard mutation; consumed
+-- offline to mine lint-rule data ("queries that get deleted within 24h",
+-- "shapes that keep getting cloned", …). No analysis logic lives in the
+-- gateway — this table is the collection pipeline.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS panel_events (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL DEFAULT 'org_main',
+  dashboard_id    TEXT NOT NULL,
+  panel_id        TEXT NOT NULL,
+  event_type      TEXT NOT NULL,
+  panel_snapshot  TEXT NOT NULL,
+  query_signature TEXT,
+  viz_type        TEXT,
+  ai_generated    INTEGER NOT NULL DEFAULT 0,
+  actor_id        TEXT,
+  session_id      TEXT,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_panel_events_signature ON panel_events(org_id, query_signature);
+CREATE INDEX IF NOT EXISTS ix_panel_events_dashboard ON panel_events(dashboard_id);
+CREATE INDEX IF NOT EXISTS ix_panel_events_type      ON panel_events(org_id, event_type, created_at);

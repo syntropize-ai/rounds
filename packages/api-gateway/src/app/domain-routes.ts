@@ -44,6 +44,8 @@ import { createMetricsSaveAsDashboardRouter } from '../routes/metrics-save-as-da
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
 import { createAdminPanelEventsRouter } from '../routes/admin-panel-events.js';
+import { createKbTemplatesRouter } from '../routes/kb-templates.js';
+import type { IKnowledgeRepository } from '@agentic-obs/data-layer';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
 import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
@@ -240,6 +242,18 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     alertRuleStore: eventAlertRuleStore,
     ac: accessControl,
   }));
+  // KB templates — mount BEFORE /api/dashboards to keep the surface flat.
+  // The knowledge repo arrives on `repos` from B1's data-layer landing; if
+  // it's missing we skip mounting and the route returns 404, which is
+  // honest about the feature being unavailable.
+  const knowledgeRepo = (repos as unknown as { knowledge?: IKnowledgeRepository }).knowledge;
+  if (knowledgeRepo) {
+    app.use('/api/kb/templates', createKbTemplatesRouter({
+      knowledge: knowledgeRepo,
+      dashboards: repos.dashboards,
+      accessControl,
+    }));
+  }
   app.use('/api/dashboards', createDashboardRouter({
     store: repos.dashboards,
     accessControl,

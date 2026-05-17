@@ -62,4 +62,7 @@ export {
   handleConnectorTest,
   handleSettingGet,
   handleSettingSet,
+  handleKbSearch,
+  handleKbGet,
+  handleKbRecommend,
 } from './handlers/index.js';

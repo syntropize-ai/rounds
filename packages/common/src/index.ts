@@ -73,3 +73,9 @@ export type { PivotSuggestion, SuggestPivotsArgs } from './utils/chart-pivots.js
 // to aggregate "same query shape, different filter values" into a single
 // bucket. See packages/common/src/lint/promql-signature.ts.
 export { querySignature } from './lint/promql-signature.js';
+
+// Knowledge base — TF-IDF, bundled seeds, types. Now that B1 lands the
+// authoritative IKnowledgeRepository in @agentic-obs/data-layer, the kb/types
+// re-export from here serves as the common-side mirror; downstream consumers
+// can import either path.
+export * from './kb/index.js';

@@ -44,6 +44,8 @@ import { PublishingApprovalRepository } from './services/publishing-approval-rep
 import { ApprovalRouter } from './services/approval-router.js';
 import { EventEmittingAlertRuleRepository } from '@agentic-obs/data-layer';
 import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
+import { ensureBundledSeeds } from './app/kb-bundled-loader.js';
+import type { IKnowledgeRepository } from '@agentic-obs/common';
 import { createShutdownHooks } from './app/lifecycle.js';
 import type { WebSocketGatewayDeps } from './websocket/gateway.js';
 
@@ -143,6 +145,26 @@ export async function createApp(): Promise<Application> {
 
   // -- Persistence -------------------------------------------------------
   const persistence = await createPersistence();
+
+  // -- Knowledge-base bundled-seed load --------------------------------
+  // Idempotent: re-runs at every boot, skips entries already present. The
+  // `knowledge` repo arrives on `persistence.repos` via B1's data-layer
+  // landing; until then it's read defensively. Multi-org support is
+  // pending — we seed `org_main` only. TODO: walk the org list once a
+  // first-org-created hook exists.
+  const knowledgeRepo = (persistence.repos as unknown as {
+    knowledge?: IKnowledgeRepository;
+  }).knowledge;
+  if (knowledgeRepo) {
+    try {
+      await ensureBundledSeeds(knowledgeRepo, 'org_main');
+    } catch (err) {
+      log.error(
+        { err: err instanceof Error ? err.message : err },
+        'bundled KB seed run failed; agent KB tools will see an empty corpus until next boot',
+      );
+    }
+  }
 
   // -- Auth subsystem (no routes mounted yet) ---------------------------
   // Builds AuthSubsystem + ApiKeyService and binds the global

@@ -414,6 +414,15 @@ function getQueryKnowledgeSection(): string {
 - Use "instant": true for stat, gauge, pie, bar. Use percentunit only for 0-1 ratios.`
 }
 
+function getKnowledgeBaseSection(): string {
+  return `# Knowledge base (kb_*)
+The workspace ships bundled patterns + templates (RED, USE, per-pod, Istio data plane, k8s workload health) and accumulates user-saved templates. KB hits are higher quality than web priors.
+
+- When the user names a known system (Istio, Kafka, Postgres, Redis, nginx, k8s workload, ...) OR asks for a RED/USE-style dashboard: call \`kb_recommend\` FIRST. Pass the user's intent as the \`intent\`, and if you've already run \`metrics_discover\` kind="names" pass the result as \`availableMetrics\` so templates with un-scraped metrics are deprioritized.
+- If kb_recommend returns a strong match (top score > 0.5 and you recognize the title), fetch its body with \`kb_get\` and use it: substitute \`\${VARIABLES}\` against what the user told you (or ask via ask_user for the missing ones), then drive \`dashboard_create\` + \`dashboard_add_panels\` from the template panels. Do NOT re-invent panels the template already has.
+- If KB returns nothing relevant, then fall back to free-form authoring (web_search → metrics_discover → metrics_validate → dashboard_add_panels). KB lookups are cheap reads; spend them.`
+}
+
 function getToneSection(): string {
   return `# Tone and Style
 - Be concise. Lead with the action, not reasoning.
@@ -722,6 +731,7 @@ export function buildSystemPrompt(
     getActionsSection(),
     getExamplesSection(),
     getQueryKnowledgeSection(),
+    getKnowledgeBaseSection(),
     getToneSection(),
     deferredSection,
   ]

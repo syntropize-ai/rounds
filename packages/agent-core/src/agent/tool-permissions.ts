@@ -91,6 +91,10 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'dashboard_set_title': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
   'dashboard_add_variable': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
   'dashboard_rearrange': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  // Lint is read-only — it inspects a draft spec and may probe the metrics
+  // backend. Scope it to `dashboards:read` since there's no specific
+  // dashboard row to gate against (the spec is in-flight).
+  'dashboard_lint': () => ac.eval('dashboards:read', 'dashboards:*'),
 
   // -- Folder tools ---------------------------------------------------------
   'folder_create': (args: Record<string, unknown>) =>

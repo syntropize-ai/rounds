@@ -34,6 +34,7 @@ import {
   handleMetricsGetCardinality,
   handleMetricsSampleSeries,
   handleMetricsFindRelated,
+  handleDashboardLint,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,
@@ -189,6 +190,7 @@ async function dispatchAction(
     case 'dashboard_remove_panels': return handleDashboardRemovePanels(ctx, args);
     case 'dashboard_modify_panel': return handleDashboardModifyPanel(ctx, args);
     case 'dashboard_add_variable': return handleDashboardAddVariable(ctx, args);
+    case 'dashboard_lint': return handleDashboardLint(ctx, args);
     // Investigation lifecycle
     case 'investigation_create': return handleInvestigationCreate(ctx, args);
     case 'investigation_list': return handleInvestigationList(ctx, args);

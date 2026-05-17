@@ -37,6 +37,7 @@ export {
   handleMetricsGetCardinality,
   handleMetricsSampleSeries,
   handleMetricsFindRelated,
+  handleDashboardLint,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,

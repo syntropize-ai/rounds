@@ -8,6 +8,8 @@ export type AgentToolName =
   // Dashboard mutation primitives — model constructs panel configs directly
   | 'dashboard_add_panels' | 'dashboard_remove_panels' | 'dashboard_modify_panel'
   | 'dashboard_rearrange' | 'dashboard_add_variable' | 'dashboard_set_title'
+  // Dashboard lint — pre-save validation via pluggable rule engine
+  | 'dashboard_lint'
   // Folder tools (Wave 7)
   | 'folder_create' | 'folder_list'
   // Investigation lifecycle

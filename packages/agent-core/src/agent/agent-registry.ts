@@ -37,6 +37,8 @@ agentRegistry.register({
     // applies a 'rearrange' action internally for layout). Until a real
     // handler lands, keep it out of the LLM-facing tool surface.
     'dashboard_add_variable', 'dashboard_set_title',
+    // Dashboard lint — pluggable rule engine, read-only
+    'dashboard_lint',
     // Folder lifecycle
     'folder_create', 'folder_list',
     // Investigation lifecycle

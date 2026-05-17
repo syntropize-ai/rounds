@@ -365,6 +365,14 @@ User: "What's the difference between rate() and irate()?"
 - **Annotations**: for \`time_series\` / \`heatmap\` panels covering an alerting metric, fetch \`alert_rule_history\` once and pass the returned JSON as \`panel.annotations\`.
 - **Legend names**: every query in a multi-query panel MUST set \`legendFormat\` to a meaningful label (e.g. \`"p50"\`, \`"errors {{handler}}"\`). Single-query panels can omit it.
 
+## Dashboard Lint — ALWAYS run before saving
+After drafting panels with \`dashboard_add_panels\` (or modifying with \`dashboard_modify_panel\`) and BEFORE the final reply, call \`dashboard_lint\` once with the full DashboardSpec.
+- Pass the spec exactly as it will be saved (every panel id, title, description, queries, unit, visualization, refreshIntervalSec).
+- Treat every \`error\`-severity issue as blocking: fix the cause (modify_panel / remove_panel / add a missing query), then re-lint until no errors remain.
+- For \`warn\` issues, either fix them or briefly justify in your final reply why the warning is acceptable.
+- \`info\` issues are advisory — mention them only when they affect what the user asked for.
+- Don't loop indefinitely: if a rule keeps tripping after one fix attempt, surface the issue to the user instead of retrying blindly.
+
 ## Dashboard Grouping (RED for services, USE for resources)
 - **RED** for request-driven services — sections "Rate" / "Errors" / "Duration"
 - **USE** for resources (nodes, pods, queues) — sections "Utilization" / "Saturation" / "Errors"

@@ -1,4 +1,4 @@
-import type { ToolDefinition } from '@agentic-obs/llm-gateway';
+import type { JsonSchemaProperty, ToolDefinition } from '@agentic-obs/llm-gateway';
 import type { ToolCategory } from './tool-search.js';
 
 /**
@@ -18,6 +18,20 @@ export interface ToolRegistryEntry {
   category: ToolCategory;
   schema: ToolDefinition;
 }
+
+const PANEL_VISUALIZATIONS = ['time_series', 'stat', 'bar', 'bar_gauge', 'heatmap', 'gauge', 'table', 'pie', 'histogram'] as const;
+const PANEL_UNITS = ['none', 'short', 'percent', 'percentunit', 'bytes', 'decbytes', 'bytes_si', 'decbytes_si', 'bps', 'Bps', 'reqps', 'ops', 'opsps', 's', 'ms', 'dateTime'] as const;
+const PANEL_QUERY_SCHEMA: JsonSchemaProperty = {
+  type: 'object',
+  properties: {
+    refId: { type: 'string', description: 'Series reference id, usually A/B/C.' },
+    expr: { type: 'string', description: 'Backend-native query expression (PromQL).' },
+    datasourceId: { type: 'string', description: 'Required connector id for this query.' },
+    legendFormat: { type: 'string' },
+    instant: { type: 'boolean' },
+  },
+  required: ['refId', 'expr', 'datasourceId'],
+};
 
 export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
@@ -228,7 +242,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
                   required: ['expr'],
                 },
               },
-              unit: { type: 'string' },
+              unit: { type: 'string', enum: [...PANEL_UNITS], description: 'Optional canonical display unit. Omit when unknown; panel_preview returns suggestedUnit.' },
             },
             required: ['title', 'visualization', 'queries'],
           },
@@ -640,8 +654,38 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         properties: {
           panels: {
             type: 'array',
-            description: 'Panel configs. Each: { title, visualization, queries: [{refId, expr, datasourceId, legendFormat?, instant?}], unit?, ... }. datasourceId is REQUIRED per query.',
-            items: { type: 'object' },
+            description: 'Panel configs. datasourceId is REQUIRED per query. unit is optional; use only known metric unit metadata or omit it.',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string' },
+                description: { type: 'string' },
+                visualization: { type: 'string', enum: [...PANEL_VISUALIZATIONS] },
+                queries: {
+                  type: 'array',
+                  items: PANEL_QUERY_SCHEMA,
+                },
+                unit: { type: 'string', enum: [...PANEL_UNITS], description: 'Optional canonical display unit. Omit when unknown instead of guessing.' },
+                stackMode: { type: 'string', enum: ['none', 'normal', 'percent'] },
+                fillOpacity: { type: 'number' },
+                decimals: { type: 'number' },
+                thresholds: { type: 'array', items: { type: 'object' } },
+                sparkline: { type: 'boolean' },
+                colorMode: { type: 'string' },
+                graphMode: { type: 'string' },
+                lineWidth: { type: 'number' },
+                legendStats: { type: 'array', items: { type: 'string' } },
+                legendPlacement: { type: 'string' },
+                colorScale: { type: 'string' },
+                showPoints: { type: 'string' },
+                yScale: { type: 'string' },
+                collapseEmptyBuckets: { type: 'boolean' },
+                barGaugeMax: { type: 'number' },
+                barGaugeMode: { type: 'string' },
+                annotations: { type: 'array', items: { type: 'object' } },
+              },
+              required: ['title', 'visualization', 'queries'],
+            },
           },
         },
         required: ['panels'],
@@ -679,8 +723,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           title: { type: 'string', description: 'Optional new title' },
           description: { type: 'string', description: 'Optional new description' },
           visualization: { type: 'string', description: 'Optional visualization change (time_series, stat, gauge, ...)' },
-          queries: { type: 'array', description: 'Optional replacement query list', items: { type: 'object' } },
-          unit: { type: 'string', description: 'Optional value unit (seconds, bytes, percentunit, reqps, ...)' },
+          queries: { type: 'array', description: 'Optional replacement query list. Each replacement query must include refId, expr, and datasourceId.', items: PANEL_QUERY_SCHEMA },
+          unit: { type: 'string', enum: [...PANEL_UNITS], description: 'Optional canonical value unit. Omit when unknown instead of guessing.' },
         },
         required: ['panelId'],
       },
@@ -1188,7 +1232,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'kb_search',
       description:
-        'Keyword-search the workspace knowledge base (bundled patterns/templates + user-saved templates + distilled facts). Returns top entries with a short snippet. Use when the user names a known system (Redis, Kafka, Istio, Postgres, ...) BEFORE web_search — KB hits are higher quality than web priors.',
+        'Keyword-search the workspace knowledge base for bundled and saved templates and patterns. Call before web_search when the user names a known system.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1209,11 +1253,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'kb_get',
       description:
-        'Fetch a single knowledge-base entry by id. Use after kb_search / kb_recommend to retrieve the full content (panels, variables, notes) for the entry you intend to apply.',
+        'Fetch a single knowledge-base entry by id. Call after kb_search or kb_recommend to retrieve full content.',
       input_schema: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: 'KB entry id from kb_search / kb_recommend' },
+          id: { type: 'string', description: 'KB entry id from kb_search or kb_recommend' },
         },
         required: ['id'],
       },
@@ -1224,18 +1268,14 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'kb_recommend',
       description:
-        'Given a free-text intent and (optionally) the metric names actually exposed in the workspace, return the top-3 KB templates/patterns ranked by intent-match + metric-coverage. Call BEFORE dashboard_create when the request maps to a known system. Pass the result of metrics_discover kind="names" as availableMetrics to penalize templates whose required metrics aren\'t scraped.',
+        'Recommend KB templates and patterns for the given intent. Call before dashboard_create.',
       input_schema: {
         type: 'object',
         properties: {
-          intent: { type: 'string', description: 'Free-text description of what the user wants, e.g. "kafka consumer lag dashboard"' },
-          availableMetrics: {
-            type: 'array',
-            description: 'Optional — metric names exposed in the workspace, e.g. from metrics_discover kind="names". Templates whose required metrics aren\'t covered get penalized.',
-            items: { type: 'string' },
-          },
+          intent: { type: 'string', description: 'Free-text description of what the user wants to monitor.' },
         },
         required: ['intent'],
+        additionalProperties: false,
       },
     },
   },

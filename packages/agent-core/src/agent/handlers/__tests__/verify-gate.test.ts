@@ -77,12 +77,14 @@ describe('runDashboardVerifyGate', () => {
     });
     const report = await runDashboardVerifyGate(ctx, {
       panels: [
-        { title: 'OK', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))' }] },
+        { title: 'OK', description: 'Q: is rate ok?', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))' }] },
       ],
     });
     expect(report.ok).toBe(true);
     expect(report.previewIssues).toHaveLength(0);
-    expect(report.lintIssues).toEqual([]);
+    // Lint may emit info-severity skips for rules whose probes aren't mocked
+    // (panel-returns-data etc.). The gate only blocks on error-severity.
+    expect(report.lintIssues.every((i) => i.severity !== 'error')).toBe(true);
   });
 
   it('skips preview gracefully when no metrics connector is configured (header rows / pre-deploy)', async () => {
@@ -92,7 +94,7 @@ describe('runDashboardVerifyGate', () => {
       allConnectors: [], // none
     });
     const report = await runDashboardVerifyGate(ctx, {
-      panels: [{ title: 'P', visualization: 'time_series', queries: [{ expr: 'up' }] }],
+      panels: [{ title: 'P', description: 'Q: is up?', visualization: 'time_series', queries: [{ expr: 'up' }] }],
     });
     expect(report.ok).toBe(true);
     expect(rangeQuery).not.toHaveBeenCalled();
@@ -105,10 +107,57 @@ describe('runDashboardVerifyGate', () => {
       allConnectors: [{ id: 'prom', type: 'prometheus' } as never],
     });
     const report = await runDashboardVerifyGate(ctx, {
-      panels: [{ title: 'Header', visualization: 'stat', queries: [] }],
+      panels: [{ title: 'Header', description: 'Q: section header?', visualization: 'stat', queries: [] }],
     });
     expect(report.ok).toBe(true);
     expect(report.previewIssues).toHaveLength(0);
+  });
+});
+
+describe('runDashboardVerifyGate — real lint integration', () => {
+  it('rejects when a panel violates the `dashboard-has-questions` rule (error severity)', async () => {
+    // Panel description does NOT start with "Q: ..." → error.
+    const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
+    const ctx = makeFakeActionContext({
+      adapters: makeAdapters(rangeQuery),
+      allConnectors: [{ id: 'prom', type: 'prometheus' } as never],
+    });
+    const report = await runDashboardVerifyGate(ctx, {
+      panels: [
+        {
+          title: 'unquestioned',
+          description: 'just a description',
+          visualization: 'time_series',
+          queries: [{ expr: 'sum(rate(x[5m]))' }],
+        },
+      ],
+    });
+    expect(report.ok).toBe(false);
+    const errs = report.lintIssues.filter((i) => i.severity === 'error');
+    expect(errs.length).toBeGreaterThan(0);
+    expect(errs.some((i) => i.code === 'dashboard-has-questions')).toBe(true);
+  });
+
+  it('does NOT reject when only `viz-matches-data` (info severity) fires', async () => {
+    // stat visualization + rate() query → viz-matches-data info issue but
+    // no errors. Save must still be ok.
+    const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
+    const ctx = makeFakeActionContext({
+      adapters: makeAdapters(rangeQuery),
+      allConnectors: [{ id: 'prom', type: 'prometheus' } as never],
+    });
+    const report = await runDashboardVerifyGate(ctx, {
+      panels: [
+        {
+          title: 'misviz',
+          description: 'Q: how fast?',
+          visualization: 'stat',
+          queries: [{ expr: 'rate(http_requests_total[5m])' }],
+        },
+      ],
+    });
+    expect(report.ok).toBe(true);
+    expect(report.lintIssues.every((i) => i.severity !== 'error')).toBe(true);
   });
 });
 
@@ -158,7 +207,7 @@ describe('dashboard_add_panels — verify-gate integration', () => {
     const rangeQuery = vi.fn().mockResolvedValue([]); // empty -> error
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
-      panels: [{ title: 'P', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
+      panels: [{ title: 'P', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
     });
     expect(out).toContain('rejected by verify-gate');
     // The actionExecutor.execute must NOT have run.
@@ -170,7 +219,7 @@ describe('dashboard_add_panels — verify-gate integration', () => {
     const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
-      panels: [{ title: 'P', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))', datasourceId: 'prom' }] }],
+      panels: [{ title: 'P', description: 'Q: rate?', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))', datasourceId: 'prom' }] }],
     });
     expect(out).toContain('Added 1 panel');
     expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
@@ -181,7 +230,7 @@ describe('dashboard_add_panels — verify-gate integration', () => {
     const rangeQuery = vi.fn().mockResolvedValue([]); // empty -> would-be error
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
-      panels: [{ title: 'P', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
+      panels: [{ title: 'P', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
     });
     expect(out).toContain('Added 1 panel');
     expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);

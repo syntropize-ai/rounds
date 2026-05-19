@@ -107,9 +107,19 @@ const dashboardAddPanelsTool: ToolDefinition = {
 
 describe('OpenAIProvider — request translation', () => {
   let restore: () => void;
+  let strictEnvBefore: string | undefined;
 
+  beforeEach(() => {
+    // The forwarding test asserts the raw schema is passed through verbatim;
+    // strict-mode rewrites it. Disable strict for this suite (default
+    // strict-mode behavior is exercised in its own dedicated test below).
+    strictEnvBefore = process.env['LLM_STRICT_TOOL_CALLS'];
+    process.env['LLM_STRICT_TOOL_CALLS'] = '0';
+  });
   afterEach(() => {
     restore?.();
+    if (strictEnvBefore === undefined) delete process.env['LLM_STRICT_TOOL_CALLS'];
+    else process.env['LLM_STRICT_TOOL_CALLS'] = strictEnvBefore;
   });
 
   it('translates dotted tool names to underscore-pair and forwards parameters', async () => {

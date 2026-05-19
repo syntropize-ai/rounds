@@ -15,6 +15,13 @@
  */
 
 import { createLogger } from '@agentic-obs/server-utils/logging';
+import {
+  LintEngine,
+  BUILTIN_RULES,
+  type LintContext as DashboardLintContext,
+  type DashboardSpec,
+  type LintIssue as RuleLintIssue,
+} from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import {
   runPanelPreviewProgrammatic,
@@ -43,18 +50,34 @@ export interface LintResult {
 }
 
 /**
- * Local lint stub — returns no issues. Replace the body with a call into
- * Agent C's `dashboard_lint` core once that module lands in main:
+ * Run the real dashboard lint rules against the drafted panels.
  *
- *   import { lintDashboardSpec } from '../dashboard-lint.js';
- *   return lintDashboardSpec({ panels });
- *
- * TODO(verify-gate): wire to dashboard_lint once Agent C merges.
+ * `LintContext` is optional per-field — rules that need a metrics backend
+ * (panel-returns-data, query-uses-known-labels, high-cardinality-grouping)
+ * report a single `info`-severity skip and move on when their probe is
+ * missing. That degradation is intentional so the gate still runs in
+ * offline test environments and pre-deployment workflows.
  */
-export async function lintDashboard(_spec: {
-  panels: Array<{ title: string; visualization: string; queries: Array<{ expr: string }> }>;
-}): Promise<LintResult> {
-  return { issues: [] };
+export async function lintDashboard(
+  spec: DashboardSpec,
+  ctx: DashboardLintContext,
+): Promise<LintResult> {
+  const engine = new LintEngine();
+  for (const rule of BUILTIN_RULES) engine.register(rule);
+  const issues = (await engine.run(spec, ctx)) as RuleLintIssue[];
+  return {
+    issues: issues.map((i) => {
+      const out: LintIssue = {
+        severity: i.severity,
+        message: i.message,
+      };
+      // Carry the rule name through as the issue `code` so the formatted
+      // report tells operators which rule fired.
+      if (i.ruleName) out.code = i.ruleName;
+      if (i.panelId !== undefined) out.panelId = i.panelId;
+      return out;
+    }),
+  };
 }
 
 export interface VerifyGateInput {
@@ -143,13 +166,13 @@ export async function runDashboardVerifyGate(
     }
   }
 
-  const lintSpec = {
-    panels: input.panels
-      .map((p) => toPreviewSpec(p))
-      .filter((p): p is PanelPreviewSpec => p !== null)
-      .map((p) => ({ title: p.title, visualization: p.visualization, queries: p.queries.map((q) => ({ expr: q.expr })) })),
-  };
-  const lint = await lintDashboard(lintSpec);
+  // Build a typed DashboardSpec for the real lint engine. We synthesize the
+  // fields the rules read (id, panels[].id/title/description/visualization/
+  // queries) and leave the rest at neutral defaults — rules iterate only
+  // what they need and ignore the rest.
+  const lintDashboardSpec = buildLintDashboardSpec(input.panels);
+  const lintCtx = buildLintContext(ctx, input.datasourceId);
+  const lint = await lintDashboard(lintDashboardSpec, lintCtx);
 
   const ok =
     previewIssues.every((i) => i.severity !== 'error') &&
@@ -179,6 +202,100 @@ export function formatVerifyReport(report: VerifyGateReport): string {
     }
   }
   return lines.join('\n');
+}
+
+/**
+ * Build a minimal but typed `DashboardSpec` from the loose panel payloads
+ * arriving via `dashboard_add_panels`. Rules consume `panels[].id`,
+ * `title`, `description`, `visualization`, `queries`, plus a handful of
+ * dashboard-level fields. Everything else is filled with neutral defaults.
+ */
+function buildLintDashboardSpec(
+  rawPanels: Array<Record<string, unknown>>,
+): DashboardSpec {
+  const panels = rawPanels.map((p, i) => {
+    const queriesRaw = Array.isArray(p['queries'])
+      ? (p['queries'] as Array<Record<string, unknown>>)
+      : [];
+    const queries = queriesRaw
+      .filter((q) => typeof q['expr'] === 'string' && (q['expr'] as string).trim() !== '')
+      .map((q) => ({
+        refId: typeof q['refId'] === 'string' ? (q['refId'] as string) : 'A',
+        expr: (q['expr'] as string).trim(),
+        ...(typeof q['legendFormat'] === 'string' ? { legendFormat: q['legendFormat'] as string } : {}),
+        ...(q['instant'] === true ? { instant: true } : {}),
+        datasourceId: typeof q['datasourceId'] === 'string' ? (q['datasourceId'] as string) : '',
+      }));
+    return {
+      id: typeof p['id'] === 'string' ? (p['id'] as string) : `draft-${i}`,
+      title: typeof p['title'] === 'string' ? (p['title'] as string) : `Panel ${i + 1}`,
+      description: typeof p['description'] === 'string' ? (p['description'] as string) : '',
+      queries,
+      visualization: (typeof p['visualization'] === 'string'
+        ? (p['visualization'] as DashboardSpec['panels'][number]['visualization'])
+        : 'time_series'),
+      row: 0,
+      col: 0,
+      width: 6,
+      height: 3,
+      ...(typeof p['unit'] === 'string' ? { unit: p['unit'] as string } : {}),
+    } as DashboardSpec['panels'][number];
+  });
+  return {
+    id: 'draft',
+    type: 'dashboard',
+    title: 'Draft',
+    description: '',
+    prompt: '',
+    userId: 'agent',
+    status: 'ready',
+    panels,
+    variables: [],
+    refreshIntervalSec: 60,
+    datasourceIds: [],
+    useExistingMetrics: true,
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+  };
+}
+
+/**
+ * Construct a `LintContext` from the action context's adapter registry.
+ * Returns an empty context (no probes) when no metrics adapter is
+ * available; rules that need a probe will self-skip with an `info` issue.
+ */
+function buildLintContext(
+  ctx: ActionContext,
+  explicitDsId: string | undefined,
+): DashboardLintContext {
+  const dsId =
+    explicitDsId
+    ?? ctx.sessionConnectorPins?.['prometheus']
+    ?? (ctx.allConnectors ?? []).find(
+      (c) => c.type === 'prometheus' || c.type === 'victoria-metrics',
+    )?.id;
+  if (!dsId) return {};
+  const adapter = ctx.adapters.metrics(dsId);
+  if (!adapter) return {};
+  return {
+    metricsQuery: async (promql: string) => {
+      const samples = await adapter.instantQuery(promql);
+      return { resultLen: samples.length };
+    },
+    metricsLabels: async (metricName: string) => ({
+      labels: await adapter.listLabels(metricName),
+    }),
+    metricsLabelValues: async (metricName: string, label: string) => {
+      // The adapter exposes label values workspace-wide for a label, not
+      // scoped to one metric. Best-effort: query the global values.
+      const values = await adapter.listLabelValues(label);
+      return { values };
+    },
+    metricsCardinality: async (metricName: string) => {
+      const series = await adapter.findSeriesFull([`{__name__="${metricName}"}`]);
+      return { seriesCount: series.length };
+    },
+  };
 }
 
 /** Emit a structured WARN log for gate-OFF accepted issues. */

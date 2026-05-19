@@ -242,6 +242,28 @@ export type DashboardSseEvent =
   | { type: 'panel_modified'; panelId: string; patch: Partial<PanelConfig> }
   | { type: 'variable_added'; variable: DashboardVariable }
   | { type: 'pending_changes_proposed'; dashboardId: string; changes: PendingDashboardChange[] }
+  | {
+      // First-class persisted agent proposal. Mutation handlers write a
+      // pending_changes row and emit this event so live clients can splice
+      // in the proposal immediately while clients that connect later read
+      // the row from GET /api/dashboards/:id/pending-changes.
+      type: 'pending_change_created';
+      id: string;
+      dashboardId: string;
+      panelId: string | null;
+      summary: string;
+      changeKind: 'modify_panel' | 'add_panel' | 'remove_panel' | 'set_title' | 'add_variable';
+      beforeJson: unknown | null;
+      afterJson: unknown;
+      proposedAt: string;
+    }
+  | {
+      // Sent when a user accepts or rejects a pending change row.
+      type: 'pending_change_resolved';
+      id: string;
+      dashboardId: string;
+      status: 'accepted' | 'rejected';
+    }
   | { type: 'investigation_report'; report: InvestigationReport }
   | { type: 'verification_report'; report: { status: string; targetKind: string; summary: string; issues: Array<{ code: string; severity: string; message: string; artifactKind: string; artifactId?: string }>; checksRun: string[] } }
   | { type: 'agent_event'; event: { type: string; agentType: string; timestamp: string; metadata?: Record<string, unknown> } }

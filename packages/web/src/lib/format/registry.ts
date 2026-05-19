@@ -67,6 +67,8 @@ registerFormatter('bytes_si', formatBytesSI, 'Bytes (SI)');
 registerFormatter('decbytes_si', formatBytesSI, 'Bytes (SI)');
 
 registerFormatter('bps', formatBitsSI, 'Bits/sec (SI)');
+registerFormatter('Bps', makeRateFormatter('B'), 'Bytes/sec');
+registerFormatter('bytesps', makeRateFormatter('B'), 'Bytes/sec');
 
 registerFormatter('s', formatDurationSeconds, 'Seconds');
 registerFormatter('seconds', formatDurationSeconds, 'Seconds');
@@ -74,7 +76,11 @@ registerFormatter('ms', formatDurationMs, 'Milliseconds');
 registerFormatter('milliseconds', formatDurationMs, 'Milliseconds');
 
 registerFormatter('reqps', makeRateFormatter('req'), 'Requests/sec');
+registerFormatter('rps', makeRateFormatter('req'), 'Requests/sec');
+registerFormatter('qps', makeRateFormatter('req'), 'Requests/sec');
+registerFormatter('req/s', makeRateFormatter('req'), 'Requests/sec');
 registerFormatter('ops', makeRateFormatter('ops'), 'Operations/sec');
 registerFormatter('opsps', makeRateFormatter('ops'), 'Operations/sec');
+registerFormatter('ops/s', makeRateFormatter('ops'), 'Operations/sec');
 
 registerFormatter('dateTime', formatDateTime, 'Date & time');

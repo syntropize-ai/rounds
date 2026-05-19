@@ -14,7 +14,12 @@ interface AgentBlock {
 }
 export type Block = MessageBlock | AgentBlock;
 
-export function groupEvents(events: ChatEvent[]): Block[] {
+export type ProposalStatusMap = Record<string, 'pending' | 'accepted' | 'rejected' | 'expired'>;
+
+export function groupEvents(
+  events: ChatEvent[],
+  proposalStatus: ProposalStatusMap = {},
+): Block[] {
   const blocks: Block[] = [];
   let currentAgent: ChatEvent[] = [];
 
@@ -31,10 +36,35 @@ export function groupEvents(events: ChatEvent[]): Block[] {
       evt.kind === 'error' ||
       evt.kind === 'ask_user' ||
       evt.kind === 'ds_choice' ||
-      evt.kind === 'inline_chart'
+      evt.kind === 'inline_chart' ||
+      evt.kind === 'pending_change_created'
     ) {
+      // pending_change_created renders as an inline change-proposal card. We
+      // intentionally flush the agent activity block first so the card sits
+      // right after the tool_call that produced it — matches the
+      // "AI says X, here's a card to apply or cancel" Claude-Code pattern.
       flushAgent();
       blocks.push({ type: 'message', event: evt });
+
+      // Claude-Code-style "blocking" behavior: when a change_proposal is
+      // unresolved, the conversation pauses below it — hide every event
+      // that came after this proposal. Once the user clicks Apply / Cancel
+      // (or the overlay map flips status to non-pending) the remainder of
+      // the conversation reappears.
+      if (evt.kind === 'pending_change_created') {
+        const proposalId =
+          (evt as { pendingChange?: { id?: string } }).pendingChange?.id;
+        const status = proposalId ? proposalStatus[proposalId] : undefined;
+        const isUnresolved = !status || status === 'pending';
+        if (isUnresolved) {
+          return blocks;
+        }
+      }
+    } else if (evt.kind === 'pending_change_resolved') {
+      // Resolution events don't render their own block; the corresponding
+      // change_proposal card overlays its status via the page-level overlay
+      // map. Drop them from the block stream.
+      continue;
     } else if (evt.kind === 'done') {
       flushAgent();
     } else {
@@ -84,6 +114,21 @@ export interface ToolCallCard {
   /** Full output text (server-provided; server may not emit yet). */
   output?: string;
   /** Result summary text (always present once result arrives). */
+  summary?: string;
+  evidenceId?: string;
+  cost?: number;
+  durationMs?: number;
+}
+
+export interface ToolActivityGroup {
+  id: string;
+  phase: string;
+  tool: string;
+  label: string;
+  status: ToolCallCard['status'];
+  count: number;
+  params?: Record<string, unknown>;
+  output?: string;
   summary?: string;
   evidenceId?: string;
   cost?: number;
@@ -379,11 +424,11 @@ export function buildSteps(events: ChatEvent[]): { steps: StepRow[]; preStatus: 
 }
 
 /**
- * Build one card per user-visible tool_call event. Each card pairs to the
- * NEXT matching tool_result for the same tool name (FIFO within a tool).
+ * Build one data object per user-visible tool_call event. Each card pairs to
+ * the NEXT matching tool_result for the same tool name (FIFO within a tool).
  *
- * This is intentionally per-call (not phase-merged) so users see every step
- * the agent ran — five `metrics_query` calls produce five cards.
+ * The chat UI should group these for display; this lower-level shape stays
+ * per-call so audit/debug surfaces can still inspect exact tool activity.
  */
 export function buildToolCalls(events: ChatEvent[]): ToolCallCard[] {
   const cards: ToolCallCard[] = [];
@@ -429,4 +474,54 @@ export function buildToolCalls(events: ChatEvent[]): ToolCallCard[] {
   }
 
   return cards;
+}
+
+export function buildToolActivityGroups(events: ChatEvent[]): ToolActivityGroup[] {
+  const groups: ToolActivityGroup[] = [];
+  const byPhase = new Map<string, ToolActivityGroup>();
+
+  for (const card of buildToolCalls(events)) {
+    const phase = phaseOf(card.tool);
+    const existing = byPhase.get(phase);
+    if (!existing) {
+      const group: ToolActivityGroup = {
+        id: card.id,
+        phase,
+        tool: card.tool,
+        label: TOOL_LABELS[phase] ?? card.label,
+        status: card.status,
+        count: 1,
+        ...(card.params ? { params: card.params } : {}),
+        ...(card.output ? { output: card.output } : {}),
+        ...(card.summary ? { summary: card.summary } : {}),
+        ...(card.evidenceId ? { evidenceId: card.evidenceId } : {}),
+        ...(typeof card.cost === 'number' ? { cost: card.cost } : {}),
+        ...(typeof card.durationMs === 'number' ? { durationMs: card.durationMs } : {}),
+      };
+      groups.push(group);
+      byPhase.set(phase, group);
+      continue;
+    }
+
+    existing.count += 1;
+    existing.tool = card.tool;
+    existing.label = TOOL_LABELS[phase] ?? card.label;
+    if (card.status === 'running') {
+      existing.status = 'running';
+    } else if (card.status === 'error' && existing.status !== 'running') {
+      existing.status = 'error';
+    } else if (existing.status !== 'running' && existing.status !== 'error') {
+      existing.status = 'done';
+    }
+    if (card.params) existing.params = card.params;
+    if (card.output) existing.output = card.output;
+    if (card.summary) existing.summary = card.summary;
+    if (card.evidenceId) existing.evidenceId = card.evidenceId;
+    if (typeof card.cost === 'number') existing.cost = (existing.cost ?? 0) + card.cost;
+    if (typeof card.durationMs === 'number') {
+      existing.durationMs = (existing.durationMs ?? 0) + card.durationMs;
+    }
+  }
+
+  return groups;
 }

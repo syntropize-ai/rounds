@@ -96,7 +96,7 @@ describe('dashboard handlers', () => {
     it('adds panels and streams a panel_added event for each', async () => {
       const ctx = makeFakeActionContext({ activeDashboardId: 'd1', freshlyCreatedDashboards: new Set(['d1']) });
       const observation = await handleDashboardAddPanels(ctx, {
-        panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
+        panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
       });
       expect(ctx.actionExecutor.execute).toHaveBeenCalledWith('d1', [
         expect.objectContaining({ type: 'add_panels' }),
@@ -113,6 +113,7 @@ describe('dashboard handlers', () => {
       const observation = await handleDashboardAddPanels(ctx, {
         panels: [{
           title: 'Request rate',
+          description: 'Q: what is the request rate?',
           visualization: 'time_series',
           queries: [{ refId: 'A', expr: 'sum(rate(http_requests_total[5m]))', datasourceId: 'prom' }],
         }],
@@ -133,6 +134,7 @@ describe('dashboard handlers', () => {
       const observation = await handleDashboardAddPanels(ctx, {
         panels: [{
           title: 'Request rate',
+          description: 'Q: what is the request rate?',
           visualization: 'time_series',
           queries: [{ refId: 'A', expr: 'sum(rate(http_requests_total[5m]))', datasourceId: 'prom' }],
         }],
@@ -154,6 +156,7 @@ describe('dashboard handlers', () => {
       const observation = await handleDashboardAddPanels(ctx, {
         panels: [{
           title: 'Request rate',
+          description: 'Q: what is the request rate?',
           visualization: 'time_series',
           queries: [{ refId: 'A', expr, datasourceId: 'prom' }],
         }],
@@ -174,7 +177,7 @@ describe('dashboard handlers', () => {
     it('errors when no active dashboard is set', async () => {
       const ctx = makeFakeActionContext();
       const observation = await handleDashboardAddPanels(ctx, {
-        panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
+        panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
       });
       expect(observation).toMatch(/no active dashboard/);
       expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
@@ -196,7 +199,7 @@ describe('dashboard handlers', () => {
       });
 
       await handleDashboardAddPanels(ctx, {
-        panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
+        panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
       });
 
       expect(updateStatus).toHaveBeenCalledWith('d1', 'ready', undefined);
@@ -221,7 +224,7 @@ describe('dashboard handlers', () => {
 
       await expect(
         handleDashboardAddPanels(ctx, {
-          panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
+          panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
         }),
       ).rejects.toThrow(/boom/);
 
@@ -249,7 +252,7 @@ describe('dashboard handlers', () => {
       });
 
       await handleDashboardAddPanels(ctx, {
-        panels: [{ title: 'p1', visualization: 'time_series', queries: [] }],
+        panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
       });
 
       // SSE error event surfaced so the web UI doesn't sit on stale 'generating'.

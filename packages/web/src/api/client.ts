@@ -21,6 +21,8 @@ export {
   type OpsConnectorInput,
 } from './ops-api.js';
 
+export { pendingChangesApi, PENDING_CHANGES_POLL_MS } from './pending-changes-api.js';
+
 export {
   plansApi,
   type RemediationPlan,

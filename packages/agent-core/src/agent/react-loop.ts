@@ -458,11 +458,41 @@ export class ReActLoop {
           return text
         }
 
+        // --- Malformed JSON args from the provider: synthesize an
+        // observation telling the model to retry with valid JSON for THIS
+        // tool's input_schema. Mirrors the empty-data path in
+        // metric_explore — let the ReAct loop pick the correction up on
+        // the next turn rather than executing the handler with garbage.
+        let observationText: string | null
+        if (Object.prototype.hasOwnProperty.call(args, '_malformed_args')) {
+          const retryMsg =
+            `Your previous tool call to '${action}' had malformed JSON arguments. ` +
+            `Re-emit the call with valid JSON for this tool's input_schema.`
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: action,
+            summary: retryMsg,
+            success: false,
+          })
+          observations.push({
+            action,
+            args,
+            result: retryMsg,
+            toolUseId: tc.id,
+            batchId,
+            ...(tc.providerMetadata ? { providerMetadata: tc.providerMetadata } : {}),
+            ...(tc === toolCalls[0] && preToolProse ? { preToolText: preToolProse } : {}),
+          })
+          lastObservation = retryMsg
+          lastAction = action
+          continue
+        }
+
         // --- tool_search: resolve deferred-tool schemas inline ---
         // The loop owns this rather than the action runner so the loaded
         // names can flow straight back into `loadedDeferredTools` without
         // round-tripping through ActionContext.
-        let observationText: string | null
+        // observationText declared above.
         if (action === TOOL_SEARCH_ACTION) {
           const query = typeof args.query === 'string' ? args.query : ''
           this.deps.sendEvent({

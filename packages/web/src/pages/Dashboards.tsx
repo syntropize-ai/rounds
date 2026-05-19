@@ -538,13 +538,15 @@ export default function Dashboards() {
               const dashboardCount = folder.counts?.dashboards ?? localDashboardCount;
               const alertRuleCount = folder.counts?.alertRules ?? 0;
               const childCount = folder.counts?.subfolders ?? localChildCount;
+              const dashboardLabel = dashboardCount === 1 ? 'dashboard' : 'dashboards';
+              const alertLabel = alertRuleCount === 1 ? 'alert rule' : 'alert rules';
               let summary: string;
               if (dashboardCount > 0 && alertRuleCount > 0) {
-                summary = `${dashboardCount} dashboards · ${alertRuleCount} alert rules`;
+                summary = `${dashboardCount} ${dashboardLabel} · ${alertRuleCount} ${alertLabel}`;
               } else if (dashboardCount > 0) {
-                summary = `${dashboardCount} dashboards`;
+                summary = `${dashboardCount} ${dashboardLabel}`;
               } else if (alertRuleCount > 0) {
-                summary = `No dashboards · contains ${alertRuleCount} alert rules`;
+                summary = `${alertRuleCount} ${alertLabel}`;
               } else {
                 summary = 'Empty';
               }

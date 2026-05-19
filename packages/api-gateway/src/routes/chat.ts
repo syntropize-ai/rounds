@@ -220,6 +220,61 @@ export function createChatRouter(deps: ChatServiceDeps): ExpressRouter {
     },
   );
 
+  // GET /chat/sessions/by-context?resourceType=dashboard&resourceId=X&limit=1
+  // Used when opening a dashboard / investigation / alert page — returns the
+  // most-recent owned chat session whose chat_session_contexts row matches,
+  // so the page auto-resumes that conversation instead of starting blank.
+  router.get(
+    '/sessions/by-context',
+    requirePermission(() => ac.eval(ACTIONS.ChatUse)),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!deps.chatSessionContextStore || !deps.chatSessionStore) {
+          res.json({ sessions: [] });
+          return;
+        }
+        const auth = (req as AuthenticatedRequest).auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        const resourceType = String(req.query['resourceType'] ?? '');
+        const resourceId = String(req.query['resourceId'] ?? '');
+        if (!resourceType || !resourceId) {
+          res.status(400).json({ error: { code: 'VALIDATION', message: 'resourceType and resourceId required' } });
+          return;
+        }
+        const allowed = ['dashboard', 'investigation', 'alert'];
+        if (!allowed.includes(resourceType)) {
+          res.status(400).json({ error: { code: 'VALIDATION', message: `resourceType must be one of ${allowed.join(',')}` } });
+          return;
+        }
+        const limit = Math.min(Number(req.query['limit']) || 1, 50);
+        const rows = await deps.chatSessionContextStore.listByResource(
+          {
+            orgId: auth.orgId,
+            ownerUserId: auth.userId,
+            resourceType: resourceType as 'dashboard' | 'investigation' | 'alert',
+            resourceId,
+          },
+          limit,
+        );
+        // Hydrate the session metadata so the frontend can show titles too.
+        const sessions = [];
+        for (const row of rows) {
+          const session = await deps.chatSessionStore.findById(row.sessionId, {
+            orgId: auth.orgId,
+            ownerUserId: auth.userId,
+          });
+          if (session) sessions.push(session);
+        }
+        res.json({ sessions });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   // GET /chat/sessions/:id/messages — get messages + persisted step events for
   // a session. The `events` array lets the web client rebuild the full chat
   // panel (agent activity blocks, tool calls, panel-added notices, etc.)

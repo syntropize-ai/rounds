@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import AgentActivityBlock, { ToolCallCardView } from '../AgentActivityBlock.js';
 import {
+  buildToolActivityGroups,
   buildToolCalls,
   groupEvents,
   liveAgentBlockId,
@@ -40,7 +41,7 @@ function makeResultEvent(idx: number, content = 'ok'): ChatEvent {
 }
 
 describe('buildToolCalls', () => {
-  it('produces one card per tool_call (no phase merging)', () => {
+  it('keeps one audit record per tool_call', () => {
     const events: ChatEvent[] = [];
     for (let i = 0; i < 5; i++) {
       events.push(makeToolCallEvent(i, { sourceId: 'prom', query: `up{i="${i}"}` }));
@@ -85,8 +86,37 @@ describe('buildToolCalls', () => {
   });
 });
 
+describe('buildToolActivityGroups', () => {
+  it('collapses repeated calls in the same phase into one visible activity', () => {
+    const events: ChatEvent[] = [];
+    for (let i = 0; i < 5; i++) {
+      events.push(makeToolCallEvent(i));
+      events.push(makeResultEvent(i, `result ${i}`));
+    }
+
+    const groups = buildToolActivityGroups(events);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.label).toBe('Querying metrics');
+    expect(groups[0]?.count).toBe(5);
+    expect(groups[0]?.status).toBe('done');
+    expect(groups[0]?.summary).toBe('result 4');
+  });
+
+  it('keeps the grouped activity running while any call is pending', () => {
+    const groups = buildToolActivityGroups([
+      makeToolCallEvent(0),
+      makeResultEvent(0),
+      makeToolCallEvent(1),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.count).toBe(2);
+    expect(groups[0]?.status).toBe('running');
+  });
+});
+
 describe('ToolCallCardView', () => {
-  it('renders five distinct cards for five metrics_query events', () => {
+  it('still supports explicit per-call detail rendering', () => {
     const events: ChatEvent[] = [];
     for (let i = 0; i < 5; i++) {
       events.push(makeToolCallEvent(i));
@@ -165,6 +195,22 @@ describe('AgentActivityBlock aria-expanded', () => {
     const events: ChatEvent[] = [makeToolCallEvent(0), makeResultEvent(0)];
     const html = renderToStaticMarkup(<AgentActivityBlock events={events} isLive={false} />);
     expect(html).toContain('aria-expanded="false"');
+  });
+});
+
+describe('AgentActivityBlock activity rendering', () => {
+  it('renders repeated tool calls as one in-place activity row', () => {
+    const events: ChatEvent[] = [];
+    for (let i = 0; i < 5; i++) {
+      events.push(makeToolCallEvent(i));
+      events.push(makeResultEvent(i, `result ${i}`));
+    }
+
+    const html = renderToStaticMarkup(<AgentActivityBlock events={events} isLive={true} />);
+    const rows = html.match(/data-tool-activity-row/g) ?? [];
+    expect(rows).toHaveLength(1);
+    expect(html).toContain('x5');
+    expect(html).not.toContain('data-tool-call-card');
   });
 });
 

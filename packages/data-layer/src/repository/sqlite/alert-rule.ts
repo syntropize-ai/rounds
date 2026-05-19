@@ -69,6 +69,7 @@ interface RuleRow {
   notification_policy_id: string | null;
   investigation_id: string | null;
   workspace_id: string | null;
+  folder_uid: string | null;
   org_id: string;
   created_by: string;
   last_evaluated_at: string | null;
@@ -184,6 +185,7 @@ function rowToRule(r: RuleRow): AlertRule {
   if (r.notification_policy_id !== null) rule.notificationPolicyId = r.notification_policy_id;
   if (r.investigation_id !== null) rule.investigationId = r.investigation_id;
   if (r.workspace_id !== null) rule.workspaceId = r.workspace_id;
+  if (r.folder_uid !== null) rule.folderUid = r.folder_uid;
   if (r.last_evaluated_at !== null) rule.lastEvaluatedAt = r.last_evaluated_at;
   if (r.last_fired_at !== null) rule.lastFiredAt = r.last_fired_at;
   const prov = parseJsonOr<ResourceProvenance | null>(r.provenance, null, r.id, 'provenance');

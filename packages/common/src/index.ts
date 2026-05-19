@@ -68,6 +68,14 @@ export type {
 } from './utils/chart-summary.js';
 export { suggestPivots } from './utils/chart-pivots.js';
 export type { PivotSuggestion, SuggestPivotsArgs } from './utils/chart-pivots.js';
+export {
+  CANONICAL_PANEL_UNITS,
+  extractPanelMetricNames,
+  isCanonicalPanelUnit,
+  normalizePanelUnit,
+  resolvePanelUnit,
+} from './utils/panel-units.js';
+export type { PanelMetricMetadata, PanelUnitInput, PanelUnitQuery } from './utils/panel-units.js';
 
 // PromQL signature normalization — consumed by the panel-event repository
 // to aggregate "same query shape, different filter values" into a single

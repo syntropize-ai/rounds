@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatEvent } from '../../hooks/useDashboardChat.js';
-import { buildSteps, buildToolCalls } from './event-processing.js';
-import type { ToolCallCard } from './event-processing.js';
+import { buildSteps, buildToolActivityGroups } from './event-processing.js';
+import type { ToolActivityGroup, ToolCallCard } from './event-processing.js';
 
 // Icons
 
@@ -144,6 +144,49 @@ export function ToolCallCardView({ card }: { card: ToolCallCard }) {
   );
 }
 
+function ToolActivityRow({ group }: { group: ToolActivityGroup }) {
+  const detail = group.output ?? group.summary ?? '';
+  const shownDetail = detail.length > OUTPUT_PREVIEW_CHARS
+    ? `${detail.slice(0, OUTPUT_PREVIEW_CHARS)}…`
+    : detail;
+
+  return (
+    <div data-tool-activity-row data-tool={group.tool} className="py-1.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-4 shrink-0 flex items-center justify-center">
+          <StatusIcon status={group.status} />
+        </div>
+        <span className="text-xs font-medium text-on-surface truncate">
+          {group.label}
+        </span>
+        {group.count > 1 && (
+          <span
+            data-testid="tool-activity-count"
+            className="text-[10px] text-on-surface-variant/70 tabular-nums shrink-0"
+          >
+            x{group.count}
+          </span>
+        )}
+        <span className="ml-auto text-[10px] font-mono text-on-surface-variant/60 truncate max-w-[11rem]">
+          {group.tool}
+        </span>
+        {typeof group.durationMs === 'number' && (
+          <span className="text-[10px] text-on-surface-variant/60 shrink-0 tabular-nums">
+            {group.durationMs >= 1000
+              ? `${(group.durationMs / 1000).toFixed(1)}s`
+              : `${group.durationMs}ms`}
+          </span>
+        )}
+      </div>
+      {shownDetail && (
+        <div className="ml-6 mt-0.5 text-[11px] font-mono text-on-surface-variant/80 truncate">
+          {shownDetail}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Collapsible agent activity block
 
 export default function AgentActivityBlock({
@@ -175,7 +218,7 @@ export default function AgentActivityBlock({
   };
 
   const { steps, preStatus } = useMemo(() => buildSteps(events), [events]);
-  const cards = useMemo(() => buildToolCalls(events), [events]);
+  const activityGroups = useMemo(() => buildToolActivityGroups(events), [events]);
 
   // Summary for collapsed state — phase-grouped (steps), so 5 metrics_query
   // events still summarize as one "Querying metrics" phase rather than 5.
@@ -231,14 +274,14 @@ export default function AgentActivityBlock({
             className="overflow-hidden"
           >
             <div className="mt-1 px-3 pb-2 border-l border-outline-variant">
-              {preStatus && cards.length === 0 && (
+              {preStatus && activityGroups.length === 0 && (
                 <div className="flex items-center gap-2 py-1.5">
                   <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
                   <span className="text-xs text-on-surface-variant">{preStatus}</span>
                 </div>
               )}
-              {cards.map((card) => (
-                <ToolCallCardView key={card.id} card={card} />
+              {activityGroups.map((group) => (
+                <ToolActivityRow key={group.id} group={group} />
               ))}
             </div>
           </motion.div>

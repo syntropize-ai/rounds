@@ -25,6 +25,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { flushSync } from 'react-dom';
 import type uPlot from 'uplot';
@@ -626,10 +627,6 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
     [sourceId, syncKey],
   );
 
-  const toggleSeries = useCallback((name: string) => {
-    setHidden((prev) => ({ ...prev, [name]: !prev[name] }));
-  }, []);
-
   // -- Empty-state render ----------------------------------------------------
 
   if (isEmpty || !built || !options) {
@@ -644,6 +641,28 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   }
 
   const { metas, xs } = built;
+
+  const toggleSeries = (name: string, event?: ReactMouseEvent): void => {
+    setHidden((prev) => {
+      if (event?.metaKey || event?.ctrlKey || event?.shiftKey) {
+        return { ...prev, [name]: !prev[name] };
+      }
+
+      const isOnlyVisible =
+        metas.length > 0 &&
+        metas.every((meta) => (meta.displayName === name ? !prev[meta.displayName] : !!prev[meta.displayName]));
+
+      if (isOnlyVisible) {
+        return {};
+      }
+
+      const next: Record<string, boolean> = {};
+      for (const meta of metas) {
+        if (meta.displayName !== name) next[meta.displayName] = true;
+      }
+      return next;
+    });
+  };
 
   // Always show a legend when there's at least one series — even for single-
   // series-no-labels panels Grafana shows a legend row with Mean / Max / Last
@@ -1003,7 +1022,7 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
 interface LegendLayerProps {
   metas: SeriesMeta[];
   hidden: Record<string, boolean>;
-  onToggle: (name: string) => void;
+  onToggle: (name: string, event: ReactMouseEvent) => void;
   /** Resolved layout decision from `decideLegendLayout`. Carries the
    *  mode (list / table / stacked) and any layout knobs (basis). */
   decision: LegendLayoutDecision;
@@ -1095,7 +1114,7 @@ function LegendLayer({
               return (
                 <tr
                   key={meta.displayName}
-                  onClick={() => onToggle(meta.displayName)}
+                  onClick={(event) => onToggle(meta.displayName, event)}
                   style={{
                     cursor: 'pointer',
                     opacity: isHidden ? 0.35 : 1,
@@ -1181,7 +1200,7 @@ function LegendLayer({
             <button
               key={meta.displayName}
               type="button"
-              onClick={() => onToggle(meta.displayName)}
+              onClick={(event) => onToggle(meta.displayName, event)}
               style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -1266,7 +1285,7 @@ function LegendLayer({
           <button
             key={meta.displayName}
             type="button"
-            onClick={() => onToggle(meta.displayName)}
+            onClick={(event) => onToggle(meta.displayName, event)}
             style={{
               flex: `1 1 ${itemBasis}px`,
               minWidth: 0,

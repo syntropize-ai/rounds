@@ -12,13 +12,11 @@ vi.mock('@agentic-obs/adapters', async () => {
     },
   };
 });
-import type { AlertRule, GrafanaFolder, Identity, IFolderRepository } from '@agentic-obs/common';
+import type { AlertRule, Identity } from '@agentic-obs/common';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import { createAlertRulesRouter } from './alert-rules.js';
-
-const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
 
 const authState = vi.hoisted(() => ({ orgId: 'org_a' }));
 
@@ -83,38 +81,8 @@ function makeStore(): IAlertRuleRepository {
   } as unknown as IAlertRuleRepository;
 }
 
-function makeFolderRepo(): IFolderRepository {
-  const folders = new Map<string, GrafanaFolder>();
-  return {
-    create: vi.fn(async (input) => {
-      const folder: GrafanaFolder = {
-        id: input.uid,
-        uid: input.uid,
-        orgId: input.orgId,
-        title: input.title,
-        description: input.description ?? null,
-        parentUid: input.parentUid ?? null,
-        created: '2026-04-30T00:00:00.000Z',
-        updated: '2026-04-30T00:00:00.000Z',
-        createdBy: input.createdBy ?? null,
-        updatedBy: input.updatedBy ?? null,
-      };
-      folders.set(`${folder.orgId}:${folder.uid}`, folder);
-      return folder;
-    }),
-    findById: vi.fn(async () => null),
-    findByUid: vi.fn(async (orgId, uid) => folders.get(`${orgId}:${uid}`) ?? null),
-    list: vi.fn(async () => ({ items: [...folders.values()], total: folders.size })),
-    listAncestors: vi.fn(async () => []),
-    listChildren: vi.fn(async () => []),
-    update: vi.fn(async () => null),
-    delete: vi.fn(async () => true),
-  };
-}
-
 function makeApp(
   store = makeStore(),
-  folderRepository: IFolderRepository = makeFolderRepo(),
   setupConfig: Partial<SetupConfigService> = {},
 ) {
   const accessControl: AccessControlSurface = {
@@ -129,7 +97,6 @@ function makeApp(
     alertRuleStore: store,
     setupConfig: setupConfig as SetupConfigService,
     ac: accessControl,
-    folderRepository,
   }));
   return { app, store, accessControl };
 }
@@ -173,10 +140,9 @@ describe('alert rules router ownership checks', () => {
     expect(store.getHistory).not.toHaveBeenCalled();
   });
 
-  it('creates a default Alerts folder when POST /alert-rules omits folderUid', async () => {
+  it('POST /alert-rules without folderUid creates a root-level rule (folderUid omitted)', async () => {
     const store = makeStore();
-    const folderRepository = makeFolderRepo();
-    const { app } = makeApp(store, folderRepository);
+    const { app } = makeApp(store);
 
     const res = await request(app)
       .post('/alert-rules')
@@ -186,15 +152,28 @@ describe('alert rules router ownership checks', () => {
       });
 
     expect(res.status).toBe(201);
+    const createCall = (store.create as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Record<string, unknown>;
+    expect(createCall).toMatchObject({ name: 'CPUHigh', workspaceId: 'org_a' });
+    // Grafana parity: no auto-folder. folderUid should not be set.
+    expect('folderUid' in createCall).toBe(false);
+  });
+
+  it('POST /alert-rules with folderUid passes it through unchanged', async () => {
+    const store = makeStore();
+    const { app } = makeApp(store);
+
+    const res = await request(app)
+      .post('/alert-rules')
+      .send({
+        name: 'CPUHigh',
+        folderUid: 'team-payments',
+        condition: { query: 'up', operator: '>', threshold: 0, forDurationSec: 0 },
+      });
+
+    expect(res.status).toBe(201);
     expect(store.create).toHaveBeenCalledWith(expect.objectContaining({
-      folderUid: DEFAULT_ALERT_RULE_FOLDER_UID,
+      folderUid: 'team-payments',
       workspaceId: 'org_a',
-    }));
-    expect(folderRepository.findByUid).toHaveBeenCalledWith('org_a', DEFAULT_ALERT_RULE_FOLDER_UID);
-    expect(folderRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      uid: DEFAULT_ALERT_RULE_FOLDER_UID,
-      title: 'Alerts',
-      orgId: 'org_a',
     }));
   });
 });
@@ -231,7 +210,7 @@ describe('POST /alert-rules/preview', () => {
         ],
       },
     ]);
-    const { app } = makeApp(makeStore(), makeFolderRepo(), withProm());
+    const { app } = makeApp(makeStore(), withProm());
 
     const res = await request(app)
       .post('/alert-rules/preview')
@@ -248,7 +227,7 @@ describe('POST /alert-rules/preview', () => {
   });
 
   it('returns missing_capability when no metrics datasource is configured', async () => {
-    const { app } = makeApp(makeStore(), makeFolderRepo(), {
+    const { app } = makeApp(makeStore(), {
       listConnectors: vi.fn(async () => []),
     });
 
@@ -263,7 +242,7 @@ describe('POST /alert-rules/preview', () => {
 
   it('returns no_series reason when query returns nothing in the lookback window', async () => {
     promRangeQueryMock.mockResolvedValueOnce([]);
-    const { app } = makeApp(makeStore(), makeFolderRepo(), withProm());
+    const { app } = makeApp(makeStore(), withProm());
 
     const res = await request(app)
       .post('/alert-rules/preview')
@@ -281,7 +260,7 @@ describe('POST /alert-rules/preview', () => {
   });
 
   it('rejects invalid input with 400', async () => {
-    const { app } = makeApp(makeStore(), makeFolderRepo(), withProm());
+    const { app } = makeApp(makeStore(), withProm());
 
     const res = await request(app)
       .post('/alert-rules/preview')

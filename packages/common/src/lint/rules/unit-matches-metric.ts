@@ -9,6 +9,7 @@
 import type { DashboardSpec, LintContext, LintIssue, LintRule } from '../types.js';
 import { panelQueryExprs } from '../_panel-queries.js';
 import { extractMetricSelectors } from '../promql-extract.js';
+import { resolvePanelUnit } from '../../utils/panel-units.js';
 
 interface UnitExpectation {
   /** Accepted unit strings for the panel.unit field. */
@@ -39,7 +40,7 @@ export const unitMatchesMetric: LintRule = {
   async check(spec: DashboardSpec, _ctx: LintContext): Promise<LintIssue[]> {
     const issues: LintIssue[] = [];
     for (const panel of spec.panels) {
-      const unit = panel.unit;
+      const unit = resolvePanelUnit(panel);
       if (!unit) continue;
       const exprs = panelQueryExprs(panel);
       for (const expr of exprs) {

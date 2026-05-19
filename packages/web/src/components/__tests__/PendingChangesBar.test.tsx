@@ -1,11 +1,9 @@
 /**
- * PendingChangesBar tests.
+ * PendingChangesBar tests (helpers + first-render markup).
  *
- * Web package runs vitest with `environment: 'node'` (no jsdom). Behaviour
- * under hooks isn't observable without a real renderer, so we exercise:
- *   1. Pure helpers (`allChangeIds`, `toggleSelection`).
- *   2. First-render markup via `renderToStaticMarkup` — count badge,
- *      collapsed-by-default review section, presence of action buttons.
+ * Web package uses vitest's node environment (no jsdom). Behaviour after
+ * hook state changes isn't observable; we exercise pure helpers and the
+ * initial server-rendered HTML.
  */
 
 import React from 'react';
@@ -68,7 +66,7 @@ describe('PendingChangesBar render', () => {
     expect(html).toBe('');
   });
 
-  it('renders a count badge and Accept all / Discard all buttons', () => {
+  it('renders count + Accept all / Reject all / Hide buttons', () => {
     const html = renderToStaticMarkup(
       <PendingChangesBar
         changes={sampleChanges}
@@ -78,9 +76,8 @@ describe('PendingChangesBar render', () => {
     );
     expect(html).toContain('2 pending changes');
     expect(html).toContain('Accept all');
-    expect(html).toContain('Discard all');
-    // Review surface is collapsed by default — per-row checkboxes hidden.
-    expect(html).not.toContain('pending-select-pc-1');
+    expect(html).toContain('Reject all');
+    expect(html).toContain('Hide');
   });
 
   it('singular wording when there is exactly one change', () => {

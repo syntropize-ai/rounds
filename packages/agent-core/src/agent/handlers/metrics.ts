@@ -98,7 +98,7 @@ interface MetricsAdapter {
   listLabels(metric?: string): Promise<string[]>;
   listLabelValues(label: string): Promise<string[]>;
   findSeries(patterns: string[]): Promise<string[]>;
-  fetchMetadata(metrics?: string[]): Promise<Record<string, { type: string; help: string }>>;
+  fetchMetadata(metrics?: string[]): Promise<Record<string, { type: string; help: string; unit?: string }>>;
   listMetricNames(): Promise<string[]>;
 }
 
@@ -128,7 +128,10 @@ async function discoverMetadata(adapter: MetricsAdapter, metrics: string[] | und
   const entries = Object.entries(metadata);
   return entries.length === 0
     ? 'No metadata available.'
-    : entries.slice(0, 30).map(([name, m]) => `${name} (${m.type}): ${m.help}`).join('\n')
+    : entries.slice(0, 30).map(([name, m]) => {
+        const fields = [m.type, m.unit ? `unit=${m.unit}` : ''].filter(Boolean).join(', ');
+        return `${name} (${fields}): ${m.help}`;
+      }).join('\n')
       + (entries.length > 30 ? `\n... and ${entries.length - 30} more` : '');
 }
 

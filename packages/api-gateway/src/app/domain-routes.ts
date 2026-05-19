@@ -44,6 +44,10 @@ import { createMetricsSaveAsDashboardRouter } from '../routes/metrics-save-as-da
 import { createSystemRouter } from '../routes/system.js';
 import { createDashboardRouter } from '../routes/dashboard/router.js';
 import { createAdminPanelEventsRouter } from '../routes/admin-panel-events.js';
+import { createPendingChangesRouter } from '../routes/pending-changes.js';
+import { createLogger } from '@agentic-obs/server-utils/logging';
+
+const log = createLogger('domain-routes');
 import { createKbTemplatesRouter } from '../routes/kb-templates.js';
 import type { IKnowledgeRepository } from '@agentic-obs/data-layer';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
@@ -254,6 +258,34 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
       accessControl,
     }));
   }
+  // Pending-changes router — must mount BEFORE the dashboard router so the
+  // `/api/dashboards/:id/pending-changes*` paths aren't shadowed by the
+  // catch-all `:id` handlers there. The router uses both `/api/dashboards/...`
+  // and `/api/pending-changes/...` paths under a single Express base.
+  app.use('/api', createPendingChangesRouter({
+    pendingChanges: repos.pendingChanges,
+    dashboards: repos.dashboards,
+    accessControl,
+    panelEvents: repos.panelEvents,
+  }));
+  // Background expiry sweep — once an hour, mark pending rows past their
+  // expires_at as 'expired'. Wrapped in try/catch so a transient db blip
+  // can't kill the process. Cadence overridable via env for tests.
+  const pendingExpirySweepMs = Number(process.env['PENDING_CHANGES_SWEEP_MS']) || 60 * 60 * 1000;
+  const pendingExpiryTimer = setInterval(() => {
+    Promise.resolve()
+      .then(() => repos.pendingChanges.expireOlderThan(new Date().toISOString()))
+      .then((n) => {
+        if (n > 0) log.info({ expired: n }, 'pending_changes: swept expired rows');
+      })
+      .catch((err) => {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'pending_changes: expireOlderThan threw',
+        );
+      });
+  }, pendingExpirySweepMs);
+  if (typeof pendingExpiryTimer.unref === 'function') pendingExpiryTimer.unref();
   app.use('/api/dashboards', createDashboardRouter({
     store: repos.dashboards,
     accessControl,
@@ -281,6 +313,9 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     chatSessionContextStore: repos.chatSessionContexts,
     approvalStore: repos.approvals,
     remediationPlanStore: repos.remediationPlans,
+    panelEventStore: repos.panelEvents,
+    pendingChangeStore: repos.pendingChanges,
+    knowledgeStore: repos.knowledge,
     accessControl,
     auditWriter: authSub.audit,
     folderRepository: sharedFolderRepo,
@@ -308,7 +343,6 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     feedStore: eventFeedStore,
     reportStore: repos.investigationReports,
     setupConfig,
-    folderRepository: sharedFolderRepo,
     ac: accessControl,
     audit: authSub.audit,
     ...(deps.runner ? { runner: deps.runner } : {}),

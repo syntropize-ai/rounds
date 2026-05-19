@@ -24,8 +24,6 @@ import { ACTIONS, ac } from '@agentic-obs/common';
 import type { ActionContext } from './orchestrator-action-handlers.js';
 import type { ToolPermissionBuilder } from './types-permissions.js';
 
-const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
-
 /**
  * Resolve the connector ID for a source-agnostic metrics / logs / changes
  * tool call. The LLM is now required to pass `sourceId` (see orchestrator
@@ -131,10 +129,11 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'alert_rule_write': async (args: Record<string, unknown>, ctx: ActionContext) => {
     const op = typeof args.op === 'string' ? args.op : '';
     if (op === 'create') {
-      return ac.eval(
-        'alert.rules:create',
-        `folders:uid:${String(args.folderUid ?? DEFAULT_ALERT_RULE_FOLDER_UID)}`,
-      );
+      // No folderUid ⇒ wildcard scope (root, Grafana parity). A narrow
+      // per-folder grant must still be matched against `*` via an org-wide
+      // alert.rules:create grant.
+      const folderUid = typeof args.folderUid === 'string' && args.folderUid ? args.folderUid : '*';
+      return ac.eval('alert.rules:create', `folders:uid:${folderUid}`);
     }
     if (op === 'update' || op === 'delete') {
       const ruleId = String(args.ruleId ?? '');

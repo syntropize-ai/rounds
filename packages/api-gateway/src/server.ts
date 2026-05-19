@@ -45,6 +45,7 @@ import { ApprovalRouter } from './services/approval-router.js';
 import { EventEmittingAlertRuleRepository } from '@agentic-obs/data-layer';
 import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
 import { ensureBundledSeeds } from './app/kb-bundled-loader.js';
+import { cleanupLegacyAlertsFolder } from './app/alerts-folder-cleanup.js';
 import type { IKnowledgeRepository } from '@agentic-obs/common';
 import { createShutdownHooks } from './app/lifecycle.js';
 import type { WebSocketGatewayDeps } from './websocket/gateway.js';
@@ -213,6 +214,11 @@ export async function createApp(): Promise<Application> {
     userRateLimiter,
     accessControlHolder,
   });
+
+  // One-time idempotent cleanup of the auto-created 'Alerts' system folder —
+  // see 2026-05-18 design change to Grafana folder parity. Best-effort; the
+  // cleanup logs and continues on failure.
+  await cleanupLegacyAlertsFolder(sharedFolderRepo, persistence.repos.alertRules, 'org_main');
 
   // Lift the rule-store event wrapper up to createApp so the domain
   // routes (write path) and the alert evaluator (read/refresh path)

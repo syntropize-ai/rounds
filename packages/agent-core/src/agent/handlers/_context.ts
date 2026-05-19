@@ -33,6 +33,8 @@ import type {
 } from '../types.js';
 import type { ActionExecutor } from '../action-executor.js';
 import type { IAccessControlService } from '../types-permissions.js';
+import type { IPanelEventRepository } from '../panel-event-recorder.js';
+import type { IPendingChangeRepository } from '@agentic-obs/data-layer';
 
 /** Shared context passed to every action handler. */
 export interface ActionContext {
@@ -93,6 +95,23 @@ export interface ActionContext {
    * when absent.
    */
   knowledge?: IKnowledgeRepository;
+  /**
+   * Panel-event repository — when wired, dashboard mutation handlers fire
+   * `panel_events` rows (created / edited / deleted) for agent-driven CRUD.
+   * Without this slot, the Express route's hook is the only event source and
+   * agent-only sessions show empty panel_events. Fire-and-forget; failures
+   * are logged but never block the tool result.
+   */
+  panelEvents?: IPanelEventRepository;
+  /**
+   * Pending-change repository — when wired, dashboard mutation handlers
+   * (modify_panel / add_panels / remove_panels / set_title / add_variable)
+   * write a pending_changes row instead of touching the live dashboard.
+   * The accept route applies the row's after_json to the dashboard. Without
+   * this slot, handlers fall back to the legacy in-store
+   * `appendPendingChanges` path so existing tests stay green.
+   */
+  pendingChanges?: IPendingChangeRepository;
   sendEvent: (event: DashboardSseEvent) => void;
   sessionId: string;
 

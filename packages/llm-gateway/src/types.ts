@@ -213,6 +213,9 @@ export interface JsonSchemaObject {
   type: 'object';
   properties: Record<string, JsonSchemaProperty>;
   required: string[];
+  /** When `false`, the provider rejects any keys the schema doesn't name.
+   *  Required by OpenAI strict tool-call mode. */
+  additionalProperties?: boolean;
 }
 
 export interface JsonSchemaProperty {

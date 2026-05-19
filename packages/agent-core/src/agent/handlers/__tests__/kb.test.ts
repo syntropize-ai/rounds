@@ -154,27 +154,33 @@ describe('handleKbRecommend', () => {
     expect(parsed.entries.length).toBeLessThanOrEqual(3);
   });
 
-  it('penalizes templates whose required metrics are not exposed', async () => {
-    const ctx = makeFakeActionContext({
+  it('penalizes templates whose required metrics are not exposed (server-side resolution)', async () => {
+    // Bug 1 fix: availableMetrics is no longer an LLM-supplied arg — the
+    // handler resolves it server-side from the metrics adapter. We wire
+    // two contexts: one with no adapter (coverage=0.5 unknown) and one
+    // whose adapter reports only redis metric names.
+    const { AdapterRegistry } = await import('../../../adapters/registry.js');
+    const ctxNoAdapter = makeFakeActionContext({
       knowledge: inMemoryKb([KAFKA_TEMPLATE, REDIS_TEMPLATE]),
     });
-    // Two templates equally matching intent ("instance overview") but only
-    // redis metrics are exposed — coverage tilts the score to redis.
-    const out1 = await handleKbRecommend(ctx, {
-      intent: 'instance health',
-      // availableMetrics omitted → coverage defaults to 0.5 (unknown).
+    const reg = new AdapterRegistry();
+    reg.register({
+      info: { id: 'prom', name: 'prom', type: 'prometheus', signalType: 'metrics' },
+      metrics: {
+        listMetricNames: async () => ['redis_connected_clients_info'],
+      } as never,
     });
-    const out2 = await handleKbRecommend(ctx, {
-      intent: 'instance health',
-      availableMetrics: ['redis_connected_clients_info'],
+    const ctxWithAdapter = makeFakeActionContext({
+      knowledge: inMemoryKb([KAFKA_TEMPLATE, REDIS_TEMPLATE]),
+      adapters: reg,
+      allConnectors: [{ id: 'prom', type: 'prometheus', isDefault: true } as never],
     });
+
+    const out1 = await handleKbRecommend(ctxNoAdapter, { intent: 'instance health' });
+    const out2 = await handleKbRecommend(ctxWithAdapter, { intent: 'instance health' });
     const before = JSON.parse(out1).entries[0].id;
     const after = JSON.parse(out2).entries[0].id;
-    // Without coverage data, redis wins on title overlap; with coverage
-    // exposing only redis metrics, redis remains #1 and its score >= before.
     expect(after).toBe('tpl-redis');
-    // And the kafka entry's score in the coverage-aware ranking should be
-    // strictly less than its score without coverage info (penalty applied).
     const kafkaAfter = JSON.parse(out2).entries.find((e: { id: string }) => e.id === 'tpl-kafka');
     const kafkaBefore = JSON.parse(out1).entries.find((e: { id: string }) => e.id === 'tpl-kafka');
     expect(kafkaAfter.score).toBeLessThan(kafkaBefore.score);

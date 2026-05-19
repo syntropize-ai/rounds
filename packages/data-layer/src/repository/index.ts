@@ -31,6 +31,12 @@ export type {
   ChatSessionContextResourceScope,
   ChatSessionScope,
   ChatSessionEventRecord,
+  IKnowledgeRepository,
+  KnowledgeEntry,
+  IPendingChangeRepository,
+  PendingChange,
+  PendingChangeKind,
+  PendingChangeStatus,
 } from './interfaces.js';
 
 export type {

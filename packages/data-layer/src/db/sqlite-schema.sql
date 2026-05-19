@@ -949,3 +949,31 @@ CREATE TABLE IF NOT EXISTS panel_events (
 CREATE INDEX IF NOT EXISTS ix_panel_events_signature ON panel_events(org_id, query_signature);
 CREATE INDEX IF NOT EXISTS ix_panel_events_dashboard ON panel_events(dashboard_id);
 CREATE INDEX IF NOT EXISTS ix_panel_events_type      ON panel_events(org_id, event_type, created_at);
+
+-- ============================================================================
+-- Pending changes — agent-proposed dashboard mutations awaiting user accept/
+-- reject. Mutation handlers (modify_panel / add_panels / remove_panels /
+-- set_title / add_variable) write rows here instead of touching the dashboard
+-- directly. The accept route applies after_json to the live dashboard and
+-- marks the row resolved. TTL default 7 days; an expiry job sweeps stale rows.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS pending_changes (
+  id           TEXT PRIMARY KEY,
+  org_id       TEXT NOT NULL DEFAULT 'org_main',
+  dashboard_id TEXT NOT NULL,
+  panel_id     TEXT,
+  proposed_by  TEXT NOT NULL,
+  proposed_at  TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  resolved_at  TEXT,
+  resolved_by  TEXT,
+  change_kind  TEXT NOT NULL,
+  before_json  TEXT,
+  after_json   TEXT NOT NULL,
+  summary      TEXT NOT NULL,
+  expires_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_pending_changes_dashboard ON pending_changes(dashboard_id, status);
+CREATE INDEX IF NOT EXISTS ix_pending_changes_org       ON pending_changes(org_id, status);
+CREATE INDEX IF NOT EXISTS ix_pending_changes_expiry    ON pending_changes(status, expires_at);

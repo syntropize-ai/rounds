@@ -1,17 +1,21 @@
 /**
- * `kb_recommend` — given a free-text intent and (optionally) the metrics
- * actually available in the workspace, rank the top-3 KB templates/patterns
- * by a blend of TF-IDF intent match + required-metric coverage.
+ * `kb_recommend` — given a free-text intent, rank the top-3 KB templates/
+ * patterns by a blend of TF-IDF intent match + required-metric coverage.
  *
- * Coverage gates the score: a template referencing 8 metrics, of which only
- * 1 is exposed in the workspace, drops below a less-fancy pattern that
- * doesn't pin to specific metric names. When `availableMetrics` is absent,
- * coverage defaults to 0.5 so coverage neither helps nor hurts.
+ * The list of metrics available in the workspace is resolved SERVER-SIDE
+ * by probing the active metrics datasource (no `availableMetrics` arg from
+ * the LLM). This keeps the tool's input schema minimal and immune to the
+ * "model emits malformed JSON for an array arg" failure mode. When no
+ * metrics datasource is configured, coverage defaults to 0.5 so it
+ * neither helps nor hurts the ranking.
  */
 
 import { tfIdfSearch, type KnowledgeEntry } from '@agentic-obs/common';
+import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary } from './_shared.js';
+
+const log = createLogger('kb-recommend');
 
 /** Match anything that looks like an exporter-shaped metric name. */
 const METRIC_NAME_RE = /[a-z][a-z0-9_]*_(?:total|seconds|bytes|count|sum|bucket|info)\b/g;
@@ -25,6 +29,45 @@ interface Recommendation {
   reason: string;
 }
 
+/** Resolve the metrics datasource id — session pin > primary. */
+function resolveMetricsDatasourceId(ctx: ActionContext): string | undefined {
+  const pin = ctx.sessionConnectorPins?.['prometheus'];
+  if (pin) return pin;
+  const conns = ctx.allConnectors ?? [];
+  const metrics = conns.filter(
+    (c) => c.type === 'prometheus' || c.type === 'victoria-metrics',
+  );
+  if (metrics.length === 0) return undefined;
+  const primary = metrics.find((c) => c.isDefault) ?? metrics[0];
+  return primary?.id;
+}
+
+/**
+ * Best-effort server-side resolution of available metric names. Returns
+ * `undefined` (not `[]`) when no datasource is reachable so the scoring
+ * loop falls back to the "availability unknown" branch (coverage=0.5).
+ * Probe failures are logged but never thrown — kb_recommend is read-only
+ * and must degrade gracefully.
+ */
+async function resolveAvailableMetrics(
+  ctx: ActionContext,
+): Promise<Set<string> | undefined> {
+  const dsId = resolveMetricsDatasourceId(ctx);
+  if (!dsId) return undefined;
+  const adapter = ctx.adapters.metrics(dsId);
+  if (!adapter) return undefined;
+  try {
+    const names = await adapter.listMetricNames();
+    return new Set(names);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err), datasourceId: dsId },
+      'listMetricNames probe failed; falling back to "availability unknown"',
+    );
+    return undefined;
+  }
+}
+
 export async function handleKbRecommend(
   ctx: ActionContext,
   args: Record<string, unknown>,
@@ -32,20 +75,20 @@ export async function handleKbRecommend(
   const intent = typeof args['intent'] === 'string' ? args['intent'].trim() : '';
   if (!intent) return 'Error: "intent" is required.';
 
-  const availableMetrics = Array.isArray(args['availableMetrics'])
-    ? (args['availableMetrics'] as unknown[]).filter((m): m is string => typeof m === 'string')
-    : undefined;
-  const availableSet = availableMetrics ? new Set(availableMetrics) : undefined;
-
   if (!ctx.knowledge) {
     return 'Knowledge base is not configured for this workspace.';
   }
   const repo = ctx.knowledge;
 
+  // Server-side resolve the workspace's available metric names. The LLM no
+  // longer passes them as an array arg (that shape was the dominant cause
+  // of malformed-JSON tool calls; see PR notes).
+  const availableSet = await resolveAvailableMetrics(ctx);
+
   return withToolEventBoundary(
     ctx.sendEvent,
     'kb_recommend',
-    { intent, hasAvailableMetrics: Boolean(availableMetrics) },
+    { intent, hasAvailableMetrics: Boolean(availableSet) },
     `Recommending KB entries for "${intent.slice(0, 60)}"`,
     async () => {
       const [templates, patterns] = await Promise.all([

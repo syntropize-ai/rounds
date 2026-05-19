@@ -518,6 +518,61 @@ export interface KnowledgeEntry {
   updatedAt: string;
 }
 
+// — PendingChange (agent-proposed dashboard mutations awaiting accept/reject)
+
+export type PendingChangeStatus = 'pending' | 'accepted' | 'rejected' | 'expired';
+export type PendingChangeKind =
+  | 'modify_panel'
+  | 'add_panel'
+  | 'remove_panel'
+  | 'set_title'
+  | 'add_variable';
+
+export interface PendingChange {
+  id: string;
+  orgId: string;
+  dashboardId: string;
+  panelId: string | null;
+  proposedBy: string;
+  proposedAt: string;
+  status: PendingChangeStatus;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  changeKind: PendingChangeKind;
+  beforeJson: unknown | null;
+  afterJson: unknown;
+  summary: string;
+  expiresAt: string;
+}
+
+export interface IPendingChangeRepository {
+  insert(
+    input: Omit<PendingChange, 'resolvedAt' | 'resolvedBy' | 'status'> & {
+      status?: PendingChangeStatus;
+    },
+  ): Promise<PendingChange>;
+  getById(orgId: string, id: string): Promise<PendingChange | null>;
+  listByDashboard(
+    orgId: string,
+    dashboardId: string,
+    opts?: { status?: PendingChangeStatus },
+  ): Promise<PendingChange[]>;
+  countByOrg(orgId: string, status?: PendingChangeStatus): Promise<number>;
+  /** Group counts by dashboardId for the nav badge surface. */
+  countByOrgGrouped(
+    orgId: string,
+    status?: PendingChangeStatus,
+  ): Promise<Array<{ dashboardId: string; count: number }>>;
+  resolve(
+    orgId: string,
+    id: string,
+    status: 'accepted' | 'rejected',
+    resolvedBy: string,
+  ): Promise<PendingChange | null>;
+  /** Mark all pending rows with expires_at <= now as 'expired'. Returns affected count. */
+  expireOlderThan(now: string): Promise<number>;
+}
+
 export interface IKnowledgeRepository {
   insert(
     input: Omit<

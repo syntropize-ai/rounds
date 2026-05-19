@@ -13,7 +13,14 @@
  * net before persisting.
  */
 
-import { AuditAction, summarizeChart, type ChartMetricKind } from '@agentic-obs/common';
+import {
+  AuditAction,
+  extractPanelMetricNames,
+  resolvePanelUnit,
+  summarizeChart,
+  type ChartMetricKind,
+  type PanelMetricMetadata,
+} from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { pickStep, inferKind } from './metric-explore.js';
 
@@ -74,6 +81,7 @@ export interface PanelPreviewResult {
   ok: boolean;
   issues: PanelPreviewIssue[];
   perQuery: PerQueryResult[];
+  suggestedUnit?: string;
   inlineChart?: {
     query: string;
     datasourceId: string;
@@ -124,6 +132,22 @@ function isRateLikeExpr(expr: string): boolean {
 
 function hasByLe(expr: string): boolean {
   return /by\s*\(\s*[^)]*\ble\b[^)]*\)/.test(expr);
+}
+
+async function fetchPreviewMetadata(
+  ctx: ActionContext,
+  datasourceId: string,
+  panel: PanelPreviewSpec,
+): Promise<Record<string, PanelMetricMetadata>> {
+  const metricNames = extractPanelMetricNames({ title: panel.title, queries: panel.queries });
+  if (metricNames.length === 0) return {};
+  const adapter = ctx.adapters.metrics(datasourceId);
+  if (!adapter?.fetchMetadata) return {};
+  try {
+    return await adapter.fetchMetadata(metricNames);
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -288,7 +312,15 @@ export async function runPanelPreviewProgrammatic(
   }
 
   const ok = issues.every((i) => i.severity !== 'error');
+  const metadataByMetric = await fetchPreviewMetadata(ctx, datasourceId, args.panel);
+  const suggestedUnit = resolvePanelUnit({
+    title: args.panel.title,
+    unit: args.panel.unit,
+    queries: args.panel.queries,
+    metadataByMetric,
+  });
   const result: PanelPreviewResult = { ok, issues, perQuery };
+  if (suggestedUnit) result.suggestedUnit = suggestedUnit;
 
   // Build an inline chart for the first query (single-query case only — multi
   // query panels can't be represented in a single inline_chart bubble).

@@ -77,6 +77,9 @@ const VIEWER_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.ApprovalsRead, scope: 'approvals:*' },
   { action: ACTIONS.PlansRead, scope: 'plans:*' },
   { action: ACTIONS.ChatUse, scope: '' },
+
+  // Knowledge base read.
+  { action: ACTIONS.KbRead, scope: '' },
 ];
 
 // -- Editor (Viewer + write on dashboards/folders/annotations + alert rules)
@@ -116,6 +119,9 @@ const EDITOR_ONLY_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.InvestigationsDelete, scope: 'investigations:*' },
   { action: ACTIONS.ApprovalsApprove, scope: 'approvals:*' },
   { action: ACTIONS.PlansApprove, scope: 'plans:*' },
+
+  // Knowledge base write (save-as-template, distillation).
+  { action: ACTIONS.KbWrite, scope: '' },
 ];
 
 // -- Admin (Editor + org admin: users/teams/serviceaccounts/roles) ---------
@@ -189,6 +195,9 @@ const ADMIN_ONLY_PERMISSIONS: BuiltinPermission[] = [
   { action: ACTIONS.OpsCommandsRun, scope: 'connectors:*' },
   { action: ACTIONS.InstanceConfigRead, scope: '' },
   { action: ACTIONS.InstanceConfigWrite, scope: '' },
+
+  // Knowledge base admin (curation: delete, force-override).
+  { action: ACTIONS.KbAdmin, scope: '' },
 ];
 
 // -- Server Admin (all actions unrestricted) -------------------------------

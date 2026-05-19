@@ -43,6 +43,25 @@ export {
 } from './metrics.js';
 
 export { handleMetricExplore } from './metric-explore.js';
+export { handlePanelPreview, runPanelPreviewProgrammatic } from './panel-preview.js';
+export type {
+  PanelPreviewArgs,
+  PanelPreviewSpec,
+  PanelPreviewResult,
+  PanelPreviewIssue,
+  PerQueryResult,
+} from './panel-preview.js';
+
+export { handleDashboardLint } from './dashboard-lint.js';
+
+export {
+  handleMetricsListNames,
+  handleMetricsGetLabels,
+  handleMetricsGetLabelValues,
+  handleMetricsGetCardinality,
+  handleMetricsSampleSeries,
+  handleMetricsFindRelated,
+} from './metric-discovery.js';
 
 export {
   handleLogsQuery,
@@ -63,6 +82,10 @@ export { handleFolderCreate, handleFolderList } from './folder.js';
 export { handleOpsRunCommand } from './ops.js';
 
 export { handleRemediationPlanCreate, handleRemediationPlanCreateRescue } from './remediation-plan.js';
+
+export { handleKbSearch } from './kb-search.js';
+export { handleKbGet } from './kb-get.js';
+export { handleKbRecommend } from './kb-recommend.js';
 
 export {
   handleConnectorList,

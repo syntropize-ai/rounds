@@ -24,3 +24,4 @@ export { NotificationChannelRepository } from './notification-channel.js';
 export { SqliteConnectorRepository } from './connector.js';
 
 export { SqliteRemediationPlanRepository } from './remediation-plan.js';
+export { SqlitePanelEventRepository } from './panel-event.js';

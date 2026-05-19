@@ -1,18 +1,13 @@
 /**
- * PendingChangesBar — review surface for AI-proposed dashboard modifications.
+ * PendingChangesBar — sticky review surface for agent-proposed dashboard
+ * modifications.
  *
- * Shown above the dashboard grid when the dashboard has pending changes
- * (queued by the agent because the dashboard pre-existed this chat session).
- * The user can:
- *   - Review (expand to see each change's summary)
- *   - Accept all / Accept selected
- *   - Reject (discard) selected / all
+ * Renders at the top of the workspace viewport (`position: sticky`) so it
+ * stays visible no matter where the user scrolls in the dashboard grid. The
+ * previous inline placement could scroll out of sight, which surprised
+ * operators who'd lose track that a review was pending.
  *
- * Sister surface to RiskAwareConfirm — same "preview before apply" intent,
- * different audience: that one gates risky writes inside the chat strip;
- * this one gates AI edits to a shared dashboard. Dashboard edits don't
- * invoke ActionGuard (low-risk, user_conversation source per Task 05's
- * matrix), so the bar handles accept/discard locally.
+ * When `changes.length === 0` it renders nothing (no empty bar).
  */
 
 import React, { useState } from 'react';
@@ -24,8 +19,7 @@ export interface PendingChangeSummary {
   summary: string;
 }
 
-/** Pure helpers exported for tests (web vitest runs without jsdom, so we
- *  can't drive the component's hooks from a test renderer). */
+/** Pure helpers exported for tests. */
 export function allChangeIds(changes: PendingChangeSummary[]): string[] {
   return changes.map((c) => c.id);
 }
@@ -39,11 +33,14 @@ export function toggleSelection(prev: Set<string>, id: string): Set<string> {
 
 export interface PendingChangesBarProps {
   changes: PendingChangeSummary[];
-  /** Apply the listed change ids. Empty list is a no-op. */
+  /** Accept the listed change ids (empty = no-op). */
   onAccept: (ids: string[]) => void;
-  /** Discard the listed change ids without mutating the dashboard. */
+  /** Reject (discard) the listed change ids. */
   onDiscard: (ids: string[]) => void;
   busy?: boolean;
+  /** Top offset for `position: sticky` — should match the workspace's top
+   *  bar height so the sticky bar tucks just under it. Defaults to 0. */
+  stickyTop?: number;
 }
 
 export default function PendingChangesBar({
@@ -51,32 +48,51 @@ export default function PendingChangesBar({
   onAccept,
   onDiscard,
   busy,
+  stickyTop = 0,
 }: PendingChangesBarProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [expanded, setExpanded] = useState(false);
+  const [hidden, setHidden] = useState(false);
 
   if (changes.length === 0) return null;
 
-  const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const acceptAll = () => onAccept(changes.map((c) => c.id));
-  const acceptSelected = () => onAccept(Array.from(selected));
   const discardAll = () => onDiscard(changes.map((c) => c.id));
-  const discardSelected = () => onDiscard(Array.from(selected));
+
+  // Collapsed chip — small affordance the user can click to re-expand.
+  if (hidden) {
+    return (
+      <div
+        data-testid="pending-changes-bar"
+        style={{ position: 'sticky', top: stickyTop, zIndex: 20 }}
+        className="px-6 pt-2"
+      >
+        <button
+          type="button"
+          data-testid="pending-changes-chip"
+          onClick={() => setHidden(false)}
+          className="inline-flex items-center gap-1.5 rounded-full bg-[#F59E0B]/15 border border-[#F59E0B]/40 px-2.5 py-1 text-xs font-semibold text-[#F59E0B] hover:bg-[#F59E0B]/25"
+        >
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#F59E0B]" />
+          {changes.length} pending {changes.length === 1 ? 'change' : 'changes'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
       data-testid="pending-changes-bar"
-      className="border-l-4 border-[#F59E0B] bg-[#F59E0B]/5 px-4 py-2 mx-6 mt-3 rounded-md"
+      data-sticky="true"
+      style={{ position: 'sticky', top: stickyTop, zIndex: 20 }}
+      className="border-l-4 border-[#F59E0B] bg-[#F59E0B]/5 backdrop-blur-sm px-4 py-2 mx-6 mt-3 rounded-md shadow-sm"
     >
       <div className="flex items-center gap-3 flex-wrap">
+        <span
+          aria-hidden
+          className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#F59E0B]/15 text-[#F59E0B] text-xs"
+          title="Pending changes"
+        >
+          !
+        </span>
         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-[#F59E0B]/10 text-[#F59E0B]">
           {changes.length} pending {changes.length === 1 ? 'change' : 'changes'}
         </span>
@@ -84,14 +100,6 @@ export default function PendingChangesBar({
           The assistant proposed modifications. Review before applying.
         </span>
         <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            data-testid="pending-toggle-review"
-            onClick={() => setExpanded((v) => !v)}
-            className="px-2.5 py-1 rounded-md text-xs hover:bg-surface-high text-on-surface-variant"
-          >
-            {expanded ? 'Collapse' : 'Review'}
-          </button>
           <button
             type="button"
             data-testid="pending-accept-all"
@@ -108,53 +116,18 @@ export default function PendingChangesBar({
             onClick={discardAll}
             className="px-2.5 py-1 rounded-md text-xs border border-outline-variant hover:bg-surface-high disabled:opacity-50"
           >
-            Discard all
+            Reject all
+          </button>
+          <button
+            type="button"
+            data-testid="pending-hide"
+            onClick={() => setHidden(true)}
+            className="px-2.5 py-1 rounded-md text-xs hover:bg-surface-high text-on-surface-variant"
+          >
+            Hide
           </button>
         </div>
       </div>
-
-      {expanded && (
-        <div className="mt-3 space-y-1.5">
-          {changes.map((c) => (
-            <label
-              key={c.id}
-              data-testid={`pending-row-${c.id}`}
-              className="flex items-center gap-2 text-sm cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                data-testid={`pending-select-${c.id}`}
-                checked={selected.has(c.id)}
-                onChange={() => toggle(c.id)}
-              />
-              <span className="text-on-surface">{c.summary}</span>
-              <span className="text-xs text-on-surface-variant ml-auto">
-                {c.proposedBy}
-              </span>
-            </label>
-          ))}
-          <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              data-testid="pending-accept-selected"
-              disabled={busy || selected.size === 0}
-              onClick={acceptSelected}
-              className="px-2.5 py-1 rounded-md text-xs bg-primary text-on-primary-fixed font-semibold hover:opacity-90 disabled:opacity-50"
-            >
-              Accept selected ({selected.size})
-            </button>
-            <button
-              type="button"
-              data-testid="pending-discard-selected"
-              disabled={busy || selected.size === 0}
-              onClick={discardSelected}
-              className="px-2.5 py-1 rounded-md text-xs border border-outline-variant hover:bg-surface-high disabled:opacity-50"
-            >
-              Discard selected
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

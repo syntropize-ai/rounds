@@ -16,6 +16,8 @@ import type {
   IChatSessionContextRepository,
   IChatMessageRepository,
   IChatSessionEventRepository,
+  IKnowledgeRepository,
+  IPendingChangeRepository,
 } from './interfaces.js';
 import type {
   IDashboardRepository,
@@ -78,6 +80,13 @@ import { PostgresNotificationDispatchRepository } from './postgres/notification-
 import { SqliteLlmAuditRepository } from './sqlite/llm-audit-repository.js';
 import { PostgresLlmAuditRepository } from './postgres/llm-audit-repository.js';
 import type { ILlmAuditRepository } from './sqlite/llm-audit-repository.js';
+import { SqlitePanelEventRepository } from './sqlite/panel-event.js';
+import { PostgresPanelEventRepository } from './postgres/panel-event.js';
+import type { IPanelEventRepository } from './types/panel-event.js';
+import { SqliteKnowledgeRepository } from './sqlite/knowledge.js';
+import { PostgresKnowledgeRepository } from './postgres/knowledge.js';
+import { SqlitePendingChangeRepository } from './sqlite/pending-change.js';
+import { PostgresPendingChangeRepository } from './postgres/pending-change.js';
 
 /**
  * Complete repository bundle available behind every persistence backend.
@@ -112,6 +121,9 @@ export interface RepositoryBundle {
   remediationPlans: IRemediationPlanRepository;
   notificationDispatch: INotificationDispatchRepository;
   llmAudit: ILlmAuditRepository;
+  panelEvents: IPanelEventRepository;
+  knowledge: IKnowledgeRepository;
+  pendingChanges: IPendingChangeRepository;
 }
 
 export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
@@ -138,6 +150,9 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     remediationPlans: new SqliteRemediationPlanRepository(db),
     notificationDispatch: new SqliteNotificationDispatchRepository(db),
     llmAudit: new SqliteLlmAuditRepository(db),
+    panelEvents: new SqlitePanelEventRepository(db),
+    knowledge: new SqliteKnowledgeRepository(db),
+    pendingChanges: new SqlitePendingChangeRepository(db),
   };
 }
 
@@ -166,6 +181,9 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     remediationPlans: new PostgresRemediationPlanRepository(db),
     notificationDispatch: new PostgresNotificationDispatchRepository(db),
     llmAudit: new PostgresLlmAuditRepository(db),
+    panelEvents: new PostgresPanelEventRepository(db),
+    knowledge: new PostgresKnowledgeRepository(queryClient),
+    pendingChanges: new PostgresPendingChangeRepository(db),
   };
 }
 

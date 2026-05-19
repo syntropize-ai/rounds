@@ -23,6 +23,7 @@ function fakeMetricsAdapter(values: Array<[number, string]>): IMetricsAdapter {
     listLabels: vi.fn(),
     listLabelValues: vi.fn(),
     findSeries: vi.fn(),
+    findSeriesFull: vi.fn(),
     fetchMetadata: vi.fn(),
     instantQuery: vi.fn(),
     rangeQuery: vi.fn(async () => [{ metric: { __name__: 'up' }, values }]),
@@ -46,13 +47,8 @@ function fakeAgentCtxBase(opts: { adapters?: AdapterRegistry } = {}) {
     update: vi.fn(),
     delete: vi.fn(),
   } as unknown as ActionContext['alertRuleStore'];
-  const folderRepository = {
-    create: vi.fn(),
-    findByUid: vi.fn(async () => ({ uid: 'alerts' })),
-  } as unknown as ActionContext['folderRepository'];
   const ctx = makeFakeActionContext({
     alertRuleStore,
-    folderRepository,
     ...(opts.adapters ? { adapters: opts.adapters } : {}),
   });
   return { ctx, alertRuleStore };

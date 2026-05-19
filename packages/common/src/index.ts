@@ -44,6 +44,20 @@ export { DEFAULT_LLM_MODEL } from './config/index.js';
 export { EventTypes, type EventType, type EventEnvelope } from './events/types.js';
 export type { IEventBus, EventHandler } from './events/interface.js';
 
+// Dashboard lint engine + built-in rules. Pure (no Node deps); safe in
+// the web bundle so the future "show lint issues in the UI" path can
+// import the types directly.
+export {
+  LintEngine,
+  BUILTIN_RULES,
+  type DashboardSpec,
+  type LintContext,
+  type LintIssue,
+  type LintRule,
+  type LintRunOptions,
+  type LintSeverity,
+} from './lint/index.js';
+
 // Pure utility helpers. `chart-summary` is consumed by both the REST
 // /api/metrics/query endpoint and the agent `metric_explore` tool.
 export { summarize as summarizeChart } from './utils/chart-summary.js';
@@ -54,3 +68,22 @@ export type {
 } from './utils/chart-summary.js';
 export { suggestPivots } from './utils/chart-pivots.js';
 export type { PivotSuggestion, SuggestPivotsArgs } from './utils/chart-pivots.js';
+export {
+  CANONICAL_PANEL_UNITS,
+  extractPanelMetricNames,
+  isCanonicalPanelUnit,
+  normalizePanelUnit,
+  resolvePanelUnit,
+} from './utils/panel-units.js';
+export type { PanelMetricMetadata, PanelUnitInput, PanelUnitQuery } from './utils/panel-units.js';
+
+// PromQL signature normalization — consumed by the panel-event repository
+// to aggregate "same query shape, different filter values" into a single
+// bucket. See packages/common/src/lint/promql-signature.ts.
+export { querySignature } from './lint/promql-signature.js';
+
+// Knowledge base — TF-IDF, bundled seeds, types. Now that B1 lands the
+// authoritative IKnowledgeRepository in @agentic-obs/data-layer, the kb/types
+// re-export from here serves as the common-side mirror; downstream consumers
+// can import either path.
+export * from './kb/index.js';

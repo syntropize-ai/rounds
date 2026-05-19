@@ -57,7 +57,85 @@ interface OpenAIToolDef {
     name: string;
     description: string;
     parameters: ToolDefinition['input_schema'];
+    /**
+     * OpenAI strict tool-call mode — when true, the model is grammar-
+     * constrained to emit JSON conforming exactly to `parameters`. Costs
+     * one extra prompt cache miss the first time each schema is seen,
+     * then provides hard guarantees no LLM-side malformed-JSON recovery
+     * can match. DeepSeek (OpenAI-compatible) honors this flag.
+     */
+    strict?: boolean;
   };
+}
+
+/**
+ * Walk a JSON schema and apply OpenAI strict-mode invariants:
+ *   - every `object` node MUST set `additionalProperties: false`
+ *   - every property MUST appear in `required` (optionality is expressed
+ *     by `type: [..., 'null']` instead)
+ *
+ * Strict mode caveats this addresses:
+ *  1. additionalProperties default is `true`, which strict mode rejects.
+ *  2. The OpenAI strict-mode workaround for optional fields is to keep
+ *     them in `required` and make the type nullable. We apply that
+ *     transformation here so existing schemas (whose authors used
+ *     `required: ['a']` to mean "a is required, b is optional") still
+ *     work under strict mode without manual rewriting.
+ *
+ * Returns a NEW object — never mutates the input. The transformation is
+ * purely structural; types referenced by `$ref` are NOT followed (we
+ * don't emit refs anywhere in this codebase).
+ */
+export function prepareToolSchemaForStrict(schema: unknown): unknown {
+  if (!schema || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema)) return schema.map(prepareToolSchemaForStrict);
+  const s = schema as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...s };
+
+  // Recurse into common schema-bearing fields.
+  if (s['items'] !== undefined) {
+    out['items'] = prepareToolSchemaForStrict(s['items']);
+  }
+  if (s['anyOf'] !== undefined && Array.isArray(s['anyOf'])) {
+    out['anyOf'] = s['anyOf'].map(prepareToolSchemaForStrict);
+  }
+  if (s['oneOf'] !== undefined && Array.isArray(s['oneOf'])) {
+    out['oneOf'] = s['oneOf'].map(prepareToolSchemaForStrict);
+  }
+
+  // Object-shaped node — apply both invariants.
+  const isObject = s['type'] === 'object' || (s['properties'] !== undefined && s['type'] === undefined);
+  if (isObject) {
+    const propsRaw = (s['properties'] as Record<string, unknown> | undefined) ?? {};
+    const transformedProps: Record<string, unknown> = {};
+    const propNames: string[] = [];
+    for (const [k, v] of Object.entries(propsRaw)) {
+      propNames.push(k);
+      const child = prepareToolSchemaForStrict(v) as Record<string, unknown>;
+      // Determine whether this property was originally optional. If so, make
+      // its type nullable so the model can emit `null` instead of omitting.
+      const originalRequired = Array.isArray(s['required']) ? (s['required'] as string[]) : [];
+      if (!originalRequired.includes(k) && child && typeof child === 'object') {
+        const t = child['type'];
+        if (typeof t === 'string' && t !== 'null') {
+          child['type'] = [t, 'null'];
+        } else if (Array.isArray(t) && !t.includes('null')) {
+          child['type'] = [...t, 'null'];
+        }
+      }
+      transformedProps[k] = child;
+    }
+    out['properties'] = transformedProps;
+    out['required'] = propNames;
+    out['additionalProperties'] = false;
+  }
+
+  return out;
+}
+
+/** Env-gated strict-mode toggle. Default ON; set LLM_STRICT_TOOL_CALLS=0 to disable. */
+export function isStrictToolCallsEnabled(): boolean {
+  return process.env['LLM_STRICT_TOOL_CALLS'] !== '0';
 }
 
 type OpenAIToolChoice = 'auto' | 'required' | { type: 'function'; function: { name: string } } | undefined;
@@ -128,14 +206,21 @@ function extractUpstreamCode(body: string): string | undefined {
 
 function translateTools(tools: ToolDefinition[] | undefined): OpenAIToolDef[] | undefined {
   if (!tools || tools.length === 0) return undefined;
-  return tools.map((t) => ({
-    type: 'function',
-    function: {
-      name: nameToOpenAi(t.name),
-      description: t.description,
-      parameters: t.input_schema,
-    },
-  }));
+  const strict = isStrictToolCallsEnabled();
+  return tools.map((t) => {
+    const parameters = strict
+      ? (prepareToolSchemaForStrict(t.input_schema) as ToolDefinition['input_schema'])
+      : t.input_schema;
+    return {
+      type: 'function',
+      function: {
+        name: nameToOpenAi(t.name),
+        description: t.description,
+        parameters,
+        ...(strict ? { strict: true } : {}),
+      },
+    };
+  });
 }
 
 function translateToolChoice(choice: LLMOptions['toolChoice']): OpenAIToolChoice {
@@ -260,6 +345,26 @@ function extractReasoning(message: OpenAIResponseBody['choices'][number]['messag
   return out;
 }
 
+/**
+ * Sanitize a malformed-JSON argument string for logging.
+ *
+ * The raw bytes may contain control chars (DeepSeek occasionally emits
+ * literal newlines / unescaped quotes inside its serialized arguments) and
+ * may carry user-supplied prompt text the model copied into a tool arg. We
+ * therefore:
+ *   - cap the length so a 50KB hallucination doesn't blow up the log line
+ *   - strip ASCII control chars (replace with U+FFFD) so log aggregators
+ *     don't trip on raw \x00 / \x1b
+ * No content-based redaction: by the time we get here the value is already
+ * outside the secret-handling path (LLM input is not a secret store), and
+ * stripping further would defeat the diagnostic purpose of this log.
+ */
+function sanitizeArgsForLog(raw: string): string {
+  const truncated = raw.length > 500 ? `${raw.slice(0, 500)}…[+${raw.length - 500}]` : raw;
+  // eslint-disable-next-line no-control-regex
+  return truncated.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '�');
+}
+
 function parseToolCalls(
   raw: OpenAIToolCall[] | undefined,
   reasoningContent: string | undefined,
@@ -286,16 +391,28 @@ function parseToolCalls(
       // with empty args. The agent can detect `_malformed_args` and treat the
       // call as a parse error rather than executing with garbage.
       log.warn(
-        // Metadata only — never log the raw argument string. It can carry
-        // PII (user prompts, secrets) that the LLM hallucinated into the
-        // tool call.
         {
           err,
           provider: providerName,
           toolCallId: tc.id,
+          toolName: nameFromOpenAi(tc.function.name),
           argsLength: argsStr.length,
         },
         'tool_call.arguments was not valid JSON; tagging _malformed_args',
+      );
+      // Separate ERROR-level log carrying the (truncated, sanitized) raw
+      // string so we can see WHAT the model emitted next time. Kept at a
+      // higher level than the WARN above because diagnosing a misbehaving
+      // serializer requires the actual bytes, not just metadata.
+      log.error(
+        {
+          provider: providerName,
+          toolCallId: tc.id,
+          toolName: nameFromOpenAi(tc.function.name),
+          argsLength: argsStr.length,
+          argsSnippet: sanitizeArgsForLog(argsStr),
+        },
+        'malformed tool_call arguments — capturing snippet for diagnosis',
       );
       return {
         id: tc.id,

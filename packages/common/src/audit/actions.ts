@@ -110,6 +110,12 @@ export const AuditAction = {
   // Inline metric exploration (REST + agent metric_explore tool).
   // Rate-limited (30/min/user/datasource), so volume is bounded.
   MetricsQuery: 'metrics.query',
+
+  // Knowledge base (B1 foundation). Reads (kb_search / kb_get /
+  // kb_recommend) → KbAccess; writes (Save-as-Template, distillation) →
+  // KbWrite.
+  KbAccess: 'kb.access',
+  KbWrite: 'kb.write',
 } as const;
 
 export type AuditActionValue = (typeof AuditAction)[keyof typeof AuditAction];

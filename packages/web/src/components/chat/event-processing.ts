@@ -14,7 +14,12 @@ interface AgentBlock {
 }
 export type Block = MessageBlock | AgentBlock;
 
-export function groupEvents(events: ChatEvent[]): Block[] {
+export type ProposalStatusMap = Record<string, 'pending' | 'accepted' | 'rejected' | 'expired'>;
+
+export function groupEvents(
+  events: ChatEvent[],
+  proposalStatus: ProposalStatusMap = {},
+): Block[] {
   const blocks: Block[] = [];
   let currentAgent: ChatEvent[] = [];
 
@@ -31,10 +36,35 @@ export function groupEvents(events: ChatEvent[]): Block[] {
       evt.kind === 'error' ||
       evt.kind === 'ask_user' ||
       evt.kind === 'ds_choice' ||
-      evt.kind === 'inline_chart'
+      evt.kind === 'inline_chart' ||
+      evt.kind === 'pending_change_created'
     ) {
+      // pending_change_created renders as an inline change-proposal card. We
+      // intentionally flush the agent activity block first so the card sits
+      // right after the tool_call that produced it — matches the
+      // "AI says X, here's a card to apply or cancel" Claude-Code pattern.
       flushAgent();
       blocks.push({ type: 'message', event: evt });
+
+      // Claude-Code-style "blocking" behavior: when a change_proposal is
+      // unresolved, the conversation pauses below it — hide every event
+      // that came after this proposal. Once the user clicks Apply / Cancel
+      // (or the overlay map flips status to non-pending) the remainder of
+      // the conversation reappears.
+      if (evt.kind === 'pending_change_created') {
+        const proposalId =
+          (evt as { pendingChange?: { id?: string } }).pendingChange?.id;
+        const status = proposalId ? proposalStatus[proposalId] : undefined;
+        const isUnresolved = !status || status === 'pending';
+        if (isUnresolved) {
+          return blocks;
+        }
+      }
+    } else if (evt.kind === 'pending_change_resolved') {
+      // Resolution events don't render their own block; the corresponding
+      // change_proposal card overlays its status via the page-level overlay
+      // map. Drop them from the block stream.
+      continue;
     } else if (evt.kind === 'done') {
       flushAgent();
     } else {

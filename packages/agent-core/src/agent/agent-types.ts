@@ -8,6 +8,8 @@ export type AgentToolName =
   // Dashboard mutation primitives — model constructs panel configs directly
   | 'dashboard_add_panels' | 'dashboard_remove_panels' | 'dashboard_modify_panel'
   | 'dashboard_rearrange' | 'dashboard_add_variable' | 'dashboard_set_title'
+  // Dashboard lint — pre-save validation via pluggable rule engine
+  | 'dashboard_lint'
   // Folder tools (Wave 7)
   | 'folder_create' | 'folder_list'
   // Investigation lifecycle
@@ -21,8 +23,13 @@ export type AgentToolName =
   | 'navigate'
   // Source-agnostic metrics primitives (each requires `sourceId`)
   | 'metrics_query' | 'metrics_range_query' | 'metrics_discover' | 'metrics_validate'
+  // Narrow per-shape metric discovery primitives (Read/Grep/Glob style)
+  | 'metrics_list_names' | 'metrics_get_labels' | 'metrics_get_label_values'
+  | 'metrics_get_cardinality' | 'metrics_sample_series' | 'metrics_find_related'
   // Inline chart bubble in chat (uses shared chart-summary helper)
   | 'metric_explore'
+  // Panel-spec preview — server-side renders + validates one panel before save
+  | 'panel_preview'
   // Source-agnostic logs primitives (each requires `sourceId`)
   | 'logs_query' | 'logs_labels' | 'logs_label_values'
   // Recent change events (deploys, config rollouts, incidents)
@@ -37,6 +44,8 @@ export type AgentToolName =
   | 'connector_list' | 'connector_template_list' | 'connector_detect'
   | 'connector_propose' | 'connector_apply' | 'connector_test'
   | 'setting_get' | 'setting_set'
+  // Knowledge base (TF-IDF over saved/distilled/bundled patterns + templates)
+  | 'kb_search' | 'kb_get' | 'kb_recommend'
   // Knowledge & utility
   | 'web_search' | 'llm.complete'
   | 'verifier.run'

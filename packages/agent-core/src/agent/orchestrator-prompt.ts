@@ -2,6 +2,7 @@ import type { Dashboard, DashboardMessage, Identity } from '@agentic-obs/common'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import type { ConnectorConfig, OpsConnectorConfig } from './types.js'
 import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
+import { TOOL_REGISTRY, deferredToolNamesForAgent } from './tool-schema-registry.js'
 
 /**
  * Boundary marker separating static (cacheable across sessions) content
@@ -129,6 +130,17 @@ The user can set up connectors and a small allowlisted settings surface through 
 - \`connector_propose\` → \`connector_apply\` → \`connector_test\` — create a connector draft, persist it, then verify it. NEVER pass raw credentials, tokens, passwords, or kubeconfigs; secrets are captured in Settings → Connectors through the connector secret endpoint after a connector exists.
 - \`setting_get\` / \`setting_set\` — read or update only allowlisted settings: \`default_alert_folder_uid\`, \`default_dashboard_folder_uid\`, \`notification_default_channel\`, and \`auto_investigation_enabled\`.
 Org, team, role, security, and credential settings are not agent-configurable; tell the user to use Admin Center for those.
+
+## When to use metric discovery tools
+Before drafting any PromQL, if you are unsure which metric name, label, or label value to use, call the appropriate \`metrics_*\` discovery tool. **Never invent label names or values.** The six narrow tools are:
+- \`metrics_list_names\` — does this metric (or any metric in this family) exist? Pass \`match\` as a case-insensitive regex.
+- \`metrics_get_labels\` — what dimensions can this metric be sliced by?
+- \`metrics_get_label_values\` — what values does this label take on this metric?
+- \`metrics_get_cardinality\` — will a sum/group-by on this metric explode? (Returns lower-bound when truncated.)
+- \`metrics_sample_series\` — what do current series for this metric actually look like?
+- \`metrics_find_related\` — given one metric, which other metrics come from the same job/exporter?
+
+If \`metrics_query\` returns empty, the most common cause is a label filter that doesn't match — re-discover with \`metrics_get_label_values\` before retrying. Prefer these narrow tools over the older \`metrics_discover\` collapse-tool for new flows: one tool name = one intent makes traces easier to read.
 
 ## Default to proposing a plan when the investigation finds an actionable fix
 When an investigation identifies a concrete root cause AND the fix is expressible as one or more kubectl commands AND an attached ops connector covers the target namespace: DEFAULT to calling \`remediation_plan_create\` after \`investigation_complete\`. The plan is a proposal, not an action — humans gate execution. Skip the plan only when (a) the user explicitly asked you to stop after diagnosis, (b) the fix needs credentials the configured connector lacks, or (c) the right next step isn't kubectl-shaped (data migration, code change, ask upstream).`
@@ -354,11 +366,32 @@ User: "What's the difference between rate() and irate()?"
 - **Annotations**: for \`time_series\` / \`heatmap\` panels covering an alerting metric, fetch \`alert_rule_history\` once and pass the returned JSON as \`panel.annotations\`.
 - **Legend names**: every query in a multi-query panel MUST set \`legendFormat\` to a meaningful label (e.g. \`"p50"\`, \`"errors {{handler}}"\`). Single-query panels can omit it.
 
+## Dashboard Lint — ALWAYS run before saving
+After drafting panels with \`dashboard_add_panels\` (or modifying with \`dashboard_modify_panel\`) and BEFORE the final reply, call \`dashboard_lint\` once with the full DashboardSpec.
+- Pass the spec exactly as it will be saved (every panel id, title, description, queries, unit, visualization, refreshIntervalSec).
+- Treat every \`error\`-severity issue as blocking: fix the cause (modify_panel / remove_panel / add a missing query), then re-lint until no errors remain.
+- For \`warn\` issues, either fix them or briefly justify in your final reply why the warning is acceptable.
+- \`info\` issues are advisory — mention them only when they affect what the user asked for.
+- Don't loop indefinitely: if a rule keeps tripping after one fix attempt, surface the issue to the user instead of retrying blindly.
+
 ## Dashboard Grouping (RED for services, USE for resources)
 - **RED** for request-driven services — sections "Rate" / "Errors" / "Duration"
 - **USE** for resources (nodes, pods, queues) — sections "Utilization" / "Saturation" / "Errors"
 
-Each section: one \`stat\` header row + 1-2 detail panels below.`
+Each section: one \`stat\` header row + 1-2 detail panels below.
+
+## Authoring panels — required protocol
+For EVERY panel you propose, follow this sequence:
+
+1. STATE the question. Write a one-line "Q: <SRE-relevant question>" — what the user would actually ask. e.g. "Q: Which istio sidecar pods are exceeding CPU limit?"
+2. CHECK the KB (optional, recommended for unfamiliar systems). Call \`kb_search\` to find existing templates or patterns that already answer this question. If a template matches, prefer parameterizing it over inventing fresh PromQL.
+3. EXPLORE the actual data. Use \`metrics_discover\` (kind=names / labels / label_values / series) to confirm: the metric exists, the labels you plan to filter by exist, the label values you'll filter on exist. NEVER invent label names or values.
+4. DRAFT the PromQL. Include description: "Q: <the question>".
+5. VERIFY with \`panel_preview\`. If result is empty / NaN / cardinality blown:
+   - go back to step 3, re-explore.
+   - max 3 attempts. If still failing, report "cannot answer Q: <...> in this deployment because <reason>" and skip the panel.
+6. LINT with \`dashboard_lint\` after all panels drafted. Fix every error-severity issue before saving. Justify or fix every warn-severity issue.
+7. SAVE only after both verify and lint clear.`
 }
 
 function getQueryKnowledgeSection(): string {
@@ -379,6 +412,15 @@ function getQueryKnowledgeSection(): string {
 ## Rules
 - rate()/increase() need [5m] range. histogram_quantile() needs by (le).
 - Use "instant": true for stat, gauge, pie, bar. Use percentunit only for 0-1 ratios.`
+}
+
+function getKnowledgeBaseSection(): string {
+  return `# Knowledge base (kb_*)
+The workspace ships bundled patterns + templates (RED, USE, per-pod, Istio data plane, k8s workload health) and accumulates user-saved templates. KB hits are higher quality than web priors.
+
+- When the user names a known system (Istio, Kafka, Postgres, Redis, nginx, k8s workload, ...) OR asks for a RED/USE-style dashboard: call \`kb_recommend\` FIRST. Pass the user's intent as the \`intent\`, and if you've already run \`metrics_discover\` kind="names" pass the result as \`availableMetrics\` so templates with un-scraped metrics are deprioritized.
+- If kb_recommend returns a strong match (top score > 0.5 and you recognize the title), fetch its body with \`kb_get\` and use it: substitute \`\${VARIABLES}\` against what the user told you (or ask via ask_user for the missing ones), then drive \`dashboard_create\` + \`dashboard_add_panels\` from the template panels. Do NOT re-invent panels the template already has.
+- If KB returns nothing relevant, then fall back to free-form authoring (web_search → metrics_discover → metrics_validate → dashboard_add_panels). KB lookups are cheap reads; spend them.`
 }
 
 function getToneSection(): string {
@@ -494,6 +536,66 @@ function getAlertRulesSection(
   return parts.join('\n')
 }
 
+/**
+ * Maximum total characters the deferred-tools listing may consume in the
+ * system prompt. Mirrors the Claude Code "deferred tool" budget discipline:
+ * the listing is a hint surface, not a documentation dump. Over-budget tools
+ * are dropped (alphabetical truncation, with a trailing "+N more" line) so
+ * the section never balloons the prompt as the registry grows.
+ */
+export const DEFERRED_TOOLS_LISTING_BUDGET = 2000
+
+/**
+ * One-line summary per deferred tool: `name: <first-sentence-of-description>`,
+ * capped at 60 chars. Source-of-truth is the schema description; we never
+ * hand-edit the listing.
+ */
+function summarizeDeferredTool(name: string): string {
+  const desc = TOOL_REGISTRY[name]?.schema.description ?? ''
+  // First sentence-ish chunk: stop at the first newline or period-space.
+  const firstChunk = desc.split(/\n|\.\s/)[0]?.trim() ?? ''
+  const short = firstChunk.length > 60 ? firstChunk.slice(0, 57).trimEnd() + '...' : firstChunk
+  return `${name}: ${short}`
+}
+
+/**
+ * Render the deferred-tools system reminder — bare tool names + one-liner
+ * descriptions, wrapped in a `<deferred-tools>` block. The model uses this to
+ * decide which deferred tool to fetch via `tool_search`; without the listing
+ * it has no idea what's available beyond the always-on schemas.
+ *
+ * Exported for unit tests asserting the 2000-char budget.
+ */
+export function getDeferredToolsSection(allowedTools: readonly string[]): string {
+  const names = deferredToolNamesForAgent(allowedTools).slice().sort()
+  if (names.length === 0) return ''
+
+  const header = '<deferred-tools>\nThe following tools are available via tool_search. Call tool_search to load their schemas before invoking them.'
+  const footerOpen = '\n</deferred-tools>'
+
+  const lines: string[] = []
+  let used = header.length + footerOpen.length
+  let truncatedAt = -1
+  for (let i = 0; i < names.length; i++) {
+    const line = '\n' + summarizeDeferredTool(names[i]!)
+    // Reserve room for a possible "+N more" line so we don't over-allocate.
+    const remainingTrunc = `\n+${names.length - i} more (truncated to fit budget)`
+    if (used + line.length + remainingTrunc.length > DEFERRED_TOOLS_LISTING_BUDGET) {
+      truncatedAt = i
+      break
+    }
+    lines.push(line)
+    used += line.length
+  }
+
+  let body = lines.join('')
+  if (truncatedAt >= 0) {
+    body += `\n+${names.length - truncatedAt} more (truncated to fit budget)`
+  }
+
+  return `${header}${body}${footerOpen}`
+}
+
 function getSessionModeSection(): string {
   return `# Session Mode
 Not scoped to a dashboard. Call dashboard_create to start one — it becomes the active target for subsequent dashboard.* tools automatically.`
@@ -521,6 +623,13 @@ export interface SystemPromptOptions {
   /** Override for deterministic tests. Defaults to `new Date().toISOString()`. */
   now?: string
   opsConnectors?: OpsConnectorConfig[]
+  /**
+   * The agent's allowedTools list — used to compute which deferred tools to
+   * advertise in the `<deferred-tools>` system reminder. Omit (or pass
+   * `undefined`) to skip the listing entirely; callers without an agent
+   * context (e.g. some unit tests) don't need it.
+   */
+  allowedTools?: readonly string[]
 }
 
 /**
@@ -610,6 +719,10 @@ export function buildSystemPrompt(
     now,
   )
 
+  const deferredSection = options?.allowedTools
+    ? getDeferredToolsSection(options.allowedTools)
+    : ''
+
   const staticSections = [
     getIntroSection(),
     identitySection,
@@ -618,7 +731,9 @@ export function buildSystemPrompt(
     getActionsSection(),
     getExamplesSection(),
     getQueryKnowledgeSection(),
+    getKnowledgeBaseSection(),
     getToneSection(),
+    deferredSection,
   ]
 
   const dynamicSections = [

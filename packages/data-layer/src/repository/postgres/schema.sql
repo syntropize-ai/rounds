@@ -677,6 +677,25 @@ CREATE TABLE IF NOT EXISTS alert_rules (
 CREATE INDEX IF NOT EXISTS ix_alert_rules_org_id     ON alert_rules(org_id);
 CREATE INDEX IF NOT EXISTS ix_alert_rules_folder_uid ON alert_rules(org_id, folder_uid);
 
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL DEFAULT 'org_main',
+  source          TEXT NOT NULL,
+  source_ref      TEXT,
+  kind            TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  intent_tags     TEXT NOT NULL,
+  content         TEXT NOT NULL,
+  use_count        INTEGER NOT NULL DEFAULT 0,
+  approved_count   INTEGER NOT NULL DEFAULT 0,
+  rejected_count   INTEGER NOT NULL DEFAULT 0,
+  created_by       TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_kb_org_kind ON knowledge_entries(org_id, kind);
+CREATE INDEX IF NOT EXISTS ix_kb_source   ON knowledge_entries(source);
+
 CREATE TABLE IF NOT EXISTS alert_history (
   id        TEXT PRIMARY KEY,
   org_id    TEXT NOT NULL DEFAULT 'org_main',
@@ -891,3 +910,52 @@ CREATE INDEX IF NOT EXISTS ix_llm_audit_org_id      ON llm_audit(org_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_user_id     ON llm_audit(user_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_session_id  ON llm_audit(session_id);
 CREATE INDEX IF NOT EXISTS ix_llm_audit_model       ON llm_audit(model);
+
+-- ============================================================================
+-- Panel events (behavior tracking for dashboards / panels). See
+-- sqlite-schema.sql for the design rationale.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS panel_events (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL DEFAULT 'org_main',
+  dashboard_id    TEXT NOT NULL,
+  panel_id        TEXT NOT NULL,
+  event_type      TEXT NOT NULL,
+  panel_snapshot  TEXT NOT NULL,
+  query_signature TEXT,
+  viz_type        TEXT,
+  ai_generated    INTEGER NOT NULL DEFAULT 0,
+  actor_id        TEXT,
+  session_id      TEXT,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_panel_events_signature ON panel_events(org_id, query_signature);
+CREATE INDEX IF NOT EXISTS ix_panel_events_dashboard ON panel_events(dashboard_id);
+CREATE INDEX IF NOT EXISTS ix_panel_events_type      ON panel_events(org_id, event_type, created_at);
+
+-- ============================================================================
+-- Pending changes — agent-proposed dashboard mutations awaiting user accept/
+-- reject. See sqlite-schema.sql for design rationale.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS pending_changes (
+  id           TEXT PRIMARY KEY,
+  org_id       TEXT NOT NULL DEFAULT 'org_main',
+  dashboard_id TEXT NOT NULL,
+  panel_id     TEXT,
+  proposed_by  TEXT NOT NULL,
+  proposed_at  TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  resolved_at  TEXT,
+  resolved_by  TEXT,
+  change_kind  TEXT NOT NULL,
+  before_json  TEXT,
+  after_json   TEXT NOT NULL,
+  summary      TEXT NOT NULL,
+  expires_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_pending_changes_dashboard ON pending_changes(dashboard_id, status);
+CREATE INDEX IF NOT EXISTS ix_pending_changes_org       ON pending_changes(org_id, status);
+CREATE INDEX IF NOT EXISTS ix_pending_changes_expiry    ON pending_changes(status, expires_at);

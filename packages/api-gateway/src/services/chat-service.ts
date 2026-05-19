@@ -209,6 +209,18 @@ export interface ChatServiceDeps {
   approvalStore?: IApprovalRequestRepository;
   /** P4 — when present, the agent can emit `remediation_plan.create` tools. */
   remediationPlanStore?: import('@agentic-obs/data-layer').IRemediationPlanRepository;
+  /** Wired through to ActionContext.panelEvents so agent dashboard mutations
+   *  fire panel_events rows (created / edited / deleted). Optional — without
+   *  it agent-driven panel CRUD leaves panel_events empty. */
+  panelEventStore?: import('@agentic-obs/data-layer').IPanelEventRepository;
+  /** Pending-change repository for agent-proposed dashboard mutations.
+   *  When present, mutation handlers persist proposals to pending_changes
+   *  rows that survive page refresh + cross-tab. Without it the agent
+   *  falls back to the legacy ephemeral SSE path. */
+  pendingChangeStore?: import('@agentic-obs/data-layer').IPendingChangeRepository;
+  /** Knowledge base repository for kb_search/kb_get/kb_recommend tools.
+   *  Without it those tools return "Knowledge base is not configured". */
+  knowledgeStore?: import('@agentic-obs/data-layer').IKnowledgeRepository;
   /** Wave 7 — RBAC surface for the agent permission gate. Required. */
   accessControl: AccessControlSurface;
   /** Audit-log writer. Optional but strongly recommended in production. */
@@ -516,6 +528,15 @@ export class ChatService {
           : {}),
         ...(this.deps.approvalStore
           ? { approvalRequests: this.deps.approvalStore }
+          : {}),
+        ...(this.deps.panelEventStore
+          ? { panelEvents: this.deps.panelEventStore }
+          : {}),
+        ...(this.deps.pendingChangeStore
+          ? { pendingChanges: this.deps.pendingChangeStore }
+          : {}),
+        ...(this.deps.knowledgeStore
+          ? { knowledge: this.deps.knowledgeStore }
           : {}),
         sendEvent: wrappedSendEvent,
         // Recent-event lookup for handlers that want to peek at prior SSE

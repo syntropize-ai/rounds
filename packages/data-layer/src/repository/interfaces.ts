@@ -498,3 +498,102 @@ export interface IChatSessionEventRepository {
     kind: string,
   ): MaybeAsync<ChatSessionEventRecord | null>;
 }
+
+// — KnowledgeEntry (B1 — KB foundation)
+
+export interface KnowledgeEntry {
+  id: string;
+  orgId: string;
+  source: 'bundled' | 'saved' | 'distilled';
+  sourceRef: string | null;
+  kind: 'pattern' | 'template' | 'metric_doc' | 'system_fact';
+  title: string;
+  intentTags: string[];
+  content: unknown;
+  useCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// — PendingChange (agent-proposed dashboard mutations awaiting accept/reject)
+
+export type PendingChangeStatus = 'pending' | 'accepted' | 'rejected' | 'expired';
+export type PendingChangeKind =
+  | 'modify_panel'
+  | 'add_panel'
+  | 'remove_panel'
+  | 'set_title'
+  | 'add_variable';
+
+export interface PendingChange {
+  id: string;
+  orgId: string;
+  dashboardId: string;
+  panelId: string | null;
+  proposedBy: string;
+  proposedAt: string;
+  status: PendingChangeStatus;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  changeKind: PendingChangeKind;
+  beforeJson: unknown | null;
+  afterJson: unknown;
+  summary: string;
+  expiresAt: string;
+}
+
+export interface IPendingChangeRepository {
+  insert(
+    input: Omit<PendingChange, 'resolvedAt' | 'resolvedBy' | 'status'> & {
+      status?: PendingChangeStatus;
+    },
+  ): Promise<PendingChange>;
+  getById(orgId: string, id: string): Promise<PendingChange | null>;
+  listByDashboard(
+    orgId: string,
+    dashboardId: string,
+    opts?: { status?: PendingChangeStatus },
+  ): Promise<PendingChange[]>;
+  countByOrg(orgId: string, status?: PendingChangeStatus): Promise<number>;
+  /** Group counts by dashboardId for the nav badge surface. */
+  countByOrgGrouped(
+    orgId: string,
+    status?: PendingChangeStatus,
+  ): Promise<Array<{ dashboardId: string; count: number }>>;
+  resolve(
+    orgId: string,
+    id: string,
+    status: 'accepted' | 'rejected',
+    resolvedBy: string,
+  ): Promise<PendingChange | null>;
+  /** Mark all pending rows with expires_at <= now as 'expired'. Returns affected count. */
+  expireOlderThan(now: string): Promise<number>;
+}
+
+export interface IKnowledgeRepository {
+  insert(
+    input: Omit<
+      KnowledgeEntry,
+      'createdAt' | 'updatedAt' | 'useCount' | 'approvedCount' | 'rejectedCount'
+    >,
+  ): Promise<KnowledgeEntry>;
+  getById(orgId: string, id: string): Promise<KnowledgeEntry | null>;
+  list(
+    orgId: string,
+    opts?: {
+      kind?: KnowledgeEntry['kind'];
+      source?: KnowledgeEntry['source'];
+      limit?: number;
+    },
+  ): Promise<KnowledgeEntry[]>;
+  bumpUseCount(orgId: string, id: string): Promise<void>;
+  recordFeedback(orgId: string, id: string, approved: boolean): Promise<void>;
+  delete(orgId: string, id: string): Promise<void>;
+  listForSearch(
+    orgId: string,
+    opts?: { kind?: KnowledgeEntry['kind'] },
+  ): Promise<KnowledgeEntry[]>;
+}

@@ -77,8 +77,6 @@ async function evalAlertRuleWrite(
 }
 
 const log = createLogger('handlers/alert');
-const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
-const DEFAULT_ALERT_RULE_FOLDER_TITLE = 'Alerts';
 
 // ---------------------------------------------------------------------------
 // Alert rule write — single tool with an `op` discriminator that replaces the
@@ -153,6 +151,7 @@ async function createAlertRule(
 ): Promise<string> {
   const dashboardId = String(args.dashboardId ?? '');
   const folderUid = await resolveAlertRuleFolderUid(ctx, args);
+  // ^ string | null — null lands as a root-level rule (Grafana parity).
   const spec = parseCreateSpec(args.spec);
   if (typeof spec === 'string') return `Error: ${spec}`;
   const generated = spec;
@@ -287,34 +286,38 @@ async function createAlertRule(
   return `${verb} alert rule "${rule.name}" (id: ${rule.id ?? 'unknown'}, ${rule.severity}, evaluating every ${rule.evaluationIntervalSec}s). Rule: ${rc.query} ${rc.operator} ${rc.threshold} for ${rc.forDurationSec}s.${previewText}`;
 }
 
+/**
+ * Pick the folder a new alert rule should live in. Grafana 9+ parity:
+ *
+ *   1. If `args.folderUid` is explicitly set → use it.
+ *   2. Else if there's an active dashboard in the session AND that dashboard
+ *      has a `folder` (folderUid) → use that. Alerts attached to a dashboard
+ *      should inherit its folder for RBAC parity.
+ *   3. Else → null. The store persists folder_uid = NULL, which is
+ *      Grafana's "General"/root scope. No system folder is synthesized.
+ */
 async function resolveAlertRuleFolderUid(
   ctx: ActionContext,
   args: Record<string, unknown>,
-): Promise<string> {
+): Promise<string | null> {
   const requested = typeof args.folderUid === 'string' ? args.folderUid.trim() : '';
   if (requested) return requested;
 
-  if (!ctx.folderRepository) {
-    throw new Error('Folder backend is required to create alert rules without an explicit folder.');
+  const activeId = ctx.activeDashboardId;
+  if (activeId && ctx.store?.findById) {
+    try {
+      const dash = await ctx.store.findById(activeId);
+      const inherited = (dash as { folder?: unknown } | null | undefined)?.folder;
+      if (typeof inherited === 'string' && inherited) return inherited;
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), dashboardId: activeId },
+        'alert handler: dashboard lookup failed during folder inference; falling back to root',
+      );
+    }
   }
 
-  const existing = await ctx.folderRepository.findByUid(
-    ctx.identity.orgId,
-    DEFAULT_ALERT_RULE_FOLDER_UID,
-  );
-  if (existing) return existing.uid;
-
-  const created = await ctx.folderRepository.create({
-    uid: DEFAULT_ALERT_RULE_FOLDER_UID,
-    orgId: ctx.identity.orgId,
-    title: DEFAULT_ALERT_RULE_FOLDER_TITLE,
-    description: 'Default folder for alert rules created without an explicit folder.',
-    parentUid: null,
-    createdBy: ctx.identity.userId,
-    updatedBy: ctx.identity.userId,
-    source: 'ai_generated',
-  });
-  return created.uid;
+  return null;
 }
 
 async function updateAlertRule(

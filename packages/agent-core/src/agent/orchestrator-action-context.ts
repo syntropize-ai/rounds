@@ -26,6 +26,8 @@ import type {
   AgentConfigService,
 } from './types.js';
 import type { IAccessControlService } from './types-permissions.js';
+import type { IPanelEventRepository } from './panel-event-recorder.js';
+import type { IPendingChangeRepository } from '@agentic-obs/data-layer';
 
 export interface OrchestratorActionContextDeps {
   gateway: LLMGateway;
@@ -49,6 +51,10 @@ export interface OrchestratorActionContextDeps {
   approvalRequests?: ApprovalRequestStore;
   /** Connector-model setup and allowlisted settings tools. */
   configService?: AgentConfigService;
+  /** Panel-event repository — agent dashboard mutations fire rows via this. */
+  panelEvents?: IPanelEventRepository;
+  /** Pending-change repository — agent mutation proposals persist here. */
+  pendingChanges?: IPendingChangeRepository;
   sendEvent: (event: DashboardSseEvent) => void;
   identity: Identity;
   accessControl: IAccessControlService;
@@ -115,6 +121,8 @@ export function buildActionContext(
     remediationPlans: deps.remediationPlans,
     approvalRequests: deps.approvalRequests,
     configService: deps.configService,
+    panelEvents: deps.panelEvents,
+    pendingChanges: deps.pendingChanges,
     sendEvent: deps.sendEvent,
     sessionId: runtime.sessionId,
     identity: deps.identity,

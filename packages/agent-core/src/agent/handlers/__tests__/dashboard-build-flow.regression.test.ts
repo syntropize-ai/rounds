@@ -35,11 +35,18 @@ import type { IMetricsAdapter } from '@agentic-obs/adapters';
 
 function fakeMetricsAdapter(): IMetricsAdapter {
   return {
-    instantQuery: vi.fn().mockResolvedValue([]),
-    rangeQuery: vi.fn().mockResolvedValue([]),
+    // Non-empty so the lint-engine panel-returns-data rule (which now runs
+    // inside the verify-gate) doesn't flag the panel as zero-series.
+    instantQuery: vi.fn().mockResolvedValue([{ labels: { job: 'api' }, value: 1, timestamp: 0 }]),
+    // Non-empty range result so the dashboard_add_panels verify-gate
+    // (panel_preview server-side) doesn't flag the panel as zero-series.
+    rangeQuery: vi.fn().mockResolvedValue([
+      { metric: { job: 'api' }, values: [[1700000000, '1'], [1700000300, '2']] },
+    ]),
     listLabels: vi.fn().mockResolvedValue(['job', 'instance']),
     listLabelValues: vi.fn().mockResolvedValue([]),
     findSeries: vi.fn().mockResolvedValue([]),
+    findSeriesFull: vi.fn().mockResolvedValue([]),
     fetchMetadata: vi.fn().mockResolvedValue({}),
     listMetricNames: vi
       .fn()
@@ -131,6 +138,7 @@ describe('regression: dashboard build flow (connectors -> discover -> validate -
       panels: [
         {
           title: 'Request rate',
+          description: 'Q: what is the request rate?',
           visualization: 'time_series',
           queries: [{ refId: 'A', expr, datasourceId: 'prom' }],
         },

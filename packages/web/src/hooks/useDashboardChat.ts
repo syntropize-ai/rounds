@@ -32,6 +32,8 @@ export type ChatEventKind =
   | 'panel_modified'
   | 'variable_added'
   | 'pending_changes_proposed'
+  | 'pending_change_created'
+  | 'pending_change_resolved'
   | 'investigation_report'
   | 'ask_user'
   | 'ds_choice'
@@ -217,6 +219,20 @@ export interface ChatEvent {
     summary: string;
     op: Record<string, unknown>;
   }>;
+  /** For the newer per-change SSE events. The full row is forwarded to the
+   *  workspace which upserts into its `PendingChange[]` state. */
+  pendingChange?: {
+    id: string;
+    dashboardId: string;
+    panelId?: string | null;
+    summary?: string;
+    changeKind?: string;
+    beforeJson?: unknown;
+    afterJson?: unknown;
+    proposedAt?: string;
+    proposedBy?: string;
+    status?: string;
+  };
   dashboardId?: string;
   // For investigation report
   investigationReport?: InvestigationReport;
@@ -449,6 +465,46 @@ export function useDashboardChat(
             }));
             appendEvent({ id, kind: 'variable_added', variable });
           }
+          break;
+        }
+
+        case 'pending_change_created': {
+          // New per-change SSE event from the backend's pending_changes
+          // pipeline. Carry the full row to the workspace, which upserts
+          // it into the local PendingChange[] state.
+          const dashboardId = parsed.dashboardId as string | undefined;
+          appendEvent({
+            id,
+            kind: 'pending_change_created',
+            dashboardId,
+            pendingChange: {
+              id: (parsed.id as string) ?? id,
+              dashboardId: (parsed.dashboardId as string) ?? '',
+              panelId: (parsed.panelId as string | null | undefined) ?? null,
+              summary: parsed.summary as string | undefined,
+              changeKind: parsed.changeKind as string | undefined,
+              beforeJson: parsed.beforeJson,
+              afterJson: parsed.afterJson,
+              proposedAt: parsed.proposedAt as string | undefined,
+              proposedBy: parsed.proposedBy as string | undefined,
+              status: 'pending',
+            },
+          });
+          break;
+        }
+
+        case 'pending_change_resolved': {
+          const dashboardId = parsed.dashboardId as string | undefined;
+          appendEvent({
+            id,
+            kind: 'pending_change_resolved',
+            dashboardId,
+            pendingChange: {
+              id: (parsed.id as string) ?? id,
+              dashboardId: dashboardId ?? '',
+              status: parsed.status as string | undefined,
+            },
+          });
           break;
         }
 

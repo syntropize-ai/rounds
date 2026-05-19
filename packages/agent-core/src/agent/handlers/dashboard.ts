@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { ac, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common';
-import type { PendingDashboardChange, PendingDashboardChangeOp, DashboardStatus } from '@agentic-obs/common';
+import { ac, AuditAction, assertWritable, extractPanelMetricNames, ProvisionedResourceError, querySignature, resolvePanelUnit } from '@agentic-obs/common';
+import type { PanelConfig, PanelMetricMetadata, PendingDashboardChange, PendingDashboardChangeOp, DashboardStatus } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { applyLayout } from '../layout-engine.js';
+import type { PanelEventType } from '../panel-event-recorder.js';
+import {
+  isVerifyGateEnabled,
+  runDashboardVerifyGate,
+  formatVerifyReport,
+  logGateOffIssues,
+} from './verify-gate.js';
 
 const log = createLogger('dashboard-handler');
 
@@ -73,6 +80,8 @@ async function queuePending(
     await ctx.store.appendPendingChanges(dashboardId, [change]);
   }
   // SSE event so the chat panel can show pending changes inline.
+  // DEPRECATED — surviving for in-flight frontend agent work. New clients
+  // should subscribe to `pending_change_created` (persisted) instead.
   ctx.sendEvent({
     type: 'pending_changes_proposed',
     dashboardId,
@@ -81,8 +90,195 @@ async function queuePending(
   return change;
 }
 
+/**
+ * Persist a first-class pending_changes row when the repo is wired and emit
+ * the `pending_change_created` SSE event. Returns the row id (used as the
+ * proposal's primary id) so callers can include it in observation text.
+ *
+ * `panelId` is null for variable/title-level changes.
+ *
+ * Per Task spec §4: handlers MUST NOT mutate the live dashboard in this path.
+ * They write the row, emit the event, and return a "pending user approval"
+ * observation. The accept route applies after_json later.
+ */
+async function persistPendingChange(
+  ctx: ActionContext,
+  params: {
+    dashboardId: string;
+    panelId: string | null;
+    changeKind: 'modify_panel' | 'add_panel' | 'remove_panel' | 'set_title' | 'add_variable';
+    beforeJson: unknown | null;
+    afterJson: unknown;
+    summary: string;
+  },
+): Promise<string | null> {
+  if (!ctx.pendingChanges) return null;
+  const id = randomUUID();
+  const proposedAt = new Date().toISOString();
+  // 7-day TTL — matches the Task 09 spec; the lifecycle expiry job sweeps
+  // stale rows so the in-memory queue can't grow unboundedly.
+  const expiresAt = new Date(Date.parse(proposedAt) + 7 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    await ctx.pendingChanges.insert({
+      id,
+      orgId: ctx.identity.orgId,
+      dashboardId: params.dashboardId,
+      panelId: params.panelId,
+      proposedBy: `agent:${ctx.sessionId}`,
+      proposedAt,
+      changeKind: params.changeKind,
+      beforeJson: params.beforeJson,
+      afterJson: params.afterJson,
+      summary: params.summary,
+      expiresAt,
+    });
+  } catch (err) {
+    log.warn(
+      {
+        dashboardId: params.dashboardId,
+        panelId: params.panelId,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'pending_changes insert failed — falling back to ephemeral SSE',
+    );
+    return null;
+  }
+  ctx.sendEvent({
+    type: 'pending_change_created',
+    id,
+    dashboardId: params.dashboardId,
+    panelId: params.panelId,
+    summary: params.summary,
+    changeKind: params.changeKind,
+    beforeJson: params.beforeJson,
+    afterJson: params.afterJson,
+    proposedAt,
+  });
+  return id;
+}
+
 function formatToolError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+async function fetchPanelMetadata(
+  ctx: ActionContext,
+  panel: { title?: unknown; query?: unknown; queries?: unknown },
+): Promise<Record<string, PanelMetricMetadata>> {
+  const queries = Array.isArray(panel.queries)
+    ? panel.queries as Array<Record<string, unknown>>
+    : [];
+  const unitInput = {
+    title: typeof panel.title === 'string' ? panel.title : undefined,
+    query: typeof panel.query === 'string' ? panel.query : undefined,
+    queries: queries.map((q) => ({ expr: typeof q.expr === 'string' ? q.expr : undefined })),
+  };
+  const metricNames = extractPanelMetricNames(unitInput);
+  if (metricNames.length === 0) return {};
+
+  const byDatasource = new Map<string, Set<string>>();
+  for (const q of queries) {
+    const datasourceId = typeof q.datasourceId === 'string' ? q.datasourceId.trim() : '';
+    if (!datasourceId) continue;
+    const qNames = extractPanelMetricNames({ queries: [{ expr: typeof q.expr === 'string' ? q.expr : undefined }] });
+    if (qNames.length === 0) continue;
+    const set = byDatasource.get(datasourceId) ?? new Set<string>();
+    qNames.forEach((name) => set.add(name));
+    byDatasource.set(datasourceId, set);
+  }
+
+  const metadata: Record<string, PanelMetricMetadata> = {};
+  await Promise.all([...byDatasource.entries()].map(async ([datasourceId, names]) => {
+    const adapter = ctx.adapters.metrics(datasourceId);
+    if (!adapter?.fetchMetadata) return;
+    try {
+      Object.assign(metadata, await adapter.fetchMetadata([...names]));
+    } catch (err) {
+      log.debug(
+        { datasourceId, err: err instanceof Error ? err.message : String(err) },
+        'panel metadata lookup failed',
+      );
+    }
+  }));
+  return metadata;
+}
+
+async function resolvePanelUnitsForWrite(
+  ctx: ActionContext,
+  panels: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
+  return Promise.all(panels.map(async (p) => {
+    const metadataByMetric = await fetchPanelMetadata(ctx, p);
+    const queries = Array.isArray(p.queries)
+      ? p.queries.map((q: Record<string, unknown>) => ({ expr: String(q.expr ?? '') }))
+      : [];
+    const unit = resolvePanelUnit({
+      title: String(p.title ?? 'Panel'),
+      unit: typeof p.unit === 'string' ? p.unit : undefined,
+      queries,
+      metadataByMetric,
+    });
+    if (unit) return { ...p, unit };
+    const { unit: _unit, ...withoutUnit } = p;
+    return withoutUnit;
+  }));
+}
+
+/**
+ * Fire-and-forget panel-event emission for agent-driven dashboard mutations.
+ *
+ * The Express dashboard route has its own hook for non-agent CRUD; this
+ * mirror exists so agent-only sessions (which bypass POST /api/dashboards)
+ * still leave a trail in panel_events. Failures are logged but never
+ * surfaced to the caller — panel_events is a behavior-mining sink, never
+ * a correctness gate.
+ */
+function recordPanelEvents(
+  ctx: ActionContext,
+  dashboardId: string,
+  panels: Array<{ id: string; queries?: Array<{ expr?: string }>; query?: string; visualization?: string }>,
+  eventType: PanelEventType,
+): void {
+  const repo = ctx.panelEvents;
+  if (!repo) return;
+  const orgId = ctx.identity.orgId;
+  const actorId = ctx.identity.userId ?? null;
+  const sessionId = ctx.sessionId ?? null;
+  for (const panel of panels) {
+    const firstExpr =
+      panel.queries?.[0]?.expr && panel.queries[0].expr.length > 0
+        ? panel.queries[0].expr
+        : typeof panel.query === 'string' && panel.query.length > 0
+          ? panel.query
+          : null;
+    const sig = firstExpr ? querySignature(firstExpr) : null;
+    Promise.resolve()
+      .then(() =>
+        repo.record({
+          orgId,
+          dashboardId,
+          panelId: panel.id,
+          eventType,
+          panelSnapshot: panel,
+          querySignature: sig && sig.length > 0 ? sig : null,
+          vizType: typeof panel.visualization === 'string' ? panel.visualization : null,
+          aiGenerated: true,
+          actorId,
+          sessionId,
+        }),
+      )
+      .catch((err: unknown) => {
+        log.warn(
+          {
+            err: err instanceof Error ? err.message : String(err),
+            dashboardId,
+            panelId: panel.id,
+            eventType,
+          },
+          'agent panel-event record failed (swallowed)',
+        );
+      });
+  }
 }
 
 function emitToolFailure(
@@ -318,7 +514,9 @@ export async function handleDashboardAddPanels(
     return `Error: every query needs a datasourceId. Missing on: ${missing.join(', ')}. Pass datasourceId per query — the dashboard primary is NOT inherited automatically. For a single-source dashboard, set every query to the dashboard's primary; for compare panels, set per query.`;
   }
 
-  const queries = panels
+  const panelsForWrite = await resolvePanelUnitsForWrite(ctx, panels);
+
+  const queries = panelsForWrite
     .flatMap((p) => Array.isArray(p.queries) ? p.queries as Array<Record<string, unknown>> : [])
     .map((q) => String(q.expr ?? '').trim())
     .filter((expr) => expr.length > 0);
@@ -333,10 +531,57 @@ export async function handleDashboardAddPanels(
     }
   }
 
-  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_add_panels', args: { count: panels.length }, displayText: `Adding ${panels.length} panel(s)` });
+  ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_add_panels', args: { count: panelsForWrite.length }, displayText: `Adding ${panelsForWrite.length} panel(s)` });
+
+  // ---- Verify-gate (Wave: AI-first authoring) ---------------------------
+  // Runs panel_preview + dashboard_lint server-side on the panel set about
+  // to be persisted. ON by default in production; toggle with
+  // DASHBOARD_VERIFY_GATE=0. See handlers/verify-gate.ts.
+  const verifyReport = await runDashboardVerifyGate(ctx, { panels: panelsForWrite });
+  if (!verifyReport.ok) {
+    if (isVerifyGateEnabled()) {
+      const detail = formatVerifyReport(verifyReport);
+      const observation =
+        `Error: dashboard_add_panels rejected by verify-gate. Fix the following before retrying:\n${detail}`;
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observation, success: false });
+      return observation;
+    }
+    // Gate OFF: log + accept. We still surface the issues to operators via
+    // a structured WARN log so production telemetry catches the regressions.
+    logGateOffIssues(verifyReport);
+  }
 
   try {
-    return await runAddPanels(ctx, dashboardId, panels);
+    // Pre-existing dashboards: route each new panel through pendingChanges
+    // so the user accepts before it appears. Freshly-created dashboards in
+    // this session apply directly (the bulk-add UX during creation would
+    // otherwise stall until the user clicked accept on every panel).
+    //
+    // The pendingChanges-wired check preserves backward-compat for callers
+    // that don't run the persisted-proposal pipeline (legacy tests, pure
+    // in-memory deployments). When the repo isn't wired add_panels keeps
+    // its pre-Task-AI-1 apply-directly behavior.
+    if (ctx.pendingChanges && !isFreshlyCreated(ctx, dashboardId)) {
+      const proposalIds: string[] = [];
+      for (const p of panelsForWrite) {
+        const summary = `Add panel "${String(p.title ?? 'Panel')}"`;
+        const rowId = await persistPendingChange(ctx, {
+          dashboardId,
+          panelId: null,
+          changeKind: 'add_panel',
+          beforeJson: null,
+          afterJson: p,
+          summary,
+        });
+        if (rowId) proposalIds.push(rowId);
+      }
+      const observationText = proposalIds.length > 0
+        ? `Proposed ${proposalIds.length} new panel(s) (${proposalIds.join(', ')}). Pending user approval.`
+        : `Proposed ${panelsForWrite.length} new panel(s); pending user review.`;
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText, success: true });
+      return observationText;
+    }
+    return await runAddPanels(ctx, dashboardId, panelsForWrite);
   } catch (err) {
     // Critical: a throw partway through panel generation would otherwise
     // leave the dashboard stuck at 'generating' forever (the list badge
@@ -382,7 +627,13 @@ async function runAddPanels(
     // undefined) avoids type narrowing churn downstream.
     width: 6,
     height: 3,
-    unit: typeof p.unit === 'string' ? p.unit : undefined,
+    unit: resolvePanelUnit({
+      title: String(p.title ?? 'Panel'),
+      unit: typeof p.unit === 'string' ? p.unit : undefined,
+      queries: Array.isArray(p.queries)
+        ? p.queries.map((q: Record<string, unknown>) => ({ expr: String(q.expr ?? '') }))
+        : [],
+    }),
     stackMode: typeof p.stackMode === 'string' ? p.stackMode as 'none' | 'normal' | 'percent' : undefined,
     fillOpacity: typeof p.fillOpacity === 'number' ? p.fillOpacity : undefined,
     decimals: typeof p.decimals === 'number' ? p.decimals : undefined,
@@ -431,6 +682,11 @@ async function runAddPanels(
   // emits an SSE error if the status write itself fails.
   await tryUpdateDashboardStatus(ctx, dashboardId, 'ready');
 
+  // Fire panel_events rows for the freshly-added panels. The Express route
+  // does not see this path (agent CRUD bypasses POST /api/dashboards), so
+  // without this hook agent-only sessions leave panel_events empty.
+  recordPanelEvents(ctx, dashboardId, panelConfigs, 'created');
+
   const observationText = `Added ${panelConfigs.length} panel(s): ${panelConfigs.map((p) => p.title).join(', ')}`;
   ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText, success: true });
   // Stream each new panel as a discrete `panel_added` event so the live
@@ -462,6 +718,49 @@ export async function handleDashboardSetTitle(
     { title },
     `Setting title: "${title}"`,
     async () => {
+      // Pre-existing dashboards route through pendingChanges so the user
+      // accepts the rename before it lands; freshly-created dashboards in
+      // this session apply directly (same pattern as the other mutations).
+      // Gated on pendingChanges being wired to preserve apply-directly
+      // semantics for in-memory deployments and legacy tests.
+      if (ctx.pendingChanges && !isFreshlyCreated(ctx, dashboardId)) {
+        let before: { title: string; description: string } | null = null;
+        try {
+          if (ctx.store.findById) {
+            const dash = await ctx.store.findById(dashboardId);
+            if (dash) before = { title: dash.title, description: dash.description };
+          }
+        } catch {
+          before = null;
+        }
+        const after = {
+          title,
+          description: description ?? before?.description ?? '',
+        };
+        const summary = `Rename dashboard to "${title}"`;
+        const rowId = await persistPendingChange(ctx, {
+          dashboardId,
+          panelId: null,
+          changeKind: 'set_title',
+          beforeJson: before,
+          afterJson: after,
+          summary,
+        });
+        if (rowId === null) {
+          await queuePending(
+            ctx,
+            dashboardId,
+            // `set_title` isn't part of the legacy PendingDashboardChangeOp
+            // union; fall back to a direct apply when pendingChanges isn't
+            // wired (preserves pre-Task-AI-1 behavior for in-memory tests).
+            { kind: 'modify_panel', panelId: '', patch: {} } as PendingDashboardChangeOp,
+            summary,
+          ).catch(() => {/* legacy queue may not support set_title; ignore */});
+          await ctx.actionExecutor.execute(dashboardId, [{ type: 'set_title', title, ...(description !== undefined ? { description } : {}) }]);
+          return `Title set to "${title}".`;
+        }
+        return `Proposed change ${rowId}: ${summary}. Pending user approval.`;
+      }
       await ctx.actionExecutor.execute(dashboardId, [{ type: 'set_title', title, ...(description !== undefined ? { description } : {}) }]);
       return `Title set to "${title}".`;
     },
@@ -487,20 +786,64 @@ export async function handleDashboardRemovePanels(
     // pendingChanges so the user reviews each removal before the dashboard is
     // mutated. Freshly-created dashboards in this session apply directly.
     if (!isFreshlyCreated(ctx, dashboardId)) {
-      for (const panelId of panelIds) {
-        await queuePending(
-          ctx,
-          dashboardId,
-          { kind: 'remove_panel', panelId },
-          `Remove panel ${panelId}`,
-        );
+      // Capture each removal target snapshot for the row's before_json so the
+      // diff UI can render "what will be removed".
+      const byId: Map<string, PanelConfig> = new Map();
+      try {
+        if (ctx.store.findById) {
+          const dash = await ctx.store.findById(dashboardId);
+          if (dash) for (const p of dash.panels) byId.set(p.id, p);
+        }
+      } catch {
+        // best-effort; missing snapshots become null in before_json
       }
-      const observationText = `Proposed removal of ${panelIds.length} panel(s); pending user review.`;
+      const proposalIds: string[] = [];
+      for (const panelId of panelIds) {
+        const before = byId.get(panelId) ?? null;
+        const summary = `Remove panel ${before?.title ?? panelId}`;
+        const rowId = await persistPendingChange(ctx, {
+          dashboardId,
+          panelId,
+          changeKind: 'remove_panel',
+          beforeJson: before,
+          // remove_panel after_json = null sentinel: row reduces to "drop this id"
+          afterJson: { panelId },
+          summary,
+        });
+        if (rowId === null) {
+          await queuePending(
+            ctx,
+            dashboardId,
+            { kind: 'remove_panel', panelId },
+            `Remove panel ${panelId}`,
+          );
+        } else {
+          proposalIds.push(rowId);
+        }
+      }
+      const observationText = proposalIds.length > 0
+        ? `Proposed removal of ${proposalIds.length} panel(s) (${proposalIds.join(', ')}). Pending user approval.`
+        : `Proposed removal of ${panelIds.length} panel(s); pending user review.`;
       ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
       return observationText;
     }
 
+    // Capture the panel snapshots before deletion so the panel_events row
+    // carries the spec at delete-time (the row outlives the dashboard panel).
+    const removedSnapshots = await (async (): Promise<PanelConfig[]> => {
+      try {
+        const dash = ctx.store.findById ? await ctx.store.findById(dashboardId) : null;
+        if (!dash) return panelIds.map((id) => ({ id } as PanelConfig));
+        const byId = new Map(dash.panels.map((p) => [p.id, p]));
+        return panelIds.map((id) => byId.get(id) ?? ({ id } as PanelConfig));
+      } catch {
+        return panelIds.map((id) => ({ id } as PanelConfig));
+      }
+    })();
+
     await ctx.actionExecutor.execute(dashboardId, [{ type: 'remove_panels', panelIds }]);
+
+    recordPanelEvents(ctx, dashboardId, removedSnapshots, 'deleted');
 
     const observationText = `Removed ${panelIds.length} panel(s).`;
     ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
@@ -542,24 +885,92 @@ export async function handleDashboardModifyPanel(
     }
   }
 
+  if (typeof patch.unit === 'string' || Array.isArray(patch.queries)) {
+    let beforePanel: PanelConfig | null = null;
+    try {
+      if (ctx.store.findById) {
+        const dash = await ctx.store.findById(dashboardId);
+        beforePanel = dash?.panels.find((p) => p.id === panelId) ?? null;
+      }
+    } catch {
+      beforePanel = null;
+    }
+    const title = typeof patch.title === 'string' ? patch.title : beforePanel?.title;
+    const queriesRaw = Array.isArray(patch.queries) ? patch.queries : beforePanel?.queries ?? [];
+    const metadataByMetric = await fetchPanelMetadata(ctx, { title, queries: queriesRaw });
+    const unit = resolvePanelUnit({
+      title,
+      unit: typeof patch.unit === 'string' ? patch.unit : beforePanel?.unit,
+      queries: Array.isArray(queriesRaw)
+        ? queriesRaw.map((q: Record<string, unknown>) => ({ expr: String(q.expr ?? '') }))
+        : [],
+      metadataByMetric,
+    });
+    if (unit) patch.unit = unit;
+    else delete patch.unit;
+  }
+
   ctx.sendEvent({ type: 'tool_call', tool: 'dashboard_modify_panel', args: { panelId, patch }, displayText: `Modifying panel ${panelId}` });
 
   try {
     // Task 09 — modifying a panel on a pre-existing dashboard goes to
     // pendingChanges (the dashboard may be shared; the user must accept).
     if (!isFreshlyCreated(ctx, dashboardId)) {
-      await queuePending(
-        ctx,
+      // First-class persisted proposal (T-AI-1) when the repo is wired.
+      // Capture a before-snapshot for the diff UI, compute after = before+patch.
+      let beforePanel: PanelConfig | null = null;
+      try {
+        if (ctx.store.findById) {
+          const dash = await ctx.store.findById(dashboardId);
+          beforePanel = dash?.panels.find((p) => p.id === panelId) ?? null;
+        }
+      } catch {
+        beforePanel = null;
+      }
+      const afterPanel = beforePanel
+        ? ({ ...beforePanel, ...(patch as object) } as PanelConfig)
+        : ({ id: panelId, ...(patch as object) } as PanelConfig);
+      const summary = `Modify panel ${beforePanel?.title ?? panelId}`;
+      const rowId = await persistPendingChange(ctx, {
         dashboardId,
-        { kind: 'modify_panel', panelId, patch },
-        `Modify panel ${panelId}`,
-      );
-      const observationText = `Proposed modification of panel ${panelId}; pending user review.`;
+        panelId,
+        changeKind: 'modify_panel',
+        beforeJson: beforePanel,
+        afterJson: afterPanel,
+        summary,
+      });
+      if (rowId === null) {
+        // Repo missing or insert failed — keep the legacy ephemeral path so
+        // the in-flight frontend agent's work still sees a proposal.
+        await queuePending(
+          ctx,
+          dashboardId,
+          { kind: 'modify_panel', panelId, patch },
+          `Modify panel ${panelId}`,
+        );
+      }
+      const observationText = rowId
+        ? `Proposed change ${rowId}: ${summary}. Pending user approval.`
+        : `Proposed modification of panel ${panelId}; pending user review.`;
       ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
       return observationText;
     }
 
     await ctx.actionExecutor.execute(dashboardId, [{ type: 'modify_panel', panelId, patch }]);
+
+    // Look up the post-patch panel for a faithful snapshot in panel_events.
+    // Fallback to a thin {id, ...patch} when findById is unavailable.
+    let snapshot: PanelConfig = { id: panelId, ...(patch as object) } as PanelConfig;
+    try {
+      if (ctx.store.findById) {
+        const dash = await ctx.store.findById(dashboardId);
+        const found = dash?.panels.find((p) => p.id === panelId);
+        if (found) snapshot = found;
+      }
+    } catch {
+      // best-effort; keep the patch-derived snapshot
+    }
+    recordPanelEvents(ctx, dashboardId, [snapshot], 'edited');
 
     const observationText = `Modified panel ${panelId}.`;
     ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
@@ -597,13 +1008,26 @@ export async function handleDashboardAddVariable(
     // pendingChanges. Variables affect every panel's query, so silently mutating
     // a shared dashboard's variable set would be especially disruptive.
     if (!isFreshlyCreated(ctx, dashboardId)) {
-      await queuePending(
-        ctx,
+      const summary = `Add variable $${variable.name}`;
+      const rowId = await persistPendingChange(ctx, {
         dashboardId,
-        { kind: 'add_variable', variable },
-        `Add variable $${variable.name}`,
-      );
-      const observationText = `Proposed variable $${variable.name}; pending user review.`;
+        panelId: null,
+        changeKind: 'add_variable',
+        beforeJson: null,
+        afterJson: variable,
+        summary,
+      });
+      if (rowId === null) {
+        await queuePending(
+          ctx,
+          dashboardId,
+          { kind: 'add_variable', variable },
+          summary,
+        );
+      }
+      const observationText = rowId
+        ? `Proposed change ${rowId}: ${summary}. Pending user approval.`
+        : `Proposed variable $${variable.name}; pending user review.`;
       ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
       return observationText;
     }

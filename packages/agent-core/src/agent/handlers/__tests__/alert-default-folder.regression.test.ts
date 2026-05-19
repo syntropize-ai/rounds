@@ -1,15 +1,14 @@
 /**
- * Regression coverage — Task 16, scenario 2 (agent-core slice).
+ * Regression coverage — Grafana folder parity (2026-05-18).
  *
- * Protects the AI alert-creation contract: when no folderUid is supplied,
- * the handler must use (and lazily CREATE) the default `alerts` folder
- * scoped to the caller's org. The route-level equivalent for the manual UI
- * is tested in packages/api-gateway/src/routes/alert-rules.test.ts —
- * this test covers the agent-core handler path which has its own
- * `resolveAlertRuleFolderUid` implementation.
+ * Protects the AI alert-creation contract: alerts no longer auto-create a
+ * synthetic "Alerts" system folder. Instead:
+ *   - explicit `folderUid` arg ⇒ used verbatim
+ *   - active dashboard with a folder ⇒ inherit the dashboard's folder
+ *   - otherwise ⇒ folderUid omitted from the create payload (root / null)
  *
- * Existing alert.test.ts only stubs `findByUid` to return an existing
- * folder — this test specifically protects the create-on-miss branch.
+ * The route-level equivalent for the manual UI is tested in
+ * packages/api-gateway/src/routes/alert-rules.test.ts.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -26,92 +25,84 @@ const createSpec = {
   labels: {},
 };
 
-describe('regression: alert handler default Alerts folder (agent-core handler path)', () => {
-  it('creates the "alerts" folder when it does not exist and uses it for the rule', async () => {
-    const create = vi.fn(async () => ({ uid: 'alerts' }));
-    const findByUid = vi.fn(async () => null);
-    const folderRepository = { create, findByUid } as never;
+function makeAlertStore(createdSink: Array<Record<string, unknown>>) {
+  return {
+    create: vi.fn(async (input: Record<string, unknown>) => {
+      createdSink.push(input);
+      return {
+        id: 'rule-1',
+        name: 'CPUHigh',
+        severity: 'high',
+        evaluationIntervalSec: 60,
+        condition: { query: 'up', operator: '>', threshold: 0.5, forDurationSec: 0 },
+        ...input,
+      };
+    }),
+    findById: vi.fn(),
+    findByWorkspace: vi.fn(async () => []),
+    update: vi.fn(),
+    delete: vi.fn(),
+  } as never;
+}
 
-    const created = {
-      id: 'rule-1',
-      name: 'CPUHigh',
-      severity: 'high',
-      evaluationIntervalSec: 60,
-      condition: { query: 'up', operator: '>', threshold: 0.5, forDurationSec: 0 },
-    };
-    const alertRuleStore = {
-      create: vi.fn(async () => created),
-      findById: vi.fn(),
-      findByWorkspace: vi.fn(async () => []),
-      update: vi.fn(),
-      delete: vi.fn(),
-    } as never;
+describe('regression: alert handler folder parity (agent-core handler path)', () => {
+  it('omits folderUid from the create payload when no folder is requested and no dashboard is active', async () => {
+    const created: Array<Record<string, unknown>> = [];
     const ctx = makeFakeActionContext({
       identity: makeTestIdentity({ orgId: 'org-7', userId: 'u-1' }),
-      alertRuleStore,
-      folderRepository,
+      alertRuleStore: makeAlertStore(created),
     });
 
-    const observation = await handleAlertRuleWrite(ctx, {
-      op: 'create',
-      spec: createSpec,
-    });
+    const observation = await handleAlertRuleWrite(ctx, { op: 'create', spec: createSpec });
 
     expect(observation).toContain('Created alert rule "CPUHigh"');
-    // Resolution went looking in the caller's org first.
-    expect(findByUid).toHaveBeenCalledWith('org-7', 'alerts');
-    // Then created the folder under that org with the canonical title.
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        uid: 'alerts',
-        orgId: 'org-7',
-        title: 'Alerts',
-        createdBy: 'u-1',
-      }),
-    );
-    // The alert row was scoped to the resolved folder.
-    expect((alertRuleStore as { create: ReturnType<typeof vi.fn> }).create).toHaveBeenCalledWith(
-      expect.objectContaining({ folderUid: 'alerts', workspaceId: 'org-7' }),
-    );
+    expect(created).toHaveLength(1);
+    // Root-level: folderUid was passed but resolves to null. The store
+    // persists null as folder_uid (Grafana parity, "General" scope).
+    expect(created[0]!.folderUid).toBeNull();
   });
 
-  it('uses an explicitly supplied folderUid without touching folderRepository', async () => {
-    const create = vi.fn();
-    const findByUid = vi.fn();
-    const folderRepository = { create, findByUid } as never;
-
-    const alertRuleStore = {
-      create: vi.fn(async () => ({
-        id: 'rule-2',
-        name: 'X',
-        severity: 'low',
-        evaluationIntervalSec: 60,
-        condition: { query: 'up', operator: '>', threshold: 0, forDurationSec: 0 },
-      })),
-      findById: vi.fn(),
-      findByWorkspace: vi.fn(async () => []),
-      update: vi.fn(),
-      delete: vi.fn(),
-    } as never;
+  it('uses an explicitly supplied folderUid', async () => {
+    const created: Array<Record<string, unknown>> = [];
     const ctx = makeFakeActionContext({
-      alertRuleStore,
-      folderRepository,
+      alertRuleStore: makeAlertStore(created),
     });
 
     await handleAlertRuleWrite(ctx, {
       op: 'create',
-      spec: {
-        ...createSpec,
-        name: 'X',
-        severity: 'low',
-        condition: { query: 'up', operator: '>', threshold: 0, forDurationSec: 0 },
-      },
+      spec: { ...createSpec, name: 'X' },
       folderUid: 'team-payments',
     });
-    expect(findByUid).not.toHaveBeenCalled();
-    expect(create).not.toHaveBeenCalled();
-    expect((alertRuleStore as { create: ReturnType<typeof vi.fn> }).create).toHaveBeenCalledWith(
-      expect.objectContaining({ folderUid: 'team-payments' }),
-    );
+
+    expect(created[0]!.folderUid).toBe('team-payments');
+  });
+
+  it('inherits the active dashboard\'s folder when one is set', async () => {
+    const created: Array<Record<string, unknown>> = [];
+    const findById = vi.fn(async () => ({ id: 'dash-9', folder: 'team-infra' }));
+    const ctx = makeFakeActionContext({
+      alertRuleStore: makeAlertStore(created),
+    });
+    ctx.activeDashboardId = 'dash-9';
+    (ctx.store as unknown as { findById: typeof findById }).findById = findById;
+
+    await handleAlertRuleWrite(ctx, { op: 'create', spec: { ...createSpec, name: 'Y' } });
+
+    expect(findById).toHaveBeenCalledWith('dash-9');
+    expect(created[0]!.folderUid).toBe('team-infra');
+  });
+
+  it('falls back to null when the active dashboard has no folder', async () => {
+    const created: Array<Record<string, unknown>> = [];
+    const findById = vi.fn(async () => ({ id: 'dash-9' /* no folder */ }));
+    const ctx = makeFakeActionContext({
+      alertRuleStore: makeAlertStore(created),
+    });
+    ctx.activeDashboardId = 'dash-9';
+    (ctx.store as unknown as { findById: typeof findById }).findById = findById;
+
+    await handleAlertRuleWrite(ctx, { op: 'create', spec: { ...createSpec, name: 'Z' } });
+
+    expect(created[0]!.folderUid).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import type { ToolDefinition } from '@agentic-obs/llm-gateway';
+import type { JsonSchemaProperty, ToolDefinition } from '@agentic-obs/llm-gateway';
 import type { ToolCategory } from './tool-search.js';
 
 /**
@@ -18,6 +18,20 @@ export interface ToolRegistryEntry {
   category: ToolCategory;
   schema: ToolDefinition;
 }
+
+const PANEL_VISUALIZATIONS = ['time_series', 'stat', 'bar', 'bar_gauge', 'heatmap', 'gauge', 'table', 'pie', 'histogram'] as const;
+const PANEL_UNITS = ['none', 'short', 'percent', 'percentunit', 'bytes', 'decbytes', 'bytes_si', 'decbytes_si', 'bps', 'Bps', 'reqps', 'ops', 'opsps', 's', 'ms', 'dateTime'] as const;
+const PANEL_QUERY_SCHEMA: JsonSchemaProperty = {
+  type: 'object',
+  properties: {
+    refId: { type: 'string', description: 'Series reference id, usually A/B/C.' },
+    expr: { type: 'string', description: 'Backend-native query expression (PromQL).' },
+    datasourceId: { type: 'string', description: 'Required connector id for this query.' },
+    legendFormat: { type: 'string' },
+    instant: { type: 'boolean' },
+  },
+  required: ['refId', 'expr', 'datasourceId'],
+};
 
 export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // -------------------------------------------------------------------------
@@ -199,6 +213,48 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  'panel_preview': {
+    category: 'always-on',
+    schema: {
+      name: 'panel_preview',
+      description:
+        'Verify a panel spec against the live datasource BEFORE calling dashboard_add_panels. Runs each query as a range query, reports series counts + a tiny sample, flags viz/query mismatches (stat+rate, heatmap without by(le), bar with multi-series), and returns ok:false when any query failed or every query returned zero series. Use as step 5 of the panel-authoring protocol. The verify-gate around dashboard_add_panels runs the same check on the server; passing here keeps the gate green.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Optional. Connector id; omit to use the session pin or workspace primary.' },
+          panel: {
+            type: 'object',
+            description: 'Single panel spec to validate.',
+            properties: {
+              title: { type: 'string' },
+              description: { type: 'string', description: 'One-line. Should start with "Q: <the question>" per the panel-authoring protocol.' },
+              visualization: { type: 'string', enum: ['time_series', 'stat', 'bar', 'heatmap', 'gauge', 'table'] },
+              queries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    expr: { type: 'string', description: 'Backend-native query expression (PromQL).' },
+                    legendFormat: { type: 'string' },
+                    instant: { type: 'boolean' },
+                  },
+                  required: ['expr'],
+                },
+              },
+              unit: { type: 'string', enum: [...PANEL_UNITS], description: 'Optional canonical display unit. Omit when unknown; panel_preview returns suggestedUnit.' },
+            },
+            required: ['title', 'visualization', 'queries'],
+          },
+          timeRange: {
+            type: 'object',
+            description: 'Time window to run queries against. Pass `{relative: "1h"}` for a relative span, or `{from, to}` for explicit epoch ms. Default 1h.',
+          },
+        },
+        required: ['panel'],
+      },
+    },
+  },
   'metric_explore': {
     category: 'always-on',
     schema: {
@@ -218,6 +274,113 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
         },
         required: ['query'],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Narrow per-shape metric discovery primitives — Read/Grep/Glob style.
+  // Each does ONE specific lookup so the model's intent is unambiguous from
+  // the tool name alone. The legacy `metrics_discover` collapse-tool stays
+  // available; these are the preferred entry points for new discovery flows.
+  // -------------------------------------------------------------------------
+  'metrics_list_names': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_list_names',
+      description:
+        'List metric names available on a metrics connector, optionally filtered by a JS-flavored case-insensitive regex via `match`. Use BEFORE drafting any PromQL when you are unsure whether a metric exists or what naming convention the cluster uses. Returns at most 500 names per call — refine `match` if truncated.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          match: { type: 'string', description: 'Optional case-insensitive regex applied to metric names (e.g. "http|grpc").' },
+        },
+        required: [],
+      },
+    },
+  },
+  'metrics_get_labels': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_get_labels',
+      description:
+        'List the label keys present on a specific metric. Use to discover which dimensions a metric can be sliced by BEFORE writing a selector like `metric{label="value"}`. Never invent label names — query them here first.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric whose label keys to enumerate.' },
+        },
+        required: ['metricName'],
+      },
+    },
+  },
+  'metrics_get_label_values': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_get_label_values',
+      description:
+        'Sample the values for ONE label on ONE metric. Use when you have a metric + label in hand and need to know which values to filter on (e.g. which values of `namespace` exist on `http_requests_total`). Returns at most `limit` values (default 50, max 500) plus a `truncated` flag.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric to scope to.' },
+          label: { type: 'string', description: 'The label whose values to sample.' },
+          limit: { type: 'integer', description: 'Max values to return (default 50, max 500).' },
+        },
+        required: ['metricName', 'label'],
+      },
+    },
+  },
+  'metrics_get_cardinality': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_get_cardinality',
+      description:
+        'Count total series for a metric. Use to gauge whether a query will be cheap or fan out to thousands of series before you commit to it. Returns `{ seriesCount, truncated }` — `truncated` is true when the metric exceeds the internal pull cap (50k); treat the count as a lower bound in that case.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric whose total series count to report.' },
+        },
+        required: ['metricName'],
+      },
+    },
+  },
+  'metrics_sample_series': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_sample_series',
+      description:
+        'Return a handful of current series for a metric, each with its full label set and current value. Use to confirm the shape of the data before writing a more complex query — answers "what does this metric actually look like right now?". Returns up to `limit` series (default 10, max 100).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The metric to sample.' },
+          limit: { type: 'integer', description: 'Max series to return (default 10, max 100).' },
+        },
+        required: ['metricName'],
+      },
+    },
+  },
+  'metrics_find_related': {
+    category: 'deferred',
+    schema: {
+      name: 'metrics_find_related',
+      description:
+        'Find other metrics that share label keys with this one — a proxy for "which metrics are produced by the same job / sidecar / exporter". Use during investigations to surface neighboring signals (e.g. given `http_request_duration_seconds`, returns `http_requests_total`, `http_request_size_bytes`, ...). Ranked by number of shared label keys (not values). Structural labels (`le`, `quantile`) are ignored.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          datasourceId: { type: 'string', description: 'Connector id. Omit to use the primary metrics datasource.' },
+          metricName: { type: 'string', description: 'The seed metric.' },
+          limit: { type: 'integer', description: 'Max related metrics to return (default 10, max 50).' },
+        },
+        required: ['metricName'],
       },
     },
   },
@@ -491,8 +654,38 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         properties: {
           panels: {
             type: 'array',
-            description: 'Panel configs. Each: { title, visualization, queries: [{refId, expr, datasourceId, legendFormat?, instant?}], unit?, ... }. datasourceId is REQUIRED per query.',
-            items: { type: 'object' },
+            description: 'Panel configs. datasourceId is REQUIRED per query. unit is optional; use only known metric unit metadata or omit it.',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string' },
+                description: { type: 'string' },
+                visualization: { type: 'string', enum: [...PANEL_VISUALIZATIONS] },
+                queries: {
+                  type: 'array',
+                  items: PANEL_QUERY_SCHEMA,
+                },
+                unit: { type: 'string', enum: [...PANEL_UNITS], description: 'Optional canonical display unit. Omit when unknown instead of guessing.' },
+                stackMode: { type: 'string', enum: ['none', 'normal', 'percent'] },
+                fillOpacity: { type: 'number' },
+                decimals: { type: 'number' },
+                thresholds: { type: 'array', items: { type: 'object' } },
+                sparkline: { type: 'boolean' },
+                colorMode: { type: 'string' },
+                graphMode: { type: 'string' },
+                lineWidth: { type: 'number' },
+                legendStats: { type: 'array', items: { type: 'string' } },
+                legendPlacement: { type: 'string' },
+                colorScale: { type: 'string' },
+                showPoints: { type: 'string' },
+                yScale: { type: 'string' },
+                collapseEmptyBuckets: { type: 'boolean' },
+                barGaugeMax: { type: 'number' },
+                barGaugeMode: { type: 'string' },
+                annotations: { type: 'array', items: { type: 'object' } },
+              },
+              required: ['title', 'visualization', 'queries'],
+            },
           },
         },
         required: ['panels'],
@@ -530,8 +723,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           title: { type: 'string', description: 'Optional new title' },
           description: { type: 'string', description: 'Optional new description' },
           visualization: { type: 'string', description: 'Optional visualization change (time_series, stat, gauge, ...)' },
-          queries: { type: 'array', description: 'Optional replacement query list', items: { type: 'object' } },
-          unit: { type: 'string', description: 'Optional value unit (seconds, bytes, percentunit, reqps, ...)' },
+          queries: { type: 'array', description: 'Optional replacement query list. Each replacement query must include refId, expr, and datasourceId.', items: PANEL_QUERY_SCHEMA },
+          unit: { type: 'string', enum: [...PANEL_UNITS], description: 'Optional canonical value unit. Omit when unknown instead of guessing.' },
         },
         required: ['panelId'],
       },
@@ -549,6 +742,40 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           description: { type: 'string', description: 'Optional new description' },
         },
         required: ['title'],
+      },
+    },
+  },
+  'dashboard_lint': {
+    category: 'always-on',
+    schema: {
+      name: 'dashboard_lint',
+      description:
+        'Validate a drafted DashboardSpec against the built-in rule set (data presence, label validity, unit/viz match, histogram_quantile form, grouping cardinality, duplicate-query detection, panel-as-question discipline, time-range sanity, ...). Returns a flat list of issues; each has a severity (`error` | `warn` | `info`), `ruleName`, optional `panelId`, message, and a fixHint.\n\n' +
+        'Call this AFTER drafting panels and BEFORE saving. Treat every `error` as blocking — fix the cause and re-lint. For `warn`-severity issues, either fix or briefly justify why the warning is acceptable for this dashboard. `info` is advisory.\n\n' +
+        'When no metrics connector is wired, query-execution rules (panel-returns-data, query-uses-known-labels, high-cardinality-grouping) self-skip with a single `info`-severity issue per skipped rule; the pure structural rules still run.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          spec: {
+            type: 'object',
+            description: 'The full DashboardSpec to lint — panels[], variables[], refreshIntervalSec, etc. Pass the exact shape you intend to save.',
+          },
+          datasourceId: {
+            type: 'string',
+            description: 'Connector id used for query/label/cardinality probes. Omit to use the session-pinned metrics connector or the default.',
+          },
+          only: {
+            type: 'array',
+            description: 'Optional allowlist of rule names; when set only these rules run.',
+            items: { type: 'string' },
+          },
+          skip: {
+            type: 'array',
+            description: 'Optional denylist of rule names to exclude. Applied after `only`.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['spec'],
       },
     },
   },
@@ -993,6 +1220,62 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           value: { type: 'string', description: 'New value.' },
         },
         required: ['key', 'value'],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // Knowledge base (TF-IDF over bundled + saved + distilled entries)
+  // -------------------------------------------------------------------------
+  'kb_search': {
+    category: 'deferred',
+    schema: {
+      name: 'kb_search',
+      description:
+        'Keyword-search the workspace knowledge base for bundled and saved templates and patterns. Call before web_search when the user names a known system.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Free-text search query' },
+          kind: {
+            type: 'string',
+            enum: ['pattern', 'template', 'metric_doc', 'system_fact'],
+            description: 'Optional kind filter.',
+          },
+          limit: { type: 'integer', description: 'Max entries to return (default 5, capped at 20)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  'kb_get': {
+    category: 'deferred',
+    schema: {
+      name: 'kb_get',
+      description:
+        'Fetch a single knowledge-base entry by id. Call after kb_search or kb_recommend to retrieve full content.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'KB entry id from kb_search or kb_recommend' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  'kb_recommend': {
+    category: 'deferred',
+    schema: {
+      name: 'kb_recommend',
+      description:
+        'Recommend KB templates and patterns for the given intent. Call before dashboard_create.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          intent: { type: 'string', description: 'Free-text description of what the user wants to monitor.' },
+        },
+        required: ['intent'],
+        additionalProperties: false,
       },
     },
   },

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import type { AlertRule, AlertSilence, NotificationPolicy, IFolderRepository } from '@agentic-obs/common';
+import type { AlertRule, AlertSilence, NotificationPolicy } from '@agentic-obs/common';
 import {
   ACTIONS,
   ac,
@@ -21,8 +21,6 @@ import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 
 const log = createLogger('alert-rules-route');
-const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
-const DEFAULT_ALERT_RULE_FOLDER_TITLE = 'Alerts';
 
 /**
  * Resolve the current request's org id. Prefers `req.auth.orgId` populated by
@@ -44,7 +42,6 @@ export interface AlertRulesRouterDeps {
   reportStore?: IInvestigationReportRepository;
   /** Required for preview/backtest to resolve configured metrics datasources. */
   setupConfig: SetupConfigService;
-  folderRepository: IFolderRepository;
   /**
    * RBAC surface. `AccessControlSurface` is used (not the concrete service)
    * because this router is mounted outside the async auth IIFE in server.ts
@@ -72,30 +69,6 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   const alertRuleService = new AlertRuleService(store, deps.setupConfig);
   const audit = deps.audit;
   const requirePermission = createRequirePermission(deps.ac);
-
-  async function resolveAlertRuleFolderUid(
-    workspaceId: string,
-    userId: string | undefined,
-    requested?: string,
-  ): Promise<string> {
-    const folderUid = requested?.trim();
-    if (folderUid) return folderUid;
-
-    const existing = await deps.folderRepository.findByUid(workspaceId, DEFAULT_ALERT_RULE_FOLDER_UID);
-    if (existing) return existing.uid;
-
-    const created = await deps.folderRepository.create({
-      uid: DEFAULT_ALERT_RULE_FOLDER_UID,
-      orgId: workspaceId,
-      title: DEFAULT_ALERT_RULE_FOLDER_TITLE,
-      description: 'Default folder for alert rules created without an explicit folder.',
-      parentUid: null,
-      createdBy: userId ?? null,
-      updatedBy: userId ?? null,
-      source: 'api',
-    });
-    return created.uid;
-  }
 
   function requestFolderUid(req: Request): string {
     const raw = (req.body as { folderUid?: unknown } | undefined)?.folderUid;
@@ -371,8 +344,14 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   router.post(
     '/',
     requirePermission((req) => {
-      const folderUid = requestFolderUid(req) || DEFAULT_ALERT_RULE_FOLDER_UID;
-      return ac.eval(ACTIONS.AlertRulesCreate, `folders:uid:${folderUid}`);
+      const folderUid = requestFolderUid(req);
+      // No folderUid in the body ⇒ root (wildcard scope so any
+      // alert.rules:create grant covers it). Grafana parity: alerts may live
+      // at root just like dashboards.
+      return ac.eval(
+        ACTIONS.AlertRulesCreate,
+        folderUid ? `folders:uid:${folderUid}` : 'folders:uid:*',
+      );
     }),
     async (req: Request, res: Response) => {
       const body = req.body as Partial<AlertRule>;
@@ -382,11 +361,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       }
 
       const workspaceId = resolveOrgId(req);
-      const folderUid = await resolveAlertRuleFolderUid(
-        workspaceId,
-        (req as AuthenticatedRequest).auth?.userId,
-        typeof body.folderUid === 'string' ? body.folderUid : undefined,
-      );
+      const requestedFolder = typeof body.folderUid === 'string' ? body.folderUid.trim() : '';
       type AlertRuleCreateInput = Omit<AlertRule, 'id' | 'createdAt' | 'updatedAt' | 'fireCount' | 'state' | 'stateChangedAt'>;
       const createInput: AlertRuleCreateInput = {
         name: body.name,
@@ -399,7 +374,9 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         createdBy: body.createdBy ?? 'user',
         notificationPolicyId: body.notificationPolicyId,
         workspaceId,
-        folderUid,
+        // Folder is optional — omit ⇒ root (Grafana parity). Only set when
+        // explicitly requested so the store column lands as NULL otherwise.
+        ...(requestedFolder ? { folderUid: requestedFolder } : {}),
         // REST API created — see writable-gate.ts for the source taxonomy.
         source: 'api',
       };

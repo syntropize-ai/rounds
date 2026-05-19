@@ -28,6 +28,14 @@ import {
   handleMetricsDiscover,
   handleMetricsValidate,
   handleMetricExplore,
+  handleMetricsListNames,
+  handleMetricsGetLabels,
+  handleMetricsGetLabelValues,
+  handleMetricsGetCardinality,
+  handleMetricsSampleSeries,
+  handleMetricsFindRelated,
+  handleDashboardLint,
+  handlePanelPreview,
   handleLogsQuery,
   handleLogsLabels,
   handleLogsLabelValues,
@@ -51,6 +59,9 @@ import {
   handleConnectorTest,
   handleSettingGet,
   handleSettingSet,
+  handleKbSearch,
+  handleKbGet,
+  handleKbRecommend,
 } from './orchestrator-action-handlers.js';
 import type { ToolAuditReporter } from './orchestrator-audit-reporter.js';
 
@@ -183,6 +194,7 @@ async function dispatchAction(
     case 'dashboard_remove_panels': return handleDashboardRemovePanels(ctx, args);
     case 'dashboard_modify_panel': return handleDashboardModifyPanel(ctx, args);
     case 'dashboard_add_variable': return handleDashboardAddVariable(ctx, args);
+    case 'dashboard_lint': return handleDashboardLint(ctx, args);
     // Investigation lifecycle
     case 'investigation_create': return handleInvestigationCreate(ctx, args);
     case 'investigation_list': return handleInvestigationList(ctx, args);
@@ -210,6 +222,14 @@ async function dispatchAction(
     case 'metrics_validate': return handleMetricsValidate(ctx, args);
     // Inline chart bubble in chat (PR-A backend; PR-B frontend renders the bubble).
     case 'metric_explore': return handleMetricExplore(ctx, args);
+    // Narrow per-shape discovery primitives — one tool per lookup shape.
+    case 'metrics_list_names': return handleMetricsListNames(ctx, args);
+    case 'metrics_get_labels': return handleMetricsGetLabels(ctx, args);
+    case 'metrics_get_label_values': return handleMetricsGetLabelValues(ctx, args);
+    case 'metrics_get_cardinality': return handleMetricsGetCardinality(ctx, args);
+    case 'metrics_sample_series': return handleMetricsSampleSeries(ctx, args);
+    case 'metrics_find_related': return handleMetricsFindRelated(ctx, args);
+    case 'panel_preview': return handlePanelPreview(ctx, args);
     // Source-agnostic logs primitives
     case 'logs_query': return handleLogsQuery(ctx, args);
     case 'logs_labels': return handleLogsLabels(ctx, args);
@@ -232,6 +252,10 @@ async function dispatchAction(
     case 'setting_set': return handleSettingSet(ctx, args);
     // Web search
     case 'web_search': return handleWebSearch(ctx, args);
+    // Knowledge base
+    case 'kb_search': return handleKbSearch(ctx, args);
+    case 'kb_get': return handleKbGet(ctx, args);
+    case 'kb_recommend': return handleKbRecommend(ctx, args);
     // `tool_search` is intercepted by ReActLoop before dispatch — it
     // resolves deferred-tool schemas and feeds them back as an observation
     // without round-tripping through the dispatcher. Listed here as a

@@ -160,6 +160,39 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
     return [...names].sort();
   }
 
+  async findSeriesFull(
+    matchers: string[],
+    limit?: number,
+  ): Promise<Array<Record<string, string>>> {
+    if (matchers.length === 0) return [];
+    const op = 'findSeriesFull';
+    const params = new URLSearchParams();
+    for (const m of matchers) params.append('match[]', m);
+    const now = Math.floor(Date.now() / 1000);
+    params.set('start', String(now - 300));
+    params.set('end', String(now));
+    if (limit !== undefined && Number.isFinite(limit) && limit > 0) {
+      // Prometheus 2.34+ honors `limit` on /api/v1/series. Older versions
+      // silently ignore unknown params, so passing it is always safe.
+      params.set('limit', String(Math.floor(limit)));
+    }
+
+    const url = `${this.base}/api/v1/series?${params}`;
+    let res: Response;
+    try {
+      res = await this.fetch(url);
+    } catch (err) {
+      log.warn({ err, url, matchers, op }, 'prometheus findSeriesFull transport failure');
+      throw transportError(op, err);
+    }
+    if (!res.ok) {
+      log.warn({ url, status: res.status, matchers, op }, 'prometheus returned non-ok');
+      throw httpError(op, res.status);
+    }
+    const body = await parseJson<PrometheusApiResponse<Array<Record<string, string>>>>(res, op);
+    return Array.isArray(body.data) ? body.data : [];
+  }
+
   async instantQuery(expr: string, time?: Date): Promise<MetricSample[]> {
     const op = 'instantQuery';
     const params = new URLSearchParams();

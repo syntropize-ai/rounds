@@ -14,6 +14,7 @@ interface FakeMetricsAdapter {
   listLabels: ReturnType<typeof vi.fn>;
   listLabelValues: ReturnType<typeof vi.fn>;
   findSeries: ReturnType<typeof vi.fn>;
+  findSeriesFull: ReturnType<typeof vi.fn>;
   fetchMetadata: ReturnType<typeof vi.fn>;
   listMetricNames: ReturnType<typeof vi.fn>;
   testQuery: ReturnType<typeof vi.fn>;
@@ -35,6 +36,7 @@ function makeAdapter(overrides: Partial<FakeMetricsAdapter> = {}): FakeMetricsAd
     listLabels: vi.fn().mockResolvedValue([]),
     listLabelValues: vi.fn().mockResolvedValue([]),
     findSeries: vi.fn().mockResolvedValue([]),
+    findSeriesFull: vi.fn().mockResolvedValue([]),
     fetchMetadata: vi.fn().mockResolvedValue({}),
     listMetricNames: vi.fn().mockResolvedValue([]),
     testQuery: vi.fn().mockResolvedValue({ ok: true }),

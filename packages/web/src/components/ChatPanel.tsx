@@ -8,6 +8,8 @@ import AgentActivityBlock from './chat/AgentActivityBlock.js';
 import AskUserPrompt from './chat/AskUserPrompt.js';
 import { DatasourceChoiceChip } from './chat/DatasourceChoiceChip.js';
 import InlineChartMessage from './InlineChartMessage.js';
+import ChangeProposalCard from './chat/ChangeProposalCard.js';
+import type { PendingChangeKind, PendingChangeStatus } from '../types/pending-changes.js';
 import { RoundsLogo } from './RoundsLogo.js';
 
 // Types
@@ -26,11 +28,15 @@ interface Props {
   loadError?: 'not-found' | 'network' | null;
   /** Retry handler for the network-error banner. */
   onRetryLoad?: () => void;
+  /** On history replay, the parent overlays the current status of every
+   *  change_proposal event so accepted/rejected/expired cards render in the
+   *  right state. Map key is the proposal id (event.pendingChange.id). */
+  proposalStatusOverlay?: Map<string, PendingChangeStatus>;
 }
 
 // Main component
 
-export default function ChatPanel({ events, isGenerating, onSendMessage, onStop, loadError = null, onRetryLoad }: Props) {
+export default function ChatPanel({ events, isGenerating, onSendMessage, onStop, loadError = null, onRetryLoad, proposalStatusOverlay }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState('');
   const [unread, setUnread] = useState(0);
@@ -39,7 +45,17 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
   const prevEventCountRef = useRef(events.length);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  const blocks = useMemo(() => groupEvents(events), [events]);
+  const proposalStatusMap = useMemo(() => {
+    const out: Record<string, PendingChangeStatus> = {};
+    if (proposalStatusOverlay) {
+      for (const [id, status] of proposalStatusOverlay) out[id] = status;
+    }
+    return out;
+  }, [proposalStatusOverlay]);
+  const blocks = useMemo(
+    () => groupEvents(events, proposalStatusMap),
+    [events, proposalStatusMap],
+  );
   const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
 
   useEffect(() => {
@@ -260,6 +276,24 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
                   pivotSuggestions={c.pivotSuggestions}
                   warnings={c.warnings}
                   onSendMessage={onSendMessage}
+                />
+              );
+            }
+            if (evt.kind === 'pending_change_created' && evt.pendingChange) {
+              const p = evt.pendingChange;
+              const overlay = proposalStatusOverlay?.get(p.id);
+              return (
+                <ChangeProposalCard
+                  key={evt.id}
+                  proposalId={p.id}
+                  dashboardId={p.dashboardId}
+                  panelId={p.panelId ?? null}
+                  changeKind={(p.changeKind as PendingChangeKind) ?? 'modify_panel'}
+                  summary={p.summary ?? 'Proposed change'}
+                  beforeJson={p.beforeJson}
+                  afterJson={p.afterJson}
+                  initialStatus={(p.status as PendingChangeStatus) ?? 'pending'}
+                  {...(overlay ? { controlledStatus: overlay } : {})}
                 />
               );
             }

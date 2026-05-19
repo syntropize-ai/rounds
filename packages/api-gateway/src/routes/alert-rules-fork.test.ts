@@ -78,12 +78,6 @@ function buildApp(rule: AlertRule | null, captured: {
     createAlertRulesRouter({
       alertRuleStore: store,
       setupConfig: SETUP_CONFIG_STUB,
-      folderRepository: {
-        create: vi.fn(),
-        findById: vi.fn(),
-        findByUid: vi.fn(),
-        list: vi.fn(),
-      } as unknown as Parameters<typeof createAlertRulesRouter>[0]['folderRepository'],
       ac: ALWAYS_ALLOW,
       audit: { log: captured.auditLog } as unknown as Parameters<typeof createAlertRulesRouter>[0]['audit'],
     }),

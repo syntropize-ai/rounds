@@ -180,6 +180,40 @@ export function payloadToChatEvent(
         alternatives,
       };
     }
+    case 'pending_change_created': {
+      const dashboardId = typeof payload.dashboardId === 'string' ? payload.dashboardId : '';
+      if (!dashboardId) return null;
+      return {
+        id,
+        kind: 'pending_change_created',
+        dashboardId,
+        pendingChange: {
+          id: (payload.id as string) ?? id,
+          dashboardId,
+          panelId: (payload.panelId as string | null | undefined) ?? null,
+          summary: payload.summary as string | undefined,
+          changeKind: payload.changeKind as string | undefined,
+          beforeJson: payload.beforeJson,
+          afterJson: payload.afterJson,
+          proposedAt: payload.proposedAt as string | undefined,
+          proposedBy: payload.proposedBy as string | undefined,
+          status: 'pending',
+        },
+      };
+    }
+    case 'pending_change_resolved': {
+      const dashboardId = typeof payload.dashboardId === 'string' ? payload.dashboardId : '';
+      return {
+        id,
+        kind: 'pending_change_resolved',
+        dashboardId,
+        pendingChange: {
+          id: (payload.id as string) ?? id,
+          dashboardId,
+          status: payload.status as string | undefined,
+        },
+      };
+    }
     case 'error':
       return {
         id,
@@ -397,6 +431,45 @@ export function useChat(): UseChatResult {
           break;
         }
 
+        case 'pending_change_created': {
+          // Render inline ChangeProposalCard in the chat stream.
+          appendEvent({
+            id,
+            kind: 'pending_change_created',
+            dashboardId: parsed.dashboardId as string | undefined,
+            pendingChange: {
+              id: (parsed.id as string) ?? id,
+              dashboardId: (parsed.dashboardId as string) ?? '',
+              panelId: (parsed.panelId as string | null | undefined) ?? null,
+              summary: parsed.summary as string | undefined,
+              changeKind: parsed.changeKind as string | undefined,
+              beforeJson: parsed.beforeJson,
+              afterJson: parsed.afterJson,
+              proposedAt: parsed.proposedAt as string | undefined,
+              proposedBy: parsed.proposedBy as string | undefined,
+              status: 'pending',
+            },
+          });
+          break;
+        }
+
+        case 'pending_change_resolved': {
+          // The corresponding ChangeProposalCard tracks its own status; we
+          // still emit the event so chat history replay can carry the
+          // resolution forward.
+          appendEvent({
+            id,
+            kind: 'pending_change_resolved',
+            dashboardId: parsed.dashboardId as string | undefined,
+            pendingChange: {
+              id: (parsed.id as string) ?? id,
+              dashboardId: (parsed.dashboardId as string) ?? '',
+              status: parsed.status as string | undefined,
+            },
+          });
+          break;
+        }
+
         case 'navigate': {
           const path = (parsed.path as string) ?? '';
           if (path) {
@@ -537,8 +610,46 @@ export function useChat(): UseChatResult {
   );
 
   const setPageContext = useCallback((ctx: PageContext | null) => {
+    const prev = pageContextRef.current;
     pageContextRef.current = ctx;
+    // When navigating to a page that has a resource context (dashboard /
+    // investigation / alert), and we don't already have a session loaded
+    // for THIS resource, look up the most-recent owned chat session for
+    // it and resume. Falls back to blank state if none exists.
+    if (
+      ctx?.id &&
+      (ctx.kind === 'dashboard' || ctx.kind === 'investigation' || ctx.kind === 'alert') &&
+      (!prev || prev.id !== ctx.id || prev.kind !== ctx.kind)
+    ) {
+      const resourceType = ctx.kind;
+      const resourceId = ctx.id;
+      void (async () => {
+        try {
+          const res = await apiClient.get<{ sessions: Array<{ id: string }> }>(
+            `/chat/sessions/by-context?resourceType=${encodeURIComponent(resourceType)}&resourceId=${encodeURIComponent(resourceId)}&limit=1`,
+          );
+          const latest = res.data?.sessions?.[0];
+          if (latest?.id && latest.id !== sessionIdRef.current) {
+            await loadSessionRef.current?.(latest.id);
+          } else if (!latest) {
+            // No session yet for this resource — leave the panel empty so
+            // user sees the "ask me anything" prompt rather than the prior
+            // page's conversation bleeding through.
+            if (sessionIdRef.current) {
+              setEvents([]);
+              setCurrentSessionId('');
+              sessionIdRef.current = '';
+            }
+          }
+        } catch {
+          // Non-fatal: leave whatever state was there.
+        }
+      })();
+    }
   }, []);
+  // Ref-forward to loadSession (declared below) so the effect above can
+  // call it without hoisting issues.
+  const loadSessionRef = useRef<((id: string) => Promise<void>) | null>(null);
 
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
@@ -651,6 +762,12 @@ export function useChat(): UseChatResult {
   const retryLoadSession = useCallback(() => {
     const sid = lastLoadSessionIdRef.current;
     if (sid) void loadSession(sid);
+  }, [loadSession]);
+
+  // Forward-ref so setPageContext (defined above) can call loadSession
+  // without hoisting issues — both stay stable for the component lifetime.
+  useEffect(() => {
+    loadSessionRef.current = loadSession;
   }, [loadSession]);
 
   // Cleanup on unmount

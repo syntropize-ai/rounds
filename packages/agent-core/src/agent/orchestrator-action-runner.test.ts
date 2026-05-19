@@ -13,8 +13,6 @@ import { agentRegistry } from './agent-registry.js';
 import { makeFakeActionContext } from './handlers/_test-helpers.js';
 import type { ActionContext } from './handlers/_context.js';
 
-const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
-
 function makeRunner() {
   const sendEvent = vi.fn();
   const emitAgentEvent = vi.fn();
@@ -30,19 +28,6 @@ function makeRunner() {
     makeAgentEvent: (type, metadata) => ({ type, agentType: 'orchestrator', timestamp: '', metadata }) as never,
   });
   return { runner, sendEvent, auditReporter };
-}
-
-function fakeFolderRepo(folders: Array<{ uid: string; title: string; parentUid?: string | null }>) {
-  return {
-    list: vi.fn().mockResolvedValue({ items: folders, total: folders.length }),
-    create: vi.fn(async (input) => ({ id: input.uid, ...input, created: '', updated: '' })),
-    findById: vi.fn(),
-    findByUid: vi.fn(async (_orgId: string, uid: string) => folders.find((f) => f.uid === uid) ?? null),
-    listAncestors: vi.fn(),
-    listChildren: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-  } as unknown as ActionContext['folderRepository'];
 }
 
 const alertCreateSpec = {
@@ -75,12 +60,10 @@ describe('PermissionWrappedActionRunner — required-arg validation', () => {
     expect((auditReporter.writeToolAudit as ReturnType<typeof vi.fn>)).not.toHaveBeenCalledWith('allow', expect.anything(), expect.anything(), expect.anything());
   });
 
-  it('creates alert_rule_write op=create in the default Alerts folder when folderUid is omitted', async () => {
+  it('creates alert_rule_write op=create at root (folderUid=null) when no folder is requested and no dashboard is active', async () => {
     const { runner } = makeRunner();
-    const folderRepo = fakeFolderRepo([]);
     const created: Array<Record<string, unknown>> = [];
     const ctx = makeFakeActionContext({
-      folderRepository: folderRepo,
       alertRuleStore: {
         create: vi.fn(async (input: Record<string, unknown>) => {
           created.push(input);
@@ -96,26 +79,16 @@ describe('PermissionWrappedActionRunner — required-arg validation', () => {
     };
     const observation = await runner.execute(step, ctx);
 
-    // The handler ran (created the rule) and the folderUid was filled silently.
     expect(observation).not.toMatch(/missing required argument/);
     expect(created.length).toBe(1);
-    expect(created[0]!.folderUid).toBe(DEFAULT_ALERT_RULE_FOLDER_UID);
-    expect(folderRepo!.findByUid).toHaveBeenCalledWith('test-org', DEFAULT_ALERT_RULE_FOLDER_UID);
-    expect(folderRepo!.create).toHaveBeenCalledWith(expect.objectContaining({
-      uid: DEFAULT_ALERT_RULE_FOLDER_UID,
-      title: 'Alerts',
-    }));
+    // Grafana parity: no synthetic system folder. folderUid is null at root.
+    expect(created[0]!.folderUid).toBeNull();
   });
 
   it('uses an explicitly requested folder for alert_rule_write op=create', async () => {
     const { runner } = makeRunner();
-    const folderRepo = fakeFolderRepo([
-      { uid: 'prod', title: 'Production', parentUid: null },
-      { uid: 'staging', title: 'Staging', parentUid: null },
-    ]);
     const created: Array<Record<string, unknown>> = [];
     const ctx = makeFakeActionContext({
-      folderRepository: folderRepo,
       alertRuleStore: {
         create: vi.fn(async (input: Record<string, unknown>) => {
           created.push(input);
@@ -133,6 +106,5 @@ describe('PermissionWrappedActionRunner — required-arg validation', () => {
 
     expect(observation).not.toMatch(/missing required argument/);
     expect(created[0]!.folderUid).toBe('prod');
-    expect(folderRepo!.create).not.toHaveBeenCalled();
   });
 });

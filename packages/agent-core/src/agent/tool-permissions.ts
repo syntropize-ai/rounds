@@ -24,8 +24,6 @@ import { ACTIONS, ac } from '@agentic-obs/common';
 import type { ActionContext } from './orchestrator-action-handlers.js';
 import type { ToolPermissionBuilder } from './types-permissions.js';
 
-const DEFAULT_ALERT_RULE_FOLDER_UID = 'alerts';
-
 /**
  * Resolve the connector ID for a source-agnostic metrics / logs / changes
  * tool call. The LLM is now required to pass `sourceId` (see orchestrator
@@ -91,6 +89,10 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'dashboard_set_title': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
   'dashboard_add_variable': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
   'dashboard_rearrange': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  // Lint is read-only — it inspects a draft spec and may probe the metrics
+  // backend. Scope it to `dashboards:read` since there's no specific
+  // dashboard row to gate against (the spec is in-flight).
+  'dashboard_lint': () => ac.eval('dashboards:read', 'dashboards:*'),
 
   // -- Folder tools ---------------------------------------------------------
   'folder_create': (args: Record<string, unknown>) =>
@@ -127,10 +129,11 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'alert_rule_write': async (args: Record<string, unknown>, ctx: ActionContext) => {
     const op = typeof args.op === 'string' ? args.op : '';
     if (op === 'create') {
-      return ac.eval(
-        'alert.rules:create',
-        `folders:uid:${String(args.folderUid ?? DEFAULT_ALERT_RULE_FOLDER_UID)}`,
-      );
+      // No folderUid ⇒ wildcard scope (root, Grafana parity). A narrow
+      // per-folder grant must still be matched against `*` via an org-wide
+      // alert.rules:create grant.
+      const folderUid = typeof args.folderUid === 'string' && args.folderUid ? args.folderUid : '*';
+      return ac.eval('alert.rules:create', `folders:uid:${folderUid}`);
     }
     if (op === 'update' || op === 'delete') {
       const ruleId = String(args.ruleId ?? '');
@@ -165,6 +168,27 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   // other read-side metrics primitives.
   'metric_explore': (args: Record<string, unknown>) =>
     ac.eval('connectors:query', resolveConnectorScope(args)),
+  // Narrow discovery primitives — same connector-scoped read as metrics_query.
+  'metrics_list_names': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_get_labels': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_get_label_values': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_get_cardinality': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_sample_series': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+  'metrics_find_related': (args: Record<string, unknown>) =>
+    ac.eval('connectors:query', resolveConnectorScope(args)),
+
+  // panel_preview — server-side renders + validates a single panel spec.
+  // Gated on dashboards:write because it's part of the authoring flow; we
+  // don't want unauthenticated probing of query shapes / data through this
+  // surface. Active dashboard scope when known, wildcard otherwise (same
+  // pattern as dashboard_add_panels).
+  'panel_preview': (_args: Record<string, unknown>, ctx: ActionContext) =>
+    ac.eval('dashboards:write', resolveDashboardScope(ctx)),
 
   // -- Logs primitives (source-agnostic; sourceId is required) -------------
   'logs_query': (args: Record<string, unknown>) =>
@@ -218,6 +242,15 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
 
   // -- Web / knowledge ------------------------------------------------------
   'web_search': () => ac.eval('chat:use'),
+
+  // -- Knowledge base -------------------------------------------------------
+  // KB read tools. The dedicated `kb:read` action is landing in B1's RBAC
+  // change; until it merges these read tools are gated on `chat:use` (the
+  // lowest read scope an agent caller already needs). One-line swap to
+  // `kb:read` when B1's enum addition lands.
+  'kb_search': () => ac.eval('chat:use'),
+  'kb_get': () => ac.eval('chat:use'),
+  'kb_recommend': () => ac.eval('chat:use'),
 };
 
 /**

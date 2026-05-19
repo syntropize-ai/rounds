@@ -5,7 +5,14 @@ import { randomUUID } from 'crypto'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { createRequirePermission } from '../../middleware/require-permission.js'
-import type { IGatewayDashboardStore } from '@agentic-obs/data-layer'
+import type { IGatewayDashboardStore, IPanelEventRepository } from '@agentic-obs/data-layer'
+import {
+  createPanelEventRecorder,
+  isAiGenerated,
+  noopPanelEventRecorder,
+  type PanelEventRecorder,
+  type RecorderContext,
+} from './panel-event-recorder.js'
 import { VariableResolver } from './variable-resolver.js'
 import { ac, ACTIONS, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common'
 import type { Dashboard, PanelConfig } from '@agentic-obs/common'
@@ -37,6 +44,14 @@ export interface DashboardRouterDeps {
    * one; production wires the same writer used by auth routes.
    */
   audit?: AuditWriter
+  /**
+   * Panel-event collector — receives fire-and-forget records on panel CRUD
+   * for the offline lint-rule mining pipeline. Optional so legacy tests can
+   * omit it; production wires `repos.panelEvents` here.
+   */
+  panelEvents?: IPanelEventRepository
+  /** Process env injection for view-tracking flag (test-friendly). */
+  env?: NodeJS.ProcessEnv
 }
 
 export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter {
@@ -44,6 +59,21 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   const accessControl = deps.accessControl
   const setupConfig = deps.setupConfig
   const audit = deps.audit
+  const env = deps.env ?? process.env
+  const viewTrackingEnabled = env['PANEL_EVENT_VIEW_TRACKING'] === '1'
+  const recorder: PanelEventRecorder = deps.panelEvents
+    ? createPanelEventRecorder(deps.panelEvents)
+    : noopPanelEventRecorder()
+
+  function recorderCtx(req: Request, dashboard: Dashboard): RecorderContext {
+    return {
+      orgId: resolveOrgId(req),
+      actorId: (req as AuthenticatedRequest).auth?.userId ?? null,
+      sessionId: null,
+      aiGenerated: isAiGenerated(dashboard),
+      dashboardId: dashboard.id,
+    }
+  }
 
   const router = Router()
   const requirePermission = createRequirePermission(accessControl)
@@ -173,6 +203,9 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       if (!dashboard) {
         return
       }
+      if (viewTrackingEnabled && dashboard.panels.length > 0) {
+        recorder.recordViewed(recorderCtx(req, dashboard), dashboard.panels)
+      }
       res.json(dashboard)
     }
     catch (err) {
@@ -256,6 +289,9 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         targetName: dashboard.title,
         outcome: 'success',
       })
+      if (dashboard.panels.length > 0) {
+        recorder.recordDeleted(recorderCtx(req, dashboard), dashboard.panels)
+      }
       res.status(204).send()
     }
     catch (err) {
@@ -333,6 +369,9 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
 
         // Reload so the response includes the panels/variables we just wrote.
         const full = await store.findById(created.id)
+        if (source.panels.length > 0) {
+          recorder.recordCloned(recorderCtx(req, full ?? created), source.panels)
+        }
         res.status(201).json(full ?? created)
       } catch (err) {
         next(err)
@@ -361,6 +400,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         dashboardNotFound(res)
         return
       }
+
+      recorder.recordPanelDiff(recorderCtx(req, updated), dashboard.panels, updated.panels)
 
       res.json(updated)
     }
@@ -392,6 +433,8 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
         return
       }
 
+      recorder.recordCreated(recorderCtx(req, updated), [panel])
+
       res.status(201).json(updated)
     }
     catch (err) {
@@ -410,13 +453,15 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       }
       if (refuseIfProvisioned(res, d)) return
 
+      const removed = d.panels.find((p) => p.id === panelId)
       const panels = d.panels.filter((p) => p.id !== panelId)
-      if (panels.length === d.panels.length) {
+      if (!removed || panels.length === d.panels.length) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Panel not found' } })
         return
       }
 
       await store.updatePanels(id, panels)
+      recorder.recordDeleted(recorderCtx(req, d), [removed])
       res.status(204).send()
     }
     catch (err) {

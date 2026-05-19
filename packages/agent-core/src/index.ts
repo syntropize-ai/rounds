@@ -63,3 +63,16 @@ export {
   generateProvisionedDiff,
   type ProvisionedDiffProvenance,
 } from './agent/provisioned-diff.js';
+
+// Panel-event recorder — lives in agent-core so handler hooks can fire
+// directly. api-gateway re-exports from here for the dashboard route.
+export {
+  createPanelEventRecorder,
+  noopPanelEventRecorder,
+  isAiGenerated,
+  type PanelEventRecorder,
+  type RecorderContext,
+  type IPanelEventRepository as IAgentPanelEventRepository,
+  type PanelEventInput,
+  type PanelEventType,
+} from './agent/panel-event-recorder.js';

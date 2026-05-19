@@ -78,6 +78,18 @@ export interface OrchestratorDeps {
   approvalRequests?: ApprovalRequestStore
   /** Task 07 — AI-first configuration tools (connector / settings). */
   configService?: AgentConfigService
+  /**
+   * Panel-event repository — when wired, agent dashboard mutations fire
+   * panel_events rows. Optional; the Express dashboard route still has its
+   * own hook for non-agent CRUD.
+   */
+  panelEvents?: import('./panel-event-recorder.js').IPanelEventRepository
+  /**
+   * Pending-change repository — when wired, dashboard mutation handlers
+   * persist agent proposals here instead of touching the live dashboard.
+   * Optional; legacy in-store appendPendingChanges path stays as fallback.
+   */
+  pendingChanges?: import('@agentic-obs/data-layer').IPendingChangeRepository
   sendEvent: (event: DashboardSseEvent) => void
   timeRange?: { start: string; end: string; clientTimezone?: string }
   maxTokenBudget?: number
@@ -307,6 +319,7 @@ export class OrchestratorAgent {
       identity: this.deps.identity,
       permissionEscalationContact: this.deps.permissionEscalationContact,
       opsConnectors: this.deps.opsConnectors,
+      allowedTools: this.agentDef.allowedTools,
     })
 
     try {

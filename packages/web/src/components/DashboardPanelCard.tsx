@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { resolvePanelUnit } from '@agentic-obs/common';
 import { apiClient } from '../api/client.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import { useDatasourceLookup } from '../hooks/useDatasourceLookup.js';
@@ -258,6 +259,8 @@ export default function DashboardPanelCard({
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasRangeDataRef = useRef(false);
+  const hasInstantDataRef = useRef(false);
 
   // Stable JSON key for the variableValues map so the queries memo only
   // recomputes when the resolved values actually change (object identity
@@ -310,6 +313,7 @@ export default function DashboardPanelCard({
   );
 
   const cacheMaxAgeMs = (panel.refreshIntervalSec ?? 30) * 1000;
+  const displayUnit = useMemo(() => resolvePanelUnit(panel), [panel]);
 
   /** Returns true if the error message / object looks like a transient failure */
   function isTransientMsg(msg: string): boolean {
@@ -328,7 +332,7 @@ export default function DashboardPanelCard({
         setIsTransientError(false);
       }
 
-      const hasExistingData = multiRangeData.length > 0 || instantData !== null;
+      const hasExistingData = hasRangeDataRef.current || hasInstantDataRef.current;
 
       const handleError = (msg: string) => {
         const transient = isTransientMsg(msg);
@@ -405,6 +409,7 @@ export default function DashboardPanelCard({
             return transformQueryResult(validated, pq);
           });
           setMultiRangeData(results);
+          hasRangeDataRef.current = results.some((r) => r.series.length > 0);
           setStaleSinceMs(null);
         } catch (err) {
           handleError(err instanceof Error ? err.message : 'Query failed');
@@ -474,8 +479,10 @@ export default function DashboardPanelCard({
           if (res.data) {
             const validated = parseOrThrow(InstantResponseSchema, 'InstantResponse', res.data);
             setInstantData(validated);
+            hasInstantDataRef.current = true;
           } else {
             setInstantData(null);
+            hasInstantDataRef.current = false;
           }
           setStaleSinceMs(null);
           await sparklinePromise;
@@ -487,7 +494,7 @@ export default function DashboardPanelCard({
 
       setLoading(false);
     },
-    [effectiveQueries, isRangeViz, activePanelQuery?.datasourceId, activeQuery, instantQueryKey, queryKey, cacheMaxAgeMs, multiRangeData.length, instantData, panel.refreshIntervalSec, panel.id, resolvedTimeRange.end, timeRange, variableValues, variableValuesKey] // eslint-disable-line react-hooks/exhaustive-deps
+    [effectiveQueries, isRangeViz, activePanelQuery?.datasourceId, activeQuery, instantQueryKey, queryKey, panel.id, resolvedTimeRange.end, timeRange, variableValues, variableValuesKey, wantsSparkline] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Try to restore from cache without fetching
@@ -509,9 +516,11 @@ export default function DashboardPanelCard({
         return transformQueryResult(rr.data, pq);
       });
       setMultiRangeData(results);
+      hasRangeDataRef.current = results.some((r) => r.series.length > 0);
     } else {
       const res = cached as { data: InstantResponse };
       setInstantData(res.data);
+      hasInstantDataRef.current = true;
 
       // Stat panels also need their sparkline trend from cache, otherwise a
       // page refresh restores the big number but drops the line underneath.
@@ -559,15 +568,18 @@ export default function DashboardPanelCard({
     if (hasSnapshot) {
       const snap = panel.snapshotData!;
       if (snap.range) {
-        setMultiRangeData(snap.range.map((r) => ({
+        const snapRange = snap.range.map((r) => ({
           refIds: r.refId,
           legendFormat: r.legendFormat,
           series: r.series,
           totalSeries: r.totalSeries,
-        })));
+        }));
+        setMultiRangeData(snapRange);
+        hasRangeDataRef.current = snapRange.some((r) => r.series.length > 0);
       }
       if (snap.instant) {
         setInstantData(snap.instant as InstantResponse);
+        hasInstantDataRef.current = true;
       }
       if (snap.sparkline) {
         setSparklineData(snap.sparkline);
@@ -582,6 +594,8 @@ export default function DashboardPanelCard({
     setMultiRangeData([]);
     setInstantData(null);
     setSparklineData(null);
+    hasRangeDataRef.current = false;
+    hasInstantDataRef.current = false;
     retryCountRef.current = 0;
 
     // On mount: use cached data if available - no network request
@@ -711,7 +725,7 @@ export default function DashboardPanelCard({
             <TimeSeriesViz
               series={flattenedSeries}
               stacking={stacking}
-              unit={panel.unit}
+              unit={displayUnit}
               thresholds={panel.thresholds}
               lineWidth={panel.lineWidth}
               fillOpacity={panel.fillOpacity}
@@ -737,7 +751,7 @@ export default function DashboardPanelCard({
         return (
           <StatViz
             value={val}
-            unit={panel.unit}
+            unit={displayUnit}
             decimals={panel.decimals}
             thresholds={panel.thresholds}
             colorMode={panel.colorMode ?? 'value'}
@@ -751,17 +765,17 @@ export default function DashboardPanelCard({
         // percent (already 0-100) keeps its formatter. Other units pass through.
         let val = rawVal;
         let max = 100;
-        let displayUnit = panel.unit;
-        if (panel.unit === 'percentunit' && typeof rawVal === 'number') {
+        let gaugeUnit = displayUnit;
+        if (displayUnit === 'percentunit' && typeof rawVal === 'number') {
           val = rawVal * 100;
-          displayUnit = 'percent';
+          gaugeUnit = 'percent';
         }
         return (
           <div className="flex h-full w-full items-center justify-center">
             <GaugeViz
               value={val}
               max={max}
-              unit={displayUnit}
+              unit={gaugeUnit}
               thresholds={panel.thresholds}
             />
           </div>
@@ -771,7 +785,7 @@ export default function DashboardPanelCard({
         const items = instantToBarItems(instantData);
         return (
           <div className="h-full px-3 pb-2">
-            <BarViz items={items} unit={panel.unit} thresholds={panel.thresholds} />
+            <BarViz items={items} unit={displayUnit} thresholds={panel.thresholds} />
           </div>
         );
       }
@@ -781,19 +795,19 @@ export default function DashboardPanelCard({
         // implicit ceiling line up with the user's mental model.
         let displayItems = items;
         let displayMax = panel.barGaugeMax;
-        let displayUnit = panel.unit;
-        if (panel.unit === 'percentunit') {
+        let barGaugeUnit = displayUnit;
+        if (displayUnit === 'percentunit') {
           displayItems = items.map((it) => ({ ...it, value: it.value * 100 }));
-          displayUnit = 'percent';
+          barGaugeUnit = 'percent';
           if (displayMax === undefined) displayMax = 100;
-        } else if (panel.unit === 'percent' && displayMax === undefined) {
+        } else if (displayUnit === 'percent' && displayMax === undefined) {
           displayMax = 100;
         }
         return (
           <div className="h-full px-3 pb-2">
             <BarGaugeViz
               items={displayItems}
-              unit={displayUnit}
+              unit={barGaugeUnit}
               thresholds={panel.thresholds}
               mode={panel.barGaugeMode ?? 'gradient'}
               {...(displayMax !== undefined ? { max: displayMax } : {})}
@@ -810,7 +824,7 @@ export default function DashboardPanelCard({
             <TimeSeriesViz
               series={flattenedSeries}
               stacking={stacking}
-              unit={panel.unit}
+              unit={displayUnit}
               thresholds={panel.thresholds}
             />
           </div>
@@ -820,7 +834,7 @@ export default function DashboardPanelCard({
         const items = instantToPieItems(instantData);
         return (
           <div className="h-full px-3 pb-2">
-            <PieViz items={items} unit={panel.unit} />
+            <PieViz items={items} unit={displayUnit} />
           </div>
         );
       }
@@ -828,7 +842,7 @@ export default function DashboardPanelCard({
         const buckets = instantToHistogramBuckets(instantData);
         return (
           <div className="h-full px-3 pb-2">
-            <HistogramViz buckets={buckets} unit={panel.unit} />
+            <HistogramViz buckets={buckets} unit={displayUnit} />
           </div>
         );
       }
@@ -838,7 +852,7 @@ export default function DashboardPanelCard({
           <div className="h-full px-3 pb-2">
             <HeatmapViz
               points={points}
-              unit={panel.unit}
+              unit={displayUnit}
               colorScale={panel.colorScale ?? 'sqrt'}
               collapseEmptyBuckets={panel.collapseEmptyBuckets ?? true}
             />

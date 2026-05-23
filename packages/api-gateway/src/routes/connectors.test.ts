@@ -267,7 +267,7 @@ describe('PUT /api/connectors/:id/policies — validation', () => {
     const repo = new MemoryConnectorRepo();
     await seedConnector(repo);
     const app = mountRouter(repo);
-    const res = await request(app).put('/api/connectors/cx/policies').send(body);
+    const res = await request(app).put('/api/connectors/cx/policies').send(body as object);
     return { status: res.status, body: res.body };
   }
 

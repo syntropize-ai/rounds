@@ -563,6 +563,15 @@ export class ChatService {
         ...(this.deps.knowledgeStore
           ? { knowledge: this.deps.knowledgeStore }
           : {}),
+        ...(this.deps.panelEventStore
+          ? { panelEvents: this.deps.panelEventStore }
+          : {}),
+        ...(this.deps.pendingChangeStore
+          ? { pendingChanges: this.deps.pendingChangeStore }
+          : {}),
+        ...(this.deps.knowledgeStore
+          ? { knowledge: this.deps.knowledgeStore }
+          : {}),
         sendEvent: wrappedSendEvent,
         // Recent-event lookup for handlers that want to peek at prior SSE
         // payloads (e.g. metric_explore inheriting the last chart's range).

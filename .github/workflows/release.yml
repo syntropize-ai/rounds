@@ -193,8 +193,14 @@ jobs:
           path: out/
 
       - name: Rename npm release asset
+        # The helm chart packs as `rounds-<version>.tgz`; if we rename the
+        # npm tarball to the same `rounds-<version>.tgz` softprops/action-
+        # gh-release tries to upload both with the same filename — the
+        # second one fails with "Not Found" trying to UPDATE an asset that
+        # the first POST is still creating. Suffix `-cli` so the two
+        # artifacts have distinct release-asset names.
         run: |
-          mv out/npm/syntropize-rounds-*.tgz "out/npm/rounds-${{ needs.package.outputs.version }}.tgz"
+          mv out/npm/syntropize-rounds-*.tgz "out/npm/rounds-cli-${{ needs.package.outputs.version }}.tgz"
 
       - uses: softprops/action-gh-release@v2
         with:

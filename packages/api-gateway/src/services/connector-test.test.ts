@@ -186,6 +186,6 @@ describe('testConnectorAgainstBackend — misc', () => {
       null,
     );
     expect(out.ok).toBe(false);
-    expect(out.message).toMatch(/OAuth/);
+    expect(out.message).toMatch(/Connect to GitHub/);
   });
 });

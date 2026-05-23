@@ -250,7 +250,7 @@ describe('ConnectorPoliciesDialog — "All teams" wildcard + defaults inline', (
     // static markup itself shows the loading skeleton (useEffect hasn't run),
     // so we assert the inputs that drive the rendered defaults are correct.
     const { KUBERNETES_DEFAULT_POLICIES } = await import('@agentic-obs/common');
-    expect(KUBERNETES_DEFAULT_POLICIES.length).toBe(16);
+    expect(KUBERNETES_DEFAULT_POLICIES.length).toBe(18);
     // Spot-check a few capability rows the UI will render.
     const caps = KUBERNETES_DEFAULT_POLICIES.map((p) => p.capability);
     expect(caps).toContain('runtime.get');

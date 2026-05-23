@@ -141,7 +141,7 @@ async function createPlanCommon(
   if (!ctx.remediationPlans) {
     return 'Error: remediation plan store is not available.';
   }
-  let investigationId = String(args['investigationId'] ?? '').trim();
+  const investigationId = String(args['investigationId'] ?? '').trim();
   const summary = String(args['summary'] ?? '').trim();
   const stepsRaw = args['steps'];
   if (!summary) return 'Error: "summary" is required.';

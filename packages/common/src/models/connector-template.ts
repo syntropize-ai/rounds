@@ -114,12 +114,10 @@ export const KNOWN_KUBERNETES_CAPABILITIES: readonly string[] = [
 ];
 
 /**
- * Default policy seed for kubernetes connectors.
- *
- * @deprecated Phase A (ops-trust-model v4): the policy table that this
- * seed populated is no longer consulted by the ops command runner. The
- * runner always allows; kubectl RBAC is the real gate. Constant retained
- * to keep public API stable through the deprecation window.
+ * Default policy seed for kubernetes connectors. Written into
+ * `connector_policies` at org scope (subjectType='org', subjectId=<orgId>)
+ * when a kubernetes connector is created, and consulted by the ops command
+ * runner as the fallback when no explicit policy row matches.
  *
  * Importers re-export this from `@agentic-obs/common`.
  */

@@ -1,18 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type {
   Connector,
-  ConnectorAgentPolicy,
   ConnectorHumanPolicy,
   ConnectorPatch,
+  ConnectorPolicy,
   ConnectorStatus,
-  ConnectorTeamPolicy,
+  ConnectorSubjectType,
   ConnectorType,
   NewConnector,
-  UpsertConnectorTeamPolicy,
+  UpsertConnectorPolicy,
 } from '@agentic-obs/common';
 
-export type { Connector, ConnectorPatch, ConnectorStatus, NewConnector };
-export type ConnectorPolicy = ConnectorTeamPolicy;
+export type { Connector, ConnectorPatch, ConnectorPolicy, ConnectorStatus, NewConnector };
 
 export interface ConnectorListFilter {
   orgId: string;
@@ -20,6 +19,12 @@ export interface ConnectorListFilter {
   capability?: string;
   status?: ConnectorStatus;
   masked?: boolean;
+}
+
+export interface ListPoliciesOptions {
+  connectorId: string;
+  subjectType?: ConnectorSubjectType;
+  subjectId?: string;
 }
 
 export interface ConnectorRepository {
@@ -30,9 +35,14 @@ export interface ConnectorRepository {
   delete(id: string, orgId: string): Promise<boolean>;
   test?(orgId: string, id: string): Promise<ConnectorTestResult>;
   upsertSecret?(input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }): Promise<unknown>;
-  listPolicies?(opts: { connectorId: string }): Promise<ConnectorPolicy[]>;
-  upsertPolicy?(policy: UpsertConnectorTeamPolicy): Promise<ConnectorPolicy>;
-  deletePolicy?(connectorId: string, teamId: string, capability: string): Promise<boolean>;
+  listPolicies?(opts: ListPoliciesOptions): Promise<ConnectorPolicy[]>;
+  upsertPolicy?(policy: UpsertConnectorPolicy): Promise<ConnectorPolicy>;
+  deletePolicy?(
+    connectorId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
+    capability: string,
+  ): Promise<boolean>;
 }
 
 export interface ConnectorSecretStore {
@@ -40,9 +50,19 @@ export interface ConnectorSecretStore {
 }
 
 export interface ConnectorPolicyRepository {
-  list(connectorId: string, orgId: string): Promise<ConnectorPolicy[]>;
+  list(
+    connectorId: string,
+    orgId: string,
+    filter?: { subjectType?: ConnectorSubjectType; subjectId?: string },
+  ): Promise<ConnectorPolicy[]>;
   upsert(policy: ConnectorPolicy & { orgId: string }): Promise<ConnectorPolicy>;
-  delete(connectorId: string, orgId: string, teamId: string, capability: string): Promise<boolean>;
+  delete(
+    connectorId: string,
+    orgId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
+    capability: string,
+  ): Promise<boolean>;
   isAllowed(input: {
     actorUserId?: string;
     orgId: string;
@@ -149,14 +169,22 @@ export class ConnectorService {
     return true;
   }
 
-  async listPolicies(orgId: string, connectorId: string): Promise<ConnectorPolicy[] | null> {
+  async listPolicies(
+    orgId: string,
+    connectorId: string,
+    filter?: { subjectType?: ConnectorSubjectType; subjectId?: string },
+  ): Promise<ConnectorPolicy[] | null> {
     const connector = await this.deps.connectors.get(connectorId, { orgId });
     if (!connector) return null;
     if (!this.deps.policies && this.deps.connectors.listPolicies) {
-      return this.deps.connectors.listPolicies({ connectorId });
+      return this.deps.connectors.listPolicies({
+        connectorId,
+        ...(filter?.subjectType ? { subjectType: filter.subjectType } : {}),
+        ...(filter?.subjectId ? { subjectId: filter.subjectId } : {}),
+      });
     }
     if (!this.deps.policies) return [];
-    return this.deps.policies.list(connectorId, orgId);
+    return this.deps.policies.list(connectorId, orgId, filter);
   }
 
   async upsertPolicy(
@@ -171,11 +199,11 @@ export class ConnectorService {
     if (this.deps.connectors.upsertPolicy && !this.deps.policies) {
       return this.deps.connectors.upsertPolicy({
         connectorId: policy.connectorId,
-        teamId: policy.teamId,
+        subjectType: policy.subjectType,
+        subjectId: policy.subjectId,
         capability: policy.capability,
         scope: policy.scope,
         humanPolicy: policy.humanPolicy as ConnectorHumanPolicy,
-        agentPolicy: policy.agentPolicy as ConnectorAgentPolicy,
       });
     }
     return this.deps.policies!.upsert({ ...policy, orgId });
@@ -184,16 +212,17 @@ export class ConnectorService {
   async deletePolicy(
     orgId: string,
     connectorId: string,
-    teamId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
     capability: string,
   ): Promise<boolean | null> {
     const connector = await this.deps.connectors.get(connectorId, { orgId });
     if (!connector) return null;
     if (this.deps.connectors.deletePolicy && !this.deps.policies) {
-      return this.deps.connectors.deletePolicy(connectorId, teamId, capability);
+      return this.deps.connectors.deletePolicy(connectorId, subjectType, subjectId, capability);
     }
     if (!this.deps.policies) return false;
-    return this.deps.policies.delete(connectorId, orgId, teamId, capability);
+    return this.deps.policies.delete(connectorId, orgId, subjectType, subjectId, capability);
   }
 
   private capabilitiesForType(type: string): string[] {

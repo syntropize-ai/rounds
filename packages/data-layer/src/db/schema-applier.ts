@@ -62,6 +62,7 @@ export function applySchema(db: SqliteClient): void {
   // columns added to existing tables on already-built databases. Each
   // step is idempotent and inspects sqlite_master / pragma first.
   addProvenanceColumnIfMissing(db);
+  dropLegacyConnectorTeamPoliciesTable(db);
 }
 
 function renameLegacyUserTable(db: SqliteClient): void {
@@ -80,6 +81,16 @@ function renameLegacyUserTable(db: SqliteClient): void {
  * rows (no provenance to backfill) keep working — the UI's
  * <ProvenanceHeader /> already degrades to "—" for null fields.
  */
+/**
+ * Drop the obsolete `connector_team_policies` table if it still exists from
+ * a pre-refactor database. The new `connector_policies` table is created
+ * fresh by `applySchema`; any legacy rows are intentionally discarded
+ * (no data migration — admins re-author policies in the new UI).
+ */
+function dropLegacyConnectorTeamPoliciesTable(db: SqliteClient): void {
+  db.run(sql.raw('DROP TABLE IF EXISTS connector_team_policies'));
+}
+
 function addProvenanceColumnIfMissing(db: SqliteClient): void {
   const cols = db.all<{ name: string }>(
     sql`PRAGMA table_info('investigation_reports')`,

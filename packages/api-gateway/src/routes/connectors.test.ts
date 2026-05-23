@@ -10,18 +10,18 @@ import request from 'supertest';
 import type {
   Connector,
   ConnectorPatch,
-  ConnectorTeamPolicy,
+  ConnectorPolicy,
+  ConnectorSubjectType,
   ConnectorType,
   Evaluator,
   Identity,
   NewConnector,
   ResolvedPermission,
-  UpsertConnectorTeamPolicy,
+  UpsertConnectorPolicy,
 } from '@agentic-obs/common';
 import type {
   ConnectorListFilter,
   ConnectorRepository,
-  ConnectorPolicy,
 } from '../services/connector-service.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import {
@@ -50,7 +50,7 @@ function makeConnector(input: NewConnector): Connector {
 
 class MemoryConnectorRepo implements ConnectorRepository {
   connectors = new Map<string, Connector>();
-  policies: ConnectorTeamPolicy[] = [];
+  policies: ConnectorPolicy[] = [];
 
   async list(filter: ConnectorListFilter): Promise<Connector[]> {
     return [...this.connectors.values()].filter((c) => c.orgId === filter.orgId);
@@ -77,33 +77,53 @@ class MemoryConnectorRepo implements ConnectorRepository {
     this.connectors.delete(id);
     return true;
   }
-  async listPolicies(opts: { connectorId: string }): Promise<ConnectorPolicy[]> {
-    return this.policies.filter((p) => p.connectorId === opts.connectorId);
+  async listPolicies(opts: {
+    connectorId: string;
+    subjectType?: ConnectorSubjectType;
+    subjectId?: string;
+  }): Promise<ConnectorPolicy[]> {
+    return this.policies.filter(
+      (p) =>
+        p.connectorId === opts.connectorId &&
+        (opts.subjectType === undefined || p.subjectType === opts.subjectType) &&
+        (opts.subjectId === undefined || p.subjectId === opts.subjectId),
+    );
   }
-  async upsertPolicy(policy: UpsertConnectorTeamPolicy): Promise<ConnectorPolicy> {
-    const teamId = policy.teamId ?? '';
-    const row: ConnectorTeamPolicy = {
+  async upsertPolicy(policy: UpsertConnectorPolicy): Promise<ConnectorPolicy> {
+    const row: ConnectorPolicy = {
       connectorId: policy.connectorId,
-      teamId,
+      subjectType: policy.subjectType,
+      subjectId: policy.subjectId,
       capability: policy.capability,
       scope: policy.scope ?? null,
       humanPolicy: policy.humanPolicy,
-      agentPolicy: policy.agentPolicy,
     };
     const idx = this.policies.findIndex(
       (p) =>
         p.connectorId === row.connectorId &&
-        p.teamId === row.teamId &&
+        p.subjectType === row.subjectType &&
+        p.subjectId === row.subjectId &&
         p.capability === row.capability,
     );
     if (idx >= 0) this.policies[idx] = row;
     else this.policies.push(row);
     return row;
   }
-  async deletePolicy(connectorId: string, teamId: string, capability: string): Promise<boolean> {
+  async deletePolicy(
+    connectorId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
+    capability: string,
+  ): Promise<boolean> {
     const before = this.policies.length;
     this.policies = this.policies.filter(
-      (p) => !(p.connectorId === connectorId && p.teamId === teamId && p.capability === capability),
+      (p) =>
+        !(
+          p.connectorId === connectorId &&
+          p.subjectType === subjectType &&
+          p.subjectId === subjectId &&
+          p.capability === capability
+        ),
     );
     return this.policies.length < before;
   }
@@ -168,15 +188,15 @@ describe('POST /api/connectors — kubernetes default policy seed', () => {
 
     const seeded = repo.policies.filter((p) => p.connectorId === 'kube-prod');
     expect(seeded.length).toBe(KUBERNETES_DEFAULT_POLICIES.length);
-    // All seeds use teamId === '' (wildcard).
-    expect(seeded.every((p) => p.teamId === '')).toBe(true);
+    // All seeds use subjectType='org' keyed by the connector's orgId.
+    expect(seeded.every((p) => p.subjectType === 'org' && p.subjectId === 'org_a')).toBe(true);
     // Spot-check key invariants from the seed table.
     const byCap = new Map(seeded.map((p) => [p.capability, p] as const));
-    expect(byCap.get('runtime.get')?.agentPolicy).toBe('allow');
-    expect(byCap.get('runtime.apply')?.agentPolicy).toBe('formal_approval');
-    expect(byCap.get('runtime.delete')?.humanPolicy).toBe('strong_confirm');
-    expect(byCap.get('runtime.exec')?.agentPolicy).toBe('deny');
-    expect(byCap.get('runtime.port_forward')?.agentPolicy).toBe('deny');
+    expect(byCap.get('runtime.get')?.humanPolicy).toBe('allow');
+    expect(byCap.get('runtime.apply')?.humanPolicy).toBe('ask');
+    expect(byCap.get('runtime.delete')?.humanPolicy).toBe('ask');
+    expect(byCap.get('runtime.exec')?.humanPolicy).toBe('ask');
+    expect(byCap.get('runtime.port_forward')?.humanPolicy).toBe('ask');
   });
 
   it('does NOT seed for non-kubernetes connector types', async () => {
@@ -203,7 +223,7 @@ describe('KUBERNETES_DEFAULT_POLICIES table invariants', () => {
     expect(caps).toContain('runtime.exec');
     expect(caps).toContain('runtime.apply');
   });
-  it('never grants agent=allow to a write verb', () => {
+  it('never auto-allows a write verb (humanPolicy != allow)', () => {
     const writeVerbs = new Set([
       'runtime.create',
       'runtime.apply',
@@ -218,8 +238,176 @@ describe('KUBERNETES_DEFAULT_POLICIES table invariants', () => {
     ]);
     for (const p of KUBERNETES_DEFAULT_POLICIES) {
       if (writeVerbs.has(p.capability)) {
-        expect(p.agentPolicy).not.toBe('allow');
+        expect(p.humanPolicy).not.toBe('allow');
       }
     }
+  });
+});
+
+async function seedConnector(repo: MemoryConnectorRepo, id = 'cx'): Promise<void> {
+  await repo.create({
+    id,
+    orgId: 'org_a',
+    type: 'prometheus' as ConnectorType,
+    name: 'p',
+    config: {},
+    createdBy: 'u1',
+  });
+}
+
+describe('PUT /api/connectors/:id/policies — validation', () => {
+  const validBody = {
+    subjectType: 'org',
+    subjectId: 'org_a',
+    capability: 'metrics.query',
+    humanPolicy: 'allow',
+  } as const;
+
+  async function putBody(body: unknown): Promise<{ status: number; body: unknown }> {
+    const repo = new MemoryConnectorRepo();
+    await seedConnector(repo);
+    const app = mountRouter(repo);
+    const res = await request(app).put('/api/connectors/cx/policies').send(body as object);
+    return { status: res.status, body: res.body };
+  }
+
+  it('rejects missing subjectType', async () => {
+    const { status, body } = await putBody({ ...validBody, subjectType: undefined });
+    expect(status).toBe(400);
+    expect((body as { error: { code: string } }).error.code).toBe('VALIDATION');
+  });
+
+  it.each([['user'], [''], ['TEAM']])('rejects subjectType=%s', async (bad) => {
+    const { status } = await putBody({ ...validBody, subjectType: bad });
+    expect(status).toBe(400);
+  });
+
+  it('rejects missing subjectId', async () => {
+    const { status } = await putBody({ ...validBody, subjectId: undefined });
+    expect(status).toBe(400);
+  });
+
+  it('rejects empty subjectId', async () => {
+    const { status } = await putBody({ ...validBody, subjectId: '' });
+    expect(status).toBe(400);
+  });
+
+  it('rejects missing capability', async () => {
+    const { status } = await putBody({ ...validBody, capability: undefined });
+    expect(status).toBe(400);
+  });
+
+  it('rejects missing humanPolicy', async () => {
+    const { status } = await putBody({ ...validBody, humanPolicy: undefined });
+    expect(status).toBe(400);
+  });
+
+  it.each([['confirm'], ['deny']])('rejects legacy humanPolicy=%s', async (bad) => {
+    const { status } = await putBody({ ...validBody, humanPolicy: bad });
+    expect(status).toBe(400);
+  });
+});
+
+describe('DELETE /api/connectors/:id/policies/:subjectType/:subjectId/:capability', () => {
+  it('returns 400 for bad subjectType in path', async () => {
+    const repo = new MemoryConnectorRepo();
+    await seedConnector(repo);
+    const app = mountRouter(repo);
+    const res = await request(app).delete('/api/connectors/cx/policies/user/team-a/metrics.query');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION');
+  });
+
+  it('handles a capability containing a dot (express does not split path on .)', async () => {
+    const repo = new MemoryConnectorRepo();
+    await seedConnector(repo);
+    // pre-insert a dotted-capability policy
+    await repo.upsertPolicy({
+      connectorId: 'cx',
+      subjectType: 'team',
+      subjectId: 'team-a',
+      capability: 'metrics.query',
+      scope: null,
+      humanPolicy: 'allow',
+    });
+    const app = mountRouter(repo);
+    const res = await request(app).delete('/api/connectors/cx/policies/team/team-a/metrics.query');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(repo.policies).toHaveLength(0);
+  });
+
+  it('returns 404 when the policy row does not exist', async () => {
+    const repo = new MemoryConnectorRepo();
+    await seedConnector(repo);
+    const app = mountRouter(repo);
+    const res = await request(app).delete('/api/connectors/cx/policies/team/team-z/metrics.query');
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/connectors/:id/policies — query filter', () => {
+  async function setupWithMixedPolicies(): Promise<MemoryConnectorRepo> {
+    const repo = new MemoryConnectorRepo();
+    await seedConnector(repo);
+    await repo.upsertPolicy({
+      connectorId: 'cx',
+      subjectType: 'org',
+      subjectId: 'org_a',
+      capability: 'metrics.query',
+      scope: null,
+      humanPolicy: 'allow',
+    });
+    await repo.upsertPolicy({
+      connectorId: 'cx',
+      subjectType: 'team',
+      subjectId: 'team-a',
+      capability: 'metrics.query',
+      scope: null,
+      humanPolicy: 'ask',
+    });
+    await repo.upsertPolicy({
+      connectorId: 'cx',
+      subjectType: 'team',
+      subjectId: 'team-b',
+      capability: 'metrics.query',
+      scope: null,
+      humanPolicy: 'block',
+    });
+    return repo;
+  }
+
+  it('returns all policies when no filter is given', async () => {
+    const repo = await setupWithMixedPolicies();
+    const app = mountRouter(repo);
+    const res = await request(app).get('/api/connectors/cx/policies');
+    expect(res.status).toBe(200);
+    expect(res.body.policies).toHaveLength(3);
+  });
+
+  it('filters by subjectType=org', async () => {
+    const repo = await setupWithMixedPolicies();
+    const app = mountRouter(repo);
+    const res = await request(app).get('/api/connectors/cx/policies?subjectType=org');
+    expect(res.status).toBe(200);
+    expect(res.body.policies).toHaveLength(1);
+    expect(res.body.policies[0].subjectType).toBe('org');
+  });
+
+  it('filters by subjectType=team & subjectId=team-a', async () => {
+    const repo = await setupWithMixedPolicies();
+    const app = mountRouter(repo);
+    const res = await request(app).get('/api/connectors/cx/policies?subjectType=team&subjectId=team-a');
+    expect(res.status).toBe(200);
+    expect(res.body.policies).toHaveLength(1);
+    expect(res.body.policies[0].subjectId).toBe('team-a');
+  });
+
+  it('returns 400 for an invalid subjectType query value', async () => {
+    const repo = await setupWithMixedPolicies();
+    const app = mountRouter(repo);
+    const res = await request(app).get('/api/connectors/cx/policies?subjectType=user');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION');
   });
 });

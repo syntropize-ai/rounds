@@ -833,16 +833,20 @@ CREATE TABLE IF NOT EXISTS github_app_config (
   registered_by              TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS connector_team_policies (
+CREATE TABLE IF NOT EXISTS connector_policies (
   connector_id  TEXT NOT NULL,
-  team_id       TEXT NOT NULL DEFAULT '',
+  subject_type  TEXT NOT NULL,   -- 'org' | 'team'
+  subject_id    TEXT NOT NULL,
   capability    TEXT NOT NULL,
   scope         JSONB NULL,
   human_policy  TEXT NOT NULL,
-  agent_policy  TEXT NOT NULL,
-  PRIMARY KEY (connector_id, team_id, capability),
+  PRIMARY KEY (connector_id, subject_type, subject_id, capability),
   FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
 );
+
+-- Drop the obsolete legacy table if it still exists. No data migration —
+-- admins re-author policies in the new UI.
+DROP TABLE IF EXISTS connector_team_policies;
 
 -- ============================================================================
 -- Remediation plans (Phase 3 of docs/design/auto-remediation.md)

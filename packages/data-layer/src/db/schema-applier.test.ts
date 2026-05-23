@@ -16,7 +16,7 @@ describe('applySchema()', () => {
       'instance_llm_config',
       'notification_channels', 'instance_settings',
       'connectors', 'connector_capabilities', 'connector_secrets',
-      'connector_team_policies',
+      'connector_policies',
     ];
 
     const rows = db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type='table'`);
@@ -94,6 +94,41 @@ describe('applySchema()', () => {
     expect(tables.has('user')).toBe(false);
     const rows = db.all<{ id: string }>(sql`SELECT id FROM users`);
     expect(rows.map((r) => r.id)).toEqual(['u1']);
+  });
+
+  it('drops the legacy connector_team_policies table without copying data', () => {
+    const db = createSqliteClient({ path: ':memory:', wal: false });
+    db.run(sql.raw(`
+      CREATE TABLE connector_team_policies (
+        connector_id TEXT NOT NULL,
+        team_id TEXT NOT NULL DEFAULT '',
+        capability TEXT NOT NULL,
+        scope TEXT NULL,
+        human_policy TEXT NOT NULL,
+        agent_policy TEXT NOT NULL,
+        PRIMARY KEY (connector_id, team_id, capability)
+      )
+    `));
+    db.run(sql`
+      INSERT INTO connector_team_policies VALUES
+      ('c1', '',       'runtime.get',   NULL, 'allow',   'allow'),
+      ('c1', 'team-a', 'runtime.apply', NULL, 'confirm', 'formal_approval')
+    `);
+
+    applySchema(db);
+
+    const tables = new Set(
+      db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type='table'`).map((r) => r.name),
+    );
+    expect(tables.has('connector_team_policies')).toBe(false);
+    expect(tables.has('connector_policies')).toBe(true);
+
+    const count = db.all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM connector_policies`)[0]!.n;
+    expect(count).toBe(0);
+
+    // Idempotent.
+    applySchema(db);
+    expect(db.all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM connector_policies`)[0]!.n).toBe(0);
   });
 
   it('is idempotent — second applySchema() is a no-op', () => {

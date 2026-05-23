@@ -1,8 +1,8 @@
 import type { ConnectorCategory, ConnectorType } from './connector-template.js';
 
 export type ConnectorStatus = 'draft' | 'active' | 'failed' | 'disabled';
-export type ConnectorHumanPolicy = 'allow' | 'confirm' | 'strong_confirm' | 'deny';
-export type ConnectorAgentPolicy = 'allow' | 'suggest' | 'formal_approval' | 'deny';
+export type ConnectorHumanPolicy = 'allow' | 'ask' | 'block';
+export type ConnectorSubjectType = 'org' | 'team';
 
 export type ConnectorConfig = Record<string, unknown>;
 export type ConnectorPolicyScope = Record<string, unknown>;
@@ -73,26 +73,27 @@ export interface UpsertConnectorSecret {
   keyVersion: number;
 }
 
-export interface ConnectorTeamPolicy {
+export interface ConnectorPolicy {
   connectorId: string;
-  teamId: string;
+  subjectType: ConnectorSubjectType;
+  subjectId: string;
   capability: string;
   scope: ConnectorPolicyScope | null;
   humanPolicy: ConnectorHumanPolicy;
-  agentPolicy: ConnectorAgentPolicy;
 }
 
-export interface UpsertConnectorTeamPolicy {
+export interface UpsertConnectorPolicy {
   connectorId: string;
-  teamId?: string;
+  subjectType: ConnectorSubjectType;
+  subjectId: string;
   capability: string;
   scope?: ConnectorPolicyScope | null;
   humanPolicy: ConnectorHumanPolicy;
-  agentPolicy: ConnectorAgentPolicy;
 }
 
 export interface ListConnectorPoliciesOptions {
   connectorId: string;
-  teamId?: string;
+  subjectType?: ConnectorSubjectType;
+  subjectId?: string;
   capability?: string;
 }

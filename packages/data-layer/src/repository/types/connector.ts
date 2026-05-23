@@ -1,13 +1,14 @@
 import type {
   Connector,
   ConnectorLookupOptions,
+  ConnectorPolicy,
   ConnectorSecret,
-  ConnectorTeamPolicy,
+  ConnectorSubjectType,
   ListConnectorPoliciesOptions,
   ListConnectorsOptions,
   NewConnector,
+  UpsertConnectorPolicy,
   UpsertConnectorSecret,
-  UpsertConnectorTeamPolicy,
   ConnectorPatch,
 } from '@agentic-obs/common';
 
@@ -24,12 +25,18 @@ export interface IConnectorRepository {
   upsertSecret(input: UpsertConnectorSecret): Promise<ConnectorSecret>;
   deleteSecret(connectorId: string): Promise<boolean>;
 
-  listPolicies(opts: ListConnectorPoliciesOptions): Promise<ConnectorTeamPolicy[]>;
+  listPolicies(opts: ListConnectorPoliciesOptions): Promise<ConnectorPolicy[]>;
   getPolicy(
     connectorId: string,
-    teamId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
     capability: string,
-  ): Promise<ConnectorTeamPolicy | null>;
-  upsertPolicy(input: UpsertConnectorTeamPolicy): Promise<ConnectorTeamPolicy>;
-  deletePolicy(connectorId: string, teamId: string, capability: string): Promise<boolean>;
+  ): Promise<ConnectorPolicy | null>;
+  upsertPolicy(input: UpsertConnectorPolicy): Promise<ConnectorPolicy>;
+  deletePolicy(
+    connectorId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
+    capability: string,
+  ): Promise<boolean>;
 }

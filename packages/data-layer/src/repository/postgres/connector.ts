@@ -5,16 +5,17 @@ import type {
   ConnectorConfig,
   ConnectorLookupOptions,
   ConnectorPatch,
+  ConnectorPolicy,
   ConnectorPolicyScope,
   ConnectorSecret,
   ConnectorStatus,
-  ConnectorTeamPolicy,
+  ConnectorSubjectType,
   ConnectorType,
   ListConnectorPoliciesOptions,
   ListConnectorsOptions,
   NewConnector,
+  UpsertConnectorPolicy,
   UpsertConnectorSecret,
-  UpsertConnectorTeamPolicy,
 } from '@agentic-obs/common';
 import type { IConnectorRepository } from '../types/connector.js';
 import {
@@ -54,11 +55,11 @@ interface ConnectorSecretRow {
 
 interface ConnectorPolicyRow {
   connector_id: string;
-  team_id: string;
+  subject_type: string;
+  subject_id: string;
   capability: string;
   scope: ConnectorPolicyScope | string | null;
   human_policy: string;
-  agent_policy: string;
 }
 
 function rowToConnector(row: ConnectorRow): Connector {
@@ -98,14 +99,14 @@ function timestampToString(value: string | Date | null): string | null {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-function rowToPolicy(row: ConnectorPolicyRow): ConnectorTeamPolicy {
+function rowToPolicy(row: ConnectorPolicyRow): ConnectorPolicy {
   return {
     connectorId: row.connector_id,
-    teamId: row.team_id,
+    subjectType: row.subject_type as ConnectorSubjectType,
+    subjectId: row.subject_id,
     capability: row.capability,
     scope: parseJson<ConnectorPolicyScope | null>(row.scope, null),
-    humanPolicy: row.human_policy as ConnectorTeamPolicy['humanPolicy'],
-    agentPolicy: row.agent_policy as ConnectorTeamPolicy['agentPolicy'],
+    humanPolicy: row.human_policy as ConnectorPolicy['humanPolicy'],
   };
 }
 
@@ -287,62 +288,78 @@ export class PostgresConnectorRepository implements IConnectorRepository {
     return true;
   }
 
-  async listPolicies(opts: ListConnectorPoliciesOptions): Promise<ConnectorTeamPolicy[]> {
+  async listPolicies(opts: ListConnectorPoliciesOptions): Promise<ConnectorPolicy[]> {
     const wheres: SQL[] = [sql`connector_id = ${opts.connectorId}`];
-    if (opts.teamId !== undefined) wheres.push(sql`team_id = ${opts.teamId}`);
+    if (opts.subjectType !== undefined) wheres.push(sql`subject_type = ${opts.subjectType}`);
+    if (opts.subjectId !== undefined) wheres.push(sql`subject_id = ${opts.subjectId}`);
     if (opts.capability) wheres.push(sql`capability = ${opts.capability}`);
     const rows = await pgAll<ConnectorPolicyRow>(this.db, sql`
-      SELECT * FROM connector_team_policies
+      SELECT * FROM connector_policies
       WHERE ${sql.join(wheres, sql` AND `)}
-      ORDER BY team_id, capability
+      ORDER BY subject_type, subject_id, capability
     `);
     return rows.map(rowToPolicy);
   }
 
   async getPolicy(
     connectorId: string,
-    teamId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
     capability: string,
-  ): Promise<ConnectorTeamPolicy | null> {
+  ): Promise<ConnectorPolicy | null> {
     const rows = await pgAll<ConnectorPolicyRow>(this.db, sql`
-      SELECT * FROM connector_team_policies
+      SELECT * FROM connector_policies
       WHERE connector_id = ${connectorId}
-        AND team_id = ${teamId}
+        AND subject_type = ${subjectType}
+        AND subject_id = ${subjectId}
         AND capability = ${capability}
     `);
     return rows[0] ? rowToPolicy(rows[0]) : null;
   }
 
-  async upsertPolicy(input: UpsertConnectorTeamPolicy): Promise<ConnectorTeamPolicy> {
-    const teamId = input.teamId ?? '';
+  async upsertPolicy(input: UpsertConnectorPolicy): Promise<ConnectorPolicy> {
     await pgRun(this.db, sql`
-      INSERT INTO connector_team_policies (
-        connector_id, team_id, capability, scope, human_policy, agent_policy
+      INSERT INTO connector_policies (
+        connector_id, subject_type, subject_id, capability, scope, human_policy
       ) VALUES (
         ${input.connectorId},
-        ${teamId},
+        ${input.subjectType},
+        ${input.subjectId},
         ${input.capability},
         ${stringifyJson(input.scope ?? null)}::jsonb,
-        ${input.humanPolicy},
-        ${input.agentPolicy}
+        ${input.humanPolicy}
       )
-      ON CONFLICT(connector_id, team_id, capability) DO UPDATE SET
+      ON CONFLICT(connector_id, subject_type, subject_id, capability) DO UPDATE SET
         scope = excluded.scope,
-        human_policy = excluded.human_policy,
-        agent_policy = excluded.agent_policy
+        human_policy = excluded.human_policy
     `);
-    const saved = await this.getPolicy(input.connectorId, teamId, input.capability);
-    if (!saved) throw new Error(`[PostgresConnectorRepository] upsertPolicy: row ${input.connectorId}/${teamId}/${input.capability} not found`);
+    const saved = await this.getPolicy(
+      input.connectorId,
+      input.subjectType,
+      input.subjectId,
+      input.capability,
+    );
+    if (!saved) {
+      throw new Error(
+        `[PostgresConnectorRepository] upsertPolicy: row ${input.connectorId}/${input.subjectType}/${input.subjectId}/${input.capability} not found`,
+      );
+    }
     return saved;
   }
 
-  async deletePolicy(connectorId: string, teamId: string, capability: string): Promise<boolean> {
-    const existing = await this.getPolicy(connectorId, teamId, capability);
+  async deletePolicy(
+    connectorId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
+    capability: string,
+  ): Promise<boolean> {
+    const existing = await this.getPolicy(connectorId, subjectType, subjectId, capability);
     if (!existing) return false;
     await pgRun(this.db, sql`
-      DELETE FROM connector_team_policies
+      DELETE FROM connector_policies
       WHERE connector_id = ${connectorId}
-        AND team_id = ${teamId}
+        AND subject_type = ${subjectType}
+        AND subject_id = ${subjectId}
         AND capability = ${capability}
     `);
     return true;

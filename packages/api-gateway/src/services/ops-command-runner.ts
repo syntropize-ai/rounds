@@ -31,12 +31,18 @@ import type {
 import type {
   Identity,
   Connector,
+  ConnectorHumanPolicy,
 } from '@agentic-obs/common';
 import type { IConnectorRepository } from '@agentic-obs/data-layer';
 import {
   DefaultOpsSecretRefResolver,
   type OpsSecretRefResolver,
 } from './ops-secret-ref-resolver.js';
+import {
+  capabilityForShellCommand,
+  resolveConnectorPolicy,
+  templateDefaultPolicy,
+} from './ops-policy.js';
 
 const log = createLogger('ops-command-runner');
 
@@ -283,7 +289,46 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
       };
     }
 
-    const needsConfirmation = !params.confirmed && shellCommandNeedsConfirmation(command);
+    // Connector-policy gate (Settings → Connectors → Permissions). The
+    // user-configured per-capability policy takes precedence over the
+    // pattern-based risk classifier:
+    //   - `block` → refuse here, never reach the adapter.
+    //   - `ask`   → force confirmation regardless of how innocuous the
+    //               command looks.
+    //   - `allow` → still let the risk classifier confirm high-risk
+    //               commands (defense in depth — a `delete` shouldn't
+    //               sneak through just because someone allowed `runtime.get`).
+    //   - no row  → fall back to the template's seed default, then to the
+    //               risk classifier.
+    const capability = capabilityForShellCommand(command);
+    const teamIds = this.deps.resolveUserTeams
+      ? await this.deps.resolveUserTeams(params.identity)
+      : [];
+    const explicit = await resolveConnectorPolicy({
+      connectorRepo: this.deps.connectors,
+      connectorId: connector.id,
+      capability,
+      orgId: this.deps.orgId,
+      userTeamIds: teamIds,
+    });
+    const policy: ConnectorHumanPolicy | 'no-policy' =
+      explicit === 'no-policy'
+        ? (templateDefaultPolicy(connector.type, capability) ?? 'no-policy')
+        : explicit;
+
+    if (policy === 'block') {
+      return {
+        observation:
+          `Blocked by connector policy: capability "${capability}" on "${connector.name}" is set to block. ` +
+          `Adjust via Settings → Connectors → ${connector.name} → Permissions.`,
+        success: false,
+      };
+    }
+
+    const policyWantsConfirm = policy === 'ask';
+    const riskWantsConfirm = shellCommandNeedsConfirmation(command);
+    const needsConfirmation =
+      !params.confirmed && (policyWantsConfirm || riskWantsConfirm);
     if (needsConfirmation) {
       const confirmation = createConfirmation({
         orgId: this.deps.orgId,
@@ -357,6 +402,33 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     if (params.scope === 'namespace' && !params.namespace?.trim()) {
       return { observation: 'ops_cluster_shell requires namespace when scope="namespace".' };
     }
+
+    // Policy gate (same precedence as runCommand). Cluster shell always
+    // confirms, so the `ask` branch is moot — but `block` must work.
+    const capability = `runtime.cluster_shell.${params.scope}`;
+    const teamIds = this.deps.resolveUserTeams
+      ? await this.deps.resolveUserTeams(params.identity)
+      : [];
+    const explicit = await resolveConnectorPolicy({
+      connectorRepo: this.deps.connectors,
+      connectorId: connector.id,
+      capability,
+      orgId: this.deps.orgId,
+      userTeamIds: teamIds,
+    });
+    const policy: ConnectorHumanPolicy | 'no-policy' =
+      explicit === 'no-policy'
+        ? (templateDefaultPolicy(connector.type, capability) ?? 'no-policy')
+        : explicit;
+    if (policy === 'block') {
+      return {
+        observation:
+          `Blocked by connector policy: capability "${capability}" on "${connector.name}" is set to block. ` +
+          `Adjust via Settings → Connectors → ${connector.name} → Permissions.`,
+        success: false,
+      };
+    }
+
     if (!params.confirmed) {
       const confirmation = createClusterShellConfirmation({
         orgId: this.deps.orgId,

@@ -844,42 +844,9 @@ CREATE TABLE IF NOT EXISTS connector_policies (
   FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
 );
 
--- Idempotent migration from the legacy `connector_team_policies` shape.
--- Wildcard rows (team_id = '') become subject_type='org' keyed by the
--- connector's org_id. Non-empty team_id rows become subject_type='team'.
--- 4-state human_policy collapses to allow|ask|block, agent_policy drops.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_name = 'connector_team_policies'
-  ) AND NOT EXISTS (SELECT 1 FROM connector_policies LIMIT 1) THEN
-    INSERT INTO connector_policies (
-      connector_id, subject_type, subject_id, capability, scope, human_policy
-    )
-    SELECT
-      p.connector_id,
-      CASE WHEN p.team_id = '' THEN 'org' ELSE 'team' END,
-      CASE WHEN p.team_id = '' THEN c.org_id ELSE p.team_id END,
-      p.capability,
-      p.scope,
-      CASE p.human_policy
-        WHEN 'allow' THEN 'allow'
-        WHEN 'confirm' THEN 'ask'
-        WHEN 'strong_confirm' THEN 'ask'
-        WHEN 'deny' THEN 'block'
-        ELSE 'ask'
-      END
-    FROM connector_team_policies p
-    JOIN connectors c ON c.id = p.connector_id;
-    DROP TABLE connector_team_policies;
-  ELSIF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_name = 'connector_team_policies'
-  ) THEN
-    DROP TABLE connector_team_policies;
-  END IF;
-END $$;
+-- Drop the obsolete legacy table if it still exists. No data migration —
+-- admins re-author policies in the new UI.
+DROP TABLE IF EXISTS connector_team_policies;
 
 -- ============================================================================
 -- Remediation plans (Phase 3 of docs/design/auto-remediation.md)

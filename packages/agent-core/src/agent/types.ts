@@ -106,6 +106,16 @@ export interface ConnectorConfig {
 
 export type OpsCommandIntent = 'read' | 'propose' | 'execute_approved' | string
 
+/**
+ * Agent-facing view of an ops (kubernetes) connector.
+ *
+ * NOTE: this is a DERIVED type — there is no separate ops_connectors table.
+ * The host (api-gateway/chat-service) filters the unified `connectors` table
+ * for rows with `type='kubernetes'` and maps them onto this shape per chat
+ * turn. The orchestrator's deps still take `opsConnectors?:
+ * OpsConnectorConfig[]` because handlers/tests read through this surface;
+ * only how it's populated changed.
+ */
 export interface OpsConnectorConfig {
   id: string
   name: string
@@ -122,6 +132,19 @@ export interface OpsCommandRunner {
     intent: OpsCommandIntent
     identity: import('@agentic-obs/common').Identity
     sessionId: string
+    confirmed?: boolean
+    onConfirmationRequired?: (confirmation: unknown) => void
+  }): unknown | Promise<unknown>
+  runClusterShell?(params: {
+    connectorId: string
+    script: string
+    scope: 'cluster' | 'namespace'
+    namespace?: string
+    image?: string
+    identity: import('@agentic-obs/common').Identity
+    sessionId: string
+    confirmed?: boolean
+    onConfirmationRequired?: (confirmation: unknown) => void
   }): unknown | Promise<unknown>
 }
 

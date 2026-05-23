@@ -3,8 +3,7 @@
  *
  * P7 of `docs/design/auto-remediation.md`. Shows the plan summary, source
  * investigation, ordered step list with dry-run previews + risk notes,
- * and an approve form with an opt-in `auto-edit` checkbox (gated by
- * `plans:auto_edit`). Failed plans get a "retry this step" affordance.
+ * and an approve form. Failed plans get a "retry this step" affordance.
  * Plans with a rescue plan get a "Run rescue plan" link.
  */
 
@@ -142,12 +141,10 @@ export default function PlanDetail() {
   const [rescuePlan, setRescuePlan] = useState<RemediationPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [autoEdit, setAutoEdit] = useState(false);
   const [busy, setBusy] = useState(false);
   const [retryingOrdinal, setRetryingOrdinal] = useState<number | null>(null);
 
   const canApprove = hasPermission('plans:approve');
-  const canAutoEdit = hasPermission('plans:auto_edit');
 
   const reload = useCallback(async () => {
     if (!id) return;
@@ -176,7 +173,7 @@ export default function PlanDetail() {
     if (!id) return;
     setBusy(true);
     try {
-      await plansApi.approve(id, autoEdit && canAutoEdit);
+      await plansApi.approve(id, true);
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Approve failed');
@@ -302,22 +299,6 @@ export default function PlanDetail() {
           summary={
             <div>
               <div className="font-semibold mb-1">Review</div>
-              {canAutoEdit && (
-                <label className="flex items-start gap-2 text-sm cursor-pointer mt-2">
-                  <input
-                    type="checkbox"
-                    checked={autoEdit}
-                    onChange={(e) => setAutoEdit(e.target.checked)}
-                    className="mt-1"
-                  />
-                  <span>
-                    <span className="font-semibold">Auto-edit subsequent steps.</span>{' '}
-                    <span className="text-on-surface-variant">
-                      When checked, the executor runs every step without asking for per-step approval.
-                    </span>
-                  </span>
-                </label>
-              )}
             </div>
           }
           approvalContext={

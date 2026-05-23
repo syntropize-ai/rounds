@@ -32,6 +32,7 @@ import {
   toAgentConnectors,
 } from '../services/dashboard-service.js';
 import { toAlertRuleStore } from '../services/chat-service.js';
+import { KubectlOpsCommandRunner, connectorToOpsConfig } from '../services/ops-command-runner.js';
 import type { Persistence } from './persistence.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
@@ -95,6 +96,13 @@ export function buildBackgroundOrchestratorFactory(
       connectors,
       [],
     );
+    const opsConnectors = connectors
+      .filter((c) => c.type === 'kubernetes')
+      .map(connectorToOpsConfig);
+    const opsCommandRunner = new KubectlOpsCommandRunner({
+      connectors: deps.persistence.repos.connectors,
+      orgId: identity.orgId,
+    });
 
     return createAgentRunner({
       gateway,
@@ -108,6 +116,8 @@ export function buildBackgroundOrchestratorFactory(
       adapters,
       webSearchAdapter: sharedWebSearchAdapter,
       allConnectors: toAgentConnectors(connectors),
+      opsConnectors,
+      opsCommandRunner,
       remediationPlans: deps.persistence.repos.remediationPlans,
       approvalRequests: deps.approvalsOverride ?? deps.persistence.repos.approvals,
       // Background runs have no SSE channel; tool events are still logged
@@ -116,7 +126,7 @@ export function buildBackgroundOrchestratorFactory(
       identity,
       accessControl: deps.accessControl,
       ...(deps.audit ? { auditWriter: deps.audit } : {}),
-      ...(agentType ? { agentType } : {}),
+      agentType: agentType ?? 'background_orchestrator',
     }, `bg_${randomUUID()}`);
   };
 }

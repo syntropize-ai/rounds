@@ -144,11 +144,20 @@ export class ApiClient {
       // inspecting `res` themselves; DashboardWorkspace and useChat both rely
       // on this. ApiError doesn't declare `status`, but we attach it as an
       // extra property — callers narrow it via `(res.error as { status }).status`.
+      // Safe `in` check: `inner` may be a string when the backend response
+      // shape uses `error: "<msg>"` directly (e.g. some legacy endpoints).
+      // `'details' in <string>` throws TypeError — guard with object check.
+      const innerIsObject =
+        typeof inner === 'object' && inner !== null;
       const error = {
-        code: inner?.code ?? 'UNKNOWN',
-        message: inner?.message ?? res.statusText,
+        code: innerIsObject ? (inner.code ?? 'UNKNOWN') : 'UNKNOWN',
+        message: innerIsObject
+          ? (inner.message ?? res.statusText)
+          : typeof inner === 'string'
+          ? inner
+          : res.statusText,
         status: res.status,
-        ...(inner && 'details' in inner && inner.details !== undefined
+        ...(innerIsObject && 'details' in inner && inner.details !== undefined
           ? { details: inner.details }
           : {}),
       } as import('@agentic-obs/common').ApiError;

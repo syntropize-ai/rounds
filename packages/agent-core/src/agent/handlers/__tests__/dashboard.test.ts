@@ -41,7 +41,7 @@ describe('dashboard handlers', () => {
         expect.objectContaining({ type: 'tool_call', tool: 'dashboard_create' }),
       );
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_create', success: true }),
+        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_create' }),
       );
     });
 
@@ -62,7 +62,7 @@ describe('dashboard handlers', () => {
       });
       await expect(handleDashboardCreate(ctx, { title: 'X', datasourceId: 'prom-test' })).rejects.toThrow('db down');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_create', success: false, summary: 'db down' }),
+        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_create', summary: 'db down' }),
       );
     });
   });
@@ -322,7 +322,6 @@ describe('dashboard handlers', () => {
         expect.objectContaining({
           type: 'tool_result',
           tool: 'dashboard_remove_panels',
-          success: false,
           summary: 'Error: store offline',
         }),
       );
@@ -383,7 +382,6 @@ describe('dashboard handlers', () => {
         expect.objectContaining({
           type: 'tool_result',
           tool: 'dashboard_modify_panel',
-          success: false,
           summary: 'Error: write failed',
         }),
       );
@@ -415,7 +413,6 @@ describe('dashboard handlers', () => {
         expect.objectContaining({
           type: 'tool_result',
           tool: 'dashboard_add_variable',
-          success: false,
           summary: 'Error: variable write failed',
         }),
       );
@@ -628,7 +625,7 @@ describe('dashboard handlers', () => {
       const observation = await handleDashboardList(ctx, {});
       expect(observation).toMatch(/Failed to list dashboards: store offline/);
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_list', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_list' }),
       );
     });
   });

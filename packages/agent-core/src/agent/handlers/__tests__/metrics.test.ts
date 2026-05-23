@@ -57,7 +57,7 @@ describe('metrics handlers', () => {
       expect(adapter.instantQuery).toHaveBeenCalledWith('up', undefined);
       expect(observation).toContain('job="api"');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'metrics_query', success: true }),
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics_query' }),
       );
     });
 
@@ -75,7 +75,7 @@ describe('metrics handlers', () => {
       const observation = await handleMetricsQuery(ctx, { sourceId: 'prom', query: 'up' });
       expect(observation).toBe('Query failed: 500: backend down');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'metrics_query', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics_query' }),
       );
     });
 
@@ -113,7 +113,7 @@ describe('metrics handlers', () => {
       const observation = await handleMetricsRangeQuery(ctx, { sourceId: 'prom', query: 'cpu' });
       expect(observation).toBe('Range query failed: timeout');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'metrics_range_query', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics_range_query' }),
       );
     });
   });
@@ -204,7 +204,7 @@ describe('metrics handlers', () => {
       const observation = await handleMetricsDiscover(ctx, { sourceId: 'prom', kind: 'labels' });
       expect(observation).toMatch(/metrics_discover \(labels\) failed: backend down/);
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'metrics_discover', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics_discover' }),
       );
     });
   });
@@ -218,7 +218,7 @@ describe('metrics handlers', () => {
       const observation = await handleMetricsValidate(ctx, { sourceId: 'prom', query: 'bogus(' });
       expect(observation).toContain('Invalid query');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'metrics_validate', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics_validate' }),
       );
     });
 
@@ -232,7 +232,7 @@ describe('metrics handlers', () => {
       expect(observation).toContain('Invalid query');
       expect(observation).toContain('Prometheus returned HTTP 422 for range query');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'metrics_validate', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics_validate' }),
       );
     });
   });

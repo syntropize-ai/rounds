@@ -21,6 +21,8 @@ export interface FakeActionContext extends ActionContext {
   pushConversationAction: Mock;
   /** Spy capturing navigate-to calls. */
   setNavigateTo: Mock;
+  /** Spy capturing per-resource create relationships. */
+  recordCreatedResource: Mock;
 }
 
 /**
@@ -35,6 +37,7 @@ export function makeFakeActionContext(
   const emitAgentEvent = vi.fn();
   const pushConversationAction = vi.fn();
   const setNavigateTo = vi.fn();
+  const recordCreatedResource = vi.fn();
 
   const ctx = {
     gateway: {} as ActionContext['gateway'],
@@ -68,6 +71,7 @@ export function makeFakeActionContext(
     }) as ReturnType<ActionContext['makeAgentEvent']>,
     pushConversationAction,
     setNavigateTo,
+    recordCreatedResource,
     investigationSections: new Map(),
     investigationProvenance: new Map(),
     activeInvestigationId: null,

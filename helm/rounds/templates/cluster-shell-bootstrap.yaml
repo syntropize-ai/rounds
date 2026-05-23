@@ -1,0 +1,53 @@
+{{- /*
+ServiceAccount + RoleBinding for `ops.cluster_shell` plan steps.
+
+The api-gateway spawns one-shot Jobs that run inside this SA. The Job
+container does whatever the agent's script says — `kubectl apply`,
+`helm install`, `istioctl install`, `curl | sh` bootstraps. Because the
+script can do anything, by default the SA is bound to `cluster-admin` so
+"install Istio / Argo CD / kube-prometheus-stack" all work out of the
+box. Operators with stricter posture should set
+`clusterShell.clusterRole=""` and create a tighter ClusterRole/Role
+pointing at the resources they want the agent to touch.
+
+The Job itself is gated by the policy table in the api-gateway
+(`runtime.cluster_shell.cluster` = formal_approval by default), so even
+with cluster-admin attached to the SA, nothing runs until an operator
+clicks Approve.
+*/ -}}
+{{- if .Values.clusterShell.enabled -}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.clusterShell.namespace }}
+  labels:
+    {{- include "rounds.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster-shell-bootstrap
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.clusterShell.serviceAccount }}
+  namespace: {{ .Values.clusterShell.namespace }}
+  labels:
+    {{- include "rounds.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster-shell-bootstrap
+---
+{{- if .Values.clusterShell.clusterRole }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.clusterShell.serviceAccount }}
+  labels:
+    {{- include "rounds.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cluster-shell-bootstrap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.clusterShell.clusterRole }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.clusterShell.serviceAccount }}
+  namespace: {{ .Values.clusterShell.namespace }}
+{{- end }}
+{{- end -}}

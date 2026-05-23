@@ -116,6 +116,32 @@ export async function handleInvestigationCreate(
 // concurrent runs reused investigation ids.
 // ---------------------------------------------------------------------------
 
+/**
+ * Add a narrative (markdown) section to the active investigation.
+ * Single-purpose wrapper — strictly text, no panel. Replaces the old
+ * `investigation_add_section(type='text', ...)` shape so the model can't
+ * accidentally pick text when the situation warranted evidence.
+ */
+export async function handleInvestigationAddText(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  return handleInvestigationAddSection(ctx, { ...args, type: 'text' });
+}
+
+/**
+ * Add a chart-backed evidence section. `panel` is structurally required —
+ * if you don't have a query to attach yet, run `metrics_range_query` first
+ * and use its `expr` as `panel.queries[0].expr`. The system captures the
+ * snapshot automatically.
+ */
+export async function handleInvestigationAddEvidence(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  return handleInvestigationAddSection(ctx, { ...args, type: 'evidence' });
+}
+
 export async function handleInvestigationAddSection(
   ctx: ActionContext,
   args: Record<string, unknown>,
@@ -421,6 +447,7 @@ export async function handleInvestigationComplete(
 
       // Navigate to the investigation page
       ctx.setNavigateTo(`/investigations/${investigationId}`);
+      ctx.recordCreatedResource('investigation', investigationId);
 
       return `Investigation completed and report saved with ${sections.length} sections. Summary: ${summary}`;
     },
@@ -469,7 +496,7 @@ export async function handleInvestigationList(
       const msg = filter
         ? `No investigations match "${filter}" (${all.length} total).`
         : 'No investigations found.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'investigation_list', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'investigation_list', summary: msg });
       return msg;
     }
     const lines = filtered.slice(0, limit).map((inv) => {
@@ -483,12 +510,11 @@ export async function handleInvestigationList(
       type: 'tool_result',
       tool: 'investigation_list',
       summary: `${filtered.length} investigations found`,
-      success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to list investigations: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'investigation_list', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'investigation_list', summary: msg });
     return msg;
   }
 }

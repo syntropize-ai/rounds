@@ -4,9 +4,9 @@
  * These collapse the two patterns the audit flagged as repeated across the
  * 28 handlers in `orchestrator-action-handlers.ts`:
  *
- *   1. The `tool_call` → try/`tool_result(success: true)` / catch /
- *      `tool_result(success: false)` SSE-emit boundary that wraps every
- *      handler body.
+ *   1. The `tool_call` → try/`tool_result` / catch / `tool_result` SSE-emit
+ *      boundary that wraps every handler body. No success/failure flag —
+ *      the observation text speaks for itself.
  *
  *   2. The `workspaceId: ctx.identity.orgId` idiom that scopes new rows
  *      (dashboards, investigations, alert rules) to the caller's org so the
@@ -26,10 +26,15 @@ import type { Identity, DashboardSseEvent } from '@agentic-obs/common';
  * `{observation, summary}` if the SSE summary should differ from the
  * returned observation — most handlers want them identical).
  *
- * On throw: emits `tool_result` with `success: false` and re-throws so the
- * orchestrator's outer error handling still runs. Callers that want to
- * convert errors into observation strings (the existing pattern for
- * metrics/logs) should catch inside the body.
+ * `success` is intentionally absent from the emitted events. A tool ran and
+ * here's what it printed — whether that "succeeded" is a judgment the model
+ * (or the human) makes by reading the observation, not a boolean the
+ * runtime is qualified to set. Removing pass/fail decoration also strips
+ * the red-X feedback loop that nudged the model into expensive retries
+ * after a non-zero shell exit or an empty result set.
+ *
+ * On throw: still re-throws so the orchestrator's outer error handling
+ * runs, but the SSE `tool_result` just carries the error text as `summary`.
  */
 export async function withToolEventBoundary(
   sendEvent: (event: DashboardSseEvent) => void,
@@ -44,11 +49,11 @@ export async function withToolEventBoundary(
     const observation = typeof result === 'string' ? result : result.observation;
     const summary =
       typeof result === 'string' ? result : (result.summary ?? result.observation);
-    sendEvent({ type: 'tool_result', tool: toolName, summary, success: true });
+    sendEvent({ type: 'tool_result', tool: toolName, summary });
     return observation;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    sendEvent({ type: 'tool_result', tool: toolName, summary: msg, success: false });
+    sendEvent({ type: 'tool_result', tool: toolName, summary: msg });
     throw err;
   }
 }

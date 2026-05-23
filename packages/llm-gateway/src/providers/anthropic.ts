@@ -9,6 +9,7 @@ import type {
   ToolCall,
 } from '../types.js';
 import { ProviderError, classifyProviderHttpError } from '../types.js';
+import { timedFetch } from './timeout-fetch.js';
 import { effortToBudgetTokens, getCapabilities, type SamplingParam } from './capabilities.js';
 import { buildApiKeyResolver } from '../api-key-helper.js';
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '../system-prompt-cache-boundary.js';
@@ -332,16 +333,20 @@ export class AnthropicProvider implements LLMProvider {
       headers['x-api-key'] = apiKey;
     }
 
-    const fetchInit: RequestInit = {
+    const fetchInit = {
       method: 'POST',
       headers,
       body: JSON.stringify(requestBody),
-    };
-    if (options.signal) fetchInit.signal = options.signal;
+    } as const;
     let response: Response;
     try {
-      response = await fetch(url, fetchInit);
+      response = await timedFetch(url, fetchInit, {
+        provider: this.name,
+        displayName: 'Anthropic',
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
     } catch (err) {
+      if (err instanceof ProviderError) throw err;
       const kind = classifyProviderHttpError({ cause: err });
       throw new ProviderError(
         `Anthropic complete transport failure: ${err instanceof Error ? err.message : String(err)}`,

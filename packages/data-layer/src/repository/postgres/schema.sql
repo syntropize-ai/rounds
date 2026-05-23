@@ -821,6 +821,18 @@ CREATE TABLE IF NOT EXISTS connector_secrets (
   FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS github_app_config (
+  org_id                     TEXT PRIMARY KEY,
+  app_id                     BIGINT NOT NULL,
+  slug                       TEXT NOT NULL,
+  client_id                  TEXT NOT NULL,
+  client_secret_ciphertext   TEXT NOT NULL,
+  private_key_ciphertext     TEXT NOT NULL,
+  webhook_secret_ciphertext  TEXT,
+  registered_at              TIMESTAMP NOT NULL,
+  registered_by              TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS connector_team_policies (
   connector_id  TEXT NOT NULL,
   team_id       TEXT NOT NULL DEFAULT '',

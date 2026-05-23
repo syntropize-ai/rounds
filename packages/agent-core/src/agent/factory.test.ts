@@ -144,6 +144,7 @@ function makeContextRuntime(): Parameters<typeof buildActionContext>[1] {
     makeAgentEvent: (type) => ({ type, agentType: 'orchestrator', timestamp: 'now' }) as never,
     pushConversationAction: () => undefined,
     setNavigateTo: () => undefined,
+    recordCreatedResource: () => undefined,
     investigationSections: new Map(),
     investigationProvenance: new Map(),
     activeInvestigationIdRef: { current: null },

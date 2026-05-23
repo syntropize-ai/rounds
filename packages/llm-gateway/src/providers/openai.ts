@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import { ProviderError, classifyProviderHttpError } from '../types.js';
+import { timedFetch } from './timeout-fetch.js';
 import { getCapabilities } from './capabilities.js';
 import { buildApiKeyResolver } from '../api-key-helper.js';
 import { stripCacheBoundary } from '../system-prompt-cache-boundary.js';
@@ -495,16 +496,23 @@ abstract class OpenAIChatCompletionsProvider implements LLMProvider {
     };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
-    const fetchInit: RequestInit = {
+    const fetchInit = {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-    };
-    if (options.signal) fetchInit.signal = options.signal;
+    } as const;
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}/chat/completions`, fetchInit);
+      // timedFetch wraps caller's signal with a default 120s timeout so a
+      // stalled provider can't hang the react-loop forever (background
+      // investigations don't plumb a signal of their own).
+      response = await timedFetch(`${this.baseUrl}/chat/completions`, fetchInit, {
+        provider: this.name,
+        displayName: this.displayName,
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
     } catch (err) {
+      if (err instanceof ProviderError) throw err;
       const kind = classifyProviderHttpError({ cause: err });
       throw new ProviderError(
         `${this.displayName} complete transport failure: ${err instanceof Error ? err.message : String(err)}`,

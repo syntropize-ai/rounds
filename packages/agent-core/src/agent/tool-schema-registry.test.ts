@@ -22,11 +22,16 @@ describe('tool-schema-registry', () => {
     expect(mismatches).toEqual([]);
   });
 
-  it('remediation_plan_create description carries the LOW COST / DEFAULT / Skip framing', () => {
+  it('remediation_plan_create description carries background-only framing', () => {
     const desc = TOOL_REGISTRY['remediation_plan_create']?.schema.description ?? '';
+    const investigationId = TOOL_REGISTRY['remediation_plan_create']?.schema.input_schema.properties?.['investigationId'];
     expect(desc).toContain('LOW COST');
-    expect(desc).toContain('DEFAULT next step after investigation_complete');
+    expect(desc).toContain('BACKGROUND ONLY');
+    expect(desc).toContain('background investigation completes');
+    expect(desc).not.toContain('Direct user request');
+    expect(desc).not.toContain('investigationId: ""');
     expect(desc).toContain('Skip ONLY when');
+    expect(JSON.stringify(investigationId)).toContain('Required');
   });
 
   // The eight high-stakes tools used to carry an `extendedPrompt` field
@@ -39,7 +44,8 @@ describe('tool-schema-registry', () => {
     { tool: 'remediation_plan_create_rescue', mustContain: ['Pair with the primary plan ONLY', 'silence beats fabrication'] },
     { tool: 'dashboard_add_panels', mustContain: ['PRE-FLIGHT', 'web_search FIRST', 'training-data priors'] },
     { tool: 'investigation_create', mustContain: ['Trigger on diagnostic intents', 'BEFORE running discovery queries'] },
-    { tool: 'investigation_add_section', mustContain: ['Interleave querying and writing', 'short `## heading`'] },
+    { tool: 'investigation_add_text', mustContain: ['Interleave', 'short `## heading`'] },
+    { tool: 'investigation_add_evidence', mustContain: ['Reuse the query', 'auto-captured snapshot'] },
     { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded'] },
     { tool: 'web_search', mustContain: ['Cheap read', 'Named-system dashboard', 'unfamiliar metric'] },
   ];
@@ -118,5 +124,14 @@ describe('tool-schema-registry', () => {
       }
     }
     expect(ungated).toEqual([]);
+  });
+
+  it('keeps remediation plans out of the foreground orchestrator tool surface', () => {
+    const foreground = agentRegistry.get('orchestrator')!;
+    const background = agentRegistry.get('background_orchestrator')!;
+    expect(foreground.allowedTools).not.toContain('remediation_plan_create');
+    expect(foreground.allowedTools).not.toContain('remediation_plan_create_rescue');
+    expect(background.allowedTools).toContain('remediation_plan_create');
+    expect(background.allowedTools).toContain('remediation_plan_create_rescue');
   });
 });

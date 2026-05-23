@@ -436,6 +436,8 @@ describe('PlanExecutorService — approval-row scope enrichment', () => {
   });
 
   it('cluster-scoped step (no -n flag): connector set, namespace NULL', async () => {
+    // Two-step plan so single-step auto-edit doesn't bypass per-step
+    // approval (that fast-path is the UX fix in approve()).
     const plan = await plansRepo.create(
       basePlan({
         steps: [
@@ -443,6 +445,11 @@ describe('PlanExecutorService — approval-row scope enrichment', () => {
             kind: 'ops.run_command',
             commandText: 'kubectl get nodes',
             paramsJson: { argv: ['get', 'nodes'], connectorId: 'k8s-prod' },
+          },
+          {
+            kind: 'ops.run_command',
+            commandText: 'kubectl get pods',
+            paramsJson: { argv: ['get', 'pods'], connectorId: 'k8s-prod' },
           },
         ],
       }),
@@ -462,6 +469,8 @@ describe('PlanExecutorService — approval-row scope enrichment', () => {
   });
 
   it('non-ops step kind: both connector + namespace are NULL', async () => {
+    // Two-step plan so single-step auto-edit doesn't bypass per-step
+    // approval (that fast-path is the UX fix in approve()).
     const plan = await plansRepo.create(
       basePlan({
         steps: [
@@ -469,6 +478,11 @@ describe('PlanExecutorService — approval-row scope enrichment', () => {
             kind: 'alert_rule_write',
             commandText: 'pause noisy alert rule',
             paramsJson: { ruleId: 'rule-1', state: 'paused' },
+          },
+          {
+            kind: 'alert_rule_write',
+            commandText: 'pause another noisy rule',
+            paramsJson: { ruleId: 'rule-2', state: 'paused' },
           },
         ],
       }),

@@ -38,6 +38,9 @@ import { createApprovalRouter } from '../routes/approval.js';
 import { mountPlans } from './plans-boot.js';
 import { createWebhookRouter } from '../routes/webhooks.js';
 import { createConnectorsRouter } from '../routes/connectors.js';
+import { createConnectorsGithubRouter } from '../routes/connectors-github.js';
+import { testConnectorAgainstBackend } from '../services/connector-test.js';
+import { getConnectorTemplate, type ConnectorType } from '@agentic-obs/common';
 import { createQueryRouter } from '../routes/dashboard/query.js';
 import { createMetricsQueryRouter } from '../routes/metrics-query.js';
 import { createMetricsSaveAsDashboardRouter } from '../routes/metrics-save-as-dashboard.js';
@@ -55,6 +58,7 @@ import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
 import { createChatRouter } from '../routes/chat.js';
+import { createOpsCommandConfirmationsRouter } from '../routes/ops-command-confirmations.js';
 import { bootstrapAware } from '../middleware/bootstrap-aware.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { createOrgContextMiddleware } from '../middleware/org-context.js';
@@ -143,14 +147,100 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
       createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
     ],
   });
+  const connectorsRepo = connectorRepositoryOrUnavailable(repos);
+
+  // GitHub OAuth flow — must be mounted BEFORE the main /api/connectors
+  // router so its paths aren't shadowed by the generic /:id handlers.
+  // /install-url requires auth (uses caller's orgId for state); /callback
+  // is unauthenticated because GitHub redirects to it with no session.
+  const githubAppBaseUrl = process.env['ROUNDS_BASE_URL']
+    ?? process.env['APP_BASE_URL']
+    ?? '';
+  const upsertSecretFn = (repos as { connectors?: { upsertSecret?: (input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }) => Promise<unknown> } })
+    .connectors?.upsertSecret;
+  const githubAppConfigRepo = (repos as { githubAppConfig?: import('@agentic-obs/data-layer').IGithubAppConfigRepository }).githubAppConfig;
+  if (typeof upsertSecretFn === 'function' && connectorsRepo.create && githubAppConfigRepo) {
+    app.use(
+      '/api/connectors/github',
+      (req, res, next) => {
+        // /callback and /manifest-callback are intentionally unauthenticated
+        // (GitHub redirects to them with no session). Every other path
+        // requires auth.
+        if (req.path === '/callback' || req.path === '/manifest-callback') return next();
+        return authMiddleware(req, res, next);
+      },
+      createConnectorsGithubRouter({
+        createConnector: (input) => connectorsRepo.create(input),
+        upsertSecret: upsertSecretFn,
+        githubAppConfig: githubAppConfigRepo,
+        appBaseUrl: githubAppBaseUrl,
+      }),
+    );
+  }
+
   app.use(
     '/api/connectors',
     bootstrapAwareAuthOnly,
     createConnectorsRouter({
-      connectors: connectorRepositoryOrUnavailable(repos),
+      connectors: connectorsRepo,
       secrets: optionalConnectorSecrets(repos),
       policies: optionalConnectorPolicies(repos),
       ac: accessControl,
+      testConnector: async (connector) => {
+        const template = getConnectorTemplate(connector.type as ConnectorType);
+        let secret: string | null = null;
+        if (template && template.credential !== 'none') {
+          // Call as method (preserves `this`) — destructuring + invoking the
+          // free function would lose context and trip `this.db is undefined`.
+          const connectorRepo = repos.connectors as unknown as {
+            getSecret?: (id: string) => Promise<{ ciphertext: Uint8Array } | null>;
+          };
+          if (typeof connectorRepo.getSecret === 'function') {
+            try {
+              const row = await connectorRepo.getSecret.call(connectorRepo, connector.id);
+              if (row?.ciphertext) {
+                secret = Buffer.from(row.ciphertext).toString('utf8');
+              }
+            } catch (err) {
+              log.warn(
+                { connectorId: connector.id, err: err instanceof Error ? err.message : String(err) },
+                'connector test: failed to load secret',
+              );
+            }
+          }
+        }
+        const result = await testConnectorAgainstBackend(connector, secret);
+        // Cache: on success, flip draft → active. If repo.update isn't
+        // available or the call fails, return the test result unchanged.
+        if (result.ok && connectorsRepo.update) {
+          try {
+            await connectorsRepo.update(
+              connector.id,
+              {
+                status: 'active',
+                lastVerifiedAt: new Date().toISOString(),
+                lastVerifyError: null,
+              },
+              connector.orgId,
+            );
+          } catch (err) {
+            log.warn(
+              { connectorId: connector.id, err: err instanceof Error ? err.message : String(err) },
+              'connector test: failed to persist verified status',
+            );
+          }
+        }
+        // Map outcome → ConnectorTestResult. We intentionally don't use `error`
+        // as a string here because the FE transport layer treats top-level
+        // `error` as the canonical error envelope. Use `message` so the
+        // response body stays a plain object that the FE can `'details' in`
+        // check safely.
+        return {
+          ok: result.ok,
+          ...(result.message ? { message: result.message } : {}),
+          ...(result.detail ? { detail: result.detail } : {}),
+        };
+      },
     }),
   );
   app.use(
@@ -321,6 +411,14 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     folderRepository: sharedFolderRepo,
     setupConfig,
     llmAuditStore: repos.llmAudit,
+    // Unified ops-connector model: the agent's ops_run_command tool reads
+    // kubernetes connectors directly from the full data-layer repo (we want
+    // `getSecret` here — the local `ConnectorRepository` view drops it).
+    connectorRepo: repos.connectors,
+  }));
+  app.use('/api/ops-command-confirmations', createOpsCommandConfirmationsRouter({
+    connectors: repos.connectors,
+    ac: accessControl,
   }));
   // Inline-chart metrics query — POST /api/metrics/query. Mounted after the
   // /api/metrics exposition router so the POST verb doesn't shadow the GET /.

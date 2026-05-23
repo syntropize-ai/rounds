@@ -106,7 +106,12 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'investigation_create': () => ac.eval('investigations:create'),
   'investigation_list': () =>
     ac.eval('investigations:read', 'investigations:*'),
-  'investigation_add_section': (args: Record<string, unknown>) =>
+  'investigation_add_text': (args: Record<string, unknown>) =>
+    ac.eval(
+      'investigations:write',
+      `investigations:uid:${String(args.investigationId ?? '*')}`,
+    ),
+  'investigation_add_evidence': (args: Record<string, unknown>) =>
     ac.eval(
       'investigations:write',
       `investigations:uid:${String(args.investigationId ?? '*')}`,
@@ -224,6 +229,14 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
 
   // -- Kubernetes / Ops integrations --------------------------------------
   'ops_run_command': (args: Record<string, unknown>) =>
+    ac.any(
+      ac.eval(
+        ACTIONS.OpsCommandsRun,
+        `connectors:id:${String(args.connectorId ?? '*')}`,
+      ),
+      ac.eval(ACTIONS.InstanceConfigWrite),
+    ),
+  'ops_cluster_shell': (args: Record<string, unknown>) =>
     ac.any(
       ac.eval(
         ACTIONS.OpsCommandsRun,

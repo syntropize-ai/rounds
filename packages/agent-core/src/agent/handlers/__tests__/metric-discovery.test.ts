@@ -97,7 +97,7 @@ describe('metric-discovery handlers', () => {
       const ctx = ctxWith(adapter);
       await expect(handleMetricsListNames(ctx, { datasourceId: 'prom' })).rejects.toThrow('502 backend');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'metrics_list_names', success: false }),
+        expect.objectContaining({ type: 'tool_result', tool: 'metrics_list_names' }),
       );
     });
   });

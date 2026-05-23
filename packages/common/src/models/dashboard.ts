@@ -236,7 +236,11 @@ export interface PendingDashboardChange {
 export type DashboardSseEvent =
   | { type: 'thinking'; content: string }
   | { type: 'tool_call'; tool: string; args: Record<string, unknown>; displayText: string }
-  | { type: 'tool_result'; tool: string; summary: string; success: boolean }
+  // `success` is optional and deprecated — the agent reasons over the
+  // observation/summary text, not a boolean. Older handlers still set it;
+  // the UI and the model both ignore it. New code shouldn't bother emitting
+  // it.
+  | { type: 'tool_result'; tool: string; summary: string; success?: boolean }
   | { type: 'panel_added'; panel: PanelConfig }
   | { type: 'panel_removed'; panelId: string }
   | { type: 'panel_modified'; panelId: string; patch: Partial<PanelConfig> }
@@ -268,6 +272,22 @@ export type DashboardSseEvent =
   | { type: 'verification_report'; report: { status: string; targetKind: string; summary: string; issues: Array<{ code: string; severity: string; message: string; artifactKind: string; artifactId?: string }>; checksRun: string[] } }
   | { type: 'agent_event'; event: { type: string; agentType: string; timestamp: string; metadata?: Record<string, unknown> } }
   | { type: 'approval_required'; tool: string; args: Record<string, unknown>; displayText: string }
+  | {
+      type: 'ops_command_confirmation_required';
+      id: string;
+      connectorId: string;
+      command: string;
+      risk: 'low' | 'medium' | 'high' | 'critical';
+      summary: string;
+      expiresAt: string;
+    }
+  | {
+      type: 'ops_command_confirmation_resolved';
+      id: string;
+      status: 'executed' | 'rejected' | 'expired' | 'failed';
+      output?: string;
+      error?: string;
+    }
   | { type: 'reply'; content: string }
   | { type: 'ask_user'; question: string; options: Array<{ id: string; label: string; hint?: string }> }
   | {

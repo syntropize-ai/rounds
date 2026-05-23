@@ -36,7 +36,6 @@ function makeResultEvent(idx: number, content = 'ok'): ChatEvent {
     kind: 'tool_result',
     tool: 'metrics_query',
     content,
-    success: true,
   };
 }
 
@@ -70,13 +69,13 @@ describe('buildToolCalls', () => {
     expect(card?.params?.query).toBe('up');
   });
 
-  it('marks failed results as error', () => {
+  it('marks any paired result as done — there is no failure status; the observation text speaks for itself', () => {
     const events: ChatEvent[] = [
       makeToolCallEvent(0),
-      { id: 'res-0', kind: 'tool_result', tool: 'metrics_query', content: 'boom', success: false },
+      { id: 'res-0', kind: 'tool_result', tool: 'metrics_query', content: 'boom' },
     ];
     const [card] = buildToolCalls(events);
-    expect(card?.status).toBe('error');
+    expect(card?.status).toBe('done');
   });
 
   it('keeps unmatched tool_call as running', () => {

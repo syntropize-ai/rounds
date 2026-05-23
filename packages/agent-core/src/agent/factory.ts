@@ -32,6 +32,7 @@ export interface AgentRunner {
   ): Promise<string>;
   consumeConversationActions(): ReturnType<OrchestratorAgent['consumeConversationActions']>;
   consumeNavigate(): string | undefined;
+  consumeCreatedResources(): ReturnType<OrchestratorAgent['consumeCreatedResources']>;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { ac } from '@agentic-obs/common';
+import { ac, KUBERNETES_DEFAULT_POLICIES as COMMON_K8S_DEFAULTS } from '@agentic-obs/common';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
@@ -13,6 +13,7 @@ import {
   type ConnectorSecretStore,
   type ConnectorStatus,
   type ConnectorPolicyRepository,
+  type ConnectorTestResult,
 } from '../services/connector-service.js';
 
 export const CONNECTOR_ACTIONS = {
@@ -30,6 +31,12 @@ export interface ConnectorsRouterDeps {
   secrets?: ConnectorSecretStore;
   policies?: ConnectorPolicyRepository;
   ac: AccessControlSurface;
+  /**
+   * Wired by domain-routes.ts: probes the backend named by the connector
+   * row and (on success) flips status draft→active. Without this dep the
+   * service falls back to the old `{ ok: true }` stub.
+   */
+  testConnector?: (connector: Connector) => Promise<ConnectorTestResult>;
 }
 
 interface ConnectorBody {
@@ -51,6 +58,19 @@ interface ConnectorPolicyBody {
 const CONNECTOR_STATUSES = new Set<ConnectorStatus>(['draft', 'active', 'failed', 'disabled']);
 const HUMAN_POLICIES = new Set<ConnectorPolicy['humanPolicy']>(['allow', 'confirm', 'strong_confirm', 'deny']);
 const AGENT_POLICIES = new Set<ConnectorPolicy['agentPolicy']>(['allow', 'suggest', 'formal_approval', 'deny']);
+
+/**
+ * Default policy seed for newly-created kubernetes connectors. teamId `''`
+ * is the wildcard ("applies to all teams"); admins can override per-team
+ * via the Policies dialog. Without these seeds the ops command runner
+ * would reject every kubectl invocation (defensive deny), so first-run
+ * read-only investigations would be DOA.
+ */
+export const KUBERNETES_DEFAULT_POLICIES: ReadonlyArray<{
+  capability: string;
+  humanPolicy: ConnectorPolicy['humanPolicy'];
+  agentPolicy: ConnectorPolicy['agentPolicy'];
+}> = COMMON_K8S_DEFAULTS;
 
 function orgIdFromReq(req: Request): string | null {
   return (req as AuthenticatedRequest).auth?.orgId ?? null;
@@ -138,6 +158,27 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         isDefault: body.isDefault ?? false,
         createdBy: userIdFromReq(req),
       });
+      // Seed sensible policy defaults for kubernetes connectors so the first
+      // read-only kubectl call doesn't get rejected by the policy gate.
+      // teamId `''` = wildcard. Best-effort: if the policy repo isn't wired
+      // (in-memory deployments), skip silently — the runner will fall back
+      // to deny which is the correct fail-closed posture.
+      if (connector.type === 'kubernetes') {
+        for (const seed of KUBERNETES_DEFAULT_POLICIES) {
+          try {
+            await service.upsertPolicy(orgId, {
+              connectorId: connector.id,
+              teamId: '',
+              capability: seed.capability,
+              scope: null,
+              humanPolicy: seed.humanPolicy,
+              agentPolicy: seed.agentPolicy,
+            });
+          } catch {
+            // Swallow per-row failures; do not break connector creation.
+          }
+        }
+      }
       res.status(201).json({ connector: maskForWire(connector) });
     },
   );

@@ -41,8 +41,11 @@ import type {
   IChatMessageRepository,
   IChatSessionEventRepository,
   IApprovalRequestRepository,
+  IConnectorRepository,
   ILlmAuditRepository,
 } from '@agentic-obs/data-layer';
+import { KubectlOpsCommandRunner, connectorToOpsConfig } from './ops-command-runner.js';
+import type { OpsConnectorConfig } from '@agentic-obs/agent-core';
 
 const log = createLogger('chat-service');
 
@@ -233,6 +236,14 @@ export interface ChatServiceDeps {
   setupConfig: SetupConfigService;
   /** Task 04 — when set, LLM gateway audit rows are persisted here. */
   llmAuditStore?: ILlmAuditRepository;
+  /**
+   * Connector repo for the agent's ops_run_command tool. When wired, every
+   * `type='kubernetes'` connector in the org is exposed to the agent as an
+   * OpsConnectorConfig and kubectl invocations resolve their config +
+   * kubeconfig fresh from this repo per call. Optional — when omitted, the
+   * ops tool reports "no ops connectors configured".
+   */
+  connectorRepo?: IConnectorRepository;
 }
 
 /**
@@ -407,6 +418,22 @@ export class ChatService {
       connectors,
       [],
     );
+
+    // Unified ops connector model: every `type='kubernetes'` row in the
+    // connectors table IS an ops connector. We derive the agent-facing
+    // `OpsConnectorConfig[]` here per chat turn so newly-added connectors
+    // light up without restart, and we pass ALL kubernetes connectors
+    // (not just status='active') so the agent gets a clearer runtime
+    // error from the runner instead of a surprising "no connectors" message.
+    const opsConnectors: OpsConnectorConfig[] = connectors
+      .filter((c) => c.type === 'kubernetes')
+      .map(connectorToOpsConfig);
+    const opsCommandRunner = this.deps.connectorRepo
+      ? new KubectlOpsCommandRunner({
+          connectors: this.deps.connectorRepo,
+          orgId: identity.orgId,
+        })
+      : undefined;
     // Parse relative time range (e.g., "1h", "6h", "24h", "7d") to absolute
     // start/end. Carry the client's IANA timezone so the prompt can label
     // both UTC and local time — without that the agent can't reconcile a
@@ -519,16 +546,14 @@ export class ChatService {
         adapters,
         webSearchAdapter: sharedWebSearchAdapter,
         allConnectors: toAgentConnectors(connectors),
+        // Ops connector view derived from the connectors table — see filter above.
+        opsConnectors,
+        ...(opsCommandRunner ? { opsCommandRunner } : {}),
         // Live pin bag for this session — the agent mutates it via
         // connectors.pin/unpin and we read it back across messages.
         sessionConnectorPins: getSessionConnectorPins(resolvedSessionId),
-        // P4 — agent can propose remediation plans when these stores are wired.
-        ...(this.deps.remediationPlanStore
-          ? { remediationPlans: this.deps.remediationPlanStore }
-          : {}),
-        ...(this.deps.approvalStore
-          ? { approvalRequests: this.deps.approvalStore }
-          : {}),
+        // Interactive chat never creates formal remediation plans. Alert
+        // background runners wire these stores through app/agent-factory.ts.
         ...(this.deps.panelEventStore
           ? { panelEvents: this.deps.panelEventStore }
           : {}),
@@ -585,12 +610,22 @@ export class ChatService {
     );
     const assistantActions = orchestrator.consumeConversationActions();
     const navigate = orchestrator.consumeNavigate();
-    await this.recordSessionContext(
-      resolvedSessionId,
-      scope,
-      navigate ? parseResourcePath(navigate) : undefined,
-      'created_from_chat',
-    );
+    // Persist a `chat_session_contexts` row for EVERY resource the agent
+    // created this turn. Previously we relied on `navigate` (a single URL
+    // that subsequent creates overwrite), so when the LLM produced more
+    // than one dashboard / investigation in a single message the
+    // non-last ones were silently disconnected from the chat — opening
+    // them later showed an empty "ask me to build..." panel because
+    // `/chat/sessions/by-context?resourceId=X` returned no row.
+    const createdResources = orchestrator.consumeCreatedResources();
+    for (const resource of createdResources) {
+      await this.recordSessionContext(
+        resolvedSessionId,
+        scope,
+        resource,
+        'created_from_chat',
+      );
+    }
     log.info(
       { sessionId: resolvedSessionId, reply: replyContent.slice(0, 100) },
       'session orchestrator done',

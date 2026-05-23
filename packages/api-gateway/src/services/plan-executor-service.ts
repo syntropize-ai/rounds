@@ -14,7 +14,7 @@
  *
  * Execution semantics:
  *
- *   - autoEdit=true:  run every step in order without per-step approvals.
+ *   - default approve flow: run every step in order after plan approval.
  *   - autoEdit=false: before each step, create an `ApprovalRequest`
  *     (`action.type='ops.run_command'`, `context.planId`, `context.stepOrdinal`)
  *     and pause. The caller resumes by invoking `onStepApproved(approvalId)`
@@ -117,6 +117,54 @@ function readOpsRunCommandParams(step: RemediationPlanStep): OpsRunCommandStepPa
   return { argv: argv as string[], connectorId };
 }
 
+/**
+ * Shape we expect under `step.paramsJson` for `kind === 'ops.cluster_shell'`.
+ * Executor runs the script in a one-shot Job inside the user's cluster.
+ */
+export interface OpsClusterShellStepParams {
+  /** Script body — run as `sh -c "<script>"` inside the Job container. */
+  script: string;
+  /** Blast radius — picks the policy gate. */
+  scope: 'cluster' | 'namespace';
+  /** Required when `scope === 'namespace'`. */
+  namespace?: string;
+  /** Optional container image override. */
+  image?: string;
+  /** Connector id to resolve credentials against. */
+  connectorId: string;
+}
+
+function readClusterShellParams(step: RemediationPlanStep): OpsClusterShellStepParams | null {
+  if (step.kind !== 'ops.cluster_shell') return null;
+  const script = step.paramsJson['script'];
+  const scope = step.paramsJson['scope'];
+  const connectorId = step.paramsJson['connectorId'];
+  if (
+    typeof script !== 'string' || !script ||
+    (scope !== 'cluster' && scope !== 'namespace') ||
+    typeof connectorId !== 'string' || !connectorId
+  ) {
+    return null;
+  }
+  const namespace = step.paramsJson['namespace'];
+  if (scope === 'namespace' && (typeof namespace !== 'string' || !namespace)) {
+    return null;
+  }
+  const image = step.paramsJson['image'];
+  return {
+    script,
+    scope,
+    connectorId,
+    ...(typeof namespace === 'string' && namespace ? { namespace } : {}),
+    ...(typeof image === 'string' && image ? { image } : {}),
+  };
+}
+
+/** Capability key for policy lookup on a cluster_shell step. */
+export function capabilityForClusterShell(scope: 'cluster' | 'namespace'): string {
+  return `runtime.cluster_shell.${scope}`;
+}
+
 function truncate(s: string | null | undefined, cap: number): string | null {
   if (!s) return null;
   return s.length <= cap ? s : s.slice(s.length - cap);
@@ -145,9 +193,9 @@ export class PlanExecutorService {
    * - sets autoEdit + status='approved' + resolved fields
    * - then sets status='executing' and runs `runNext` once
    *
-   * Returns the outcome of the first execution step (paused / failed /
-   * completed). For autoEdit=false this will typically be `paused_for_approval`
-   * after creating the first step's ApprovalRequest.
+   * Returns the execution outcome. The normal approval path runs all pending
+   * steps; callers that explicitly pass autoEdit=false still get the legacy
+   * per-step approval flow.
    */
   async approve(
     orgId: string,
@@ -160,13 +208,37 @@ export class PlanExecutorService {
     if (plan.status !== 'pending_approval') {
       throw new Error(`plan ${planId} is ${plan.status}, cannot approve`);
     }
+
+    // Single-step plans don't benefit from per-step approval — the
+    // plan-level approval the user just signed off on IS the step
+    // approval. Force autoEdit=true so the executor doesn't immediately
+    // pause and ask for a second click on the same content. The
+    // cluster-scope permission gate in the route was designed to prevent
+    // blanket auto-edit grants on multi-step plans; for a one-step plan
+    // it's pure ceremony.
+    const effectiveAutoEdit = autoEdit || plan.steps.length === 1;
+
     const now = new Date().toISOString();
     await this.opts.plans.updatePlan(orgId, planId, {
       status: 'approved',
-      autoEdit,
+      autoEdit: effectiveAutoEdit,
       resolvedAt: now,
       resolvedBy: identity.userId,
     });
+    // Resolve the plan-level ApprovalRequest the same transaction the
+    // plan moves to `approved`. Without this, `approvals` rows for a
+    // signed-off plan sit `pending` forever and the UI's "needs your
+    // attention" list shows stale entries that look like work to do.
+    if (plan.approvalRequestId && this.opts.approvals) {
+      try {
+        await this.opts.approvals.approve(plan.approvalRequestId, identity.userId);
+      } catch (err) {
+        log.warn(
+          { planId, approvalRequestId: plan.approvalRequestId, err: err instanceof Error ? err.message : String(err) },
+          'plan-executor: failed to resolve plan-level approval row',
+        );
+      }
+    }
     await this.opts.plans.updatePlan(orgId, planId, { status: 'executing' });
     return this.runNext(orgId, planId);
   }
@@ -331,12 +403,16 @@ export class PlanExecutorService {
       );
     }
     const params = readOpsRunCommandParams(next);
+    const shellParams = readClusterShellParams(next);
     // Per-row scope enrichment (approvals-multi-team-scope §3.6). For per-step
     // approvals the "first ops_run_command step" simply IS the step being
-    // gated; non-ops kinds → both connector + namespace are NULL.
-    const opsConnectorId = params?.connectorId ?? null;
+    // gated; cluster_shell steps surface their own connector + namespace;
+    // unknown kinds → both connector + namespace are NULL.
+    const opsConnectorId = params?.connectorId ?? shellParams?.connectorId ?? null;
     const targetNamespace = params
       ? readNamespaceFromArgv(params.argv)
+      : shellParams?.scope === 'namespace'
+      ? shellParams.namespace ?? null
       : null;
     const requesterTeamId = this.opts.resolveRequesterTeamId
       ? await this.opts.resolveRequesterTeamId(orgId, plan.investigationId)
@@ -344,12 +420,21 @@ export class PlanExecutorService {
     const submitted = await this.opts.approvals.submit({
       action: {
         type: 'ops.run_command',
-        targetService: params?.connectorId ?? 'unknown',
-        params: {
-          argv: params?.argv ?? [],
-          connectorId: params?.connectorId ?? '',
-          stepKind: next.kind,
-        },
+        targetService: opsConnectorId ?? 'unknown',
+        params: shellParams
+          ? {
+              script: shellParams.script,
+              scope: shellParams.scope,
+              ...(shellParams.namespace ? { namespace: shellParams.namespace } : {}),
+              ...(shellParams.image ? { image: shellParams.image } : {}),
+              connectorId: shellParams.connectorId,
+              stepKind: next.kind,
+            }
+          : {
+              argv: params?.argv ?? [],
+              connectorId: params?.connectorId ?? '',
+              stepKind: next.kind,
+            },
       },
       context: {
         investigationId: plan.investigationId,
@@ -389,6 +474,82 @@ export class PlanExecutorService {
       status: 'executing',
       executedAt: new Date().toISOString(),
     });
+
+    // ops.cluster_shell — script runs as a one-shot Job inside the user's
+    // cluster. Adapter (`ClusterShellExecutionAdapter`) handles apply/wait/
+    // logs; we just thread params through.
+    if (step.kind === 'ops.cluster_shell') {
+      const shellParams = readClusterShellParams(step);
+      if (!shellParams) {
+        const reason = `step ${step.ordinal} has invalid params for kind 'ops.cluster_shell' (expected script, scope, connectorId; namespace required for scope=namespace).`;
+        await this.opts.plans.updateStep(plan.id, step.ordinal, {
+          status: 'failed',
+          errorText: reason,
+        });
+        if (!step.continueOnError) {
+          await this.haltPlan(plan.orgId, plan.id, step.ordinal, reason);
+        }
+        return;
+      }
+
+      let shellResult: Awaited<ReturnType<ExecutionAdapter['execute']>>;
+      try {
+        const adapter = await this.opts.adapterFor(plan, step);
+        shellResult = await adapter.execute({
+          type: 'ops.cluster_shell',
+          targetService: shellParams.connectorId,
+          params: {
+            script: shellParams.script,
+            scope: shellParams.scope,
+            ...(shellParams.namespace ? { namespace: shellParams.namespace } : {}),
+            ...(shellParams.image ? { image: shellParams.image } : {}),
+          },
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        await this.opts.plans.updateStep(plan.id, step.ordinal, {
+          status: 'failed',
+          errorText: truncate(`adapter threw: ${errMsg}`, STDIO_CAP_BYTES),
+        });
+        log.warn(
+          { planId: plan.id, stepOrdinal: step.ordinal, err: errMsg },
+          'plan-executor: cluster_shell adapter threw',
+        );
+        this.auditClusterShell(plan, step, 'error', errMsg, shellParams);
+        if (!step.continueOnError) {
+          await this.haltPlan(plan.orgId, plan.id, step.ordinal, errMsg);
+        }
+        return;
+      }
+
+      const outputText = typeof shellResult.output === 'string'
+        ? shellResult.output
+        : JSON.stringify(shellResult.output);
+      if (shellResult.success) {
+        await this.opts.plans.updateStep(plan.id, step.ordinal, {
+          status: 'done',
+          outputText: truncate(outputText, STDIO_CAP_BYTES),
+        });
+        log.info({ planId: plan.id, stepOrdinal: step.ordinal }, 'plan-executor: cluster_shell step done');
+        this.auditClusterShell(plan, step, 'ok', undefined, shellParams);
+        return;
+      }
+      const errMsg = shellResult.error ?? 'cluster_shell step failed';
+      await this.opts.plans.updateStep(plan.id, step.ordinal, {
+        status: 'failed',
+        outputText: truncate(outputText, STDIO_CAP_BYTES),
+        errorText: truncate(errMsg, STDIO_CAP_BYTES),
+      });
+      log.warn(
+        { planId: plan.id, stepOrdinal: step.ordinal, err: errMsg },
+        'plan-executor: cluster_shell step failed',
+      );
+      this.auditClusterShell(plan, step, 'error', errMsg, shellParams);
+      if (!step.continueOnError) {
+        await this.haltPlan(plan.orgId, plan.id, step.ordinal, errMsg);
+      }
+      return;
+    }
 
     const params = readOpsRunCommandParams(step);
     if (!params) {
@@ -515,6 +676,35 @@ export class PlanExecutorService {
         stepOrdinal: step.ordinal,
         kind: step.kind,
         verb,
+        connectorId: params.connectorId,
+        ...(errMsg ? { error: errMsg.slice(0, 512) } : {}),
+      },
+    });
+  }
+
+  /** Audit row for `ops.cluster_shell` step execution. Mirrors `audit()`. */
+  private auditClusterShell(
+    plan: RemediationPlan,
+    step: RemediationPlanStep,
+    outcome: 'ok' | 'error',
+    errMsg: string | undefined,
+    params: OpsClusterShellStepParams,
+  ): void {
+    if (!this.opts.audit) return;
+    void this.opts.audit.log({
+      action: 'agent.plan_step',
+      actorType: 'service_account',
+      actorId: plan.createdBy,
+      orgId: plan.orgId,
+      targetType: 'remediation_plan_step',
+      targetId: `${plan.id}:${step.ordinal}`,
+      outcome: outcome === 'ok' ? 'success' : 'failure',
+      metadata: {
+        planId: plan.id,
+        stepOrdinal: step.ordinal,
+        kind: step.kind,
+        scope: params.scope,
+        ...(params.namespace ? { namespace: params.namespace } : {}),
         connectorId: params.connectorId,
         ...(errMsg ? { error: errMsg.slice(0, 512) } : {}),
       },

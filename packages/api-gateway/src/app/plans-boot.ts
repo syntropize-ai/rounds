@@ -13,7 +13,7 @@
 
 import type { Application } from 'express';
 import { createLogger } from '@agentic-obs/server-utils/logging';
-import { KubectlExecutionAdapter } from '@agentic-obs/adapters';
+import { KubectlExecutionAdapter, ClusterShellExecutionAdapter } from '@agentic-obs/adapters';
 import type {
   IApprovalRequestRepository,
   IConnectorRepository,
@@ -75,18 +75,44 @@ export function mountPlans(deps: MountPlansDeps): void {
     if (!connector) {
       throw new Error(`connector "${connectorId}" not found in org ${plan.orgId}`);
     }
+    // Shared kubeconfig resolver. Three sources tried in order:
+    //   1. `config.kubeconfig` — legacy inline (still used by some tests)
+    //   2. `config.secretRef` — env://, file://, vault:// pointer
+    //   3. `connector_secrets` row — the canonical place for new installs
+    //      (the connector settings UI writes here via `upsertSecret`)
+    // We bind `this` on getSecret because the better-sqlite3 backend
+    // breaks when the method is destructured and called without context.
+    const resolveKubeconfig = async (): Promise<string> => {
+      const inline = connector.config['kubeconfig'];
+      if (typeof inline === 'string' && inline) return inline;
+      const secretRef = connector.config['secretRef'];
+      if (typeof secretRef === 'string' && secretRef) return secretResolver.resolve(secretRef);
+      const row = await deps.connectors.getSecret.call(deps.connectors, connector.id);
+      if (row?.ciphertext && row.ciphertext.length > 0) {
+        return Buffer.from(row.ciphertext).toString('utf8');
+      }
+      throw new Error(`connector "${connectorId}" has no kubeconfig (no inline, no secretRef, no stored secret).`);
+    };
+
+    if (step.kind === 'ops.cluster_shell') {
+      // Operator-tunable knobs via env so installs can rename the SA or
+      // point Jobs at a different namespace without recompiling.
+      return new ClusterShellExecutionAdapter({
+        resolveKubeconfig,
+        ...(process.env['ROUNDS_CLUSTER_SHELL_SA']
+          ? { jobServiceAccount: process.env['ROUNDS_CLUSTER_SHELL_SA'] }
+          : {}),
+        ...(process.env['ROUNDS_CLUSTER_SHELL_NAMESPACE']
+          ? { bootstrapNamespace: process.env['ROUNDS_CLUSTER_SHELL_NAMESPACE'] }
+          : {}),
+        ...(process.env['ROUNDS_CLUSTER_SHELL_IMAGE']
+          ? { defaultImage: process.env['ROUNDS_CLUSTER_SHELL_IMAGE'] }
+          : {}),
+      });
+    }
+
     return new KubectlExecutionAdapter({
-      // The connector record carries either an inline encrypted secret OR
-      // a secretRef pointer. resolveKubeconfig prefers the inline secret
-      // when present (already decrypted by the repo) and falls back to
-      // the ref resolver for env://, file://, vault:// schemes.
-      resolveKubeconfig: async () => {
-        const inline = connector.config['kubeconfig'];
-        const secretRef = connector.config['secretRef'];
-        if (typeof inline === 'string' && inline) return inline;
-        if (typeof secretRef === 'string' && secretRef) return secretResolver.resolve(secretRef);
-        throw new Error(`connector "${connectorId}" has no kubeconfig or secretRef configured`);
-      },
+      resolveKubeconfig,
       allowedNamespaces: Array.isArray(connector.config['allowedNamespaces'])
         ? connector.config['allowedNamespaces'].filter((v): v is string => typeof v === 'string')
         : [],

@@ -260,7 +260,6 @@ export async function handleMetricExplore(
         type: 'tool_result',
         tool: 'metric_explore',
         summary,
-        success: true,
       });
       return summary;
     }
@@ -308,20 +307,134 @@ export async function handleMetricExplore(
       type: 'tool_result',
       tool: 'metric_explore',
       summary: summary.oneLine,
-      success: true,
     });
 
-    // The model gets the one-liner only — chart data goes to the UI.
-    // Suffix the parse warning when we fell back to default 1h.
-    return range.warning ? `${summary.oneLine} (${range.warning})` : summary.oneLine;
+    // Build a richer observation than just the one-liner. The chart pixels
+    // go to the UI; the model can't see them, so it would otherwise be
+    // forced to reason from a heuristic single-line summary alone. That
+    // failed badly on counter-reset metrics (envoy_server_uptime: one pod
+    // restarts, summary shows "range 5–6.3k" → model reads "min 5s
+    // therefore below 300s threshold" — wrong, that 5 is a restart, not
+    // an alerting condition).
+    //
+    // The structured per-series breakdown lets the model see: this query
+    // returned N series, here are the actual min/max/last per series and
+    // the timestamps — so it can spot "one series collapsed to 0 at
+    // 23:53 while the rest are unchanged" instead of trusting an
+    // averaged range.
+    const observation = buildModelObservation(query, summary, series, range.warning);
+    return observation;
   } catch (err) {
     const msg = `metric_explore failed: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({
       type: 'tool_result',
       tool: 'metric_explore',
       summary: msg,
-      success: false,
     });
     return msg;
   }
+}
+
+/**
+ * Metric names whose value drops to zero on process restart — uptime
+ * counters, boot-time timestamps, process-start timestamps. Plotting them
+ * raw is misleading: a clean restart looks like a catastrophic drop and a
+ * naive min-aggregation will report the post-restart value as the "low".
+ * When the query references one of these, we append a footer so the model
+ * doesn't conclude "value crashed below threshold" when the real story
+ * is "the process restarted".
+ */
+const RESTART_SENSITIVE_NAME_RE =
+  /\b\w*_uptime\b|\b\w*_start_time(?:_seconds)?\b|\b\w*_boot_time(?:_seconds)?\b/;
+
+/** ISO-8601 minutes (no seconds) — enough resolution for "when did it dip". */
+function isoMinute(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  return d.toISOString().replace(/:\d\d\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * Compact representation of one series: label set + how many points + the
+ * first/last/min/max values with their timestamps. The model uses this to
+ * spot per-series patterns the one-line summary smudges away (one series
+ * crashed at 23:53; the others are unchanged → counter reset, not alert).
+ */
+interface SeriesDigest {
+  labels: string;
+  count: number;
+  first: { ts: string; value: number };
+  last: { ts: string; value: number };
+  min: { ts: string; value: number };
+  max: { ts: string; value: number };
+}
+
+function digestSeries(s: { metric: Record<string, string>; values: Array<[number, string]> }): SeriesDigest | null {
+  if (s.values.length === 0) return null;
+  let min: [number, number] = [s.values[0]![0], Number(s.values[0]![1])];
+  let max: [number, number] = [s.values[0]![0], Number(s.values[0]![1])];
+  for (const [ts, raw] of s.values) {
+    const v = Number(raw);
+    if (!Number.isFinite(v)) continue;
+    if (v < min[1]) min = [ts, v];
+    if (v > max[1]) max = [ts, v];
+  }
+  const firstRaw = s.values[0]!;
+  const lastRaw = s.values[s.values.length - 1]!;
+  const labels = Object.entries(s.metric)
+    .filter(([k]) => k !== '__name__')
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(',') || '(no labels)';
+  return {
+    labels,
+    count: s.values.length,
+    first: { ts: isoMinute(firstRaw[0]), value: Number(firstRaw[1]) },
+    last: { ts: isoMinute(lastRaw[0]), value: Number(lastRaw[1]) },
+    min: { ts: isoMinute(min[0]), value: min[1] },
+    max: { ts: isoMinute(max[0]), value: max[1] },
+  };
+}
+
+const MAX_SERIES_LINES = 10;
+
+/**
+ * Render the per-series digest as a multi-line observation for the model.
+ * Falls back to just the one-liner when there are no series. Adds a
+ * counter-reset note for restart-sensitive metric names.
+ */
+function buildModelObservation(
+  query: string,
+  summary: { oneLine: string },
+  series: Array<{ metric: Record<string, string>; values: Array<[number, string]> }>,
+  warning: string | undefined,
+): string {
+  const lines: string[] = [];
+  lines.push(summary.oneLine);
+  if (warning) lines.push(`(${warning})`);
+
+  if (series.length === 0) {
+    return lines.join('\n');
+  }
+
+  const digests = series.map(digestSeries).filter((d): d is SeriesDigest => d !== null);
+  const shown = digests.slice(0, MAX_SERIES_LINES);
+  const hidden = digests.length - shown.length;
+  lines.push('');
+  lines.push(`per-series (${digests.length}${hidden > 0 ? `, showing ${shown.length}` : ''}):`);
+  for (const d of shown) {
+    lines.push(
+      `  ${d.labels} | n=${d.count} | first=${d.first.value} last=${d.last.value} min=${d.min.value}@${d.min.ts} max=${d.max.value}@${d.max.ts}`,
+    );
+  }
+  if (hidden > 0) {
+    lines.push(`  … ${hidden} more series omitted`);
+  }
+
+  if (RESTART_SENSITIVE_NAME_RE.test(query)) {
+    lines.push('');
+    lines.push(
+      'note: this metric resets to 0 when the process restarts. Sudden drops in min/last are restart events, not low-value alert conditions. To detect actual restart frequency use `changes(<metric>[5m])` or `resets(<metric>[5m])` instead of raw value.',
+    );
+  }
+
+  return lines.join('\n');
 }

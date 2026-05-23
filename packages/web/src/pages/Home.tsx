@@ -14,6 +14,7 @@ import {
 } from '../components/chat/MessageComponents.js';
 import AgentActivityBlock from '../components/chat/AgentActivityBlock.js';
 import InlineChartMessage from '../components/InlineChartMessage.js';
+import OpsCommandConfirmCard from '../components/chat/OpsCommandConfirmCard.js';
 import { RoundsLogo } from '../components/RoundsLogo.js';
 
 // Types
@@ -429,6 +430,14 @@ export default function Home() {
                     pivotSuggestions={c.pivotSuggestions}
                     warnings={c.warnings}
                     onSendMessage={sendMessage}
+                  />
+                );
+              }
+              if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation) {
+                return (
+                  <OpsCommandConfirmCard
+                    key={evt.id}
+                    confirmation={evt.opsConfirmation}
                   />
                 );
               }

@@ -34,6 +34,8 @@ export type ChatEventKind =
   | 'pending_changes_proposed'
   | 'pending_change_created'
   | 'pending_change_resolved'
+  | 'ops_command_confirmation_required'
+  | 'ops_command_confirmation_resolved'
   | 'investigation_report'
   | 'ask_user'
   | 'ds_choice'
@@ -234,6 +236,17 @@ export interface ChatEvent {
     status?: string;
   };
   dashboardId?: string;
+  opsConfirmation?: {
+    id: string;
+    connectorId: string;
+    command: string;
+    risk?: 'low' | 'medium' | 'high' | 'critical';
+    summary?: string;
+    expiresAt?: string;
+    status?: 'pending' | 'executed' | 'rejected' | 'expired' | 'failed';
+    output?: string;
+    error?: string;
+  };
   // For investigation report
   investigationReport?: InvestigationReport;
   // For "ask_user" — the question + clickable option buttons
@@ -503,6 +516,39 @@ export function useDashboardChat(
               id: (parsed.id as string) ?? id,
               dashboardId: dashboardId ?? '',
               status: parsed.status as string | undefined,
+            },
+          });
+          break;
+        }
+
+        case 'ops_command_confirmation_required': {
+          appendEvent({
+            id,
+            kind: 'ops_command_confirmation_required',
+            opsConfirmation: {
+              id: (parsed.id as string) ?? id,
+              connectorId: (parsed.connectorId as string) ?? '',
+              command: (parsed.command as string) ?? '',
+              risk: parsed.risk as 'low' | 'medium' | 'high' | 'critical' | undefined,
+              summary: parsed.summary as string | undefined,
+              expiresAt: parsed.expiresAt as string | undefined,
+              status: 'pending',
+            },
+          });
+          break;
+        }
+
+        case 'ops_command_confirmation_resolved': {
+          appendEvent({
+            id,
+            kind: 'ops_command_confirmation_resolved',
+            opsConfirmation: {
+              id: (parsed.id as string) ?? id,
+              connectorId: '',
+              command: '',
+              status: parsed.status as 'executed' | 'rejected' | 'expired' | 'failed' | undefined,
+              output: parsed.output as string | undefined,
+              error: parsed.error as string | undefined,
             },
           });
           break;

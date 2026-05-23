@@ -35,3 +35,6 @@ packages/cli/dist/
 packages/cli/web-dist/
 packages/cli/*.tgz
 packages/cli/README.md
+
+# Runtime state — rebranded from .openobs/
+.rounds/

@@ -4,7 +4,7 @@
  * Endpoints:
  *   GET    /api/plans?status=&investigationId=
  *   GET    /api/plans/:id
- *   POST   /api/plans/:id/approve { autoEdit?: boolean }
+ *   POST   /api/plans/:id/approve
  *   POST   /api/plans/:id/reject
  *   POST   /api/plans/:id/cancel
  *   POST   /api/plans/:id/steps/:ordinal/retry
@@ -12,9 +12,6 @@
  * RBAC:
  *   - GET endpoints      → plans:read
  *   - approve/reject/cancel/retry → plans:approve
- *   - autoEdit=true on approve → additionally requires plans:auto_edit
- *     (the caller without this grant gets 403; design-doc Q4 says
- *     auto-edit is opt-in per user/team).
  */
 
 import { Router } from 'express';
@@ -53,7 +50,6 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { PlanExecutorService } from '../services/plan-executor-service.js';
-import { extractPlanNamespaces } from '../services/plan-namespaces.js';
 
 export interface PlansRouterDeps {
   plans: IRemediationPlanRepository;
@@ -202,7 +198,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
   );
 
   // ---------------------------------------------------------------------
-  // POST /api/plans/:id/approve { autoEdit?: boolean }
+  // POST /api/plans/:id/approve
   // ---------------------------------------------------------------------
   router.post(
     '/:id/approve',
@@ -216,59 +212,10 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
           res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
           return;
         }
-        const body = (req.body ?? {}) as { autoEdit?: boolean };
-        const autoEdit = body.autoEdit === true;
-
-        if (autoEdit) {
-          // Two-layered auto-edit gate (design-doc §6 O2):
-          //   1. Cluster-wide grant `plans:auto_edit` on `plans:*` short-
-          //      circuits — this is the existing 'auto-edit anything' privilege.
-          //   2. Otherwise, narrow to the namespaces this specific plan
-          //      touches. Caller must hold `plans:auto_edit` on
-          //      `plans:namespace:<ns>` for every namespace the plan
-          //      writes to. A plan with any cluster-scoped step can NOT
-          //      be narrowed and falls back to requiring `plans:*`.
-          const plan = await deps.plans.findByIdInOrg(auth.orgId, req.params['id'] ?? '');
-          if (!plan) {
-            const err: ApiError = { code: 'NOT_FOUND', message: 'plan not found' };
-            res.status(404).json(err);
-            return;
-          }
-          const wildcard = await deps.ac.evaluate(
-            auth,
-            ac.eval(ACTIONS.PlansAutoEdit, 'plans:*'),
-          );
-          if (!wildcard) {
-            const summary = extractPlanNamespaces(plan);
-            if (summary.hasClusterScoped) {
-              const err: ApiError = {
-                code: 'FORBIDDEN',
-                message: 'auto-edit on a plan with a cluster-scoped step requires plans:auto_edit on plans:* (cluster-wide grant)',
-              };
-              res.status(403).json(err);
-              return;
-            }
-            for (const ns of summary.namespaces) {
-              const ok = await deps.ac.evaluate(
-                auth,
-                ac.eval(ACTIONS.PlansAutoEdit, `plans:namespace:${ns}`),
-              );
-              if (!ok) {
-                const err: ApiError = {
-                  code: 'FORBIDDEN',
-                  message: `auto-edit requires plans:auto_edit on plans:namespace:${ns}`,
-                };
-                res.status(403).json(err);
-                return;
-              }
-            }
-          }
-        }
-
         const outcome = await deps.executor.approve(
           auth.orgId,
           req.params['id'] ?? '',
-          autoEdit,
+          true,
           auth,
         );
         const plan = await deps.plans.findByIdInOrg(auth.orgId, req.params['id'] ?? '');

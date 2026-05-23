@@ -260,7 +260,15 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'metric_explore',
       description:
-        'Query a time-series metric and render an interactive chart inline in the chat. Use for "show me / what is / how is" questions about metrics. Do NOT use for persistent dashboards (use dashboard_create for that). The chart appears in the chat; you should NOT describe its contents in your response — just acknowledge what you queried.',
+        'Render an interactive time-series chart inline in the chat. This is a UI side-effect — it paints pixels for the user, not just data for you to reason with.\n\n' +
+        'USE ONLY when the user asked to SEE/SHOW/PLOT/CHART/VISUALIZE something, or when the trend/shape genuinely answers the question (a sudden spike, a flat line where there shouldn\'t be one). Concrete triggers: "show me CPU", "graph requests/sec", "what does latency look like", "画一下 / 看看走势 / 出个图".\n\n' +
+        'DO NOT use for:\n' +
+        '  - Existence checks ("有 X 指标吗", "是否有 ...") — use `metrics_discover` (kind=names with filter) instead.\n' +
+        '  - Single-value checks ("当前 X 是多少", thresholds) — use `metrics_query` (instant query) instead.\n' +
+        '  - Internal investigation where YOU need numbers to reason about, not pixels to show — use `metrics_query` / `metrics_range_query` (silent, no chart bubble).\n' +
+        '  - "Substitute" charts when the asked-about metric doesn\'t exist — e.g. user asked about istio metrics, none found, do NOT render `up` or another tangentially related series to "show something". Just say "no istio metrics found" in text.\n' +
+        '  - Persistent dashboards (use `dashboard_create`).\n\n' +
+        'When you do use it: the chart appears in the chat on its own — do NOT describe the series contents in your reply. Just acknowledge what you queried in one line.',
       input_schema: {
         type: 'object',
         properties: {
@@ -466,11 +474,14 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'ops_run_command',
       description:
-        'Run a Kubernetes/Ops command through a configured connector. Only use when the user asks to inspect or operate on cluster state and a connectorId is known. Read commands may run with intent="read"; write/mutating commands must use intent="propose" unless the user is executing an approved proposal.\n\n' +
-        'intent="read" — kubectl get/describe/logs only. Safe during investigation; treat like a metrics query.\n' +
-        'intent="propose" — ad-hoc write proposal OUTSIDE an investigation flow (e.g. user directly says "scale web to 3"). From an investigation turn, prefer remediation_plan_create so the fix is gated under the plan approval UI rather than a one-off proposal.\n' +
-        'intent="execute_approved" — only after an approval has fired AND the executor is running plan steps. Never invoke this directly from a chat or investigation turn; the plan executor calls it for you.\n\n' +
-        'Anti-pattern: using intent="read" for a mutating verb (scale/apply/delete/patch). The connector rejects it — pick the right intent up front.',
+        'Run a shell command against a Kubernetes/Ops connector. Use whenever the user asks to inspect or operate on cluster state and a connectorId is known.\n\n' +
+        'REAL SHELL — `command` runs as `sh -c "<command>"` with the connector\'s kubeconfig exported as KUBECONFIG. All shell features work: pipes (`|`), redirects (`>`/`<`/`>>`), chaining (`&&`, `||`, `;`), command substitution (`$(...)`, backticks), quoting, heredocs, env vars. Use `--flag=value` form when the value starts with `-` (e.g. `--tail=20`, not `--tail -20`). The runner image carries kubectl, curl, jq, grep, awk, sed, head, tail.\n\n' +
+        'Confirmation is automatic: any command whose pattern looks mutating (kubectl apply/create/patch/delete/scale/exec/edit/rollout/cordon/drain/…, or shell rm/mv/dd/mkfs, or output redirect to `/`) triggers a Yes/No card before execution. Pure read commands (kubectl get/describe/logs/top/events/version/api-resources/explain) run immediately. The `intent` field is the model\'s declared expectation but the pattern check is authoritative.\n\n' +
+        'Exit codes are DATA, not failure. The tool returns stdout as the observation; if exit≠0 or stderr was non-empty, a footer like `[stderr: ... | exit: 1]` is appended. Non-zero exits are normal for chains (`a && b` where b is the speculative part), fallbacks (`a || b`), greps that miss, `kubectl get` on a resource that doesn\'t exist, etc. Read the stdout — if you got the data you wanted, you\'re done; don\'t retry just because the footer shows exit≠0.\n\n' +
+        'intent="read" — declare when the command only inspects state. Safe during investigation; treat like a metrics query.\n' +
+        'intent="propose" — declare when the command is mutating. Surfaces the confirmation card promptly.\n' +
+        'intent="execute_approved" — reserved for the confirmation route. Never invoke this directly from a chat or investigation turn.\n\n' +
+        'When to choose `ops_cluster_shell` instead: the command needs a tool not on the api-gateway image (istioctl, helm, an operator installer), or it has to run with the cluster\'s in-cluster network/SA. For everything else (kubectl chains, jq pipelines, looking at logs/events), prefer this tool — startup is instant; cluster_shell spins up a Job pod and pays 10-30s latency.',
       input_schema: {
         type: 'object',
         properties: {
@@ -479,10 +490,31 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           intent: {
             type: 'string',
             enum: ['read', 'propose', 'execute_approved'],
-            description: 'read runs safe inspection commands; propose returns an approval/proposal for write commands; execute_approved is only for an already approved command.',
+            description: 'read runs safe inspection commands; propose requests a confirmed write; execute_approved is reserved for internal executors.',
           },
         },
         required: ['connectorId', 'command', 'intent'],
+      },
+    },
+  },
+  'ops_cluster_shell': {
+    category: 'always-on',
+    schema: {
+      name: 'ops_cluster_shell',
+      description:
+        'Request a confirmed shell operation inside a Kubernetes cluster through a configured connector. Use this for direct user requests that are not kubectl-shaped: installing Istio with istioctl/helm, running a bootstrap script, applying an operator installer, or other one-shot cluster scripts.\n\n' +
+        'This is the interactive chat path: the runtime checks the caller permission, then shows a Yes/No confirmation card before execution. Do not create a remediation plan for a direct user chat request.\n\n' +
+        'scope="namespace" runs the Job in the target namespace and requires namespace. scope="cluster" runs in the bootstrap namespace using the cluster bootstrap service account and should be reserved for cluster-wide installs/CRDs/controllers.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          connectorId: { type: 'string', description: 'Kubernetes/Ops connector id configured in Settings.' },
+          script: { type: 'string', description: 'Shell script body to execute as `sh -c` inside a one-shot Job.' },
+          scope: { type: 'string', enum: ['cluster', 'namespace'], description: 'Blast radius for the one-shot Job.' },
+          namespace: { type: 'string', description: 'Required when scope="namespace".' },
+          image: { type: 'string', description: 'Optional Job runner image. LEAVE UNSET in almost all cases — the default image (`alpine/k8s:1.29.0`) already has kubectl, curl, sh, and jq pre-installed and works for installer scripts like istioctl/helm/kubectl chains. Only override when the script needs a tool that is not in the default image (e.g. a vendor-specific CLI baked into a specific image). Picking something narrower like `curlimages/curl` will break any kubectl/sh step later in the script.' },
+        },
+        required: ['connectorId', 'script', 'scope'],
       },
     },
   },
@@ -498,16 +530,15 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'remediation_plan_create',
       description:
-        'Propose a structured remediation plan after an investigation has identified a concrete, in-scope fix.\n\n' +
+        'Propose a structured remediation plan: an ordered list of write steps the operator approves once and then executes atomically.\n\n' +
+        'BACKGROUND ONLY: use this after an alert-triggered background investigation completes with a concrete, in-scope fix. Direct user chat requests must not use remediation plans; interactive writes are handled by permission checks plus user confirmation.\n\n' +
         'LOW COST: this tool does NOT execute anything. It creates a pending_approval plan record and a plan-level ApprovalRequest; a human must open the approval and click Approve before any plan step runs. Treat calling this tool as equivalent to saving a draft for review.\n\n' +
-        'DEFAULT next step after investigation_complete when ALL of: (a) root cause is concrete, (b) the fix is one or more kubectl commands, (c) an attached connector covers the target namespace. Refusing to file a plan in those cases makes the agent worse — humans gate execution at the approval UI, so over-cautious "leave it to the operator" is the wrong posture.\n\n' +
-        'Skip ONLY when: the user explicitly asked to stop after diagnosis; the fix needs credentials no configured connector has; the next step isn\'t kubectl-shaped (data migration, code change, ask upstream); the safe action is monitor + re-check.\n\n' +
-        'Do NOT call from a non-investigation turn. A direct "scale web to 3" in chat is a request, not an investigation outcome — use ops_run_command intent=propose.\n\n' +
+        'Skip ONLY when: the user explicitly asked to stop after diagnosis; the fix needs credentials no configured connector has; the right next step isn\'t executable here (data migration, code change, ask upstream); the safe action is monitor + re-check.\n\n' +
         'Step ordering: reads/verifications first, then writes, then a final `kubectl rollout status` (or equivalent) verification step where it makes sense. Halt-on-failure is the default; only set continueOnError=true on truly non-critical steps (notification, optional cleanup).',
       input_schema: {
         type: 'object',
         properties: {
-          investigationId: { type: 'string', description: 'Id from investigation_create that motivated this plan.' },
+          investigationId: { type: 'string', description: 'Id from investigation_create that motivated this background remediation plan. Required; direct-request plans are not supported.' },
           summary: { type: 'string', description: 'One-line description of what the plan does. Surfaced in approval UI.' },
           steps: {
             type: 'array',
@@ -515,16 +546,28 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             items: {
               type: 'object',
               properties: {
-                kind: { type: 'string', enum: ['ops.run_command'], description: 'Step kind. Today only ops.run_command (kubectl) is supported.' },
-                commandText: { type: 'string', description: 'Human-readable command, e.g. "kubectl scale deploy/web -n app --replicas=3". Surfaced verbatim to the approver.' },
+                kind: {
+                  type: 'string',
+                  enum: ['ops.run_command', 'ops.cluster_shell'],
+                  description:
+                    'Step kind. `ops.run_command` = a single kubectl invocation (default — use it whenever a kubectl-shaped fix works). `ops.cluster_shell` = a shell script executed in a one-shot Job inside the cluster, for operations that kubectl alone can\'t express (e.g. `istioctl install`, `helm install`, `curl | sh` bootstraps). Prefer ops.run_command when both are viable.',
+                },
+                commandText: { type: 'string', description: 'Human-readable command, e.g. "kubectl scale deploy/web -n app --replicas=3" or "istioctl install --set profile=demo". Surfaced verbatim to the approver.' },
                 paramsJson: {
                   type: 'object',
-                  description: 'Structured args. For ops.run_command, must include `argv` (kubectl argv WITHOUT the leading "kubectl") and `connectorId` (the connector row to run against).',
+                  description:
+                    'Structured args; shape depends on `kind`.\n' +
+                    'ops.run_command: { argv: string[] (kubectl tokens WITHOUT "kubectl"), connectorId: string }.\n' +
+                    'ops.cluster_shell: { script: string (run as `sh -c "<script>"`), scope: "cluster"|"namespace", namespace?: string (required when scope=namespace), image?: string (defaults to a kubectl+curl image), connectorId: string }.',
                   properties: {
-                    argv: { type: 'array', items: { type: 'string' }, description: 'kubectl argv tokens.' },
-                    connectorId: { type: 'string', description: 'ops connector id.' },
+                    argv: { type: 'array', items: { type: 'string' }, description: 'kubectl argv tokens (ops.run_command only).' },
+                    script: { type: 'string', description: 'Shell script body (ops.cluster_shell only).' },
+                    scope: { type: 'string', enum: ['cluster', 'namespace'], description: 'Blast radius (ops.cluster_shell only). Picks the policy gate: `cluster` hits runtime.cluster_shell.cluster (cluster-admin approval); `namespace` hits runtime.cluster_shell.namespace (inline confirm).' },
+                    namespace: { type: 'string', description: 'Target namespace for scope="namespace" (ops.cluster_shell only).' },
+                    image: { type: 'string', description: 'Container image for the Job (ops.cluster_shell only). Defaults to a kubectl+curl-capable image.' },
+                    connectorId: { type: 'string', description: 'ops connector id (both kinds).' },
                   },
-                  required: ['argv', 'connectorId'],
+                  required: ['connectorId'],
                 },
                 dryRunText: { type: 'string', description: 'Optional. The expected effect of this step in plain text. If you ran a related read query while investigating, summarize the predicted outcome here.' },
                 riskNote: { type: 'string', description: 'Optional. Human-readable risk note ("brief drop to 2 replicas"). Surfaced in the approval UI.' },
@@ -669,19 +712,31 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
                 stackMode: { type: 'string', enum: ['none', 'normal', 'percent'] },
                 fillOpacity: { type: 'number' },
                 decimals: { type: 'number' },
-                thresholds: { type: 'array', items: { type: 'object' } },
+                thresholds: {
+                  type: 'array',
+                  description: 'Threshold lines. Each entry is { value: number, color: string, label?: string } — a single value, not a range. Do NOT use Grafana-style { from, to } shape.',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      value: { type: 'number' },
+                      color: { type: 'string' },
+                      label: { type: 'string' },
+                    },
+                    required: ['value', 'color'],
+                  },
+                },
                 sparkline: { type: 'boolean' },
-                colorMode: { type: 'string' },
-                graphMode: { type: 'string' },
+                colorMode: { type: 'string', enum: ['value', 'background', 'none'] },
+                graphMode: { type: 'string', enum: ['none', 'area'] },
                 lineWidth: { type: 'number' },
-                legendStats: { type: 'array', items: { type: 'string' } },
-                legendPlacement: { type: 'string' },
-                colorScale: { type: 'string' },
-                showPoints: { type: 'string' },
-                yScale: { type: 'string' },
+                legendStats: { type: 'array', items: { type: 'string', enum: ['last', 'mean', 'max', 'min'] } },
+                legendPlacement: { type: 'string', enum: ['bottom', 'right'] },
+                colorScale: { type: 'string', enum: ['linear', 'sqrt', 'log'] },
+                showPoints: { type: 'string', enum: ['auto', 'never'] },
+                yScale: { type: 'string', enum: ['linear', 'log'] },
                 collapseEmptyBuckets: { type: 'boolean' },
                 barGaugeMax: { type: 'number' },
-                barGaugeMode: { type: 'string' },
+                barGaugeMode: { type: 'string', enum: ['gradient', 'lcd'] },
                 annotations: { type: 'array', items: { type: 'object' } },
               },
               required: ['title', 'visualization', 'queries'],
@@ -876,31 +931,71 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
-  'investigation_add_section': {
+  'investigation_add_text': {
     category: 'deferred',
     schema: {
-      name: 'investigation_add_section',
+      name: 'investigation_add_text',
       description:
-        'Append a section to the active investigation report. Call investigation_create first; this tool implicitly targets that record. type="text" is narrative analysis (substantial paragraphs); type="evidence" attaches a panel snapshot for a key finding.\n\n' +
-        'Interleave querying and writing: query → add_section(text) interpreting that result → query more → another section → drop in an evidence panel next to the prose that cites it. Do NOT batch all queries first then dump prose at the end — the report loses the actual reasoning shape.\n\n' +
-        'type=evidence is reserved for the 2–4 panels that carry the conclusion; not "every panel I ran". Each evidence section earns its place next to the paragraph that interprets it.\n\n' +
-        'Every text section MUST start with a short `## heading` that names the beat (e.g. `## Symptom`, `## Ruling out load`, `## Hotspot: /foo`). Without headings the rendered report collapses into one wall of text under "Summary" and the user can\'t tell sections apart. Headings are free-form — fit them to what the paragraph actually says, don\'t reflexively reach for "## Initial Assessment" / "## Hypothesis 1".\n\n' +
-        'When citing a piece of evidence inline, reference it with a short bracketed token: `[m1]` for the 1st metric panel, `[l1]` for a log finding, `[k1]` for k8s/cluster state, `[c1]` for a recent change. The UI renders these as clickable chips. Citations are encouraged, not required.',
+        'Append a narrative (markdown) section to the active investigation. Use for the prose that interprets what you just observed: one beat of reasoning per call.\n\n' +
+        'Interleave with queries — query → add_text interpreting it → next query → next add_text — so the report reads as the reasoning that actually happened, not a batch dump.\n\n' +
+        'Every section MUST start with a short `## heading` that names the beat (e.g. `## Symptom`, `## Ruling out load`, `## Hotspot: /foo`). Free-form headings — fit them to the actual content, don\'t reflexively reach for "## Initial Assessment".\n\n' +
+        'For chart-backed findings call `investigation_add_evidence` instead. Every investigation needs at least one evidence section — pure prose alone is incomplete.',
       input_schema: {
         type: 'object',
         properties: {
-          type: {
+          content: {
             type: 'string',
-            enum: ['text', 'evidence'],
-            description: '"text" for narrative analysis; "evidence" for a panel-backed finding',
-          },
-          content: { type: 'string', description: 'Markdown content. For text sections, write substantial paragraphs of analysis with specific numbers inline.' },
-          panel: {
-            type: 'object',
-            description: 'Required for type=evidence: panel config with title, visualization, queries. The system auto-captures a data snapshot.',
+            description: 'Markdown. Start with `## heading`. Substantial paragraphs of analysis with specific numbers inline.',
           },
         },
-        required: ['type', 'content'],
+        required: ['content'],
+      },
+    },
+  },
+  'investigation_add_evidence': {
+    category: 'deferred',
+    schema: {
+      name: 'investigation_add_evidence',
+      description:
+        'Attach a chart panel (with auto-captured snapshot) to the active investigation as evidence for the surrounding analysis. EVERY investigation needs 1-4 evidence calls — a pure-text report is incomplete; readers can\'t verify the reasoning without the data.\n\n' +
+        'Reuse the query you just ran: take the `metrics_range_query` or `metrics_query` expr you just executed and pass it as `panel.queries[0].expr`. The system captures the snapshot automatically — you don\'t provide data, only the query.\n\n' +
+        'When citing this evidence inline in subsequent text, reference it with a bracketed token (`[m1]`, `[l1]`, `[k1]`, `[c1]`) — UI renders clickable chips.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: 'Short caption interpreting the chart (e.g. "p99 by handler — /api/v1/query_range dominates at 120ms").',
+          },
+          panel: {
+            type: 'object',
+            description: 'Chart spec. The system fills in the data automatically — you only provide title + visualization + queries.',
+            properties: {
+              title: { type: 'string', description: '5-8 words naming the chart.' },
+              visualization: {
+                type: 'string',
+                enum: ['time_series', 'stat', 'bar', 'heatmap', 'gauge', 'pie', 'table', 'bar_gauge', 'histogram', 'status_timeline'],
+                description: '`time_series` for trends, `stat` for one big number, `bar` for top-N.',
+              },
+              queries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    refId: { type: 'string' },
+                    expr: { type: 'string', description: 'The PromQL/MetricsQL you ran — usually the same expr from a recent metrics_range_query.' },
+                    legendFormat: { type: 'string' },
+                    instant: { type: 'boolean' },
+                  },
+                  required: ['expr'],
+                },
+              },
+              unit: { type: 'string', description: 'Display unit (e.g. "ms", "reqps", "percent", "bytes"). Omit if unknown.' },
+            },
+            required: ['title', 'visualization', 'queries'],
+          },
+        },
+        required: ['content', 'panel'],
       },
     },
   },

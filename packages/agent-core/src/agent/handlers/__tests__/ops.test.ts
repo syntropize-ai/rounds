@@ -57,7 +57,8 @@ describe('handleOpsRunCommand', () => {
       intent: 'read',
     });
 
-    expect(result).toContain('No Ops connectors are configured');
+    expect(result).toContain('No Kubernetes connector configured');
+    expect(result).toContain('Settings');
     expect(runCommand).not.toHaveBeenCalled();
   });
 
@@ -81,6 +82,7 @@ describe('handleOpsRunCommand', () => {
       intent: 'read',
       identity: ctx.identity,
       sessionId: 'session-1',
+      onConfirmationRequired: expect.any(Function),
     });
   });
 });

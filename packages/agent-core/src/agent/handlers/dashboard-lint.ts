@@ -102,7 +102,7 @@ export async function handleDashboardLint(
   const validation = validateSpec(args['spec']);
   if (!validation.ok) {
     const err = `Error: ${validation.reason}.`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_lint', summary: err, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_lint', summary: err });
     return err;
   }
   const spec = validation.spec;
@@ -133,7 +133,7 @@ export async function handleDashboardLint(
   const infos = issues.filter((i) => i.severity === 'info').length;
   const summary = `Lint complete: ${errors} error${errors === 1 ? '' : 's'}, ${warns} warning${warns === 1 ? '' : 's'}, ${infos} info.`;
 
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_lint', summary, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_lint', summary });
 
   if (issues.length === 0) {
     return `${summary} No issues found.`;

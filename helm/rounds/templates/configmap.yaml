@@ -22,6 +22,13 @@ data:
   PROACTIVE_CHECK_INTERVAL_MS: {{ .Values.env.PROACTIVE_CHECK_INTERVAL_MS | quote }}
   PROACTIVE_HISTORY_SIZE: {{ .Values.env.PROACTIVE_HISTORY_SIZE | quote }}
   OPENOBS_ALLOW_PRIVATE_URLS: {{ .Values.env.OPENOBS_ALLOW_PRIVATE_URLS | quote }}
+  {{- if .Values.clusterShell.enabled }}
+  ROUNDS_CLUSTER_SHELL_SA: {{ .Values.clusterShell.serviceAccount | quote }}
+  ROUNDS_CLUSTER_SHELL_NAMESPACE: {{ .Values.clusterShell.namespace | quote }}
+  {{- if .Values.clusterShell.image }}
+  ROUNDS_CLUSTER_SHELL_IMAGE: {{ .Values.clusterShell.image | quote }}
+  {{- end }}
+  {{- end }}
   {{- if .Values.env.LLM_FALLBACK_PROVIDER }}
   LLM_FALLBACK_PROVIDER: {{ .Values.env.LLM_FALLBACK_PROVIDER | quote }}
   {{- end }}

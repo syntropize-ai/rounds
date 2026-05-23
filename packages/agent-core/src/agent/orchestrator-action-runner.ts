@@ -11,7 +11,8 @@ import {
   handleDashboardCreate,
   handleDashboardClone,
   handleInvestigationCreate,
-  handleInvestigationAddSection,
+  handleInvestigationAddText,
+  handleInvestigationAddEvidence,
   handleInvestigationComplete,
   handleAlertRuleWrite,
   handleDashboardAddPanels,
@@ -49,6 +50,7 @@ import {
   handleFolderCreate,
   handleFolderList,
   handleOpsRunCommand,
+  handleOpsClusterShell,
   handleRemediationPlanCreate,
   handleRemediationPlanCreateRescue,
   handleConnectorList,
@@ -77,7 +79,7 @@ const MUTATION_ACTIONS = [
   'dashboard_create', 'dashboard_clone',
   'dashboard_add_panels', 'dashboard_remove_panels', 'dashboard_modify_panel',
   'dashboard_rearrange', 'dashboard_add_variable', 'dashboard_set_title',
-  'investigation_create', 'investigation_add_section', 'investigation_complete',
+  'investigation_create', 'investigation_add_text', 'investigation_add_evidence', 'investigation_complete',
   // alert_rule_write covers create / update / delete via the `op` discriminator
   'alert_rule_write',
 ] as const;
@@ -198,7 +200,8 @@ async function dispatchAction(
     // Investigation lifecycle
     case 'investigation_create': return handleInvestigationCreate(ctx, args);
     case 'investigation_list': return handleInvestigationList(ctx, args);
-    case 'investigation_add_section': return handleInvestigationAddSection(ctx, args);
+    case 'investigation_add_text': return handleInvestigationAddText(ctx, args);
+    case 'investigation_add_evidence': return handleInvestigationAddEvidence(ctx, args);
     case 'investigation_complete': return handleInvestigationComplete(ctx, args);
     // Alert rules — alert_rule_write dispatches create/update/delete via `op`
     case 'alert_rule_write': return handleAlertRuleWrite(ctx, args);
@@ -238,6 +241,7 @@ async function dispatchAction(
     case 'changes_list_recent': return handleChangesListRecent(ctx, args);
     // Kubernetes / Ops integrations
     case 'ops_run_command': return handleOpsRunCommand(ctx, args);
+    case 'ops_cluster_shell': return handleOpsClusterShell(ctx, args);
     // Remediation plans (P4)
     case 'remediation_plan_create': return handleRemediationPlanCreate(ctx, args);
     case 'remediation_plan_create_rescue': return handleRemediationPlanCreateRescue(ctx, args);

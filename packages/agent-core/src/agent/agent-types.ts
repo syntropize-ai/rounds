@@ -1,5 +1,6 @@
 export type AgentType =
   | 'orchestrator'
+  | 'background_orchestrator'
   | 'verification';
 
 export type AgentToolName =
@@ -14,7 +15,7 @@ export type AgentToolName =
   | 'folder_create' | 'folder_list'
   // Investigation lifecycle
   | 'investigation_create' | 'investigation_list'
-  | 'investigation_add_section'
+  | 'investigation_add_text' | 'investigation_add_evidence'
   | 'investigation_complete'
   // Alert rule management — write is the unified create/update/delete tool
   | 'alert_rule_write'
@@ -36,6 +37,7 @@ export type AgentToolName =
   | 'changes_list_recent'
   // Kubernetes / Ops integrations
   | 'ops_run_command'
+  | 'ops_cluster_shell'
   // Remediation plans (proposal-only; PlanExecutorService runs approved steps)
   | 'remediation_plan_create' | 'remediation_plan_create_rescue'
   // Connector discovery (always-allowed, no RBAC)

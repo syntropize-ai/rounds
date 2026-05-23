@@ -148,6 +148,17 @@ export class OrchestratorAgent {
   private pendingConversationActions: DashboardAction[] = []
   private pendingNavigateTo?: string
   /**
+   * Resources the agent created during the current turn. Recorded by
+   * handlers via `ctx.recordCreatedResource` and drained by the
+   * chat-service after the turn finishes so EVERY new dashboard /
+   * investigation / alert gets a `chat_session_contexts` row — not just
+   * whichever happened to win the `setNavigateTo` race.
+   */
+  private pendingCreatedResources: Array<{
+    resourceType: 'dashboard' | 'investigation' | 'alert';
+    resourceId: string;
+  }> = []
+  /**
    * Per-session accumulator for investigation report sections. Lives on the
    * agent instance (not module-level) so concurrent sessions cannot leak
    * sections into each other when investigation ids collide.
@@ -241,6 +252,15 @@ export class OrchestratorAgent {
     return navigateTo
   }
 
+  consumeCreatedResources(): Array<{
+    resourceType: 'dashboard' | 'investigation' | 'alert';
+    resourceId: string;
+  }> {
+    const out = [...this.pendingCreatedResources]
+    this.pendingCreatedResources = []
+    return out
+  }
+
   /**
    * Handle a user message. When dashboardId is provided, the agent is scoped
    * to that dashboard (backward compat). When omitted, the agent operates in
@@ -255,6 +275,7 @@ export class OrchestratorAgent {
     this.emitAgentEvent(this.makeAgentEvent('agent.started', { dashboardId, message }));
     this.pendingConversationActions = []
     this.pendingNavigateTo = undefined
+    this.pendingCreatedResources = []
 
     // Resolve dashboard context (optional in session mode)
     const dashboard = dashboardId
@@ -352,6 +373,9 @@ export class OrchestratorAgent {
       makeAgentEvent: (type, metadata) => this.makeAgentEvent(type, metadata),
       pushConversationAction: (action) => this.pendingConversationActions.push(action),
       setNavigateTo: (path) => { this.pendingNavigateTo = path },
+      recordCreatedResource: (resourceType, resourceId) => {
+        this.pendingCreatedResources.push({ resourceType, resourceId });
+      },
       investigationSections: this.investigationSections,
       investigationProvenance: this.investigationProvenance,
       activeInvestigationIdRef: this.activeInvestigationIdRef,

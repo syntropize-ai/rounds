@@ -545,6 +545,7 @@ export class ReActLoop {
           // we don't repeat it across N tool_result blocks.
           ...(tc === toolCalls[0] && preToolProse ? { preToolText: preToolProse } : {}),
         })
+
       }
     }
 

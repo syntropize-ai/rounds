@@ -21,6 +21,12 @@ export interface ConnectorListFilter {
   masked?: boolean;
 }
 
+export interface ListPoliciesOptions {
+  connectorId: string;
+  subjectType?: ConnectorSubjectType;
+  subjectId?: string;
+}
+
 export interface ConnectorRepository {
   list(filter: ConnectorListFilter): Promise<Connector[]>;
   get(id: string, opts: { orgId: string }): Promise<Connector | null>;
@@ -29,7 +35,7 @@ export interface ConnectorRepository {
   delete(id: string, orgId: string): Promise<boolean>;
   test?(orgId: string, id: string): Promise<ConnectorTestResult>;
   upsertSecret?(input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }): Promise<unknown>;
-  listPolicies?(opts: { connectorId: string }): Promise<ConnectorPolicy[]>;
+  listPolicies?(opts: ListPoliciesOptions): Promise<ConnectorPolicy[]>;
   upsertPolicy?(policy: UpsertConnectorPolicy): Promise<ConnectorPolicy>;
   deletePolicy?(
     connectorId: string,
@@ -44,7 +50,11 @@ export interface ConnectorSecretStore {
 }
 
 export interface ConnectorPolicyRepository {
-  list(connectorId: string, orgId: string): Promise<ConnectorPolicy[]>;
+  list(
+    connectorId: string,
+    orgId: string,
+    filter?: { subjectType?: ConnectorSubjectType; subjectId?: string },
+  ): Promise<ConnectorPolicy[]>;
   upsert(policy: ConnectorPolicy & { orgId: string }): Promise<ConnectorPolicy>;
   delete(
     connectorId: string,
@@ -159,14 +169,22 @@ export class ConnectorService {
     return true;
   }
 
-  async listPolicies(orgId: string, connectorId: string): Promise<ConnectorPolicy[] | null> {
+  async listPolicies(
+    orgId: string,
+    connectorId: string,
+    filter?: { subjectType?: ConnectorSubjectType; subjectId?: string },
+  ): Promise<ConnectorPolicy[] | null> {
     const connector = await this.deps.connectors.get(connectorId, { orgId });
     if (!connector) return null;
     if (!this.deps.policies && this.deps.connectors.listPolicies) {
-      return this.deps.connectors.listPolicies({ connectorId });
+      return this.deps.connectors.listPolicies({
+        connectorId,
+        ...(filter?.subjectType ? { subjectType: filter.subjectType } : {}),
+        ...(filter?.subjectId ? { subjectId: filter.subjectId } : {}),
+      });
     }
     if (!this.deps.policies) return [];
-    return this.deps.policies.list(connectorId, orgId);
+    return this.deps.policies.list(connectorId, orgId, filter);
   }
 
   async upsertPolicy(

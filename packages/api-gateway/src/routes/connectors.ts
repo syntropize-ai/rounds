@@ -157,10 +157,18 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         createdBy: userIdFromReq(req),
       });
       // Seed sensible policy defaults for kubernetes connectors so the first
-      // read-only kubectl call doesn't get rejected by the policy gate.
-      // teamId `''` = wildcard. Best-effort: if the policy repo isn't wired
-      // (in-memory deployments), skip silently — the runner will fall back
-      // to deny which is the correct fail-closed posture.
+      // read-only kubectl call doesn't get rejected by the policy gate. Seeds
+      // are written at org scope (subjectType='org', subjectId=<orgId>); admins
+      // can override per-team later via the Policies dialog.
+      //
+      // Why the swallow: both `deps.policies` and `repo.upsertPolicy` are
+      // optional on ConnectorService (see connector-service.ts). A minimal
+      // in-memory ConnectorRepository without policy support is a legal
+      // configuration (used by some bootstrap/test paths), and in that case
+      // `service.upsertPolicy` throws "connector policy repository is not
+      // wired". We don't want connector creation to fail just because the
+      // deployment opted out of policy storage — runtime gating fails closed
+      // anyway, so the worst case is "no pre-seeded allows."
       if (connector.type === 'kubernetes') {
         for (const seed of KUBERNETES_DEFAULT_POLICIES) {
           try {
@@ -173,7 +181,7 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
               humanPolicy: seed.humanPolicy,
             });
           } catch {
-            // Swallow per-row failures; do not break connector creation.
+            // Policy repo not wired in this deployment — skip seeding.
           }
         }
       }
@@ -279,7 +287,28 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const connectorId = req.params['id'] ?? '';
-      const policies = await service.listPolicies(orgId, connectorId);
+      const subjectTypeRaw = req.query['subjectType'];
+      const subjectIdRaw = req.query['subjectId'];
+      const filter: { subjectType?: ConnectorSubjectType; subjectId?: string } = {};
+      if (subjectTypeRaw !== undefined) {
+        if (typeof subjectTypeRaw !== 'string' || !SUBJECT_TYPES.has(subjectTypeRaw as ConnectorSubjectType)) {
+          res.status(400).json({
+            error: { code: 'VALIDATION', message: `subjectType must be 'org' or 'team'` },
+          });
+          return;
+        }
+        filter.subjectType = subjectTypeRaw as ConnectorSubjectType;
+      }
+      if (subjectIdRaw !== undefined) {
+        if (typeof subjectIdRaw !== 'string' || subjectIdRaw.length === 0) {
+          res.status(400).json({
+            error: { code: 'VALIDATION', message: 'subjectId must be a non-empty string' },
+          });
+          return;
+        }
+        filter.subjectId = subjectIdRaw;
+      }
+      const policies = await service.listPolicies(orgId, connectorId, filter);
       if (!policies) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: `Connector "${connectorId}" not found` } });
         return;

@@ -4,9 +4,7 @@ import type { ConnectorRow } from './types.js';
 import ConnectorConfigSection from './ConnectorConfigSection.js';
 import GithubConnectorPanel from './GithubConnectorPanel.js';
 import PermissionsSection from './PermissionsSection.js';
-
-const btnSecondary =
-  'px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] text-sm font-medium text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] disabled:opacity-50 transition-colors';
+import { btnSecondary } from './styles.js';
 
 export interface ConnectorDetailProps {
   connector: ConnectorRow;
@@ -139,11 +137,7 @@ export function ConnectorDetail({
 
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
         {connector.type === 'github' ? (
-          <GithubConnectorPanel
-            connector={connector}
-            canWrite={canWrite}
-            onChanged={onSaved}
-          />
+          <GithubConnectorPanel canWrite={canWrite} onChanged={onSaved} />
         ) : (
           <ConnectorConfigSection
             connector={connector}

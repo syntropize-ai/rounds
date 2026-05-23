@@ -7,12 +7,7 @@ import {
   submitManifestForm,
   syncInstallations,
 } from '../../api/github-app-api.js';
-import type { ConnectorRow } from './types.js';
-
-const btnPrimary =
-  'px-4 py-2 rounded-lg bg-[var(--color-primary)] text-[var(--color-on-primary-fixed)] text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity';
-const btnSecondary =
-  'px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] text-sm font-medium text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] disabled:opacity-50 transition-colors';
+import { btnPrimary, btnSecondary } from './styles.js';
 
 export const GITHUB_CONNECT_EVENT_KEY = 'rounds:github-connector-updated';
 
@@ -23,10 +18,6 @@ type RegState =
   | { state: 'error'; message: string };
 
 export interface GithubConnectorPanelProps {
-  /** Existing GitHub connector row, if one exists for this org. Optional —
-   *  when absent the user is in the pre-install state and the panel guides
-   *  them to register + connect. */
-  connector?: ConnectorRow;
   canWrite: boolean;
   /** Called after a sync that should refetch the list. */
   onChanged: () => void;
@@ -37,7 +28,6 @@ export interface GithubConnectorPanelProps {
  * registration / install / sync UX since GitHub auth is OAuth-shaped.
  */
 export function GithubConnectorPanel({
-  connector: _connector,
   canWrite,
   onChanged,
 }: GithubConnectorPanelProps): React.ReactElement {

@@ -124,6 +124,52 @@ describe('SqliteKnowledgeRepository', () => {
     expect(after!.approvedCount).toBe(0);
   });
 
+  it('update patches title/kind/intentTags/content/sourceRef and bumps updated_at', async () => {
+    const e = await repo.insert(buildEntry({
+      title: 'old',
+      kind: 'pattern',
+      intentTags: ['a'],
+      content: { v: 1 },
+      sourceRef: null,
+    }));
+    // Wait a tick so updated_at differs from created_at.
+    await new Promise((r) => setTimeout(r, 5));
+    const updated = await repo.update(ORG, e.id, {
+      title: 'new',
+      kind: 'template',
+      intentTags: ['b', 'c'],
+      content: { v: 2 },
+      sourceRef: 'ref-1',
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.title).toBe('new');
+    expect(updated!.kind).toBe('template');
+    expect(updated!.intentTags).toEqual(['b', 'c']);
+    expect(updated!.content).toEqual({ v: 2 });
+    expect(updated!.sourceRef).toBe('ref-1');
+    expect(updated!.updatedAt >= e.updatedAt).toBe(true);
+    // Counts are untouched.
+    expect(updated!.useCount).toBe(0);
+    expect(updated!.approvedCount).toBe(0);
+  });
+
+  it('update preserves fields not present in patch', async () => {
+    const e = await repo.insert(buildEntry({ title: 'keep', intentTags: ['x'] }));
+    const updated = await repo.update(ORG, e.id, { title: 'changed' });
+    expect(updated!.title).toBe('changed');
+    expect(updated!.intentTags).toEqual(['x']);
+    expect(updated!.kind).toBe(e.kind);
+  });
+
+  it('update returns null for unknown id', async () => {
+    expect(await repo.update(ORG, 'nope', { title: 'x' })).toBeNull();
+  });
+
+  it('update respects org_id isolation', async () => {
+    const e = await repo.insert(buildEntry({ orgId: 'org-a' }));
+    expect(await repo.update('org-b', e.id, { title: 'x' })).toBeNull();
+  });
+
   it('delete removes the row', async () => {
     const e = await repo.insert(buildEntry());
     await repo.delete(ORG, e.id);

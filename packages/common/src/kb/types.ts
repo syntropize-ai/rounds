@@ -40,10 +40,16 @@ export interface KnowledgeListOptions {
   limit?: number;
 }
 
+/** Patch shape for `update`. Only user-editable fields; counts/timestamps/source are repo-managed. */
+export type KnowledgePatch = Partial<
+  Pick<KnowledgeEntry, 'title' | 'kind' | 'intentTags' | 'content' | 'sourceRef'>
+>;
+
 export interface IKnowledgeRepository {
   insert(input: KnowledgeInsertInput): Promise<KnowledgeEntry>;
   getById(orgId: string, id: string): Promise<KnowledgeEntry | null>;
   list(orgId: string, opts?: KnowledgeListOptions): Promise<KnowledgeEntry[]>;
+  update(orgId: string, id: string, patch: KnowledgePatch): Promise<KnowledgeEntry | null>;
   bumpUseCount(orgId: string, id: string): Promise<void>;
   recordFeedback(orgId: string, id: string, approved: boolean): Promise<void>;
   delete(orgId: string, id: string): Promise<void>;

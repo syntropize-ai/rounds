@@ -589,6 +589,13 @@ export interface IKnowledgeRepository {
       limit?: number;
     },
   ): Promise<KnowledgeEntry[]>;
+  update(
+    orgId: string,
+    id: string,
+    patch: Partial<
+      Pick<KnowledgeEntry, 'title' | 'kind' | 'intentTags' | 'content' | 'sourceRef'>
+    >,
+  ): Promise<KnowledgeEntry | null>;
   bumpUseCount(orgId: string, id: string): Promise<void>;
   recordFeedback(orgId: string, id: string, approved: boolean): Promise<void>;
   delete(orgId: string, id: string): Promise<void>;

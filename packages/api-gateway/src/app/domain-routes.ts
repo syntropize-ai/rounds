@@ -52,6 +52,7 @@ import { createLogger } from '@agentic-obs/server-utils/logging';
 
 const log = createLogger('domain-routes');
 import { createKbTemplatesRouter } from '../routes/kb-templates.js';
+import { createKbEntriesRouter } from '../routes/kb-entries.js';
 import type { IKnowledgeRepository } from '@agentic-obs/data-layer';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
 import { createNotificationsRouter } from '../routes/notifications.js';
@@ -345,6 +346,10 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     app.use('/api/kb/templates', createKbTemplatesRouter({
       knowledge: knowledgeRepo,
       dashboards: repos.dashboards,
+      accessControl,
+    }));
+    app.use('/api/kb/entries', createKbEntriesRouter({
+      knowledge: knowledgeRepo,
       accessControl,
     }));
   }

@@ -209,6 +209,36 @@ export class PostgresKnowledgeRepository implements IKnowledgeRepository {
     return rows.map(rowToEntry);
   }
 
+  async update(
+    orgId: string,
+    id: string,
+    patch: Partial<
+      Pick<KnowledgeEntry, 'title' | 'kind' | 'intentTags' | 'content' | 'sourceRef'>
+    >,
+  ): Promise<KnowledgeEntry | null> {
+    const existing = await this.getById(orgId, id);
+    if (!existing) return null;
+    const next = {
+      title: patch.title ?? existing.title,
+      kind: patch.kind ?? existing.kind,
+      intentTags: patch.intentTags ?? existing.intentTags,
+      content: patch.content !== undefined ? patch.content : existing.content,
+      sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : existing.sourceRef,
+    };
+    const now = nowIso();
+    await pgRun(this.db, sql`
+      UPDATE knowledge_entries
+      SET title = ${next.title},
+          kind = ${next.kind},
+          intent_tags = ${JSON.stringify(next.intentTags)},
+          content = ${JSON.stringify(next.content)},
+          source_ref = ${next.sourceRef},
+          updated_at = ${now}
+      WHERE org_id = ${orgId} AND id = ${id}
+    `);
+    return this.getById(orgId, id);
+  }
+
   async bumpUseCount(orgId: string, id: string): Promise<void> {
     const now = nowIso();
     await pgRun(this.db, sql`

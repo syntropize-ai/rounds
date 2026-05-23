@@ -43,6 +43,21 @@ function inMemoryKb(seed: KnowledgeInsertInput[] = []): IKnowledgeRepository {
       }
       return out;
     },
+    async update(orgId, id, patch) {
+      const cur = rows.get(`${orgId}::${id}`);
+      if (!cur) return null;
+      const next: KnowledgeEntry = {
+        ...cur,
+        title: patch.title ?? cur.title,
+        kind: patch.kind ?? cur.kind,
+        intentTags: patch.intentTags ?? cur.intentTags,
+        content: patch.content !== undefined ? patch.content : cur.content,
+        sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : cur.sourceRef,
+        updatedAt: new Date().toISOString(),
+      };
+      rows.set(`${orgId}::${id}`, next);
+      return next;
+    },
     async bumpUseCount(orgId, id) {
       const cur = rows.get(`${orgId}::${id}`);
       if (cur) rows.set(`${orgId}::${id}`, { ...cur, useCount: cur.useCount + 1 });

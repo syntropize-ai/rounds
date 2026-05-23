@@ -90,6 +90,21 @@ function inMemoryKbRepo(): IKnowledgeRepository {
       }
       return out;
     },
+    async update(orgId, id, patch) {
+      const cur = rows.get(`${orgId}::${id}`);
+      if (!cur) return null;
+      const next = {
+        ...cur,
+        title: patch.title ?? cur.title,
+        kind: patch.kind ?? cur.kind,
+        intentTags: patch.intentTags ?? cur.intentTags,
+        content: patch.content !== undefined ? patch.content : cur.content,
+        sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : cur.sourceRef,
+        updatedAt: new Date().toISOString(),
+      };
+      rows.set(`${orgId}::${id}`, next);
+      return next;
+    },
     async bumpUseCount() {},
     async recordFeedback() {},
     async delete() {},

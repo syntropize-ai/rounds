@@ -127,7 +127,7 @@ describe('SqliteConnectorRepository', () => {
     expect(await repo.getSecret(connector.id)).toBeNull();
   });
 
-  it('upserts team policies keyed by connector, team, and capability', async () => {
+  it('upserts policies keyed by connector, subject (org|team), and capability', async () => {
     const connector = await repo.create({
       orgId: 'org_main',
       type: 'kubernetes',
@@ -138,27 +138,48 @@ describe('SqliteConnectorRepository', () => {
 
     await repo.upsertPolicy({
       connectorId: connector.id,
-      teamId: 'team-a',
+      subjectType: 'team',
+      subjectId: 'team-a',
       capability: 'runtime.scale',
       scope: { namespaces: ['payments'] },
-      humanPolicy: 'strong_confirm',
-      agentPolicy: 'formal_approval',
+      humanPolicy: 'ask',
     });
     await repo.upsertPolicy({
       connectorId: connector.id,
-      teamId: 'team-a',
+      subjectType: 'team',
+      subjectId: 'team-a',
       capability: 'runtime.scale',
       scope: { namespaces: ['sandbox'] },
       humanPolicy: 'allow',
-      agentPolicy: 'suggest',
     });
 
-    const policy = await repo.getPolicy(connector.id, 'team-a', 'runtime.scale');
+    const policy = await repo.getPolicy(connector.id, 'team', 'team-a', 'runtime.scale');
     expect(policy).toMatchObject({
       scope: { namespaces: ['sandbox'] },
       humanPolicy: 'allow',
-      agentPolicy: 'suggest',
     });
-    expect(await repo.listPolicies({ connectorId: connector.id, teamId: 'team-a' })).toHaveLength(1);
+    expect(
+      await repo.listPolicies({
+        connectorId: connector.id,
+        subjectType: 'team',
+        subjectId: 'team-a',
+      }),
+    ).toHaveLength(1);
+
+    // Org-level subject coexists with team-level on the same capability.
+    await repo.upsertPolicy({
+      connectorId: connector.id,
+      subjectType: 'org',
+      subjectId: 'org_main',
+      capability: 'runtime.scale',
+      scope: null,
+      humanPolicy: 'block',
+    });
+    expect(await repo.listPolicies({ connectorId: connector.id })).toHaveLength(2);
+
+    expect(
+      await repo.deletePolicy(connector.id, 'team', 'team-a', 'runtime.scale'),
+    ).toBe(true);
+    expect(await repo.listPolicies({ connectorId: connector.id })).toHaveLength(1);
   });
 });

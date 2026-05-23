@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { ac, KUBERNETES_DEFAULT_POLICIES as COMMON_K8S_DEFAULTS } from '@agentic-obs/common';
+import type { ConnectorSubjectType } from '@agentic-obs/common';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
@@ -48,28 +49,25 @@ interface ConnectorBody {
 }
 
 interface ConnectorPolicyBody {
-  teamId?: string;
+  subjectType?: ConnectorSubjectType;
+  subjectId?: string;
   capability?: string;
   scope?: Record<string, unknown> | null;
   humanPolicy?: ConnectorPolicy['humanPolicy'];
-  agentPolicy?: ConnectorPolicy['agentPolicy'];
 }
 
 const CONNECTOR_STATUSES = new Set<ConnectorStatus>(['draft', 'active', 'failed', 'disabled']);
-const HUMAN_POLICIES = new Set<ConnectorPolicy['humanPolicy']>(['allow', 'confirm', 'strong_confirm', 'deny']);
-const AGENT_POLICIES = new Set<ConnectorPolicy['agentPolicy']>(['allow', 'suggest', 'formal_approval', 'deny']);
+const HUMAN_POLICIES = new Set<ConnectorPolicy['humanPolicy']>(['allow', 'ask', 'block']);
+const SUBJECT_TYPES = new Set<ConnectorSubjectType>(['org', 'team']);
 
 /**
- * Default policy seed for newly-created kubernetes connectors. teamId `''`
- * is the wildcard ("applies to all teams"); admins can override per-team
- * via the Policies dialog. Without these seeds the ops command runner
- * would reject every kubectl invocation (defensive deny), so first-run
- * read-only investigations would be DOA.
+ * Default policy seed for newly-created kubernetes connectors. Seeded at
+ * org-level (subjectType='org', subjectId=<connector.orgId>); admins can
+ * override per-team via the Policies dialog.
  */
 export const KUBERNETES_DEFAULT_POLICIES: ReadonlyArray<{
   capability: string;
   humanPolicy: ConnectorPolicy['humanPolicy'];
-  agentPolicy: ConnectorPolicy['agentPolicy'];
 }> = COMMON_K8S_DEFAULTS;
 
 function orgIdFromReq(req: Request): string | null {
@@ -168,11 +166,11 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
           try {
             await service.upsertPolicy(orgId, {
               connectorId: connector.id,
-              teamId: '',
+              subjectType: 'org',
+              subjectId: orgId,
               capability: seed.capability,
               scope: null,
               humanPolicy: seed.humanPolicy,
-              agentPolicy: seed.agentPolicy,
             });
           } catch {
             // Swallow per-row failures; do not break connector creation.
@@ -299,23 +297,27 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
       const connectorId = req.params['id'] ?? '';
       const body = req.body as ConnectorPolicyBody;
       if (
-        typeof body.teamId !== 'string' ||
+        !SUBJECT_TYPES.has(body.subjectType as ConnectorSubjectType) ||
+        typeof body.subjectId !== 'string' ||
+        body.subjectId.length === 0 ||
         typeof body.capability !== 'string' ||
-        !HUMAN_POLICIES.has(body.humanPolicy as ConnectorPolicy['humanPolicy']) ||
-        !AGENT_POLICIES.has(body.agentPolicy as ConnectorPolicy['agentPolicy'])
+        !HUMAN_POLICIES.has(body.humanPolicy as ConnectorPolicy['humanPolicy'])
       ) {
         res.status(400).json({
-          error: { code: 'VALIDATION', message: 'teamId, capability, humanPolicy, and agentPolicy are required' },
+          error: {
+            code: 'VALIDATION',
+            message: 'subjectType, subjectId, capability, and humanPolicy are required',
+          },
         });
         return;
       }
       const policy = await service.upsertPolicy(orgId, {
         connectorId,
-        teamId: body.teamId,
+        subjectType: body.subjectType as ConnectorSubjectType,
+        subjectId: body.subjectId,
         capability: body.capability,
         scope: body.scope ?? null,
         humanPolicy: body.humanPolicy as ConnectorPolicy['humanPolicy'],
-        agentPolicy: body.agentPolicy as ConnectorPolicy['agentPolicy'],
       });
       if (!policy) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: `Connector "${connectorId}" not found` } });
@@ -326,15 +328,23 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
   );
 
   router.delete(
-    '/:id/policies/:teamId/:capability',
+    '/:id/policies/:subjectType/:subjectId/:capability',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.PermissionsWrite, connectorScope(req.params['id']))),
     async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const connectorId = req.params['id'] ?? '';
-      const teamId = req.params['teamId'] ?? '';
+      const subjectTypeRaw = req.params['subjectType'] ?? '';
+      const subjectId = req.params['subjectId'] ?? '';
       const capability = req.params['capability'] ?? '';
-      const deleted = await service.deletePolicy(orgId, connectorId, teamId, capability);
+      if (!SUBJECT_TYPES.has(subjectTypeRaw as ConnectorSubjectType)) {
+        res.status(400).json({
+          error: { code: 'VALIDATION', message: `subjectType must be 'org' or 'team'` },
+        });
+        return;
+      }
+      const subjectType = subjectTypeRaw as ConnectorSubjectType;
+      const deleted = await service.deletePolicy(orgId, connectorId, subjectType, subjectId, capability);
       if (deleted === null) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: `Connector "${connectorId}" not found` } });
         return;

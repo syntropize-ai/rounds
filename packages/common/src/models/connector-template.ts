@@ -125,36 +125,28 @@ export const KNOWN_KUBERNETES_CAPABILITIES: readonly string[] = [
  */
 export const KUBERNETES_DEFAULT_POLICIES: ReadonlyArray<{
   capability: string;
-  humanPolicy: 'allow' | 'confirm' | 'strong_confirm' | 'deny';
-  agentPolicy: 'allow' | 'suggest' | 'formal_approval' | 'deny';
+  humanPolicy: 'allow' | 'ask' | 'block';
 }> = [
-  { capability: 'runtime.get', humanPolicy: 'allow', agentPolicy: 'allow' },
-  { capability: 'runtime.list', humanPolicy: 'allow', agentPolicy: 'allow' },
-  { capability: 'runtime.describe', humanPolicy: 'allow', agentPolicy: 'allow' },
-  { capability: 'runtime.logs', humanPolicy: 'allow', agentPolicy: 'allow' },
-  { capability: 'runtime.events', humanPolicy: 'allow', agentPolicy: 'allow' },
-  { capability: 'runtime.top', humanPolicy: 'allow', agentPolicy: 'allow' },
-  { capability: 'runtime.create', humanPolicy: 'confirm', agentPolicy: 'formal_approval' },
-  { capability: 'runtime.apply', humanPolicy: 'confirm', agentPolicy: 'formal_approval' },
-  { capability: 'runtime.patch', humanPolicy: 'confirm', agentPolicy: 'formal_approval' },
-  { capability: 'runtime.delete', humanPolicy: 'strong_confirm', agentPolicy: 'formal_approval' },
-  { capability: 'runtime.scale', humanPolicy: 'confirm', agentPolicy: 'formal_approval' },
-  { capability: 'runtime.restart', humanPolicy: 'confirm', agentPolicy: 'formal_approval' },
-  { capability: 'runtime.rollout', humanPolicy: 'confirm', agentPolicy: 'formal_approval' },
-  { capability: 'runtime.exec', humanPolicy: 'strong_confirm', agentPolicy: 'deny' },
-  { capability: 'runtime.port_forward', humanPolicy: 'confirm', agentPolicy: 'deny' },
-  { capability: 'runtime.drain', humanPolicy: 'strong_confirm', agentPolicy: 'deny' },
-  // Cluster-wide bootstrap (installing CRDs, control planes, cluster
-  // operators): defaults to the strongest gate — humans `strong_confirm`,
-  // agent `formal_approval` so the cluster-admin team must explicitly
-  // approve. Operators who self-host can loosen per-team.
-  { capability: 'runtime.cluster_shell.cluster', humanPolicy: 'strong_confirm', agentPolicy: 'formal_approval' },
-  // Namespace-scoped scripts (deploying a chart into `apps/`, applying a
-  // demo bundle): the user generally already has write rights, so the
-  // default is an inline confirmation popup — no separate approver needed.
-  // Agent still has to `suggest` (i.e. propose-and-confirm) rather than
-  // execute silently.
-  { capability: 'runtime.cluster_shell.namespace', humanPolicy: 'confirm', agentPolicy: 'suggest' },
+  { capability: 'runtime.get', humanPolicy: 'allow' },
+  { capability: 'runtime.list', humanPolicy: 'allow' },
+  { capability: 'runtime.describe', humanPolicy: 'allow' },
+  { capability: 'runtime.logs', humanPolicy: 'allow' },
+  { capability: 'runtime.events', humanPolicy: 'allow' },
+  { capability: 'runtime.top', humanPolicy: 'allow' },
+  { capability: 'runtime.create', humanPolicy: 'ask' },
+  { capability: 'runtime.apply', humanPolicy: 'ask' },
+  { capability: 'runtime.patch', humanPolicy: 'ask' },
+  { capability: 'runtime.delete', humanPolicy: 'ask' },
+  { capability: 'runtime.scale', humanPolicy: 'ask' },
+  { capability: 'runtime.restart', humanPolicy: 'ask' },
+  { capability: 'runtime.rollout', humanPolicy: 'ask' },
+  { capability: 'runtime.exec', humanPolicy: 'ask' },
+  { capability: 'runtime.port_forward', humanPolicy: 'ask' },
+  { capability: 'runtime.drain', humanPolicy: 'ask' },
+  // Cluster-wide bootstrap and namespace-scoped scripts both default to
+  // `ask` — surface an inline confirmation rather than auto-approving.
+  { capability: 'runtime.cluster_shell.cluster', humanPolicy: 'ask' },
+  { capability: 'runtime.cluster_shell.namespace', humanPolicy: 'ask' },
 ];
 
 const httpUrlSchema: JsonSchema = {

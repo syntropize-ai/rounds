@@ -3,7 +3,7 @@ import type {
   Connector,
   ConnectorLookupOptions,
   ConnectorSecret,
-  ConnectorTeamPolicy,
+  ConnectorPolicy,
   ListConnectorPoliciesOptions,
   ListConnectorsOptions,
 } from '@agentic-obs/common';
@@ -38,7 +38,7 @@ function mkConnector(overrides: Partial<Connector> = {}): Connector {
 interface FakeRepoState {
   connectors: Connector[];
   secrets: Map<string, ConnectorSecret>;
-  policies?: ConnectorTeamPolicy[];
+  policies?: ConnectorPolicy[];
 }
 
 function fakeConnectorRepo(state: FakeRepoState): IConnectorRepository {
@@ -75,14 +75,18 @@ function fakeConnectorRepo(state: FakeRepoState): IConnectorRepository {
   };
 }
 
-function readPolicy(connectorId: string, capability: string, agent: ConnectorTeamPolicy['agentPolicy']): ConnectorTeamPolicy {
+function readPolicy(
+  connectorId: string,
+  capability: string,
+  human: ConnectorPolicy['humanPolicy'] = 'allow',
+): ConnectorPolicy {
   return {
     connectorId,
-    teamId: '',
+    subjectType: 'org',
+    subjectId: 'org_a',
     capability,
     scope: null,
-    humanPolicy: 'allow',
-    agentPolicy: agent,
+    humanPolicy: human,
   };
 }
 
@@ -373,9 +377,9 @@ describe('KubectlOpsCommandRunner.runCommand — policy-table bypass', () => {
     authenticatedBy: 'session' as const,
   };
 
-  function mkRunner(policies: ConnectorTeamPolicy[]): {
+  function mkRunner(policies: ConnectorPolicy[]): {
     runner: KubectlOpsCommandRunner;
-    listPoliciesCalls: ConnectorTeamPolicy[][];
+    listPoliciesCalls: ConnectorPolicy[][];
   } {
     const state: FakeRepoState = {
       connectors: [
@@ -389,7 +393,7 @@ describe('KubectlOpsCommandRunner.runCommand — policy-table bypass', () => {
     };
     const repo = fakeConnectorRepo(state);
     // Wrap listPolicies so tests can assert the shim doesn't consult it.
-    const listPoliciesCalls: ConnectorTeamPolicy[][] = [];
+    const listPoliciesCalls: ConnectorPolicy[][] = [];
     const origListPolicies = repo.listPolicies.bind(repo);
     repo.listPolicies = (async (opts: { connectorId: string; capability?: string }) => {
       const rows = await origListPolicies(opts);
@@ -405,7 +409,7 @@ describe('KubectlOpsCommandRunner.runCommand — policy-table bypass', () => {
 
   it('does NOT consult the policy table (always-allow shim)', async () => {
     const { runner, listPoliciesCalls } = mkRunner([
-      readPolicy('kube-prod', 'runtime.apply', 'deny'),
+      readPolicy('kube-prod', 'runtime.apply', 'block'),
     ]);
     // Issue a kubectl call that under the old gate would have been denied.
     // We expect the runner to bypass the policy lookup entirely and reach
@@ -423,7 +427,7 @@ describe('KubectlOpsCommandRunner.runCommand — policy-table bypass', () => {
 
   it('reaches the kubectl adapter even when policy rows would have denied', async () => {
     const { runner } = mkRunner([
-      readPolicy('kube-prod', 'runtime.apply', 'deny'),
+      readPolicy('kube-prod', 'runtime.apply', 'block'),
     ]);
     const r = await runner.runCommand({
       connectorId: 'kube-prod',

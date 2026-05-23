@@ -10,18 +10,18 @@ import request from 'supertest';
 import type {
   Connector,
   ConnectorPatch,
-  ConnectorTeamPolicy,
+  ConnectorPolicy,
+  ConnectorSubjectType,
   ConnectorType,
   Evaluator,
   Identity,
   NewConnector,
   ResolvedPermission,
-  UpsertConnectorTeamPolicy,
+  UpsertConnectorPolicy,
 } from '@agentic-obs/common';
 import type {
   ConnectorListFilter,
   ConnectorRepository,
-  ConnectorPolicy,
 } from '../services/connector-service.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import {
@@ -50,7 +50,7 @@ function makeConnector(input: NewConnector): Connector {
 
 class MemoryConnectorRepo implements ConnectorRepository {
   connectors = new Map<string, Connector>();
-  policies: ConnectorTeamPolicy[] = [];
+  policies: ConnectorPolicy[] = [];
 
   async list(filter: ConnectorListFilter): Promise<Connector[]> {
     return [...this.connectors.values()].filter((c) => c.orgId === filter.orgId);
@@ -80,30 +80,41 @@ class MemoryConnectorRepo implements ConnectorRepository {
   async listPolicies(opts: { connectorId: string }): Promise<ConnectorPolicy[]> {
     return this.policies.filter((p) => p.connectorId === opts.connectorId);
   }
-  async upsertPolicy(policy: UpsertConnectorTeamPolicy): Promise<ConnectorPolicy> {
-    const teamId = policy.teamId ?? '';
-    const row: ConnectorTeamPolicy = {
+  async upsertPolicy(policy: UpsertConnectorPolicy): Promise<ConnectorPolicy> {
+    const row: ConnectorPolicy = {
       connectorId: policy.connectorId,
-      teamId,
+      subjectType: policy.subjectType,
+      subjectId: policy.subjectId,
       capability: policy.capability,
       scope: policy.scope ?? null,
       humanPolicy: policy.humanPolicy,
-      agentPolicy: policy.agentPolicy,
     };
     const idx = this.policies.findIndex(
       (p) =>
         p.connectorId === row.connectorId &&
-        p.teamId === row.teamId &&
+        p.subjectType === row.subjectType &&
+        p.subjectId === row.subjectId &&
         p.capability === row.capability,
     );
     if (idx >= 0) this.policies[idx] = row;
     else this.policies.push(row);
     return row;
   }
-  async deletePolicy(connectorId: string, teamId: string, capability: string): Promise<boolean> {
+  async deletePolicy(
+    connectorId: string,
+    subjectType: ConnectorSubjectType,
+    subjectId: string,
+    capability: string,
+  ): Promise<boolean> {
     const before = this.policies.length;
     this.policies = this.policies.filter(
-      (p) => !(p.connectorId === connectorId && p.teamId === teamId && p.capability === capability),
+      (p) =>
+        !(
+          p.connectorId === connectorId &&
+          p.subjectType === subjectType &&
+          p.subjectId === subjectId &&
+          p.capability === capability
+        ),
     );
     return this.policies.length < before;
   }
@@ -168,15 +179,15 @@ describe('POST /api/connectors — kubernetes default policy seed', () => {
 
     const seeded = repo.policies.filter((p) => p.connectorId === 'kube-prod');
     expect(seeded.length).toBe(KUBERNETES_DEFAULT_POLICIES.length);
-    // All seeds use teamId === '' (wildcard).
-    expect(seeded.every((p) => p.teamId === '')).toBe(true);
+    // All seeds use subjectType='org' keyed by the connector's orgId.
+    expect(seeded.every((p) => p.subjectType === 'org' && p.subjectId === 'org_a')).toBe(true);
     // Spot-check key invariants from the seed table.
     const byCap = new Map(seeded.map((p) => [p.capability, p] as const));
-    expect(byCap.get('runtime.get')?.agentPolicy).toBe('allow');
-    expect(byCap.get('runtime.apply')?.agentPolicy).toBe('formal_approval');
-    expect(byCap.get('runtime.delete')?.humanPolicy).toBe('strong_confirm');
-    expect(byCap.get('runtime.exec')?.agentPolicy).toBe('deny');
-    expect(byCap.get('runtime.port_forward')?.agentPolicy).toBe('deny');
+    expect(byCap.get('runtime.get')?.humanPolicy).toBe('allow');
+    expect(byCap.get('runtime.apply')?.humanPolicy).toBe('ask');
+    expect(byCap.get('runtime.delete')?.humanPolicy).toBe('ask');
+    expect(byCap.get('runtime.exec')?.humanPolicy).toBe('ask');
+    expect(byCap.get('runtime.port_forward')?.humanPolicy).toBe('ask');
   });
 
   it('does NOT seed for non-kubernetes connector types', async () => {
@@ -203,7 +214,7 @@ describe('KUBERNETES_DEFAULT_POLICIES table invariants', () => {
     expect(caps).toContain('runtime.exec');
     expect(caps).toContain('runtime.apply');
   });
-  it('never grants agent=allow to a write verb', () => {
+  it('never auto-allows a write verb (humanPolicy != allow)', () => {
     const writeVerbs = new Set([
       'runtime.create',
       'runtime.apply',
@@ -218,7 +229,7 @@ describe('KUBERNETES_DEFAULT_POLICIES table invariants', () => {
     ]);
     for (const p of KUBERNETES_DEFAULT_POLICIES) {
       if (writeVerbs.has(p.capability)) {
-        expect(p.agentPolicy).not.toBe('allow');
+        expect(p.humanPolicy).not.toBe('allow');
       }
     }
   });

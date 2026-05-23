@@ -16,7 +16,7 @@ describe('applySchema()', () => {
       'instance_llm_config',
       'notification_channels', 'instance_settings',
       'connectors', 'connector_capabilities', 'connector_secrets',
-      'connector_team_policies',
+      'connector_policies',
     ];
 
     const rows = db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type='table'`);
@@ -94,6 +94,91 @@ describe('applySchema()', () => {
     expect(tables.has('user')).toBe(false);
     const rows = db.all<{ id: string }>(sql`SELECT id FROM users`);
     expect(rows.map((r) => r.id)).toEqual(['u1']);
+  });
+
+  it('migrates legacy connector_team_policies into connector_policies', () => {
+    const db = createSqliteClient({ path: ':memory:', wal: false });
+    // Bootstrap just enough schema to host the legacy table + its FK target.
+    db.run(sql.raw(`
+      CREATE TABLE org (
+        id TEXT PRIMARY KEY, version INTEGER NOT NULL DEFAULT 0,
+        name TEXT NOT NULL, created TEXT NOT NULL, updated TEXT NOT NULL
+      )
+    `));
+    db.run(sql`INSERT INTO org (id, name, created, updated) VALUES ('org_main', 'Main', 'now', 'now')`);
+    db.run(sql`INSERT INTO org (id, name, created, updated) VALUES ('org_other', 'Other', 'now', 'now')`);
+    db.run(sql.raw(`
+      CREATE TABLE connectors (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        config TEXT NOT NULL,
+        status TEXT NOT NULL,
+        last_verified_at TEXT NULL,
+        last_verify_error TEXT NULL,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `));
+    db.run(sql`
+      INSERT INTO connectors (id, org_id, type, name, config, status, is_default, created_by, created_at, updated_at)
+      VALUES ('c1', 'org_main', 'kubernetes', 'k1', '{}', 'active', 0, 'u', 'now', 'now')
+    `);
+    db.run(sql`
+      INSERT INTO connectors (id, org_id, type, name, config, status, is_default, created_by, created_at, updated_at)
+      VALUES ('c2', 'org_other', 'kubernetes', 'k2', '{}', 'active', 0, 'u', 'now', 'now')
+    `);
+    db.run(sql.raw(`
+      CREATE TABLE connector_team_policies (
+        connector_id TEXT NOT NULL,
+        team_id TEXT NOT NULL DEFAULT '',
+        capability TEXT NOT NULL,
+        scope TEXT NULL,
+        human_policy TEXT NOT NULL,
+        agent_policy TEXT NOT NULL,
+        PRIMARY KEY (connector_id, team_id, capability)
+      )
+    `));
+    // Wildcard row → org-level, keyed by connector's org_id.
+    db.run(sql`
+      INSERT INTO connector_team_policies VALUES
+      ('c1', '',       'runtime.get',    NULL, 'allow',           'allow'),
+      ('c1', 'team-a', 'runtime.apply',  NULL, 'confirm',         'formal_approval'),
+      ('c1', 'team-b', 'runtime.delete', NULL, 'strong_confirm',  'deny'),
+      ('c2', '',       'runtime.get',    NULL, 'deny',            'deny')
+    `);
+
+    applySchema(db);
+
+    const tables = new Set(
+      db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type='table'`).map((r) => r.name),
+    );
+    expect(tables.has('connector_team_policies')).toBe(false);
+    expect(tables.has('connector_policies')).toBe(true);
+
+    const rows = db.all<{
+      connector_id: string;
+      subject_type: string;
+      subject_id: string;
+      capability: string;
+      human_policy: string;
+    }>(sql`SELECT connector_id, subject_type, subject_id, capability, human_policy
+           FROM connector_policies ORDER BY connector_id, subject_type, subject_id, capability`);
+
+    expect(rows).toEqual([
+      { connector_id: 'c1', subject_type: 'org',  subject_id: 'org_main', capability: 'runtime.get',    human_policy: 'allow' },
+      { connector_id: 'c1', subject_type: 'team', subject_id: 'team-a',   capability: 'runtime.apply',  human_policy: 'ask' },
+      { connector_id: 'c1', subject_type: 'team', subject_id: 'team-b',   capability: 'runtime.delete', human_policy: 'ask' },
+      { connector_id: 'c2', subject_type: 'org',  subject_id: 'org_other', capability: 'runtime.get',   human_policy: 'block' },
+    ]);
+
+    // Idempotent: running applySchema again is a no-op (the old table is gone).
+    applySchema(db);
+    const count = db.all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM connector_policies`)[0]!.n;
+    expect(count).toBe(4);
   });
 
   it('is idempotent — second applySchema() is a no-op', () => {

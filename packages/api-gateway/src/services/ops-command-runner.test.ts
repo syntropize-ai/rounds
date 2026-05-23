@@ -324,7 +324,14 @@ describe('KubectlOpsCommandRunner.runCommand — getSecret binding', () => {
           },
         ],
       ]),
-      policies: [readPolicy('kube-prod', 'runtime.get', 'allow')],
+      policies: [
+        readPolicy('kube-prod', 'runtime.get', 'allow'),
+        // `version --client` has no kubectl prefix so the runner classifies
+        // it as `runtime.exec`. Without an explicit allow row, the template
+        // default (ask) would route it through the confirmation flow and
+        // this test would hang waiting for a user decision.
+        readPolicy('kube-prod', 'runtime.exec', 'allow'),
+      ],
     };
     const repo = fakeConnectorRepo(state);
     const getSecretSpy = vi.spyOn(repo, 'getSecret');
@@ -360,15 +367,12 @@ describe('KubectlOpsCommandRunner.runCommand — getSecret binding', () => {
   });
 });
 
-describe('KubectlOpsCommandRunner.runCommand — policy-table bypass', () => {
-  // The per-capability per-team policy gate was retired (ops-trust-model
-  // v4). The runner no longer queries `listPolicies` or resolves an
-  // effective `agentPolicy`. Authority is: kubeconfig RBAC (real auth) +
-  // pattern-based confirmation gate (`shellCommandNeedsConfirmation` on
-  // the command string).
-  //
-  // These tests pin the contract: the runner reaches the shell adapter
-  // regardless of any policy rows that might still exist in the DB.
+describe('KubectlOpsCommandRunner.runCommand — connector policy gate', () => {
+  // The chat-side runner consults the `connector_policies` table to honor
+  // the user's per-capability policy from Settings → Connectors. `block`
+  // refuses without ever reaching the adapter; `ask` forces a confirmation
+  // even for innocuous reads; `allow` lets the risk classifier still
+  // confirm high-risk commands.
   const identity = {
     userId: 'u1',
     orgId: 'org_a',
@@ -377,10 +381,10 @@ describe('KubectlOpsCommandRunner.runCommand — policy-table bypass', () => {
     authenticatedBy: 'session' as const,
   };
 
-  function mkRunner(policies: ConnectorPolicy[]): {
-    runner: KubectlOpsCommandRunner;
-    listPoliciesCalls: ConnectorPolicy[][];
-  } {
+  function mkRunner(
+    policies: ConnectorPolicy[],
+    resolveUserTeams?: (id: { userId: string }) => Promise<readonly string[]>,
+  ): KubectlOpsCommandRunner {
     const state: FakeRepoState = {
       connectors: [
         mkConnector({
@@ -391,93 +395,72 @@ describe('KubectlOpsCommandRunner.runCommand — policy-table bypass', () => {
       secrets: new Map(),
       policies,
     };
-    const repo = fakeConnectorRepo(state);
-    // Wrap listPolicies so tests can assert the shim doesn't consult it.
-    const listPoliciesCalls: ConnectorPolicy[][] = [];
-    const origListPolicies = repo.listPolicies.bind(repo);
-    repo.listPolicies = (async (opts: { connectorId: string; capability?: string }) => {
-      const rows = await origListPolicies(opts);
-      listPoliciesCalls.push(rows);
-      return rows;
-    }) as typeof repo.listPolicies;
-    const runner = new KubectlOpsCommandRunner({
-      connectors: repo,
+    return new KubectlOpsCommandRunner({
+      connectors: fakeConnectorRepo(state),
       orgId: 'org_a',
+      ...(resolveUserTeams
+        ? { resolveUserTeams: resolveUserTeams as never }
+        : {}),
     });
-    return { runner, listPoliciesCalls };
   }
 
-  it('does NOT consult the policy table (always-allow shim)', async () => {
-    const { runner, listPoliciesCalls } = mkRunner([
-      readPolicy('kube-prod', 'runtime.apply', 'block'),
-    ]);
-    // Issue a kubectl call that under the old gate would have been denied.
-    // We expect the runner to bypass the policy lookup entirely and reach
-    // the adapter (which then complains about a different layer — the
-    // missing --namespace on apply -f -).
-    await runner.runCommand({
-      connectorId: 'kube-prod',
-      command: 'kubectl apply -f -',
-      intent: 'execute_approved',
-      identity,
-      sessionId: 's1',
-    });
-    expect(listPoliciesCalls).toHaveLength(0);
-  });
-
-  it('reaches the kubectl adapter even when policy rows would have denied', async () => {
-    const { runner } = mkRunner([
-      readPolicy('kube-prod', 'runtime.apply', 'block'),
-    ]);
+  it('blocks `kubectl get pods` when runtime.get policy is block', async () => {
+    const runner = mkRunner([readPolicy('kube-prod', 'runtime.get', 'block')]);
     const r = await runner.runCommand({
       connectorId: 'kube-prod',
-      command: 'kubectl apply -f -',
-      intent: 'execute_approved',
-      identity,
-      sessionId: 's1',
-    });
-    // The observation now comes from the adapter (apply needs a namespace),
-    // not from a synthesized "denied by policy" string.
-    expect(r.observation).not.toContain('denied by policy');
-    expect(r.observation).not.toContain('formal approval');
-    expect(r.observation).not.toContain('user review');
-  });
-
-  it('reaches the kubectl adapter when no policy rows exist', async () => {
-    const { runner } = mkRunner([]);
-    const r = await runner.runCommand({
-      connectorId: 'kube-prod',
-      command: 'kubectl apply -f -',
-      intent: 'execute_approved',
-      identity,
-      sessionId: 's1',
-    });
-    expect(r.observation).not.toContain('denied by policy');
-  });
-
-  it('treats unknown kubectl verbs as confirmation-required instead of hard-refusing', async () => {
-    const { runner } = mkRunner([]);
-    // Pattern classifier marks `kubectl <unknown-verb>` as medium risk
-    // (kubectl mentioned, no read-verb match), which surfaces a Yes/No
-    // card rather than the old "no mapped capability" refusal. We assert
-    // the new flow by capturing the confirmation and rejecting it so the
-    // call returns instead of blocking on user input.
-    let captured: OpsCommandConfirmation | undefined;
-    const pending = runner.runCommand({
-      connectorId: 'kube-prod',
-      command: 'kubectl frobnicate',
+      command: 'kubectl get pods',
       intent: 'read',
       identity,
       sessionId: 's1',
-      onConfirmationRequired: (c) => { captured = c; },
     });
-    // Give the runner one microtask tick to emit the confirmation, then
-    // reject so the awaiting Promise unblocks.
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by connector policy');
+    expect(r.observation).toContain('runtime.get');
+  });
+
+  it('forces a confirmation when policy is ask, even for a read', async () => {
+    const runner = mkRunner([readPolicy('kube-prod', 'runtime.get', 'ask')]);
+    let captured: OpsCommandConfirmation | undefined;
+    const pending = runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl get pods',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        captured = c;
+      },
+    });
     await new Promise((r) => setTimeout(r, 0));
     expect(captured).toBeDefined();
     if (captured) resolveOpsCommandConfirmation(captured.id, 'rejected');
     const r = await pending;
-    expect(r.observation).not.toContain('no mapped capability');
     expect(r.observation).toContain('rejected');
+  });
+
+  it('honors a team-scope block over an org-scope allow', async () => {
+    const orgRow: ConnectorPolicy = readPolicy(
+      'kube-prod',
+      'runtime.get',
+      'allow',
+    );
+    const teamRow: ConnectorPolicy = {
+      connectorId: 'kube-prod',
+      subjectType: 'team',
+      subjectId: 'team-readonly',
+      capability: 'runtime.get',
+      scope: null,
+      humanPolicy: 'block',
+    };
+    const runner = mkRunner([orgRow, teamRow], async () => ['team-readonly']);
+    const r = await runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl get pods',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by connector policy');
   });
 });

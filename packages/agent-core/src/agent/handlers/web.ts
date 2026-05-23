@@ -25,12 +25,12 @@ export async function handleWebSearch(ctx: ActionContext, args: Record<string, u
 
   if (!ctx.webSearchAdapter) {
     const msg = 'Error: No web search adapter configured.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg });
     return msg;
   }
   if (!query) {
     const msg = 'Error: "query" is required and must be a non-empty string.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg });
     return msg;
   }
   if (
@@ -38,7 +38,7 @@ export async function handleWebSearch(ctx: ActionContext, args: Record<string, u
     !(typeof args.max_results === 'number' && Number.isFinite(args.max_results) && args.max_results > 0)
   ) {
     const msg = 'Error: "max_results" must be a finite positive number.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg });
     return msg;
   }
 
@@ -50,11 +50,11 @@ export async function handleWebSearch(ctx: ActionContext, args: Record<string, u
     if (results.length > 0) {
       ctx.dashboardBuildEvidence.webSearchCount += 1;
     }
-    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: `${results.length} results`, success: results.length > 0 });
+    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: `${results.length} results` });
     return summary;
   } catch (err) {
     const msg = `Web search failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'web_search', summary: msg });
     return msg;
   }
 }

@@ -26,6 +26,9 @@ import type {
   IInvestigationRepository,
 } from '@agentic-obs/common';
 import type { IConnectorRepository } from './types/connector.js';
+import type { IGithubAppConfigRepository } from './types/github-app-config.js';
+import { SqliteGithubAppConfigRepository } from './sqlite/github-app-config.js';
+import { PostgresGithubAppConfigRepository } from './postgres/github-app-config.js';
 import type {
   IGatewayInvestigationStore,
   IGatewayIncidentStore,
@@ -117,6 +120,7 @@ export interface RepositoryBundle {
   // W2 / T2.2 — instance-scoped config (replaces setup-config.json).
   instanceConfig: IInstanceConfigRepository;
   connectors: IConnectorRepository;
+  githubAppConfig: IGithubAppConfigRepository;
   notificationChannels: INotificationChannelRepository;
   remediationPlans: IRemediationPlanRepository;
   notificationDispatch: INotificationDispatchRepository;
@@ -146,6 +150,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     chatSessionEvents: new SqliteChatSessionEventRepository(db),
     instanceConfig: new InstanceConfigRepository(db),
     connectors: new SqliteConnectorRepository(db),
+    githubAppConfig: new SqliteGithubAppConfigRepository(db),
     notificationChannels: new NotificationChannelRepository(db),
     remediationPlans: new SqliteRemediationPlanRepository(db),
     notificationDispatch: new SqliteNotificationDispatchRepository(db),
@@ -177,6 +182,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     chatSessionEvents: new PostgresChatSessionEventRepository(db),
     instanceConfig: new PostgresInstanceConfigRepository(queryClient),
     connectors: new PostgresConnectorRepository(queryClient),
+    githubAppConfig: new PostgresGithubAppConfigRepository(queryClient),
     notificationChannels: new PostgresNotificationChannelRepository(queryClient),
     remediationPlans: new PostgresRemediationPlanRepository(db),
     notificationDispatch: new PostgresNotificationDispatchRepository(db),

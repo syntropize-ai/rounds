@@ -31,16 +31,20 @@ export async function handleOpsRunCommand(
       const connectorList = Array.isArray(connectors) ? connectors : undefined;
       if (connectorList) {
         if (connectorList.length === 0) {
-          return 'No Ops connectors are configured. Connect a Kubernetes/Ops integration before querying cluster state.';
+          // Unified-connectors model: 0 kubernetes connectors means the
+          // user hasn't created one yet. Point them at Settings → Connectors
+          // → Add Connector → kubernetes. Do NOT suggest "Mark as Ops"
+          // toggles — those don't exist.
+          return "No Kubernetes connector configured. Go to Settings → Connectors → Add Connector and pick 'kubernetes'.";
         }
         const selected = connectorList.find((connector) => connector.id === connectorId);
         if (!selected) {
-          return `Ops connector "${connectorId}" is not configured. Choose one of: ${connectorList.map((connector) => connector.id).join(', ')}.`;
+          return `Kubernetes connector "${connectorId}" is not configured. Choose one of: ${connectorList.map((connector) => connector.id).join(', ')}.`;
         }
 
-        // Command safety policy is owned by the injected runner/connector
-        // service. The agent layer only validates that the requested connector
-        // exists so it can produce a helpful model-facing error.
+        // Connector exists; credential-missing case (kubeconfig) is detected
+        // by the runner per-call and surfaced as the observation. Command
+        // safety policy is enforced by the runner/adapter, not here.
       }
 
       const result = await ctx.opsCommandRunner.runCommand({
@@ -49,6 +53,9 @@ export async function handleOpsRunCommand(
         intent,
         identity: ctx.identity,
         sessionId: ctx.sessionId,
+        onConfirmationRequired: (confirmation: unknown) => {
+          emitOpsConfirmation(ctx, confirmation, connectorId, command, 'medium');
+        },
       });
 
       return formatOpsCommandResult(result);
@@ -56,14 +63,102 @@ export async function handleOpsRunCommand(
   );
 }
 
-function formatOpsCommandResult(result: unknown): string {
-  if (typeof result === 'string') return result;
+export async function handleOpsClusterShell(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const connectorId = typeof args.connectorId === 'string' ? args.connectorId.trim() : '';
+  const script = typeof args.script === 'string' ? args.script.trim() : '';
+  const scope = args.scope === 'cluster' || args.scope === 'namespace'
+    ? args.scope
+    : 'namespace';
+  const namespace = typeof args.namespace === 'string' ? args.namespace.trim() : '';
+  const image = typeof args.image === 'string' ? args.image.trim() : '';
+
+  return withToolEventBoundary(
+    ctx.sendEvent,
+    'ops_cluster_shell',
+    { connectorId, scope, namespace: namespace || undefined, image: image || undefined },
+    connectorId ? `Preparing cluster shell command on ${connectorId}` : 'Preparing cluster shell command',
+    async () => {
+      if (!ctx.opsCommandRunner?.runClusterShell) {
+        return 'Cluster shell runner is not configured. Connect a Kubernetes/Ops integration before running cluster shell operations.';
+      }
+      if (!connectorId) {
+        return 'ops_cluster_shell requires connectorId. List configured Ops connectors in Settings and choose one before running a command.';
+      }
+      if (!script) {
+        return 'ops_cluster_shell requires script.';
+      }
+      if (scope === 'namespace' && !namespace) {
+        return 'ops_cluster_shell requires namespace when scope="namespace".';
+      }
+
+      const connectors = ctx.opsConnectors ?? await ctx.opsCommandRunner.listConnectors?.();
+      const connectorList = Array.isArray(connectors) ? connectors : undefined;
+      if (connectorList) {
+        if (connectorList.length === 0) {
+          return "No Kubernetes connector configured. Go to Settings → Connectors → Add Connector and pick 'kubernetes'.";
+        }
+        const selected = connectorList.find((connector) => connector.id === connectorId);
+        if (!selected) {
+          return `Kubernetes connector "${connectorId}" is not configured. Choose one of: ${connectorList.map((connector) => connector.id).join(', ')}.`;
+        }
+      }
+
+      const result = await ctx.opsCommandRunner.runClusterShell({
+        connectorId,
+        script,
+        scope,
+        ...(namespace ? { namespace } : {}),
+        ...(image ? { image } : {}),
+        identity: ctx.identity,
+        sessionId: ctx.sessionId,
+        onConfirmationRequired: (confirmation: unknown) => {
+          emitOpsConfirmation(ctx, confirmation, connectorId, script, 'high');
+        },
+      });
+
+      return formatOpsCommandResult(result);
+    },
+  );
+}
+
+function emitOpsConfirmation(
+  ctx: ActionContext,
+  confirmation: unknown,
+  connectorId: string,
+  command: string,
+  defaultRisk: 'low' | 'medium' | 'high' | 'critical',
+): void {
+  if (!confirmation || typeof confirmation !== 'object') return;
+  const record = confirmation as Record<string, unknown>;
+  ctx.sendEvent({
+    type: 'ops_command_confirmation_required',
+    id: String(record.id ?? ''),
+    connectorId: String(record.connectorId ?? connectorId),
+    command: String(record.command ?? command),
+    risk: (
+      record.risk === 'low' ||
+      record.risk === 'medium' ||
+      record.risk === 'high' ||
+      record.risk === 'critical'
+    ) ? record.risk : defaultRisk,
+    summary: String(record.summary ?? `Run ${command}`),
+    expiresAt: String(record.expiresAt ?? new Date().toISOString()),
+  });
+}
+
+function formatOpsCommandResult(result: unknown): { observation: string; success?: boolean } {
+  if (typeof result === 'string') return { observation: result };
   if (result && typeof result === 'object') {
     const record = result as Record<string, unknown>;
-    if (typeof record.observation === 'string') return record.observation;
-    if (typeof record.summary === 'string') return record.summary;
-    if (typeof record.message === 'string') return record.message;
-    return JSON.stringify(record);
+    const observation =
+      typeof record.observation === 'string' ? record.observation :
+      typeof record.summary === 'string' ? record.summary :
+      typeof record.message === 'string' ? record.message :
+      JSON.stringify(record);
+    return { observation };
   }
-  return String(result ?? 'Ops command completed with no output.');
+  return { observation: String(result ?? 'Ops command completed with no output.') };
 }

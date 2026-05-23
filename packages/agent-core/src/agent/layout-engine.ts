@@ -12,36 +12,31 @@ interface PanelSize {
  * and the composition of its section.
  */
 export function panelSize(viz: PanelVisualization, sameVizCount: number = 1): PanelSize {
+  // Sizes are grid units. The renderer (DashboardGrid) derives row height
+  // from column width, so `width: N, height: N` renders as a true square
+  // regardless of viewport — the same units mean the same aspect on
+  // narrow laptops and wide monitors.
+  //
+  //   1:1 (square)    → stat, gauge, pie       (3×3)
+  //   2:1 (landscape) → time_series, heatmap, bar, histogram, table (6×3)
+  //   4:1 (banner)    → status_timeline        (12×3)
   switch (viz) {
     case 'stat':
-      // 3×3 reads as a square tile (big number on top, sparkline strip on
-      // bottom). Landscape (height: 2) squashes the sparkline and makes the
-      // panel feel unfinished next to time_series neighbors.
+      // Big number on top, sparkline strip below — reads as a balanced
+      // tile at 1:1.
       return { width: 3, height: 3 }
     case 'gauge':
-      // SVG arc needs vertical room — gauge visualization is ~150px tall
+      return { width: 3, height: 3 }
+    case 'pie':
       return { width: 3, height: 3 }
     case 'time_series':
-      // Always half-width. A single time_series at full width (12) beside a
-      // half-width heatmap looked inconsistent — row heights differ and the
-      // layout reads as accidental. 6×3 keeps all "detail charts" in one
-      // column rhythm, even if a lone panel leaves the right half empty.
       return { width: 6, height: 3 }
     case 'table':
-      return { width: sameVizCount >= 2 ? 6 : 12, height: 4 }
+      return { width: sameVizCount >= 2 ? 6 : 12, height: 3 }
     case 'bar':
     case 'histogram':
-      // 3+ → fit 3 per row; 2 → half width; 1 → half width
       return { width: sameVizCount >= 3 ? 4 : 6, height: 3 }
-    case 'pie':
-      // Pie/donut is inherently circular — a 6×3 (2:1) panel forces the
-      // circle into one third of the width with a lot of empty space.
-      // 3×3 matches stat's square tile and keeps the chart centred and
-      // legible regardless of sibling count.
-      return { width: 3, height: 3 }
     case 'heatmap':
-      // 6×3 matches time_series / bar / pie so side-by-side rows don't leave
-      // a visible height step; full-width (12) reads as a flat strip.
       return { width: 6, height: 3 }
     case 'status_timeline':
       return { width: 12, height: 3 }

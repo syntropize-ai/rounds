@@ -17,13 +17,13 @@ export async function handleChangesListRecent(
   }
   if (!sourceId) {
     const msg = 'No change-event connector configured. Call connectors_list to see available sources.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
     return msg;
   }
   const adapter = ctx.adapters.changes(sourceId);
   if (!adapter) {
     const msg = `Error: unknown changes connector '${sourceId}'. Call connectors_list to see available sources.`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
     return msg;
   }
 
@@ -48,18 +48,18 @@ export async function handleChangesListRecent(
       const msg = service
         ? `No changes for ${service} in the last ${windowMinutes} minute(s).`
         : `No changes in the last ${windowMinutes} minute(s).`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
       return msg;
     }
     const bullets = records.slice(0, 30).map((r) =>
       `- [${r.at}] ${r.service} (${r.kind}): ${r.summary}`,
     );
     const summary = `${records.length} change(s)${service ? ` for ${service}` : ''} in last ${windowMinutes}m:\n${bullets.join('\n')}${records.length > 30 ? `\n... and ${records.length - 30} more` : ''}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: `${records.length} changes`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: `${records.length} changes` });
     return summary;
   } catch (err) {
     const msg = `Failed to list recent changes: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
     return msg;
   }
 }

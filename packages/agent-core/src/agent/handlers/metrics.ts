@@ -32,11 +32,11 @@ export async function handleMetricsQuery(ctx: ActionContext, args: Record<string
           const labelStr = Object.entries(s.labels).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}="${v}"`).join(', ');
           return `${labelStr || s.labels.__name__ || 'series'}: ${s.value}`;
         }).join('\n') + (results.length > 20 ? `\n... and ${results.length - 20} more series` : '');
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: `${results.length} series returned`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: `${results.length} series returned` });
     return summary;
   } catch (err) {
     const msg = `Query failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: msg });
     return msg;
   }
 }
@@ -73,11 +73,11 @@ export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<s
           const lastVal = r.values.length > 0 ? r.values[r.values.length - 1]![1] : 'N/A';
           return `${labelStr || r.metric.__name__ || 'series'}: ${r.values.length} points, latest=${lastVal}`;
         }).join('\n') + (results.length > 10 ? `\n... and ${results.length - 10} more series` : '');
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: `${results.length} series returned`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: `${results.length} series returned` });
     return summary;
   } catch (err) {
     const msg = `Range query failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: msg });
     return msg;
   }
 }
@@ -276,13 +276,12 @@ export async function handleMetricsDiscover(
       type: 'tool_result',
       tool: 'metrics_discover',
       summary: `metrics_discover (${kind}) ok`,
-      success: true,
     });
     ctx.dashboardBuildEvidence.metricDiscoveryCount += 1;
     return observation;
   } catch (err) {
     const msg = `metrics_discover (${kind}) failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_discover', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_discover', summary: msg });
     return msg;
   }
 }
@@ -300,7 +299,7 @@ export async function handleMetricsValidate(ctx: ActionContext, args: Record<str
     const result = await adapter.testQuery(expr);
     if (!result.ok) {
       const summary = `Invalid query: ${result.error ?? 'unknown error'}`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary, success: false });
+      ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary });
       return summary;
     }
 
@@ -310,11 +309,11 @@ export async function handleMetricsValidate(ctx: ActionContext, args: Record<str
 
     const summary = `Valid query: ${expr}`;
     ctx.dashboardBuildEvidence.validatedQueries.add(expr);
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary });
     return summary;
   } catch (err) {
     const msg = `Invalid query: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary: msg });
     return msg;
   }
 }

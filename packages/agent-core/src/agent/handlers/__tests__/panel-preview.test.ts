@@ -163,7 +163,7 @@ describe('handlePanelPreview — observation + SSE emission', () => {
     expect(parsed.ok).toBe(true);
     const events = (ctx.sendEvent as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
     expect(events.some((e) => e.type === 'tool_call' && e.tool === 'panel_preview')).toBe(true);
-    expect(events.some((e) => e.type === 'tool_result' && e.tool === 'panel_preview' && e.success === true)).toBe(true);
+    expect(events.some((e) => e.type === 'tool_result' && e.tool === 'panel_preview')).toBe(true);
   });
 
   it('rejects bad input shape with a clear error before touching the adapter', async () => {

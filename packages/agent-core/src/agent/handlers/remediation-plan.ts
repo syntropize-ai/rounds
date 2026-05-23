@@ -54,8 +54,8 @@ function parseStep(raw: unknown, idx: number): ValidatedStep | string {
   const r = raw as RawStepInput;
   const kind = typeof r.kind === 'string' ? r.kind : '';
   if (!kind) return `step[${idx}].kind is required`;
-  if (kind !== 'ops.run_command') {
-    return `step[${idx}].kind '${kind}' is not supported (only 'ops.run_command' today)`;
+  if (kind !== 'ops.run_command' && kind !== 'ops.cluster_shell') {
+    return `step[${idx}].kind '${kind}' is not supported (use 'ops.run_command' or 'ops.cluster_shell')`;
   }
   const commandText = typeof r.commandText === 'string' ? r.commandText.trim() : '';
   if (!commandText) return `step[${idx}].commandText is required`;
@@ -64,14 +64,34 @@ function parseStep(raw: unknown, idx: number): ValidatedStep | string {
     return `step[${idx}].paramsJson must be an object`;
   }
   const params = r.paramsJson as Record<string, unknown>;
-  const argv = params['argv'];
   const connectorId = params['connectorId'];
-  if (!Array.isArray(argv) || argv.some((a) => typeof a !== 'string') || argv.length === 0) {
-    return `step[${idx}].paramsJson.argv must be a non-empty string array (kubectl argv without 'kubectl')`;
-  }
   if (typeof connectorId !== 'string' || !connectorId) {
     return `step[${idx}].paramsJson.connectorId must be the id of a configured ops connector`;
   }
+
+  if (kind === 'ops.run_command') {
+    const argv = params['argv'];
+    if (!Array.isArray(argv) || argv.some((a) => typeof a !== 'string') || argv.length === 0) {
+      return `step[${idx}].paramsJson.argv must be a non-empty string array (kubectl argv without 'kubectl')`;
+    }
+  } else {
+    // ops.cluster_shell
+    const script = params['script'];
+    const scope = params['scope'];
+    if (typeof script !== 'string' || !script) {
+      return `step[${idx}].paramsJson.script must be a non-empty string (shell script body)`;
+    }
+    if (scope !== 'cluster' && scope !== 'namespace') {
+      return `step[${idx}].paramsJson.scope must be 'cluster' or 'namespace'`;
+    }
+    if (scope === 'namespace') {
+      const ns = params['namespace'];
+      if (typeof ns !== 'string' || !ns) {
+        return `step[${idx}].paramsJson.namespace is required when scope='namespace'`;
+      }
+    }
+  }
+
   return {
     kind: kind as RemediationPlanStepKind,
     commandText,
@@ -97,6 +117,11 @@ function validateStepAgainstConnector(
   if (!connector) {
     return `step[${idx}].paramsJson.connectorId '${step.connectorId}' is not configured for this org`;
   }
+  // cluster_shell steps run an arbitrary script inside a one-shot Job; the
+  // kubectl write-allowlist doesn't apply (no argv to inspect). Safety is
+  // enforced by the cluster_shell policy gate (.cluster vs .namespace) +
+  // operator approval, not by parsing the script.
+  if (step.kind === 'ops.cluster_shell') return null;
   const decision = checkKubectl(
     step.paramsJson['argv'] as string[],
     'write',
@@ -116,10 +141,9 @@ async function createPlanCommon(
   if (!ctx.remediationPlans) {
     return 'Error: remediation plan store is not available.';
   }
-  const investigationId = String(args['investigationId'] ?? '');
+  const investigationId = String(args['investigationId'] ?? '').trim();
   const summary = String(args['summary'] ?? '').trim();
   const stepsRaw = args['steps'];
-  if (!investigationId) return 'Error: "investigationId" is required.';
   if (!summary) return 'Error: "summary" is required.';
   if (!Array.isArray(stepsRaw) || stepsRaw.length === 0) {
     return 'Error: "steps" must be a non-empty array.';
@@ -138,6 +162,10 @@ async function createPlanCommon(
   for (let i = 0; i < parsed.length; i++) {
     const reason = validateStepAgainstConnector(ctx, parsed[i] as ValidatedStep, i);
     if (reason) return `Error: ${reason}`;
+  }
+
+  if (!investigationId) {
+    return 'Error: "investigationId" is required. Direct-request remediation plans are not supported; interactive chat writes use user confirmation instead.';
   }
 
   const expiresInMs = typeof args['expiresInMs'] === 'number' ? args['expiresInMs'] : undefined;

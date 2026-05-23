@@ -520,13 +520,12 @@ export async function handleAlertRuleWrite(
         throw new Error(`alert_rule_write: unhandled op ${String(_exhaustive)}`);
       }
     }
-    const success = !observation.startsWith('Error:');
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_write', summary: observation, success });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_write', summary: observation });
     ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'alert_rule_write', summary: observation }));
     return observation;
   } catch (err) {
     const msg = `alert_rule_write (${op}) failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_write', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_write', summary: msg });
     throw err;
   }
 }
@@ -578,7 +577,7 @@ export async function handleAlertRuleList(
       const msg = filter
         ? `No alert rules match "${filter}" (${list.length} total).`
         : 'No alert rules found.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_list', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_list', summary: msg });
       return msg;
     }
     const lines = filtered.map((r) => {
@@ -590,12 +589,11 @@ export async function handleAlertRuleList(
       type: 'tool_result',
       tool: 'alert_rule_list',
       summary: `${filtered.length} alert rules found`,
-      success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to list alert rules: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_list', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_list', summary: msg });
     return msg;
   }
 }
@@ -647,7 +645,7 @@ export async function handleAlertRuleHistory(
     : ctx.alertRuleStore.getAllHistory?.bind(ctx.alertRuleStore, limit);
   if (!fetcher) {
     const msg = 'Alert history is not available from this store; skip annotations.';
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_history', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_history', summary: msg });
     return msg;
   }
 
@@ -702,12 +700,11 @@ export async function handleAlertRuleHistory(
       type: 'tool_result',
       tool: 'alert_rule_history',
       summary: `${annotations.length} alert events`,
-      success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to load alert history: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_history', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'alert_rule_history', summary: msg });
     return msg;
   }
 }

@@ -141,7 +141,7 @@ describe('handleConnectorsSuggest — decision pyramid', () => {
     await handleConnectorsSuggest(ctx, { userIntent: 'cpu' });
     const tools = ctx.sendEvent.mock.calls.map((c) => c[0]);
     expect(tools[0]).toMatchObject({ type: 'tool_call', tool: 'connectors_suggest' });
-    expect(tools.at(-1)).toMatchObject({ type: 'tool_result', tool: 'connectors_suggest', success: true });
+    expect(tools.at(-1)).toMatchObject({ type: 'tool_result', tool: 'connectors_suggest' });
   });
 });
 

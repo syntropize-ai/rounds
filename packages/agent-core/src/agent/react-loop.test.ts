@@ -7,6 +7,8 @@ const ALLOWED_TOOLS = [
   'tool_search',
   'dashboard_modify_panel',
   'metrics_query',
+  'ops_run_command',
+  'ops_cluster_shell',
 ] as const
 
 describe('ReActLoop', () => {
@@ -86,6 +88,58 @@ describe('ReActLoop', () => {
     expect(sendEvent).toHaveBeenCalledWith({
       type: 'reply',
       content: 'I split the merged panel back into separate panels.',
+    })
+  })
+
+  it('lets the model compose a follow-up reply after a confirmed ops write finishes', async () => {
+    const sendEvent = vi.fn()
+    const observation = 'istioctl install -y\n✔ Istio core installed\n✔ Istiod installed\n✔ Ingress gateways installed\nInstallation complete'
+    const finalReply = 'Istio 装好了：核心组件、Istiod、Ingress gateway 都已就绪。'
+    const gateway = {
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: 'I’ll install Istio.',
+          toolCalls: [
+            {
+              id: 'call_1',
+              name: 'ops_cluster_shell',
+              input: {
+                connectorId: 'dev',
+                scope: 'cluster',
+                script: 'istioctl install -y',
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: finalReply,
+          toolCalls: [],
+        }),
+    } as any
+
+    const executeAction = vi.fn().mockResolvedValue(observation)
+
+    const loop = new ReActLoop({
+      gateway,
+      model: 'test-model',
+      sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+    })
+
+    const result = await loop.runLoop(
+      'system prompt',
+      '安装istio',
+      executeAction,
+    )
+
+    expect(executeAction).toHaveBeenCalledTimes(1)
+    expect(gateway.complete).toHaveBeenCalledTimes(2)
+    expect(result).toBe(finalReply)
+    expect(sendEvent).toHaveBeenCalledWith({
+      type: 'reply',
+      content: finalReply,
     })
   })
 

@@ -108,3 +108,23 @@ secretEnv:
   SEED_ADMIN_PASSWORD: ""
 
 existingSecret: ""
+
+# Bootstrap ServiceAccount + RBAC for `ops.cluster_shell` plan steps.
+# When enabled, the api-gateway can run agent-proposed shell scripts
+# (`helm install`, `istioctl install`, `curl | sh`) as one-shot Jobs in
+# the cluster. Each Job is gated by the connector policy table — nothing
+# runs until an operator approves the plan in the UI.
+clusterShell:
+  enabled: true
+  serviceAccount: rounds-bootstrap
+  # Where the SA + Jobs live. The chart creates this namespace when enabled.
+  namespace: rounds-system
+  # ClusterRole bound to the SA. Defaults to `cluster-admin` so
+  # installing any chart / CRD / operator works without per-install RBAC
+  # tweaks. Set to "" to skip the binding (attach a tighter role
+  # yourself), or to the name of a ClusterRole you've defined elsewhere.
+  clusterRole: cluster-admin
+  # Image used as the runner container. Defaults to alpine/k8s:1.29.0
+  # (kubectl + curl + sh + jq baked in). Leave empty to use the adapter
+  # default.
+  image: ""

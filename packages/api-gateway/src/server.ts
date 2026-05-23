@@ -46,6 +46,7 @@ import { EventEmittingAlertRuleRepository } from '@agentic-obs/data-layer';
 import { buildBackgroundOrchestratorFactory } from './app/agent-factory.js';
 import { ensureBundledSeeds } from './app/kb-bundled-loader.js';
 import { cleanupLegacyAlertsFolder } from './app/alerts-folder-cleanup.js';
+import { backfillKubernetesPolicyDefaults } from './app/connectors-backfill.js';
 import type { IKnowledgeRepository } from '@agentic-obs/common';
 import { createShutdownHooks } from './app/lifecycle.js';
 import type { WebSocketGatewayDeps } from './websocket/gateway.js';
@@ -219,6 +220,13 @@ export async function createApp(): Promise<Application> {
   // see 2026-05-18 design change to Grafana folder parity. Best-effort; the
   // cleanup logs and continues on failure.
   await cleanupLegacyAlertsFolder(sharedFolderRepo, persistence.repos.alertRules, 'org_main');
+
+  // One-time idempotent backfill of KUBERNETES_DEFAULT_POLICIES for
+  // kubernetes connectors created before seed-on-create landed. Skips any
+  // connector that already has ≥1 explicit policy row so user
+  // customizations are never clobbered. Best-effort; logs and continues
+  // on failure.
+  await backfillKubernetesPolicyDefaults(persistence.repos.connectors, 'org_main');
 
   // Lift the rule-store event wrapper up to createApp so the domain
   // routes (write path) and the alert evaluator (read/refresh path)

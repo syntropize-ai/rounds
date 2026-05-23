@@ -43,7 +43,7 @@ agentRegistry.register({
     'folder_create', 'folder_list',
     // Investigation lifecycle
     'investigation_create', 'investigation_list',
-    'investigation_add_section',
+    'investigation_add_text', 'investigation_add_evidence',
     'investigation_complete',
     // Connector discovery (always allowed; no RBAC)
     'connectors_list',
@@ -63,9 +63,7 @@ agentRegistry.register({
     // Recent change events
     'changes_list_recent',
     // Kubernetes / Ops integrations (requires configured connector + RBAC)
-    'ops_run_command',
-    // Remediation plans — proposal only; PlanExecutorService runs approved steps
-    'remediation_plan_create', 'remediation_plan_create_rescue',
+    'ops_run_command', 'ops_cluster_shell',
     // Knowledge
     'web_search',
     // Knowledge base — TF-IDF + bundled seeds
@@ -87,6 +85,22 @@ agentRegistry.register({
   outputKinds: ['dashboard', 'panel', 'dashboard_variable', 'investigation_report', 'alert_rule'],
   permissionMode: 'artifact_mutation',
   maxIterations: 30,
+});
+
+const foregroundOrchestrator = agentRegistry.get('orchestrator')!;
+
+agentRegistry.register({
+  ...foregroundOrchestrator,
+  type: 'background_orchestrator',
+  description: 'Background observability agent for alert-triggered investigations and remediation-plan proposals',
+  allowedTools: [
+    ...foregroundOrchestrator.allowedTools,
+    // Remediation plans are background-only. Interactive chat uses
+    // permission + confirmation + execution, not formal approvals.
+    'remediation_plan_create',
+    'remediation_plan_create_rescue',
+  ],
+  canRunInBackground: true,
 });
 
 agentRegistry.register({

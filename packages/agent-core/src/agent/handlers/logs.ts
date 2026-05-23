@@ -37,7 +37,7 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
     const result = await adapter.query({ query, start, end, ...(limit !== undefined ? { limit } : {}) });
     if (result.entries.length === 0) {
       const msg = 'Logs query returned no entries.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg });
       return msg;
     }
     // Format: `[ts] {k=v, k=v} message` — truncate the whole blob to keep the
@@ -60,11 +60,11 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
     const partialTail = result.partial ? '\n(Backend indicated results were partial — narrow the time window or add filters for completeness.)' : '';
     const warnTail = result.warnings?.length ? `\nWarnings: ${result.warnings.join('; ')}` : '';
     const summary = `${header}\n${lines.join('\n')}${partialTail}${warnTail}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: `${result.entries.length} entries`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: `${result.entries.length} entries` });
     return summary;
   } catch (err) {
     const msg = `Logs query failed: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg });
     return msg;
   }
 }
@@ -79,11 +79,11 @@ export async function handleLogsLabels(ctx: ActionContext, args: Record<string, 
   try {
     const labels = await adapter.listLabels();
     const summary = labels.length === 0 ? 'No log labels available.' : labels.join(', ');
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: `${labels.length} labels`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: `${labels.length} labels` });
     return summary;
   } catch (err) {
     const msg = `Failed to list log labels: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: msg });
     return msg;
   }
 }
@@ -102,11 +102,11 @@ export async function handleLogsLabelValues(ctx: ActionContext, args: Record<str
     const summary = values.length === 0
       ? `No values found for label "${label}".`
       : values.slice(0, 50).join(', ') + (values.length > 50 ? ` ... and ${values.length - 50} more` : '');
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: `${values.length} values`, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: `${values.length} values` });
     return summary;
   } catch (err) {
     const msg = `Failed to list log label values: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: msg });
     return msg;
   }
 }

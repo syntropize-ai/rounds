@@ -214,6 +214,33 @@ export function payloadToChatEvent(
         },
       };
     }
+    case 'ops_command_confirmation_required':
+      return {
+        id,
+        kind: 'ops_command_confirmation_required',
+        opsConfirmation: {
+          id: (payload.id as string) ?? id,
+          connectorId: (payload.connectorId as string) ?? '',
+          command: (payload.command as string) ?? '',
+          risk: payload.risk as 'low' | 'medium' | 'high' | 'critical' | undefined,
+          summary: payload.summary as string | undefined,
+          expiresAt: payload.expiresAt as string | undefined,
+          status: 'pending',
+        },
+      };
+    case 'ops_command_confirmation_resolved':
+      return {
+        id,
+        kind: 'ops_command_confirmation_resolved',
+        opsConfirmation: {
+          id: (payload.id as string) ?? id,
+          connectorId: '',
+          command: '',
+          status: payload.status as 'executed' | 'rejected' | 'expired' | 'failed' | undefined,
+          output: payload.output as string | undefined,
+          error: payload.error as string | undefined,
+        },
+      };
     case 'error':
       return {
         id,
@@ -465,6 +492,39 @@ export function useChat(): UseChatResult {
               id: (parsed.id as string) ?? id,
               dashboardId: (parsed.dashboardId as string) ?? '',
               status: parsed.status as string | undefined,
+            },
+          });
+          break;
+        }
+
+        case 'ops_command_confirmation_required': {
+          appendEvent({
+            id,
+            kind: 'ops_command_confirmation_required',
+            opsConfirmation: {
+              id: (parsed.id as string) ?? id,
+              connectorId: (parsed.connectorId as string) ?? '',
+              command: (parsed.command as string) ?? '',
+              risk: parsed.risk as 'low' | 'medium' | 'high' | 'critical' | undefined,
+              summary: parsed.summary as string | undefined,
+              expiresAt: parsed.expiresAt as string | undefined,
+              status: 'pending',
+            },
+          });
+          break;
+        }
+
+        case 'ops_command_confirmation_resolved': {
+          appendEvent({
+            id,
+            kind: 'ops_command_confirmation_resolved',
+            opsConfirmation: {
+              id: (parsed.id as string) ?? id,
+              connectorId: '',
+              command: '',
+              status: parsed.status as 'executed' | 'rejected' | 'expired' | 'failed' | undefined,
+              output: parsed.output as string | undefined,
+              error: parsed.error as string | undefined,
             },
           });
           break;

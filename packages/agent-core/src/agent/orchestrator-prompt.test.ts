@@ -89,13 +89,13 @@ describe('buildSystemPrompt — identity section is suppressed without identity'
 });
 
 describe('buildSystemPrompt — Ops connector guidance', () => {
-  it('states that cluster queries require a configured connector and write commands propose approval', () => {
+  it('states that cluster queries require a configured connector and writes use runtime confirmation', () => {
     const prompt = build();
     expect(prompt).toContain('cluster/Kubernetes questions require a configured Ops connector');
     expect(prompt).toContain('do not invent a cluster');
     expect(prompt).toContain('intent="read"');
-    expect(prompt).toContain('intent="propose"');
-    expect(prompt).toContain('approval/proposal');
+    expect(prompt).toContain('runtime permission + confirmation path');
+    expect(prompt).not.toContain('approval/proposal');
   });
 
   it('shows not connected when no Ops connectors are configured', () => {
@@ -195,12 +195,23 @@ describe('buildSystemPrompt — actions framing + cache boundary', () => {
     expect(dashboardIdx).toBeGreaterThan(boundaryIdx);
   });
 
-  it('includes the actions section heading and remediation_plan_create framing', () => {
+  it('omits remediation_plan_create framing for the foreground chat prompt', () => {
     const prompt = buildSystemPrompt(null, [], [], null, [], {
       hasPrometheus: false,
       now: '2026-04-18T00:00:00.000Z',
     });
     expect(prompt).toContain('# Executing actions with care');
+    expect(prompt).toContain('Formal remediation plans are not available in interactive chat');
+    expect(prompt).not.toContain('remediation_plan_create');
+  });
+
+  it('includes remediation_plan_create framing only when the background tool is allowed', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:00:00.000Z',
+      allowedTools: ['remediation_plan_create'],
+    });
+    expect(prompt).toContain('alert-triggered background remediation');
     expect(prompt).toContain('remediation_plan_create');
   });
 });

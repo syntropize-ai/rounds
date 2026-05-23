@@ -110,6 +110,10 @@ const READ_PERMS: ResolvedPermission[] = [
   { action: ACTIONS.PlansRead, scope: 'plans:*' },
 ];
 
+const APPROVE_PERMS: ResolvedPermission[] = [
+  { action: ACTIONS.PlansApprove, scope: 'plans:*' },
+];
+
 describe('GET /api/plans/:id/confirmation', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -196,5 +200,39 @@ describe('GET /api/plans/:id/confirmation', () => {
     expect(res.status).toBe(200);
     expect(res.body.source).toBe('background_agent');
     expect(res.body.risk).toBe('high');
+  });
+});
+
+describe('POST /api/plans/:id/approve', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('approves and runs the plan without requiring plans:auto_edit', async () => {
+    const { app, approvalCreate } = buildHarness([plan()], APPROVE_PERMS);
+    const res = await request(app)
+      .post('/api/plans/plan-1/approve')
+      .send({ autoEdit: true });
+
+    expect(res.status).toBe(200);
+    expect(approvalCreate).toHaveBeenCalledWith(
+      'org_a',
+      'plan-1',
+      true,
+      expect.objectContaining({ userId: 'u1', orgId: 'org_a' }),
+    );
+  });
+
+  it('ignores legacy autoEdit=false bodies so team approval still executes all steps', async () => {
+    const { app, approvalCreate } = buildHarness([plan()], APPROVE_PERMS);
+    const res = await request(app)
+      .post('/api/plans/plan-1/approve')
+      .send({ autoEdit: false });
+
+    expect(res.status).toBe(200);
+    expect(approvalCreate).toHaveBeenCalledWith(
+      'org_a',
+      'plan-1',
+      true,
+      expect.objectContaining({ userId: 'u1', orgId: 'org_a' }),
+    );
   });
 });

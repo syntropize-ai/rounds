@@ -9,6 +9,7 @@ import AskUserPrompt from './chat/AskUserPrompt.js';
 import { DatasourceChoiceChip } from './chat/DatasourceChoiceChip.js';
 import InlineChartMessage from './InlineChartMessage.js';
 import ChangeProposalCard from './chat/ChangeProposalCard.js';
+import OpsCommandConfirmCard from './chat/OpsCommandConfirmCard.js';
 import type { PendingChangeKind, PendingChangeStatus } from '../types/pending-changes.js';
 import { RoundsLogo } from './RoundsLogo.js';
 
@@ -296,6 +297,9 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
                   {...(overlay ? { controlledStatus: overlay } : {})}
                 />
               );
+            }
+            if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation) {
+              return <OpsCommandConfirmCard key={evt.id} confirmation={evt.opsConfirmation} />;
             }
             if (evt.kind === 'ds_choice') {
               return (

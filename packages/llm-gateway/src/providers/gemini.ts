@@ -10,6 +10,7 @@ import type {
   ToolDefinition,
 } from '../types.js';
 import { ProviderError, classifyProviderHttpError } from '../types.js';
+import { timedFetch } from './timeout-fetch.js';
 import { effortToBudgetTokens, getCapabilities } from './capabilities.js';
 import { stripCacheBoundary } from '../system-prompt-cache-boundary.js';
 
@@ -227,19 +228,24 @@ export class GeminiProvider implements LLMProvider {
       body['toolConfig'] = toolConfig;
     }
 
-    const fetchInit: RequestInit = {
+    const fetchInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    };
-    if (options.signal) fetchInit.signal = options.signal;
+    } as const;
     let response: Response;
     try {
-      response = await fetch(
+      response = await timedFetch(
         `${this.baseUrl}/v1beta/models/${model}:generateContent?key=${this.apiKey}`,
         fetchInit,
+        {
+          provider: this.name,
+          displayName: 'Gemini',
+          ...(options.signal ? { signal: options.signal } : {}),
+        },
       );
     } catch (err) {
+      if (err instanceof ProviderError) throw err;
       const kind = classifyProviderHttpError({ cause: err });
       throw new ProviderError(
         `Gemini complete transport failure: ${err instanceof Error ? err.message : String(err)}`,

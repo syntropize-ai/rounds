@@ -37,7 +37,8 @@ export function groupEvents(
       evt.kind === 'ask_user' ||
       evt.kind === 'ds_choice' ||
       evt.kind === 'inline_chart' ||
-      evt.kind === 'pending_change_created'
+      evt.kind === 'pending_change_created' ||
+      evt.kind === 'ops_command_confirmation_required'
     ) {
       // pending_change_created renders as an inline change-proposal card. We
       // intentionally flush the agent activity block first so the card sits
@@ -60,7 +61,11 @@ export function groupEvents(
           return blocks;
         }
       }
-    } else if (evt.kind === 'pending_change_resolved') {
+      // ops_command_confirmation_required does NOT block subsequent events.
+      // The card itself collapses to a one-line status after the user clicks
+      // Run/Cancel; the agent's follow-up step/reply events should keep
+      // flowing right below it.
+    } else if (evt.kind === 'pending_change_resolved' || evt.kind === 'ops_command_confirmation_resolved') {
       // Resolution events don't render their own block; the corresponding
       // change_proposal card overlays its status via the page-level overlay
       // map. Drop them from the block stream.
@@ -107,8 +112,11 @@ export interface ToolCallCard {
   id: string;
   tool: string;
   label: string;
-  /** 'running' until paired result, then 'done' or 'error' */
-  status: 'running' | 'done' | 'error';
+  /** 'running' until the paired tool_result arrives, then 'done'. There is
+   *  no 'error' state — the agent reasons over the observation text, and a
+   *  red X in the transcript would just nudge a human reader to over-index
+   *  on tool exit codes / non-zero shell returns / empty result sets. */
+  status: 'running' | 'done';
   /** Sanitized input args (secrets redacted). Undefined if event had no args. */
   params?: Record<string, unknown>;
   /** Full output text (server-provided; server may not emit yet). */
@@ -210,6 +218,7 @@ export const USER_VISIBLE_TOOLS = new Set([
   'web_search',
   // Ops connector — single entrypoint for kubectl/cluster commands
   'ops_run_command',
+  'ops_cluster_shell',
   // Lazy tool loading — surfaces deferred tool schemas on demand
   'tool_search',
 ]);
@@ -260,7 +269,7 @@ export function phaseOf(tool: string): string {
   if (tool === 'web_search') return 'research';
 
   // Ops / cluster commands
-  if (tool === 'ops_run_command') return 'ops';
+  if (tool === 'ops_run_command' || tool === 'ops_cluster_shell') return 'ops';
 
   // Lazy tool loading
   if (tool === 'tool_search') return 'discover';
@@ -335,6 +344,7 @@ export const TOOL_LABELS: Record<string, string> = {
   'alert_rule_history': 'Checking alert history',
   // Ops connector (kubectl etc.)
   'ops_run_command': 'Running ops command',
+  'ops_cluster_shell': 'Preparing cluster command',
   // Lazy tool loading
   'tool_search': 'Loading tool',
   // Panel operations
@@ -410,9 +420,11 @@ export function buildSteps(events: ChatEvent[]): { steps: StepRow[]; preStatus: 
       if (match) {
         match.status = evt.content ?? match.status;
         // Phase is done when a "summary" result arrives (not intermediate progress)
-        // Mark done if the result's tool matches the phase directly
+        // Mark done if the result's tool matches the phase directly. `success`
+        // on the event is ignored — the UI no longer colours steps as
+        // pass/fail; the observation text speaks for itself.
         if (tool === phase || match.subStepCount <= 1) {
-          match.result = { text: evt.content ?? '', success: evt.success !== false };
+          match.result = { text: evt.content ?? '', success: true };
           match.done = true;
         }
       }
@@ -463,7 +475,10 @@ export function buildToolCalls(events: ChatEvent[]): ToolCallCard[] {
       const idx = queue.shift()!;
       const card = cards[idx];
       if (!card) continue;
-      card.status = evt.success === false ? 'error' : 'done';
+      // `evt.success` is ignored: the agent reasons over the observation
+      // text, not a boolean — and the UI's pulsing/static dot only conveys
+      // "in flight vs done", not "passed vs failed".
+      card.status = 'done';
       if (evt.content) card.summary = evt.content;
       if (evt.output) card.output = evt.output;
       if (evt.evidenceId && !card.evidenceId) card.evidenceId = evt.evidenceId;
@@ -506,13 +521,8 @@ export function buildToolActivityGroups(events: ChatEvent[]): ToolActivityGroup[
     existing.count += 1;
     existing.tool = card.tool;
     existing.label = TOOL_LABELS[phase] ?? card.label;
-    if (card.status === 'running') {
-      existing.status = 'running';
-    } else if (card.status === 'error' && existing.status !== 'running') {
-      existing.status = 'error';
-    } else if (existing.status !== 'running' && existing.status !== 'error') {
-      existing.status = 'done';
-    }
+    // Group status: pulses while ANY of its cards is running, otherwise done.
+    existing.status = card.status === 'running' ? 'running' : existing.status === 'running' ? 'running' : 'done';
     if (card.params) existing.params = card.params;
     if (card.output) existing.output = card.output;
     if (card.summary) existing.summary = card.summary;

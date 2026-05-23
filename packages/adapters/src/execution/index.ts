@@ -30,3 +30,19 @@ export type {
   KubectlExecutionAdapterOptions,
   KubectlSpawnFn,
 } from './kubectl-adapter.js';
+
+export {
+  ClusterShellExecutionAdapter,
+  buildJobManifest,
+} from './cluster-shell-adapter.js';
+export type {
+  ClusterShellExecutionAdapterOptions,
+  ClusterShellSpawnFn,
+  ClusterShellActionParams,
+} from './cluster-shell-adapter.js';
+
+export { ShellExecutionAdapter } from './shell-adapter.js';
+export type {
+  ShellExecutionAdapterOptions,
+  ShellSpawnFn,
+} from './shell-adapter.js';

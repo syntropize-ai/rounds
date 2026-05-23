@@ -82,6 +82,10 @@ export interface OrchestratorActionRuntime {
   makeAgentEvent(type: AgentEvent['type'], metadata?: Record<string, unknown>): AgentEvent;
   pushConversationAction(action: DashboardAction): void;
   setNavigateTo(path: string): void;
+  recordCreatedResource(
+    resourceType: 'dashboard' | 'investigation' | 'alert',
+    resourceId: string,
+  ): void;
   investigationSections: Map<string, InvestigationReportSection[]>;
   investigationProvenance: Map<string, Provenance & { startedAt?: number }>;
   /**
@@ -134,6 +138,7 @@ export function buildActionContext(
     makeAgentEvent: runtime.makeAgentEvent,
     pushConversationAction: runtime.pushConversationAction,
     setNavigateTo: runtime.setNavigateTo,
+    recordCreatedResource: runtime.recordCreatedResource,
     investigationSections: runtime.investigationSections,
     investigationProvenance: runtime.investigationProvenance,
     get activeInvestigationId() { return invRef.current; },

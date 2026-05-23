@@ -161,6 +161,32 @@ function formatToolError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Coerce a single value to one of the allowed enum members, or undefined.
+ * Used in dashboard_add_panels to silently drop hallucinated enum values
+ * (e.g. the agent suggests `colorMode: 'auto'`) before they reach the DB
+ * and break the read-side zod schema.
+ */
+function pickEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value)
+    ? (value as T)
+    : undefined;
+}
+
+/**
+ * `pickEnum` but emitted as `{ [key]: value }` so the caller can spread it
+ * into an object literal — keeps the field absent when the value is bad,
+ * rather than setting it to `undefined`.
+ */
+function maybeEnum<K extends string, T extends string>(
+  key: K,
+  value: unknown,
+  allowed: readonly T[],
+): Partial<Record<K, T>> {
+  const picked = pickEnum(value, allowed);
+  return picked === undefined ? {} : ({ [key]: picked } as Partial<Record<K, T>>);
+}
+
 async function fetchPanelMetadata(
   ctx: ActionContext,
   panel: { title?: unknown; query?: unknown; queries?: unknown },
@@ -288,7 +314,7 @@ function emitToolFailure(
 ): string {
   const msg = formatToolError(err);
   const observationText = `Error: ${msg}`;
-  ctx.sendEvent({ type: 'tool_result', tool, summary: observationText, success: false });
+  ctx.sendEvent({ type: 'tool_result', tool, summary: observationText });
   return observationText;
 }
 
@@ -339,8 +365,14 @@ export async function handleDashboardCreate(
         }),
       );
 
-      // Navigate to the new dashboard so the user can see panels being added
+      // Navigate to the new dashboard so the user can see panels being added.
+      // Separately record the create relationship — `setNavigateTo` only
+      // remembers the latest URL, so multi-create turns (LLM asked for two
+      // dashboards in one message) would otherwise leave the non-navigated
+      // dashboard without a chat-session linkage and the chat panel would
+      // render blank when the user opened it.
       ctx.setNavigateTo(`/dashboards/${dashboard.id}`);
+      ctx.recordCreatedResource('dashboard', dashboard.id);
 
       createdId = dashboard.id;
       void ctx.auditWriter?.({
@@ -446,6 +478,7 @@ export async function handleDashboardClone(
       await tryUpdateDashboardStatus(ctx, created.id, 'ready');
 
       ctx.setNavigateTo(`/dashboards/${created.id}`);
+      ctx.recordCreatedResource('dashboard', created.id);
       // The freshly cloned dashboard becomes the active one (same as create).
       ctx.activeDashboardId = created.id;
       ctx.freshlyCreatedDashboards.add(created.id);
@@ -543,7 +576,7 @@ export async function handleDashboardAddPanels(
       const detail = formatVerifyReport(verifyReport);
       const observation =
         `Error: dashboard_add_panels rejected by verify-gate. Fix the following before retrying:\n${detail}`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observation, success: false });
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observation });
       return observation;
     }
     // Gate OFF: log + accept. We still surface the issues to operators via
@@ -578,7 +611,7 @@ export async function handleDashboardAddPanels(
       const observationText = proposalIds.length > 0
         ? `Proposed ${proposalIds.length} new panel(s) (${proposalIds.join(', ')}). Pending user approval.`
         : `Proposed ${panelsForWrite.length} new panel(s); pending user review.`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText });
       return observationText;
     }
     return await runAddPanels(ctx, dashboardId, panelsForWrite);
@@ -587,10 +620,10 @@ export async function handleDashboardAddPanels(
     // leave the dashboard stuck at 'generating' forever (the list badge
     // turns yellow and never resolves). Flip to 'failed' with the error
     // message so the UI can render an actionable state, then rethrow so
-    // the orchestrator's tool_result(success: false) path still runs.
+    // the orchestrator's outer error handling still runs.
     const msg = err instanceof Error ? err.message : String(err);
     await tryUpdateDashboardStatus(ctx, dashboardId, 'failed', msg);
-    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: msg });
     throw err;
   }
 }
@@ -634,23 +667,38 @@ async function runAddPanels(
         ? p.queries.map((q: Record<string, unknown>) => ({ expr: String(q.expr ?? '') }))
         : [],
     }),
-    stackMode: typeof p.stackMode === 'string' ? p.stackMode as 'none' | 'normal' | 'percent' : undefined,
+    stackMode: pickEnum(p.stackMode, ['none', 'normal', 'percent'] as const),
     fillOpacity: typeof p.fillOpacity === 'number' ? p.fillOpacity : undefined,
     decimals: typeof p.decimals === 'number' ? p.decimals : undefined,
-    thresholds: Array.isArray(p.thresholds) ? p.thresholds as import('@agentic-obs/common').PanelThreshold[] : undefined,
-    // Visual polish hints from agent (default applied client-side when omitted)
+    thresholds: Array.isArray(p.thresholds)
+      ? (p.thresholds as Array<Record<string, unknown>>)
+          .filter((t) => typeof t.value === 'number' && typeof t.color === 'string')
+          .map((t) => ({
+            value: t.value as number,
+            color: t.color as string,
+            ...(typeof t.label === 'string' ? { label: t.label } : {}),
+          })) as import('@agentic-obs/common').PanelThreshold[]
+      : undefined,
+    // Visual polish hints from agent. Enums are filtered against the
+    // canonical allow-list so a hallucinated value ('avg' for legendStats,
+    // 'auto' for colorMode, etc.) is silently dropped instead of corrupting
+    // the dashboard JSON — the row stays loadable, the LLM's intent is
+    // ignored.
     ...(typeof p.sparkline === 'boolean' ? { sparkline: p.sparkline } : {}),
-    ...(typeof p.colorMode === 'string' ? { colorMode: p.colorMode as CommonPanel['colorMode'] } : {}),
-    ...(typeof p.graphMode === 'string' ? { graphMode: p.graphMode as CommonPanel['graphMode'] } : {}),
+    ...maybeEnum('colorMode', p.colorMode, ['value', 'background', 'none'] as const),
+    ...maybeEnum('graphMode', p.graphMode, ['none', 'area'] as const),
     ...(typeof p.lineWidth === 'number' ? { lineWidth: p.lineWidth } : {}),
-    ...(Array.isArray(p.legendStats) ? { legendStats: p.legendStats as CommonPanel['legendStats'] } : {}),
-    ...(typeof p.legendPlacement === 'string' ? { legendPlacement: p.legendPlacement as CommonPanel['legendPlacement'] } : {}),
-    ...(typeof p.colorScale === 'string' ? { colorScale: p.colorScale as CommonPanel['colorScale'] } : {}),
-    ...(typeof p.showPoints === 'string' ? { showPoints: p.showPoints as CommonPanel['showPoints'] } : {}),
-    ...(typeof p.yScale === 'string' ? { yScale: p.yScale as CommonPanel['yScale'] } : {}),
+    ...(Array.isArray(p.legendStats)
+      ? { legendStats: (p.legendStats as unknown[]).filter((v): v is 'last' | 'mean' | 'max' | 'min' =>
+          v === 'last' || v === 'mean' || v === 'max' || v === 'min') }
+      : {}),
+    ...maybeEnum('legendPlacement', p.legendPlacement, ['bottom', 'right'] as const),
+    ...maybeEnum('colorScale', p.colorScale, ['linear', 'sqrt', 'log'] as const),
+    ...maybeEnum('showPoints', p.showPoints, ['auto', 'never'] as const),
+    ...maybeEnum('yScale', p.yScale, ['linear', 'log'] as const),
     ...(typeof p.collapseEmptyBuckets === 'boolean' ? { collapseEmptyBuckets: p.collapseEmptyBuckets } : {}),
     ...(typeof p.barGaugeMax === 'number' ? { barGaugeMax: p.barGaugeMax } : {}),
-    ...(typeof p.barGaugeMode === 'string' ? { barGaugeMode: p.barGaugeMode as CommonPanel['barGaugeMode'] } : {}),
+    ...maybeEnum('barGaugeMode', p.barGaugeMode, ['gradient', 'lcd'] as const),
     ...(Array.isArray(p.annotations)
       ? {
           annotations: (p.annotations as Array<Record<string, unknown>>)
@@ -688,7 +736,7 @@ async function runAddPanels(
   recordPanelEvents(ctx, dashboardId, panelConfigs, 'created');
 
   const observationText = `Added ${panelConfigs.length} panel(s): ${panelConfigs.map((p) => p.title).join(', ')}`;
-  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText, success: true });
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText });
   // Stream each new panel as a discrete `panel_added` event so the live
   // dashboard view (useDashboardChat) can splice it into the rendered grid
   // without a page refresh. Without these the chat hook only sees
@@ -824,7 +872,7 @@ export async function handleDashboardRemovePanels(
       const observationText = proposalIds.length > 0
         ? `Proposed removal of ${proposalIds.length} panel(s) (${proposalIds.join(', ')}). Pending user approval.`
         : `Proposed removal of ${panelIds.length} panel(s); pending user review.`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText });
       return observationText;
     }
 
@@ -846,7 +894,7 @@ export async function handleDashboardRemovePanels(
     recordPanelEvents(ctx, dashboardId, removedSnapshots, 'deleted');
 
     const observationText = `Removed ${panelIds.length} panel(s).`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_remove_panels', summary: observationText });
     // Stream `panel_removed` per id so the live view drops them without F5.
     for (const panelId of panelIds) {
       ctx.sendEvent({ type: 'panel_removed', panelId } as never);
@@ -952,7 +1000,7 @@ export async function handleDashboardModifyPanel(
       const observationText = rowId
         ? `Proposed change ${rowId}: ${summary}. Pending user approval.`
         : `Proposed modification of panel ${panelId}; pending user review.`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText });
       return observationText;
     }
 
@@ -973,7 +1021,7 @@ export async function handleDashboardModifyPanel(
     recordPanelEvents(ctx, dashboardId, [snapshot], 'edited');
 
     const observationText = `Modified panel ${panelId}.`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_modify_panel', summary: observationText });
     // Stream `panel_modified` so the live view applies the patch without F5.
     ctx.sendEvent({ type: 'panel_modified', panelId, patch } as never);
     return observationText;
@@ -1028,14 +1076,14 @@ export async function handleDashboardAddVariable(
       const observationText = rowId
         ? `Proposed change ${rowId}: ${summary}. Pending user approval.`
         : `Proposed variable $${variable.name}; pending user review.`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText });
       return observationText;
     }
 
     await ctx.actionExecutor.execute(dashboardId, [{ type: 'add_variable', variable }]);
 
     const observationText = `Added variable $${variable.name}.`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText, success: true });
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_variable', summary: observationText });
     return observationText;
   } catch (err) {
     return emitToolFailure(ctx, 'dashboard_add_variable', err);
@@ -1087,7 +1135,7 @@ export async function handleDashboardList(
       const msg = filter
         ? `No dashboards match "${filter}" (${all.length} total).`
         : 'No dashboards found.';
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_list', summary: msg, success: true });
+      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_list', summary: msg });
       return msg;
     }
     const lines = filtered.slice(0, limit).map((d) => {
@@ -1100,12 +1148,11 @@ export async function handleDashboardList(
       type: 'tool_result',
       tool: 'dashboard_list',
       summary: `${filtered.length} dashboards found`,
-      success: true,
     });
     return summary;
   } catch (err) {
     const msg = `Failed to list dashboards: ${err instanceof Error ? err.message : String(err)}`;
-    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_list', summary: msg, success: false });
+    ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_list', summary: msg });
     return msg;
   }
 }

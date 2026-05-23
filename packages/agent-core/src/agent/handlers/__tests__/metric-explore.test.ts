@@ -132,7 +132,6 @@ describe('handleMetricExplore — timeRange inheritance', () => {
     expect(events).toContainEqual(expect.objectContaining({
       type: 'tool_result',
       tool: 'metric_explore',
-      success: true,
       summary: expect.stringContaining('No data returned'),
     }));
     expect(observation).toContain('No data returned');

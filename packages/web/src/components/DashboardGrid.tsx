@@ -185,6 +185,22 @@ function SectionGrid({
     : { lg: 12, md: 12, sm: 12, xs: 12, xxs: 12 };
   const activeLayout = isMobileScreen ? mobileLayout : layout;
 
+  // Row height is derived from column width so panel aspect ratio is
+  // preserved across viewport widths. A `width:3 height:3` panel renders
+  // as 3*colWidth × 3*colWidth pixels — a true square on any screen.
+  // Previously rowHeight was hard-coded to 100px: on wide monitors each
+  // column was ~140px and the same panel came out 420×300 (landscape);
+  // on narrow viewports the opposite. Tying both axes to colWidth removes
+  // that whole class of "looks wrong on my screen" bugs at the source.
+  //
+  // On mobile (cols=1) a column is the full viewport width; using that as
+  // rowHeight would make every panel a giant square, so clamp to 100px
+  // there — single-column mobile already stacks panels vertically.
+  const colCount = isMobileScreen ? 1 : 12;
+  const marginX = 8;
+  const colWidth = (width - (colCount - 1) * marginX) / colCount;
+  const rowHeight = isMobileScreen ? 100 : Math.max(40, Math.floor(colWidth));
+
   return (
     <ResponsiveGrid
       className="layout"
@@ -200,8 +216,8 @@ function SectionGrid({
       }}
       width={width}
       cols={cols}
-      rowHeight={100}
-      margin={[8, 8]}
+      rowHeight={rowHeight}
+      margin={[marginX, marginX]}
       containerPadding={[0, 0]}
       dragConfig={{ enabled: !!editMode, bounded: false, handle: '.panel-drag-handle', threshold: 3 }}
       resizeConfig={{ enabled: !!editMode, handles: ['se'] }}

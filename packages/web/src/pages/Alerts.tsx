@@ -542,10 +542,17 @@ export default function Alerts() {
 
   const handleInvestigate = useCallback(async (rule: AlertRule) => {
     setInvestigatingId(rule.id);
-    const force = !rule.investigationId;
+    // Always force a fresh investigation. Both buttons that call into here
+    // ("Investigate" on idle rules and "Re-investigate" on completed ones)
+    // express the same intent: the user wants the agent to RUN, not to be
+    // bounced back to a stale report. Viewing an existing investigation is
+    // handled by the separate "View Investigation" button. The old logic
+    // `force = !rule.investigationId` inverted this — it made the
+    // Re-investigate button silently navigate to the prior report and
+    // never spawn a new run.
     const res = await apiClient.post<{ investigationId: string; prompt: string; existing: boolean }>(
       `/alert-rules/${rule.id}/investigate`,
-      { force },
+      { force: true },
     );
     setInvestigatingId(null);
     if (!res.error && res.data.investigationId) {

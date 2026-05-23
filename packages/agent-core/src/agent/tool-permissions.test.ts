@@ -121,12 +121,19 @@ describe('TOOL_PERMS — per-builder scope derivation', () => {
     );
   });
 
-  it('investigation_add_section scopes to the investigation UID', () => {
-    const e = TOOL_PERMS['investigation_add_section']!(
-      { investigationId: 'inv-7', type: 'text', content: 'x' },
+  it('investigation_add_text / investigation_add_evidence scope to the investigation UID', () => {
+    const text = TOOL_PERMS['investigation_add_text']!(
+      { investigationId: 'inv-7', content: 'x' },
       makeCtx(),
     );
-    expect((e as { string: () => string }).string()).toBe(
+    expect((text as { string: () => string }).string()).toBe(
+      'investigations:write on investigations:uid:inv-7',
+    );
+    const evidence = TOOL_PERMS['investigation_add_evidence']!(
+      { investigationId: 'inv-7', content: 'x', panel: {} },
+      makeCtx(),
+    );
+    expect((evidence as { string: () => string }).string()).toBe(
       'investigations:write on investigations:uid:inv-7',
     );
   });

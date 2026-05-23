@@ -19,22 +19,17 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
   );
 }
 
+// Two states only: pulsing dot while running, static neutral dot when done.
+// We deliberately don't paint a red X for "errored" tool calls — that
+// concept invites the agent (and the human reading along) to treat tool
+// output as pass/fail when in reality it's just text for the model to
+// reason about. Shell commands return non-zero, queries return no rows,
+// lints flag warnings — those are observations, not failures.
 function StatusIcon({ status }: { status: ToolCallCard['status'] }) {
   if (status === 'running') {
     return <span className="block w-2 h-2 rounded-full bg-primary animate-pulse" />;
   }
-  if (status === 'error') {
-    return (
-      <svg className="w-3.5 h-3.5 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    );
-  }
-  return (
-    <svg className="w-3.5 h-3.5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
-  );
+  return <span className="block w-2 h-2 rounded-full bg-on-surface-variant/40" />;
 }
 
 const OUTPUT_PREVIEW_CHARS = 200;

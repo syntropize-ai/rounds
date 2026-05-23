@@ -41,7 +41,7 @@ describe('groupEvents with inline_chart', () => {
     const events: ChatEvent[] = [
       { id: 't1', kind: 'tool_call', tool: 'metric_explore', content: 'querying' },
       inlineChartEvent('c1'),
-      { id: 't2', kind: 'tool_result', tool: 'metric_explore', content: 'done', success: true },
+      { id: 't2', kind: 'tool_result', tool: 'metric_explore', content: 'done' },
     ];
     const blocks = groupEvents(events);
     // Expect: [agent-block(tool_call), message-block(chart), agent-block(tool_result)]
@@ -59,6 +59,40 @@ describe('groupEvents with inline_chart', () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0]!.type).toBe('agent');
     expect(blocks[1]!.type).toBe('message');
+  });
+});
+
+describe('groupEvents with ops confirmations', () => {
+  it('does not pause the transcript at an ops confirmation — the card collapses itself after the user clicks Run/Cancel and the agent\'s subsequent events keep streaming below', () => {
+    const events: ChatEvent[] = [
+      { id: 't1', kind: 'tool_call', tool: 'ops_cluster_shell', content: 'running' },
+      {
+        id: 'c1',
+        kind: 'ops_command_confirmation_required',
+        opsConfirmation: {
+          id: 'confirm-1',
+          connectorId: 'kube-prod',
+          command: 'istioctl install -y',
+          status: 'pending',
+        },
+      },
+      {
+        id: 'm1',
+        kind: 'message',
+        message: {
+          id: 'm1',
+          role: 'assistant',
+          content: 'Istio installed successfully.',
+          timestamp: '2026-01-01T00:00:00Z',
+        },
+      },
+    ];
+
+    const blocks = groupEvents(events);
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]!.type).toBe('agent');
+    expect(blocks[1]!.type === 'message' && blocks[1]!.event.kind).toBe('ops_command_confirmation_required');
+    expect(blocks[2]!.type === 'message' && blocks[2]!.event.kind).toBe('message');
   });
 });
 

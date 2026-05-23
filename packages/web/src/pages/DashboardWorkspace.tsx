@@ -45,6 +45,18 @@ interface Dashboard {
   };
 }
 
+// Module-level stable empty arrays — passed to useDashboardChat as the
+// `initialPanels`/`initialVariables` defaults while the dashboard is still
+// loading. Using a literal `[]` at the call site would mint a NEW reference
+// every render; useDashboardChat's `useEffect([initialPanels, ...])` would
+// then see a "changed" dep and call setPanels(initialPanels), which is a
+// state update with another fresh `[]` — render → effect → setState →
+// render, until React bails with "Maximum update depth exceeded" and the
+// workspace hangs on the spinner. Stable references kill the loop at the
+// source.
+const EMPTY_PANELS: PanelConfig[] = [];
+const EMPTY_VARIABLES: DashboardVariable[] = [];
+
 // Main
 
 export default function DashboardWorkspace() {
@@ -191,30 +203,45 @@ export default function DashboardWorkspace() {
     investigationReport,
   } = useDashboardChat(
     id ?? '',
-    dashboard?.panels ?? [],
-    dashboard?.variables ?? [],
+    dashboard?.panels ?? EMPTY_PANELS,
+    dashboard?.variables ?? EMPTY_VARIABLES,
     timeRange,
   );
   const [showReport, setShowReport] = useState(false);
   const globalChat = useGlobalChat();
   const isGenerating = dashboardChatGenerating || globalChat.isGenerating;
 
-  // Tell the global chat which dashboard the user is viewing + current time range
+  // Tell the global chat which dashboard the user is viewing + current time
+  // range. Deps deliberately pin the STABLE `setPageContext` callback (a
+  // `useCallback(..., [])` inside useChat) rather than the whole
+  // `globalChat` object: that object is a `useMemo` whose deps include
+  // `events`/`messages`, so it re-references on every SSE tick. Depending
+  // on the object spun the effect into an infinite loop — cleanup nulled
+  // the context, the re-run re-set it, which fired loadSession, which
+  // mutated events, which spun the memo, ad infinitum (React bailed with
+  // "Maximum update depth exceeded" and the workspace hung on the spinner).
+  const setChatPageContext = globalChat.setPageContext;
   useEffect(() => {
     if (id) {
-      globalChat.setPageContext({ kind: 'dashboard', id, timeRange });
+      setChatPageContext({ kind: 'dashboard', id, timeRange });
     }
     return () => {
-      globalChat.setPageContext(null);
+      setChatPageContext(null);
     };
-  }, [id, timeRange, globalChat]);
+  }, [id, timeRange, setChatPageContext]);
 
   // Chat history is bound by the URL (`?chat=...`) and loaded in Layout.
 
   // Investigation reports are now handled in the Investigations page.
   // No auto-show on dashboard — the chat will display a link instead.
 
-  // Auto-send initial prompt from Home page via the global chat
+  // Auto-send initial prompt from Home page via the global chat. Same
+  // discipline as the page-context effect above: pin the stable
+  // `sendMessage` callback rather than the whole `globalChat` object so
+  // an SSE tick from the chat hook doesn't re-fire this and re-send the
+  // prompt. `globalChat.isGenerating` is intentionally read inside the
+  // body (not a dep) — the effect runs only when prompt/dashboard change.
+  const sendChatMessage = globalChat.sendMessage;
   useEffect(() => {
     if (
       initialPrompt &&
@@ -226,9 +253,9 @@ export default function DashboardWorkspace() {
       if (location.state) {
         window.history.replaceState({}, '');
       }
-      void globalChat.sendMessage(initialPrompt);
+      void sendChatMessage(initialPrompt);
     }
-  }, [initialPrompt, dashboard, globalChat]);
+  }, [initialPrompt, dashboard, sendChatMessage]);
 
   // Reload dashboard once when generation completes (SSE done → isGenerating becomes false)
   const wasGeneratingRef = useRef(false);

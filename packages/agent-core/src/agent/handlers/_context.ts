@@ -147,6 +147,22 @@ export interface ActionContext {
   makeAgentEvent(type: AgentEvent['type'], metadata?: Record<string, unknown>): AgentEvent;
   pushConversationAction(action: DashboardAction): void;
   setNavigateTo(path: string): void;
+  /**
+   * Record that this chat session created a resource (dashboard,
+   * investigation, alert) so the chat-service can persist a
+   * `chat_session_contexts` row with `relation: 'created_from_chat'`.
+   *
+   * Called once per resource — handlers that produce multiple resources
+   * in one turn (e.g. an LLM asks for two dashboards in one message) MUST
+   * call this for each one. Previously the only link was `setNavigateTo`,
+   * which overwrites; that left every non-last resource without a
+   * by-context lookup row and the chat panel rendered blank when the user
+   * opened it.
+   */
+  recordCreatedResource(
+    resourceType: 'dashboard' | 'investigation' | 'alert',
+    resourceId: string,
+  ): void;
 
   /**
    * Per-session accumulator for investigation report sections. Lives on the

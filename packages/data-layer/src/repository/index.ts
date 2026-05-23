@@ -83,6 +83,14 @@ export * from './memory/index.js';
 export { createPostgresRepositories, createSqliteRepositories } from './factory.js';
 export type { RepositoryBundle } from './factory.js';
 
+export { SqliteGithubAppConfigRepository } from './sqlite/github-app-config.js';
+export { PostgresGithubAppConfigRepository } from './postgres/github-app-config.js';
+export type {
+  IGithubAppConfigRepository,
+  GithubAppConfig,
+  NewGithubAppConfig,
+} from './types/github-app-config.js';
+
 export { SqliteLlmAuditRepository } from './sqlite/llm-audit-repository.js';
 export { PostgresLlmAuditRepository } from './postgres/llm-audit-repository.js';
 export type {

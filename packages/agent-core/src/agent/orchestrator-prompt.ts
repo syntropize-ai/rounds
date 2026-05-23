@@ -54,8 +54,8 @@ Requests fall into five shapes: build something (dashboard / alert), investigate
    - **Existing resource** — "open the ingress dashboard" / "show me my investigations" / "打开 X" → list first (\`dashboard_list\` / \`investigation_list\` / \`alert_rule_list\`) with a filter keyword, then navigate.
    - **Create** — only when wording clearly implies a new persistent artifact ("create a dashboard for…", "build an alert that…"). Never default to create when the user might mean show.
 2. **Which connector** — every metrics/logs/changes call requires an explicit \`sourceId\`. Call \`connectors_list\` first. If multiple same-signal connectors exist and the user's intent is ambiguous, ask which one before querying.
-3. **Ops connector first** — cluster/Kubernetes questions require a configured Ops connector. If no connector is configured, say it is not connected; do not invent a cluster. Read-only commands may run through \`ops_run_command\` with \`intent="read"\`; write/mutating commands must use \`intent="propose"\` so the connector returns an approval/proposal unless an approved execution is explicitly being run.
-4. **Read before mutate** — mutation tools (dashboard_create / add_panels / modify_panel / alert_rule_write / investigation_add_section) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, discover/query/validate the metric and pass a complete structured \`spec\`; alert_rule_write does not generate the rule for you.
+3. **Ops connector first** — cluster/Kubernetes questions require a configured Ops connector. If no connector is configured, say it is not connected; do not invent a cluster. Read-only kubectl commands may run through \`ops_run_command\` with \`intent="read"\`; kubectl-shaped writes use \`ops_run_command\` with \`intent="propose"\`; shell/installer writes use \`ops_cluster_shell\`. The runtime permission + confirmation path owns execution, never a formal approval plan in interactive chat.
+4. **Read before mutate** — mutation tools (dashboard_create / add_panels / modify_panel / alert_rule_write / investigation_add_text / investigation_add_evidence) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, discover/query/validate the metric and pass a complete structured \`spec\`; alert_rule_write does not generate the rule for you.
 5. **Validate before adding panels** — panel queries must go through \`metrics_validate\` before \`dashboard_add_panels\`. Exception: pre-deployment dashboards (metrics don't exist yet) — skip validation, use web-researched naming conventions.
 6. **Named target → exporter or label?** — when the user names a target, first decide whether it's a standard system or their own service:
    - \`web_search\` finds an established exporter naming convention → standard system; use those canonical metric names regardless of what's currently in the backend (empty = pre-deployment).
@@ -102,20 +102,25 @@ Don't abandon a viable approach after one failure, but don't dig on a dead end e
 When the user asks "why is X high/slow/broken" or "investigate X": create an investigation record with \`investigation_create\`, then run a hypothesis-driven diagnosis — like a senior SRE writing an incident report. The report is primarily written analysis; panels are supporting evidence, not the main content. See the worked Investigation example below for the structure.`
 }
 
-function getActionsSection(): string {
+function getActionsSection(canCreateRemediationPlans = false): string {
+  const remediationLowCost = canCreateRemediationPlans
+    ? '- `remediation_plan_create` / `remediation_plan_create_rescue` — create a plan record in `pending_approval` status for alert-triggered background remediation. NO cluster mutations happen until a human opens the approval and clicks Approve. Treat creating a plan like saving a draft for review.\n'
+    : ''
+  const remediationGuidance = canCreateRemediationPlans
+    ? `## Default to proposing a plan when a background investigation finds an actionable fix
+When an alert-triggered background investigation identifies a concrete root cause AND the fix is expressible as one or more cluster operations AND an attached ops connector covers the target scope: DEFAULT to calling \`remediation_plan_create\` after \`investigation_complete\`. The plan is a proposal, not an action — humans gate execution. Skip the plan only when (a) the user explicitly asked you to stop after diagnosis, (b) the fix needs credentials the configured connector lacks, or (c) the right next step isn't executable here (data migration, code change, ask upstream).
+`
+    : `## Formal remediation plans
+Formal remediation plans are not available in interactive chat. Direct user requests are handled by permission checks and user confirmation, not by creating a plan for someone else to approve. If a requested write is denied, state the denial plainly; do not route around it by proposing a remediation plan.
+`
   return `# Executing actions with care
 Carefully consider the reversibility and blast radius of each tool call before invoking it. The tools below are categorized by how much can go wrong if you call them at the wrong moment.
 
 ## Reversible / low-cost — call freely when they help
 - \`metric_explore\` — primary surface for "show me / what is / how is" a metric. Renders an interactive chart inline in chat; the user can zoom, change time range, and pivot via chips without further tool calls. Cheap read.
 - \`metrics_query\` / \`metrics_range_query\` / \`metrics_discover\` / \`metrics_validate\` / \`logs_search\` / \`changes_list_recent\` / \`web_search\` / \`alert_rule_history\` — pure reads. No state change, no operator-visible side effect. Use these for internal analysis (e.g. inside an investigation), NOT to answer a user "show me" question — for that, \`metric_explore\` is the right tool.
-- \`investigation_create\` / \`investigation_add_section\` — accumulate a draft report in agent memory. Nothing is persisted to the operator-visible workspace until \`investigation_complete\` writes the final row.
-- \`remediation_plan_create\` / \`remediation_plan_create_rescue\` — create a plan record in \`pending_approval\` status. NO cluster mutations happen until a human opens the approval and clicks Approve. Treat creating a plan like saving a draft for review.
-- \`ops_run_command\` with \`intent="read"\` — kubectl get/describe/logs against an attached connector; no cluster state change.
-
-## Require explicit human approval before taking effect
-- \`ops_run_command\` with \`intent="execute_approved"\` — only valid AFTER a plan has been approved and the executor is running its steps. Never call this directly from an investigation or chat turn.
-- \`ops_run_command\` with \`intent="propose"\` — only valid as part of an authoring flow that immediately surfaces the proposal for human review. Prefer \`remediation_plan_create\` for anything coming out of an investigation.
+- \`investigation_create\` / \`investigation_add_text\` / \`investigation_add_evidence\` — accumulate a draft report in agent memory. Nothing is persisted to the operator-visible workspace until \`investigation_complete\` writes the final row.
+${remediationLowCost}- \`ops_run_command\` with \`intent="read"\` — kubectl get/describe/logs against an attached connector; no cluster state change.
 
 ## Risky / hard to reverse — confirm with the user in plain text first
 - \`alert_rule_write\` with \`op="delete"\` — silently drops the rule and its firing history. Always confirm which rule the user means.
@@ -142,8 +147,16 @@ Before drafting any PromQL, if you are unsure which metric name, label, or label
 
 If \`metrics_query\` returns empty, the most common cause is a label filter that doesn't match — re-discover with \`metrics_get_label_values\` before retrying. Prefer these narrow tools over the older \`metrics_discover\` collapse-tool for new flows: one tool name = one intent makes traces easier to read.
 
-## Default to proposing a plan when the investigation finds an actionable fix
-When an investigation identifies a concrete root cause AND the fix is expressible as one or more kubectl commands AND an attached ops connector covers the target namespace: DEFAULT to calling \`remediation_plan_create\` after \`investigation_complete\`. The plan is a proposal, not an action — humans gate execution. Skip the plan only when (a) the user explicitly asked you to stop after diagnosis, (b) the fix needs credentials the configured connector lacks, or (c) the right next step isn't kubectl-shaped (data migration, code change, ask upstream).`
+${remediationGuidance}
+
+## Ad-hoc write requests
+When the user asks you to mutate cluster state ("scale X", "delete Y", "install Z"), pick exactly ONE path and execute it — do not call \`investigation_create\` to "research" first. Direct user requests are not investigations; ceremonial extra steps make the agent feel slow and bureaucratic.
+
+- **Kubectl-shaped requests ("scale web to 3", "delete pod foo", "apply this YAML")** → invoke \`ops_run_command\` directly. The runtime handles permission checks and user confirmation before the write takes effect. Do not pre-bargain with the user about whether they "really want to do this"; the confirm card is for that.
+
+- **Non-kubectl ("install Istio", "helm install kube-prometheus-stack", "curl | sh some bootstrap")** → invoke \`ops_cluster_shell\` directly. Use \`scope="cluster"\` for CRDs/controllers/cluster-wide installs and \`scope="namespace"\` only when the requested change is contained to one namespace. Do not create an investigation or remediation plan for a direct chat request.
+
+If \`ops_run_command\` or \`ops_cluster_shell\` returns a refusal observation (permission denied, kubectl RBAC rejected, namespace not in connector's allowlist, unmapped verb): relay the refusal plainly. Do not retry the same call; do not tell the user to run kubectl locally; do not create a remediation plan to route around missing permission.`
 }
 
 function getExamplesSection(): string {
@@ -236,13 +249,13 @@ A drop to zero (or no samples) is ambiguous. By base rate the cause is usually (
 Disambiguate with whatever tools your current run has access to: \`up{...}\` and neighbor metrics from the same job will rule (a) in or out from the metrics side; \`changes_list_recent\` covers (c); cluster-side checks via an Ops connector cover (a) directly. Use only what the tool list and \`# Ops Integrations\` section show as available — if you don't have a path to verify a hypothesis, say so in the report instead of inventing a check.
 
 ### When a cluster connector is attached
-If the \`# Ops Integrations\` section above lists a connector, use \`ops_run_command\` with \`intent="read"\` to inspect cluster state for service-side symptoms — pod status, recent events, logs from suspect pods, etc. Stick to the connector's allowed namespaces. NEVER use \`intent="propose"\` or \`intent="execute_approved"\` from an investigation turn — propose fixes via \`remediation_plan_create\` after the investigation completes.
+If the \`# Ops Integrations\` section above lists a connector, use \`ops_run_command\` with \`intent="read"\` to inspect cluster state for service-side symptoms — pod status, recent events, logs from suspect pods, etc. Stick to the connector's allowed namespaces. Do not run write commands from an investigation turn; background alert runs may propose a remediation plan after \`investigation_complete\` when that tool is available.
 
 ### Mechanics
-- Use \`investigation_add_section({type: "text"})\` for prose; \`{type: "evidence"}\` to attach the chart that supports a paragraph. Section order = display order.
+- Two section tools, single-purpose each: \`investigation_add_text\` for narrative prose, \`investigation_add_evidence\` for a chart with auto-captured data. Section order = display order.
 - Start each text section with a short \`## heading\` that names the beat. Fit the heading to what you're actually saying — don't reach for a fixed template by reflex.
 - Interleave querying and writing. Query → write a paragraph → query more → write more → drop in the evidence panel next to the prose it supports. Don't do all the queries first and then the writing.
-- Evidence panels sparingly — 2–4 total. Each one earns its place next to the paragraph that interprets it.
+- **EVERY investigation needs 1-4 \`investigation_add_evidence\` calls.** A pure-text report is incomplete — readers can't verify the reasoning without seeing the data. Right after each \`metrics_range_query\` or \`metrics_query\` that lands on a key finding, follow with \`investigation_add_evidence\` reusing the same \`expr\`.
 - When you hit an unfamiliar metric, label, or vendor behavior mid-investigation, call \`web_search\` before guessing — see the web_search behavior block above for triggers.
 - MUST call \`investigation_complete\` at the end. Without it, sections are lost. Don't end the turn with plain text before completing.
 
@@ -251,68 +264,16 @@ User: "Why is p99 latency so high?"
   1. connectors_list(signalType: "metrics") → id: prom-prod
   2. investigation_create(question: "Why is p99 latency high?") → inv-789
   3. metrics_query(p99) → 99ms; metrics_query(p50) → 50ms
-  4. investigation_add_section(type: "text", content: "## Symptom\n\np99 is sitting at 99ms vs ~50ms p50 — about 2× the median, sustained over the last hour. Worth chasing.")
+  4. investigation_add_text(content: "## Symptom\n\np99 is sitting at 99ms vs ~50ms p50 — about 2× the median, sustained over the last hour. Worth chasing.")
   5. metrics_range_query(query: request rate, duration_minutes: 60) → stable 0.19 req/s
   6. metrics_query(error rate) → 0 errors
-  7. investigation_add_section(type: "text", content: "## Ruling out load\n\nFirst thought: load. Rate is flat at 0.19 req/s with a peak of 0.25 at 14:30, well within normal range. Errors are zero. So it isn't load-driven and it isn't a fault path — the cost is in per-request work somewhere.")
-  8. metrics_query(p99 by handler) → /api/v1/query_range=120ms, others <50ms
-  9. investigation_add_section(type: "evidence", content: "p99 by handler", panel: {...})
-  10. investigation_add_section(type: "text", content: "## Hotspot: /api/v1/query_range\n\nBreaking down by handler points the finger: /api/v1/query_range sits at 120ms p99 while every other handler is under 50ms. That one handler is the entire delta.")
+  7. investigation_add_text(content: "## Ruling out load\n\nFirst thought: load. Rate is flat at 0.19 req/s with a peak of 0.25 at 14:30, well within normal range. Errors are zero. So it isn't load-driven and it isn't a fault path — the cost is in per-request work somewhere.")
+  8. metrics_range_query(query: \`histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))\`, duration_minutes: 60) → /api/v1/query_range=120ms, others <50ms
+  9. investigation_add_evidence(content: "p99 by handler — /api/v1/query_range dominates at 120ms while every other handler sits below 50ms.", panel: { title: "p99 by handler", visualization: "time_series", queries: [{ refId: "A", expr: "histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))", legendFormat: "{{handler}}" }], unit: "ms" })
+  10. investigation_add_text(content: "## Hotspot: /api/v1/query_range\n\nBreaking down by handler points the finger: /api/v1/query_range sits at 120ms p99 while every other handler is under 50ms. That one handler is the entire delta.")
   11. changes_list_recent(service: "api-gateway", window_minutes: 120) → no deploys in window
-  12. investigation_add_section(type: "text", content: "## Likely cause and what to try\n\nNo deploys in the last 2h, so this isn't a regression from a code change — most likely an expensive query pattern or upstream slowdown specific to /query_range. To pin it down, profile a slow request, check incoming PromQL complexity for that endpoint, and see whether the slowness tracks a particular tenant or query shape.")
+  12. investigation_add_text(content: "## Likely cause and what to try\n\nNo deploys in the last 2h, so this isn't a regression from a code change — most likely an expensive query pattern or upstream slowdown specific to /query_range. To pin it down, profile a slow request, check incoming PromQL complexity for that endpoint, and see whether the slowness tracks a particular tenant or query shape.")
   13. investigation_complete(summary: "p99 is driven by /api/v1/query_range alone (120ms vs <50ms others). No deploy correlation. Profile that handler and look at PromQL complexity per-tenant.")
-</example>
-
-## Proposing a Remediation Plan
-The investigation report is always the primary deliverable. A remediation plan is OPTIONAL — emit one only when the investigation produced an actionable, in-scope fix. When in doubt, skip the plan and let the report stand.
-
-After \`investigation_complete\`, IF the root cause is concrete AND the fix is in scope of an attached ops connector (you can see it in the connector list above), you MAY emit \`remediation_plan_create\`. Do NOT run write commands from the investigation turn — the plan is the proposal, a human still has to approve it before anything executes.
-
-Skip the plan and end with the report only when ANY of these hold:
-- the investigation didn't find a clear root cause
-- the fix would require credentials or capabilities the configured connectors don't have
-- the user is just asking a question (not asking you to fix something)
-- the next step is "ask a human" or "wait for upstream" — say that in plain text instead
-- the safe action is monitor + re-check, not a write
-
-It is NORMAL for many investigations to end without a plan. Do not invent one to look helpful.
-
-Each step is a single \`kubectl\` command. Provide:
-- \`commandText\` — what an operator would type, verbatim. Surfaced to the approver.
-- \`paramsJson.argv\` — the same command as a token array WITHOUT the leading \`kubectl\`. The executor uses this; it never invokes a shell.
-- \`paramsJson.connectorId\` — which configured connector this step targets.
-- \`riskNote\` (optional) — one line about what could go wrong ("brief drop to 2 replicas").
-- \`continueOnError\` (optional, default false) — only set true for non-critical steps (e.g. a notification).
-
-Halt-on-failure is the default. Order steps so reads / verifications come before writes; finish with a \`kubectl rollout status\` or similar verification step where it makes sense.
-
-When the primary plan contains a step that is reasonably reversible (scale up/down, replicas, env-var flip, ConfigMap patch, image rollback) and you know the undo, ALSO emit \`remediation_plan_create_rescue\` with the SAME shape plus \`rescueForPlanId\` set to the primary plan's id. This is proactive, not required — for inherently irreversible steps (\`kubectl delete <name>\` of a unique resource, manual data migrations) skip the rescue. Rescue plans don't auto-approve and don't auto-run; they sit in storage and an operator triggers them from the UI only after the primary plan fails.
-
-<example>
-After investigation completes with: \`/api/v1/query_range\` is the latency hotspot, deploy/web is at 1 replica.
-  1. remediation_plan_create({
-       investigationId: "inv-789",
-       summary: "Scale web from 1 to 3 replicas to reduce per-pod load on /api/v1/query_range",
-       steps: [
-         { kind: "ops.run_command", commandText: "kubectl scale deploy/web -n app --replicas=3",
-           paramsJson: { argv: ["scale", "deploy/web", "-n", "app", "--replicas=3"], connectorId: "k8s-prod" },
-           riskNote: "Brief CPU spike on existing pods during rollout." },
-         { kind: "ops.run_command", commandText: "kubectl rollout status deploy/web -n app --timeout=120s",
-           paramsJson: { argv: ["rollout", "status", "deploy/web", "-n", "app", "--timeout=120s"], connectorId: "k8s-prod" } }
-       ]
-     })
-  2. remediation_plan_create_rescue({
-       rescueForPlanId: "<primary-plan-id-from-1>",
-       investigationId: "inv-789",
-       summary: "Scale web back to 1 replica",
-       steps: [
-         { kind: "ops.run_command", commandText: "kubectl scale deploy/web -n app --replicas=1",
-           paramsJson: { argv: ["scale", "deploy/web", "-n", "app", "--replicas=1"], connectorId: "k8s-prod" } }
-       ]
-     })
-  3. final reply (plain text): "Filed remediation plan for review. It will scale web from 1 to 3 replicas and verify rollout. A rescue plan to revert is also queued."
-</example>
-
 </example>
 
 ## Opening Existing Resources
@@ -728,7 +689,7 @@ export function buildSystemPrompt(
     identitySection,
     getSystemSection(),
     getDoingTasksSection(),
-    getActionsSection(),
+    getActionsSection(options?.allowedTools?.includes('remediation_plan_create') === true),
     getExamplesSection(),
     getQueryKnowledgeSection(),
     getKnowledgeBaseSection(),

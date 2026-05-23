@@ -393,7 +393,6 @@ export async function handlePanelPreview(
     summary: result.ok
       ? `panel_preview ok — ${result.perQuery.reduce((s, p) => s + p.resultLen, 0)} series across ${result.perQuery.length} query/queries`
       : `panel_preview found ${result.issues.filter((i) => i.severity === 'error').length} error(s)`,
-    success: result.ok,
   });
 
   // Return a compact text observation. The model gets the structured JSON

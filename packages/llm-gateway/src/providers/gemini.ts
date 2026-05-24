@@ -105,6 +105,42 @@ function nameFromGemini(geminiName: string): string {
   return geminiName.replace(new RegExp(NAME_DELIM, 'g'), '.');
 }
 
+// -- Tool schema sanitization --
+//
+// Gemini's function_declarations[*].parameters is a subset of JSON Schema and
+// rejects fields it doesn't recognize with HTTP 400 ("Unknown name
+// \"additionalProperties\""). Our canonical tool schemas use a few standard
+// JSON-Schema-isms (additionalProperties, $schema, definitions, examples,
+// const, ...) that Anthropic and OpenAI tolerate; we strip them recursively
+// before sending to Gemini.
+const GEMINI_UNSUPPORTED_KEYS = new Set([
+  'additionalProperties',
+  '$schema',
+  '$id',
+  '$ref',
+  'definitions',
+  'examples',
+  'const',
+  'patternProperties',
+  'allOf',
+  'oneOf',
+  'anyOf',
+  'not',
+]);
+
+function sanitizeSchemaForGemini(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map(sanitizeSchemaForGemini);
+  }
+  if (!schema || typeof schema !== 'object') return schema;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+    if (GEMINI_UNSUPPORTED_KEYS.has(k)) continue;
+    out[k] = sanitizeSchemaForGemini(v);
+  }
+  return out;
+}
+
 export class GeminiProvider implements LLMProvider {
   readonly name = 'gemini';
   private readonly apiKey: string;
@@ -202,7 +238,7 @@ export class GeminiProvider implements LLMProvider {
       const functionDeclarations: GeminiFunctionDeclaration[] = options.tools.map((t) => ({
         name: nameToGemini(t.name),
         description: t.description,
-        parameters: t.input_schema,
+        parameters: sanitizeSchemaForGemini(t.input_schema) as typeof t.input_schema,
       }));
       body['tools'] = [{ functionDeclarations }];
     }

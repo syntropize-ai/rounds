@@ -119,6 +119,51 @@ describe('GeminiProvider', () => {
       }
     });
 
+    it('strips additionalProperties / $schema / definitions from tool schemas (Gemini rejects them)', async () => {
+      const toolWithJsonSchemaisms: ToolDefinition = {
+        name: 'github_list_repos',
+        description: 'List repos',
+        input_schema: {
+          type: 'object',
+          properties: {
+            connectorId: { type: 'string' },
+            filter: {
+              type: 'object',
+              properties: { owner: { type: 'string' } },
+              additionalProperties: false,
+            },
+          },
+          required: [],
+          additionalProperties: false,
+          $schema: 'http://json-schema.org/draft-07/schema#',
+        } as never,
+      };
+
+      const spy = mockFetch(async () =>
+        makeJsonResponse({
+          candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] } }],
+          usageMetadata: baseUsage,
+        }),
+      );
+
+      await provider.complete([{ role: 'user', content: 'hi' }], {
+        model: 'gemini-2.5-flash',
+        tools: [toolWithJsonSchemaisms],
+      });
+
+      const body = getRequestBody(spy);
+      const decl = (
+        (body['tools'] as Array<{ functionDeclarations: Array<{ parameters: Record<string, unknown> }> }>)[0]
+      )!.functionDeclarations[0]!;
+      const params = decl.parameters;
+      const json = JSON.stringify(params);
+      expect(json).not.toContain('additionalProperties');
+      expect(json).not.toContain('$schema');
+      // Real properties survive.
+      expect(params['type']).toBe('object');
+      expect((params['properties'] as Record<string, unknown>)['filter']).toBeDefined();
+    });
+
     it('omits tools / toolConfig when not requested', async () => {
       const spy = mockFetch(async () =>
         makeJsonResponse({

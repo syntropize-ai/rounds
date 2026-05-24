@@ -366,7 +366,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-3 bottom-3 w-8 h-8 bg-surface-highest hover:bg-surface-high text-on-surface flex items-center justify-center transition-colors"
+              className="absolute right-3 bottom-3 w-7 h-7 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
               title="Stop"
               aria-label="Stop"
             >
@@ -379,7 +379,7 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
               type="button"
               onClick={handleSend}
               disabled={!input.trim()}
-              className="absolute right-3 bottom-3 w-8 h-8 bg-surface-highest hover:bg-surface-high text-on-surface flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-surface-highest"
+              className="absolute right-3 bottom-3 w-7 h-7 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
               title="Send"
               aria-label="Send"
             >

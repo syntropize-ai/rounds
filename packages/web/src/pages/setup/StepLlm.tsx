@@ -197,7 +197,7 @@ export function StepLlm({
 
         {provider.needsKey && (
           <div>
-            <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">API Key (optional if API key helper or upstream auth is used)</label>
+            <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">API Key (optional if upstream auth is used)</label>
             <input
               type="password"
               value={config.apiKey}
@@ -205,30 +205,11 @@ export function StepLlm({
                 onChange({ apiKey: e.target.value });
                 setTestResult(null);
               }}
-              placeholder="sk-... (leave blank if you use API key helper or unauthenticated gateway)"
+              placeholder="sk-... (leave blank if your gateway is unauthenticated)"
               className="w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)]"
             />
           </div>
         )}
-
-        <div>
-          <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">
-            API key helper (optional)
-          </label>
-          <input
-            type="text"
-            value={config.apiKeyHelper}
-            onChange={(e) => {
-              onChange({ apiKeyHelper: e.target.value });
-              setTestResult(null);
-            }}
-            placeholder='e.g. aws-vault exec my-profile -- printenv ANTHROPIC_API_KEY'
-            className="w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)] font-mono"
-          />
-          <p className="text-xs text-[var(--color-on-surface-variant)] mt-1">
-            Shell command whose stdout is the API key. Wins over the static key when set; the gateway invokes it before each request (5-minute cache).
-          </p>
-        </div>
 
         {provider.needsUrl && (
           <div>

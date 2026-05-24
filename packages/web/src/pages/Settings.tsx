@@ -313,20 +313,6 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
         </div>
       )}
 
-      <div>
-        <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">API key helper (optional)</label>
-        <input
-          type="text"
-          value={config.apiKeyHelper}
-          onChange={(e) => { setConfig((prev) => ({ ...prev, apiKeyHelper: e.target.value })); setTestResult(null); setModelsWarning(null); }}
-          placeholder='e.g. aws-vault exec my-profile -- printenv ANTHROPIC_API_KEY'
-          className={inputCls + ' font-mono'}
-        />
-        <p className="text-xs text-[var(--color-on-surface-variant)] mt-1">
-          Shell command whose stdout is the API key. Wins over the static key when set; cached for 5 minutes per command.
-        </p>
-      </div>
-
       {provider.needsUrl && (
         <div>
           <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">{config.provider === 'ollama' ? 'Ollama URL' : 'Endpoint URL'}</label>

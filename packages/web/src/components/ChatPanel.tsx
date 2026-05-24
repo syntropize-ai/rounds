@@ -59,8 +59,15 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
   );
   const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
 
+  // First mount jumps to the bottom instantly (no animated scroll-from-top
+  // when the page reloads with N existing messages). Subsequent length
+  // changes (new live events) smooth-scroll.
+  const didInitialScrollRef = useRef(false);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (events.length === 0) return;
+    const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'instant';
+    bottomRef.current?.scrollIntoView({ behavior });
+    didInitialScrollRef.current = true;
   }, [events.length]);
 
   useEffect(() => {

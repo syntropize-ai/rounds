@@ -118,8 +118,10 @@ describe('runDashboardVerifyGate', () => {
 });
 
 describe('runDashboardVerifyGate — real lint integration', () => {
-  it('rejects when a panel violates the `dashboard-has-questions` rule (error severity)', async () => {
-    // Panel description does NOT start with "Q: ..." → error.
+  it('rejects when a panel violates the `histogram-quantile-form` rule (error severity)', async () => {
+    // Non-canonical histogram_quantile shape → error. (We moved away from
+    // `dashboard-has-questions` for this test because that rule is now a
+    // style warning, not blocking.)
     const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
     const ctx = makeFakeActionContext({
       adapters: makeAdapters(rangeQuery),
@@ -128,17 +130,18 @@ describe('runDashboardVerifyGate — real lint integration', () => {
     const report = await runDashboardVerifyGate(ctx, {
       panels: [
         {
-          title: 'unquestioned',
-          description: 'just a description',
+          title: 'bad histogram',
+          description: 'Q: latency?',
           visualization: 'time_series',
-          queries: [{ expr: 'sum(rate(x[5m]))' }],
+          // Missing rate() inside the sum — classic broken histogram shape.
+          queries: [{ expr: 'histogram_quantile(0.95, sum(http_request_duration_bucket) by (le))' }],
         },
       ],
     });
     expect(report.ok).toBe(false);
     const errs = report.lintIssues.filter((i) => i.severity === 'error');
     expect(errs.length).toBeGreaterThan(0);
-    expect(errs.some((i) => i.code === 'dashboard-has-questions')).toBe(true);
+    expect(errs.some((i) => i.code === 'histogram-quantile-form')).toBe(true);
   });
 
   it('does NOT reject when only `viz-matches-data` (info severity) fires', async () => {
@@ -202,18 +205,23 @@ describe('dashboard_add_panels — verify-gate integration', () => {
     ctx.dashboardBuildEvidence.webSearchCount = 1;
     ctx.dashboardBuildEvidence.validatedQueries.add('sum(rate(x[5m]))');
     ctx.dashboardBuildEvidence.validatedQueries.add('missing_metric');
+    ctx.dashboardBuildEvidence.validatedQueries.add(
+      'histogram_quantile(0.95, sum(http_request_duration_bucket) by (le))',
+    );
     return ctx;
   }
 
+  const BAD_HISTOGRAM = 'histogram_quantile(0.95, sum(http_request_duration_bucket) by (le))';
+
   it('gate ON: rejects the save when verify finds errors (real lint error)', async () => {
     process.env[ENV_KEY] = '1';
-    // Empty result is now a WARN (pre-deploy is legitimate), so to test the
-    // reject path we trigger a real lint error: panel description missing the
-    // mandatory "Q: ..." prefix triggers `dashboard-has-questions` (error).
+    // 0 series is now a warn (pre-deploy is legit) and dashboard-has-questions
+    // is a style warning, so to test the reject path we trigger a genuine
+    // correctness error: non-canonical histogram_quantile shape.
     const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
-      panels: [{ title: 'P', description: 'no question prefix', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))', datasourceId: 'prom' }] }],
+      panels: [{ title: 'P', description: 'Q: p95?', visualization: 'time_series', queries: [{ expr: BAD_HISTOGRAM, datasourceId: 'prom' }] }],
     });
     expect(out).toContain('rejected by verify-gate');
     expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
@@ -243,12 +251,12 @@ describe('dashboard_add_panels — verify-gate integration', () => {
 
   it('gate OFF: accepts the save even when verify finds errors (logs at WARN)', async () => {
     process.env[ENV_KEY] = '0';
-    // Use the dashboard-has-questions error to exercise the bypass path
-    // (empty results no longer error since pre-deploy is legit).
+    // Trigger a real correctness error (bad histogram shape) and confirm
+    // the bypass path still saves.
     const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
-      panels: [{ title: 'P', description: 'no question prefix', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))', datasourceId: 'prom' }] }],
+      panels: [{ title: 'P', description: 'Q: p95?', visualization: 'time_series', queries: [{ expr: BAD_HISTOGRAM, datasourceId: 'prom' }] }],
     });
     expect(out).toContain('Added 1 panel');
     expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);

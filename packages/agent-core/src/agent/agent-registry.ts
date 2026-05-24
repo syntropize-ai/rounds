@@ -64,6 +64,8 @@ agentRegistry.register({
     'changes_list_recent',
     // Kubernetes / Ops integrations (requires configured connector + RBAC)
     'ops_run_command', 'ops_cluster_shell',
+    // GitHub VCS read tools (requires configured GitHub connector + RBAC)
+    'github_list_repos', 'github_list_prs', 'github_get_pr', 'github_get_diff',
     // Knowledge
     'web_search',
     // Knowledge base — TF-IDF + bundled seeds

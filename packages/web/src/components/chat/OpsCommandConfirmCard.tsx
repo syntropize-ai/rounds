@@ -1,16 +1,25 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../api/client.js';
 import type { ChatEvent } from '../../hooks/useDashboardChat.js';
 
 export default function OpsCommandConfirmCard({
   confirmation,
+  onResolved,
 }: {
   confirmation: NonNullable<ChatEvent['opsConfirmation']>;
+  onResolved?: (confirmation: NonNullable<ChatEvent['opsConfirmation']>) => void;
 }) {
   const [status, setStatus] = useState(confirmation.status ?? 'pending');
   const [output, setOutput] = useState(confirmation.output ?? '');
   const [error, setError] = useState(confirmation.error ?? '');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (confirmation.status && confirmation.status !== status) {
+      setStatus(confirmation.status);
+      setOutput(confirmation.output ?? '');
+      setError(confirmation.error ?? '');
+    }
+  }, [confirmation.status, confirmation.output, confirmation.error, status]);
 
   const execute = async () => {
     setBusy(true);
@@ -20,8 +29,10 @@ export default function OpsCommandConfirmCard({
         confirmation?: { status?: typeof status };
       }>(`/ops-command-confirmations/${encodeURIComponent(confirmation.id)}/execute`, {});
       if (apiError) throw new Error(apiError.message);
-      setStatus(data?.confirmation?.status ?? 'executed');
+      const nextStatus = data?.confirmation?.status ?? 'executed';
+      setStatus(nextStatus);
       setOutput(data?.result?.observation ?? '');
+      onResolved?.({ ...confirmation, status: nextStatus });
     } catch (err) {
       setStatus('failed');
       setError(err instanceof Error ? err.message : 'Command failed');
@@ -39,6 +50,7 @@ export default function OpsCommandConfirmCard({
       );
       if (apiError) throw new Error(apiError.message);
       setStatus('rejected');
+      onResolved?.({ ...confirmation, status: 'rejected' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Cancel failed');
     } finally {

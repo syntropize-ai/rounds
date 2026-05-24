@@ -113,42 +113,45 @@ const PanelVisualizationSchema = z.enum([
   'status_timeline',
 ]);
 
+// Every optional field accepts BOTH undefined (missing) and null. The agent
+// emits null for unset structured fields (thresholds, annotations, etc.) and
+// the storage layer round-trips it verbatim — losing the agent → schema
+// validation contract every time we add a new optional field. Treat null as
+// "no value" everywhere.
 export const PanelConfigSchema = z
   .object({
     id: z.string(),
     title: z.string(),
-    // Description is documented as required on the canonical type, but some
-    // legacy/seed dashboards omit it. Accept missing/empty without failing.
-    description: z.string().optional(),
-    queries: z.array(PanelQuerySchema).optional(),
+    description: z.string().nullable().optional(),
+    queries: z.array(PanelQuerySchema).nullable().optional(),
     visualization: PanelVisualizationSchema,
-    row: z.number().optional(),
-    col: z.number().optional(),
-    width: z.number().optional(),
-    height: z.number().optional(),
+    row: z.number().nullable().optional(),
+    col: z.number().nullable().optional(),
+    width: z.number().nullable().optional(),
+    height: z.number().nullable().optional(),
     refreshIntervalSec: z.number().nullable().optional(),
-    unit: z.string().optional(),
-    thresholds: z.array(PanelThresholdSchema).optional(),
-    stackMode: z.enum(['none', 'normal', 'percent']).optional(),
-    fillOpacity: z.number().optional(),
-    decimals: z.number().optional(),
-    sparkline: z.boolean().optional(),
-    colorMode: z.enum(['value', 'background', 'none']).optional(),
-    graphMode: z.enum(['none', 'area']).optional(),
-    lineWidth: z.number().optional(),
-    showPoints: z.enum(['auto', 'never']).optional(),
-    yScale: z.enum(['linear', 'log']).optional(),
-    legendStats: z.array(z.enum(['last', 'mean', 'max', 'min'])).optional(),
-    legendPlacement: z.enum(['bottom', 'right']).optional(),
-    colorScale: z.enum(['linear', 'sqrt', 'log']).optional(),
-    collapseEmptyBuckets: z.boolean().optional(),
-    barGaugeMax: z.number().optional(),
-    barGaugeMode: z.enum(['gradient', 'lcd']).optional(),
-    annotations: z.array(PanelAnnotationSchema).optional(),
-    query: z.string().optional(),
-    sectionId: z.string().optional(),
-    sectionLabel: z.string().optional(),
-    snapshotData: PanelSnapshotDataSchema.optional(),
+    unit: z.string().nullable().optional(),
+    thresholds: z.array(PanelThresholdSchema).nullable().optional(),
+    stackMode: z.enum(['none', 'normal', 'percent']).nullable().optional(),
+    fillOpacity: z.number().nullable().optional(),
+    decimals: z.number().nullable().optional(),
+    sparkline: z.boolean().nullable().optional(),
+    colorMode: z.enum(['value', 'background', 'none']).nullable().optional(),
+    graphMode: z.enum(['none', 'area']).nullable().optional(),
+    lineWidth: z.number().nullable().optional(),
+    showPoints: z.enum(['auto', 'never']).nullable().optional(),
+    yScale: z.enum(['linear', 'log']).nullable().optional(),
+    legendStats: z.array(z.enum(['last', 'mean', 'max', 'min'])).nullable().optional(),
+    legendPlacement: z.enum(['bottom', 'right']).nullable().optional(),
+    colorScale: z.enum(['linear', 'sqrt', 'log']).nullable().optional(),
+    collapseEmptyBuckets: z.boolean().nullable().optional(),
+    barGaugeMax: z.number().nullable().optional(),
+    barGaugeMode: z.enum(['gradient', 'lcd']).nullable().optional(),
+    annotations: z.array(PanelAnnotationSchema).nullable().optional(),
+    query: z.string().nullable().optional(),
+    sectionId: z.string().nullable().optional(),
+    sectionLabel: z.string().nullable().optional(),
+    snapshotData: PanelSnapshotDataSchema.nullable().optional(),
   })
   .passthrough();
 

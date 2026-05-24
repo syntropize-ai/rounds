@@ -1,13 +1,13 @@
 /**
- * `kb_recommend` — given a free-text intent, rank the top-3 KB templates/
- * patterns by a blend of TF-IDF intent match + required-metric coverage.
+ * `kb_recommend` — given a free-text intent, rank the top-3 KB entries by a
+ * blend of TF-IDF intent match + required-metric coverage.
  *
- * The list of metrics available in the workspace is resolved SERVER-SIDE
- * by probing the active metrics datasource (no `availableMetrics` arg from
- * the LLM). This keeps the tool's input schema minimal and immune to the
- * "model emits malformed JSON for an array arg" failure mode. When no
- * metrics datasource is configured, coverage defaults to 0.5 so it
- * neither helps nor hurts the ranking.
+ * Required metrics are extracted from the entry's markdown body by regex
+ * (anything that looks like an exporter-shaped metric name). Coverage is
+ * computed against the workspace's available metric names, resolved
+ * SERVER-SIDE from the active metrics datasource. When no metrics
+ * datasource is configured, coverage defaults to 0.5 so it neither helps
+ * nor hurts the ranking.
  */
 
 import { tfIdfSearch, type KnowledgeEntry } from '@agentic-obs/common';
@@ -23,7 +23,7 @@ const METRIC_NAME_RE = /[a-z][a-z0-9_]*_(?:total|seconds|bytes|count|sum|bucket|
 interface Recommendation {
   id: string;
   title: string;
-  kind: KnowledgeEntry['kind'];
+  description: string;
   source: KnowledgeEntry['source'];
   score: number;
   reason: string;
@@ -46,8 +46,6 @@ function resolveMetricsDatasourceId(ctx: ActionContext): string | undefined {
  * Best-effort server-side resolution of available metric names. Returns
  * `undefined` (not `[]`) when no datasource is reachable so the scoring
  * loop falls back to the "availability unknown" branch (coverage=0.5).
- * Probe failures are logged but never thrown — kb_recommend is read-only
- * and must degrade gracefully.
  */
 async function resolveAvailableMetrics(
   ctx: ActionContext,
@@ -80,9 +78,6 @@ export async function handleKbRecommend(
   }
   const repo = ctx.knowledge;
 
-  // Server-side resolve the workspace's available metric names. The LLM no
-  // longer passes them as an array arg (that shape was the dominant cause
-  // of malformed-JSON tool calls; see PR notes).
   const availableSet = await resolveAvailableMetrics(ctx);
 
   return withToolEventBoundary(
@@ -91,21 +86,17 @@ export async function handleKbRecommend(
     { intent, hasAvailableMetrics: Boolean(availableSet) },
     `Recommending KB entries for "${intent.slice(0, 60)}"`,
     async () => {
-      const [templates, patterns] = await Promise.all([
-        repo.list(ctx.identity.orgId, { kind: 'template' }),
-        repo.list(ctx.identity.orgId, { kind: 'pattern' }),
-      ]);
-      const all: KnowledgeEntry[] = [...templates, ...patterns];
+      const all: KnowledgeEntry[] = await repo.list(ctx.identity.orgId, {});
       if (all.length === 0) {
-        return 'No templates or patterns in the knowledge base.';
+        return 'No knowledge base entries available.';
       }
 
-      // Build TF-IDF corpus over title+intentTags so the intent text scores
-      // against high-signal fields (vs. the entire content JSON which would
-      // drown the title under boilerplate).
+      // Build TF-IDF corpus over title+description+intentTags so the intent
+      // text scores against high-signal fields (vs. the entire markdown body
+      // which would drown the title under boilerplate).
       const docs = all.map((e) => ({
         id: e.id,
-        text: `${e.title}\n${e.intentTags.join(' ')}`,
+        text: `${e.title}\n${e.description}\n${e.intentTags.join(' ')}`,
       }));
       const tfHits = tfIdfSearch(docs, intent, all.length);
       const tfScoreById = new Map(tfHits.map((h) => [h.id, h.score]));
@@ -133,7 +124,7 @@ export async function handleKbRecommend(
         return {
           id: entry.id,
           title: entry.title,
-          kind: entry.kind,
+          description: entry.description,
           source: entry.source,
           score: Number(score.toFixed(4)),
           reason: `Matches intent '${intent}'. ${coverageDesc}.`,
@@ -151,20 +142,9 @@ export async function handleKbRecommend(
 
 function extractRequiredMetrics(entry: KnowledgeEntry): Set<string> {
   const out = new Set<string>();
-  const stack: unknown[] = [entry.content];
-  while (stack.length > 0) {
-    const cur = stack.pop();
-    if (cur == null) continue;
-    if (typeof cur === 'string') {
-      const lower = cur.toLowerCase();
-      for (const m of lower.matchAll(METRIC_NAME_RE)) {
-        out.add(m[0]);
-      }
-    } else if (Array.isArray(cur)) {
-      for (const v of cur) stack.push(v);
-    } else if (typeof cur === 'object') {
-      for (const v of Object.values(cur as Record<string, unknown>)) stack.push(v);
-    }
+  const text = `${entry.title}\n${entry.description}\n${entry.body}`.toLowerCase();
+  for (const m of text.matchAll(METRIC_NAME_RE)) {
+    out.add(m[0]);
   }
   return out;
 }

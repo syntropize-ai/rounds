@@ -48,7 +48,7 @@ describe('handleDashboardLint', () => {
     expect(out).toMatch(/Lint complete: 0 errors/);
   });
 
-  it('surfaces the dashboard-has-questions error when a panel lacks Q:', async () => {
+  it('surfaces the dashboard-has-questions warning when a panel lacks Q:', async () => {
     const ctx = makeFakeActionContext({});
     const bad = mkSpec({
       panels: [{
@@ -58,8 +58,9 @@ describe('handleDashboardLint', () => {
       }],
     });
     const out = await handleDashboardLint(ctx, { spec: bad });
+    // The rule was demoted from error to warn — style guideline, non-blocking.
     expect(out).toMatch(/dashboard-has-questions/);
-    expect(out).toMatch(/Lint complete: [1-9]/);
+    expect(out).toMatch(/0 errors, [1-9]\d* warning/);
   });
 
   it('rejects a malformed spec without running rules', async () => {

@@ -19,9 +19,23 @@ export type ProposalStatusMap = Record<string, 'pending' | 'accepted' | 'rejecte
 export function groupEvents(
   events: ChatEvent[],
   proposalStatus: ProposalStatusMap = {},
+  opsStatusOverlay: Map<string, NonNullable<ChatEvent['opsConfirmation']>> = new Map(),
 ): Block[] {
   const blocks: Block[] = [];
   let currentAgent: ChatEvent[] = [];
+  const opsStatus = new Map<
+    string,
+    NonNullable<ChatEvent['opsConfirmation']>
+  >();
+
+  for (const evt of events) {
+    if (evt.kind === 'ops_command_confirmation_resolved' && evt.opsConfirmation?.id) {
+      opsStatus.set(evt.opsConfirmation.id, evt.opsConfirmation);
+    }
+  }
+  for (const [id, status] of opsStatusOverlay) {
+    opsStatus.set(id, status);
+  }
 
   const flushAgent = () => {
     if (currentAgent.length > 0) {
@@ -61,10 +75,25 @@ export function groupEvents(
           return blocks;
         }
       }
-      // ops_command_confirmation_required does NOT block subsequent events.
-      // The card itself collapses to a one-line status after the user clicks
-      // Run/Cancel; the agent's follow-up step/reply events should keep
-      // flowing right below it.
+      if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation?.id) {
+        const resolved = opsStatus.get(evt.opsConfirmation.id);
+        if (resolved) {
+          const block = blocks[blocks.length - 1];
+          if (block?.type === 'message') {
+            block.event = {
+              ...block.event,
+              opsConfirmation: {
+                ...evt.opsConfirmation,
+                ...resolved,
+                connectorId: evt.opsConfirmation.connectorId,
+                command: evt.opsConfirmation.command,
+              },
+            };
+          }
+        } else {
+          return blocks;
+        }
+      }
     } else if (evt.kind === 'pending_change_resolved' || evt.kind === 'ops_command_confirmation_resolved') {
       // Resolution events don't render their own block; the corresponding
       // change_proposal card overlays its status via the page-level overlay

@@ -1,9 +1,6 @@
 /**
- * KnowledgeRepository — Postgres-backed store for the knowledge base
- * foundation (B1).
- *
- * Mirrors sqlite/knowledge.ts byte-for-byte where SQL allows. Corrupt JSON
- * throws — no silent fallback.
+ * KnowledgeRepository — Postgres-backed store for skill-style knowledge
+ * entries. Mirrors sqlite/knowledge.ts. Corrupt intent_tags JSON throws.
  */
 
 import { sql } from 'drizzle-orm';
@@ -22,10 +19,10 @@ interface KnowledgeRow {
   org_id: string;
   source: string;
   source_ref: string | null;
-  kind: string;
   title: string;
+  description: string;
+  body: string;
   intent_tags: string;
-  content: string;
   use_count: number;
   approved_count: number;
   rejected_count: number;
@@ -34,46 +31,44 @@ interface KnowledgeRow {
   updated_at: string;
 }
 
-function parseJsonColumn(raw: string, rowId: string, column: string): unknown {
-  // Postgres TEXT columns return strings; if a driver ever decoded JSON
-  // ahead of us, pass it straight through.
-  if (typeof raw !== 'string') return raw;
+function parseIntentTags(raw: string, rowId: string): string[] {
+  if (Array.isArray(raw)) return raw as string[];
+  let parsed: unknown;
   try {
-    return JSON.parse(raw);
+    parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
   } catch (err) {
     log.error(
-      { rowId, column, err: err instanceof Error ? err.message : String(err) },
-      'corrupt JSON in knowledge_entries row — refusing to return fallback',
+      { rowId, err: err instanceof Error ? err.message : String(err) },
+      'corrupt JSON in knowledge_entries.intent_tags — refusing to return fallback',
     );
     throw new Error(
-      `[KnowledgeRepository] corrupt JSON in column "${column}" for row ${rowId}: ${
+      `[KnowledgeRepository] corrupt JSON in column "intent_tags" for row ${rowId}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
   }
-}
-
-function rowToEntry(r: KnowledgeRow): KnowledgeEntry {
-  const tagsParsed = parseJsonColumn(r.intent_tags, r.id, 'intent_tags');
-  if (!Array.isArray(tagsParsed)) {
+  if (!Array.isArray(parsed)) {
     log.error(
-      { rowId: r.id, column: 'intent_tags', actualType: typeof tagsParsed },
+      { rowId, actualType: typeof parsed },
       'knowledge_entries.intent_tags is not an array — refusing to return fallback',
     );
     throw new Error(
-      `[KnowledgeRepository] expected array in column "intent_tags" for row ${r.id}, got ${typeof tagsParsed}`,
+      `[KnowledgeRepository] expected array in column "intent_tags" for row ${rowId}, got ${typeof parsed}`,
     );
   }
-  const content = parseJsonColumn(r.content, r.id, 'content');
+  return parsed as string[];
+}
+
+function rowToEntry(r: KnowledgeRow): KnowledgeEntry {
   return {
     id: r.id,
     orgId: r.org_id,
     source: r.source as KnowledgeEntry['source'],
     sourceRef: r.source_ref,
-    kind: r.kind as KnowledgeEntry['kind'],
     title: r.title,
-    intentTags: tagsParsed as string[],
-    content,
+    description: r.description,
+    body: r.body,
+    intentTags: parseIntentTags(r.intent_tags, r.id),
     useCount: Number(r.use_count),
     approvedCount: Number(r.approved_count),
     rejectedCount: Number(r.rejected_count),
@@ -101,8 +96,8 @@ export class PostgresKnowledgeRepository implements IKnowledgeRepository {
       this.db,
       sql`
         INSERT INTO knowledge_entries (
-          id, org_id, source, source_ref, kind, title,
-          intent_tags, content,
+          id, org_id, source, source_ref, title, description, body,
+          intent_tags,
           use_count, approved_count, rejected_count,
           created_by, created_at, updated_at
         ) VALUES (
@@ -110,10 +105,10 @@ export class PostgresKnowledgeRepository implements IKnowledgeRepository {
           ${input.orgId},
           ${input.source},
           ${input.sourceRef},
-          ${input.kind},
           ${input.title},
+          ${input.description},
+          ${input.body},
           ${JSON.stringify(input.intentTags)},
-          ${JSON.stringify(input.content)},
           ${0},
           ${0},
           ${0},
@@ -143,48 +138,17 @@ export class PostgresKnowledgeRepository implements IKnowledgeRepository {
 
   async list(
     orgId: string,
-    opts?: {
-      kind?: KnowledgeEntry['kind'];
-      source?: KnowledgeEntry['source'];
-      limit?: number;
-    },
+    opts?: { source?: KnowledgeEntry['source']; limit?: number },
   ): Promise<KnowledgeEntry[]> {
-    const kind = opts?.kind;
     const source = opts?.source;
     const limit = opts?.limit;
     let rows: KnowledgeRow[];
-    if (kind !== undefined && source !== undefined && limit !== undefined) {
-      rows = await pgAll<KnowledgeRow>(this.db, sql`
-        SELECT * FROM knowledge_entries
-        WHERE org_id = ${orgId} AND kind = ${kind} AND source = ${source}
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-      `);
-    } else if (kind !== undefined && source !== undefined) {
-      rows = await pgAll<KnowledgeRow>(this.db, sql`
-        SELECT * FROM knowledge_entries
-        WHERE org_id = ${orgId} AND kind = ${kind} AND source = ${source}
-        ORDER BY created_at DESC
-      `);
-    } else if (kind !== undefined && limit !== undefined) {
-      rows = await pgAll<KnowledgeRow>(this.db, sql`
-        SELECT * FROM knowledge_entries
-        WHERE org_id = ${orgId} AND kind = ${kind}
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-      `);
-    } else if (source !== undefined && limit !== undefined) {
+    if (source !== undefined && limit !== undefined) {
       rows = await pgAll<KnowledgeRow>(this.db, sql`
         SELECT * FROM knowledge_entries
         WHERE org_id = ${orgId} AND source = ${source}
         ORDER BY created_at DESC
         LIMIT ${limit}
-      `);
-    } else if (kind !== undefined) {
-      rows = await pgAll<KnowledgeRow>(this.db, sql`
-        SELECT * FROM knowledge_entries
-        WHERE org_id = ${orgId} AND kind = ${kind}
-        ORDER BY created_at DESC
       `);
     } else if (source !== undefined) {
       rows = await pgAll<KnowledgeRow>(this.db, sql`
@@ -207,6 +171,39 @@ export class PostgresKnowledgeRepository implements IKnowledgeRepository {
       `);
     }
     return rows.map(rowToEntry);
+  }
+
+  async update(
+    orgId: string,
+    id: string,
+    patch: Partial<
+      Pick<
+        KnowledgeEntry,
+        'title' | 'description' | 'body' | 'intentTags' | 'sourceRef'
+      >
+    >,
+  ): Promise<KnowledgeEntry | null> {
+    const existing = await this.getById(orgId, id);
+    if (!existing) return null;
+    const next = {
+      title: patch.title ?? existing.title,
+      description: patch.description ?? existing.description,
+      body: patch.body ?? existing.body,
+      intentTags: patch.intentTags ?? existing.intentTags,
+      sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : existing.sourceRef,
+    };
+    const now = nowIso();
+    await pgRun(this.db, sql`
+      UPDATE knowledge_entries
+      SET title = ${next.title},
+          description = ${next.description},
+          body = ${next.body},
+          intent_tags = ${JSON.stringify(next.intentTags)},
+          source_ref = ${next.sourceRef},
+          updated_at = ${now}
+      WHERE org_id = ${orgId} AND id = ${id}
+    `);
+    return this.getById(orgId, id);
   }
 
   async bumpUseCount(orgId: string, id: string): Promise<void> {
@@ -248,18 +245,8 @@ export class PostgresKnowledgeRepository implements IKnowledgeRepository {
 
   async listForSearch(
     orgId: string,
-    opts?: { kind?: KnowledgeEntry['kind'] },
+    opts?: { source?: KnowledgeEntry['source']; limit?: number },
   ): Promise<KnowledgeEntry[]> {
-    const rows =
-      opts?.kind === undefined
-        ? await pgAll<KnowledgeRow>(
-            this.db,
-            sql`SELECT * FROM knowledge_entries WHERE org_id = ${orgId} ORDER BY created_at DESC`,
-          )
-        : await pgAll<KnowledgeRow>(
-            this.db,
-            sql`SELECT * FROM knowledge_entries WHERE org_id = ${orgId} AND kind = ${opts.kind} ORDER BY created_at DESC`,
-          );
-    return rows.map(rowToEntry);
+    return this.list(orgId, opts);
   }
 }

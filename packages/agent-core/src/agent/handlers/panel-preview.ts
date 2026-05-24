@@ -266,12 +266,17 @@ export async function runPanelPreviewProgrammatic(
     }
   }
 
-  // Rule 3: all queries empty.
+  // Rule 3: all queries empty. This is a WARNING, not an error — empty
+  // results are a legitimate pre-deployment state (dashboard authored before
+  // the target software is scraped, e.g. building a MongoDB dashboard before
+  // MongoDB is deployed). The verify-gate treats warnings as non-blocking, so
+  // pre-deployment dashboards save cleanly while the agent still sees the
+  // warning to relay to the user ("these will be blank until <X> is deployed").
   if (perQuery.length > 0 && perQuery.every((p) => p.resultLen === 0 && !p.error)) {
     issues.push({
-      severity: 'error',
-      message: 'All queries returned 0 series — the panel would render blank.',
-      fixHint: 'Re-check label selectors with metrics_discover (kind=label_values), widen the time range, or pick a different metric.',
+      severity: 'warn',
+      message: 'All queries returned 0 series — the panel will render blank until the target software is scraped.',
+      fixHint: 'If this is pre-deployment, this is expected. Otherwise re-check label selectors with metrics_discover (kind=label_values), widen the time range, or pick a different metric.',
     });
   }
 

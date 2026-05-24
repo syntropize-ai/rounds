@@ -312,7 +312,12 @@ export class ReActLoop {
         checkAborted()
         resp = await this.deps.gateway.complete(messages, {
           model: this.deps.model,
-          maxTokens: 4096,
+          // 16K is enough for a ~15-panel dashboard_add_panels call without
+          // the tool-call args getting truncated mid-string. 4K was too
+          // tight: a 12-panel Istio dashboard emits ~12 KB of args JSON,
+          // hit the cap, the closing brace never arrives, and the provider
+          // can't parse the tool call.
+          maxTokens: 16384,
           temperature: 0,
           tools: toolsForCurrentTurn(),
           toolChoice: 'auto',

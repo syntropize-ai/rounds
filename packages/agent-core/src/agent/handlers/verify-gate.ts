@@ -159,10 +159,11 @@ export async function runDashboardVerifyGate(
       ...(input.datasourceId ? { datasourceId: input.datasourceId } : {}),
     };
     const result = await runPanelPreviewProgrammatic(ctx, args);
-    if (!result.ok) {
-      for (const iss of result.issues) {
-        previewIssues.push({ ...iss, panelIndex: i, panelTitle: spec.title });
-      }
+    // Surface ALL issues (warnings + errors). Warnings are non-blocking but
+    // still useful — e.g. the agent can relay "panel will be blank until X
+    // is deployed" to the user instead of silently saving an empty panel.
+    for (const iss of result.issues) {
+      previewIssues.push({ ...iss, panelIndex: i, panelTitle: spec.title });
     }
   }
 

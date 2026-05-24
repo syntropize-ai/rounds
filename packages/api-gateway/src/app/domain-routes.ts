@@ -51,13 +51,14 @@ import { createPendingChangesRouter } from '../routes/pending-changes.js';
 import { createLogger } from '@agentic-obs/server-utils/logging';
 
 const log = createLogger('domain-routes');
-import { createKbTemplatesRouter } from '../routes/kb-templates.js';
+import { createKbEntriesRouter } from '../routes/kb-entries.js';
 import type { IKnowledgeRepository } from '@agentic-obs/data-layer';
 import { createAlertRulesRouter } from '../routes/alert-rules.js';
 import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
 import { createChatRouter } from '../routes/chat.js';
+import { GithubAppTokenService } from '../services/github-app-token-service.js';
 import { createOpsCommandConfirmationsRouter } from '../routes/ops-command-confirmations.js';
 import { bootstrapAware } from '../middleware/bootstrap-aware.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -336,15 +337,14 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     alertRuleStore: eventAlertRuleStore,
     ac: accessControl,
   }));
-  // KB templates — mount BEFORE /api/dashboards to keep the surface flat.
-  // The knowledge repo arrives on `repos` from B1's data-layer landing; if
-  // it's missing we skip mounting and the route returns 404, which is
-  // honest about the feature being unavailable.
+  // KB entries — unified skill-style CRUD. The knowledge repo arrives on
+  // `repos` from B1's data-layer landing; if it's missing we skip mounting
+  // and the route returns 404, which is honest about the feature being
+  // unavailable.
   const knowledgeRepo = (repos as unknown as { knowledge?: IKnowledgeRepository }).knowledge;
   if (knowledgeRepo) {
-    app.use('/api/kb/templates', createKbTemplatesRouter({
+    app.use('/api/kb/entries', createKbEntriesRouter({
       knowledge: knowledgeRepo,
-      dashboards: repos.dashboards,
       accessControl,
     }));
   }
@@ -415,6 +415,19 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     // kubernetes connectors directly from the full data-layer repo (we want
     // `getSecret` here — the local `ConnectorRepository` view drops it).
     connectorRepo: repos.connectors,
+    // GitHub agent tools (github_list_repos/_prs, github_get_pr/_diff).
+    // The token service caches installation tokens in-process so each chat
+    // turn doesn't pay a JWT-sign + 2x GitHub round-trip. Only wired when
+    // the github_app_config repo is present (instance not registered → no
+    // token service → handler reports "GitHub connector not configured").
+    ...(githubAppConfigRepo
+      ? {
+          githubAppTokenService: new GithubAppTokenService({
+            githubAppConfig: githubAppConfigRepo,
+            connectors: repos.connectors,
+          }),
+        }
+      : {}),
   }));
   app.use('/api/ops-command-confirmations', createOpsCommandConfirmationsRouter({
     connectors: repos.connectors,

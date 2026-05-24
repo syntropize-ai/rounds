@@ -3,7 +3,7 @@ import { panelReturnsData } from '../panel-returns-data.js';
 import { mkDashboard, mkPanel } from './_fixtures.js';
 
 describe('panel-returns-data', () => {
-  it('flags panels whose query returns no series', async () => {
+  it('warns (does not error) on panels whose query returns no series — pre-deploy is legit', async () => {
     const spec = mkDashboard([
       mkPanel({ id: 'p1', title: 'Empty', query: 'up{job="missing"}' }),
     ]);
@@ -11,7 +11,7 @@ describe('panel-returns-data', () => {
       metricsQuery: async () => ({ resultLen: 0 }),
     });
     expect(issues).toHaveLength(1);
-    expect(issues[0]!.severity).toBe('error');
+    expect(issues[0]!.severity).toBe('warn');
     expect(issues[0]!.panelId).toBe('p1');
   });
 

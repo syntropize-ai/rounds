@@ -15,10 +15,10 @@ function buildEntry(overrides: Partial<InsertInput> = {}): InsertInput {
     orgId: overrides.orgId ?? ORG,
     source: overrides.source ?? 'bundled',
     sourceRef: overrides.sourceRef ?? null,
-    kind: overrides.kind ?? 'pattern',
     title: overrides.title ?? 'Sample entry',
+    description: overrides.description ?? 'When the agent investigates latency spikes.',
+    body: overrides.body ?? '# Body\n\nMarkdown content here.',
     intentTags: overrides.intentTags ?? ['latency', 'p99'],
-    content: overrides.content ?? { promql: 'up' },
     createdBy: overrides.createdBy ?? null,
   };
 }
@@ -34,12 +34,12 @@ describe('SqliteKnowledgeRepository', () => {
 
   it('insert + getById round-trip preserves every field', async () => {
     const input = buildEntry({
-      kind: 'template',
       source: 'saved',
       sourceRef: 'tmpl-1',
       title: 'Latency p99 by service',
+      description: 'Consult when investigating p99 latency by service label.',
+      body: '## Recipe\n\n```promql\nhistogram_quantile(0.99, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m])))\n```',
       intentTags: ['latency', 'service'],
-      content: { panels: [{ title: 'p99' }] },
       createdBy: 'u-1',
     });
     const saved = await repo.insert(input);
@@ -48,10 +48,10 @@ describe('SqliteKnowledgeRepository', () => {
     expect(saved.orgId).toBe(ORG);
     expect(saved.source).toBe('saved');
     expect(saved.sourceRef).toBe('tmpl-1');
-    expect(saved.kind).toBe('template');
     expect(saved.title).toBe('Latency p99 by service');
+    expect(saved.description).toBe(input.description);
+    expect(saved.body).toBe(input.body);
     expect(saved.intentTags).toEqual(['latency', 'service']);
-    expect(saved.content).toEqual({ panels: [{ title: 'p99' }] });
     expect(saved.useCount).toBe(0);
     expect(saved.approvedCount).toBe(0);
     expect(saved.rejectedCount).toBe(0);
@@ -71,24 +71,17 @@ describe('SqliteKnowledgeRepository', () => {
     expect(await repo.getById('org-b', e.id)).toBeNull();
   });
 
-  it('list filters by kind and source', async () => {
-    await repo.insert(buildEntry({ kind: 'pattern', source: 'bundled' }));
-    await repo.insert(buildEntry({ kind: 'pattern', source: 'saved' }));
-    await repo.insert(buildEntry({ kind: 'template', source: 'bundled' }));
-
-    const patterns = await repo.list(ORG, { kind: 'pattern' });
-    expect(patterns).toHaveLength(2);
-    expect(patterns.every((e) => e.kind === 'pattern')).toBe(true);
+  it('list filters by source', async () => {
+    await repo.insert(buildEntry({ source: 'bundled' }));
+    await repo.insert(buildEntry({ source: 'saved' }));
+    await repo.insert(buildEntry({ source: 'bundled' }));
 
     const bundled = await repo.list(ORG, { source: 'bundled' });
     expect(bundled).toHaveLength(2);
     expect(bundled.every((e) => e.source === 'bundled')).toBe(true);
 
-    const bundledPatterns = await repo.list(ORG, {
-      kind: 'pattern',
-      source: 'bundled',
-    });
-    expect(bundledPatterns).toHaveLength(1);
+    const saved = await repo.list(ORG, { source: 'saved' });
+    expect(saved).toHaveLength(1);
   });
 
   it('list respects limit', async () => {
@@ -124,35 +117,80 @@ describe('SqliteKnowledgeRepository', () => {
     expect(after!.approvedCount).toBe(0);
   });
 
+  it('update patches title/description/body/intentTags/sourceRef and bumps updated_at', async () => {
+    const e = await repo.insert(buildEntry({
+      title: 'old title',
+      description: 'old desc',
+      body: 'old body',
+      intentTags: ['a'],
+      sourceRef: null,
+    }));
+    await new Promise((r) => setTimeout(r, 5));
+    const updated = await repo.update(ORG, e.id, {
+      title: 'new title',
+      description: 'new desc',
+      body: '# New body\n\nupdated',
+      intentTags: ['b', 'c'],
+      sourceRef: 'ref-1',
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.title).toBe('new title');
+    expect(updated!.description).toBe('new desc');
+    expect(updated!.body).toBe('# New body\n\nupdated');
+    expect(updated!.intentTags).toEqual(['b', 'c']);
+    expect(updated!.sourceRef).toBe('ref-1');
+    expect(updated!.updatedAt >= e.updatedAt).toBe(true);
+    expect(updated!.useCount).toBe(0);
+    expect(updated!.approvedCount).toBe(0);
+  });
+
+  it('update preserves fields not present in patch', async () => {
+    const e = await repo.insert(buildEntry({ title: 'keep', intentTags: ['x'] }));
+    const updated = await repo.update(ORG, e.id, { title: 'changed' });
+    expect(updated!.title).toBe('changed');
+    expect(updated!.intentTags).toEqual(['x']);
+    expect(updated!.description).toBe(e.description);
+    expect(updated!.body).toBe(e.body);
+  });
+
+  it('update returns null for unknown id', async () => {
+    expect(await repo.update(ORG, 'nope', { title: 'x' })).toBeNull();
+  });
+
+  it('update respects org_id isolation', async () => {
+    const e = await repo.insert(buildEntry({ orgId: 'org-a' }));
+    expect(await repo.update('org-b', e.id, { title: 'x' })).toBeNull();
+  });
+
   it('delete removes the row', async () => {
     const e = await repo.insert(buildEntry());
     await repo.delete(ORG, e.id);
     expect(await repo.getById(ORG, e.id)).toBeNull();
   });
 
-  it('listForSearch returns all entries when kind omitted', async () => {
-    await repo.insert(buildEntry({ kind: 'pattern' }));
-    await repo.insert(buildEntry({ kind: 'template' }));
-    await repo.insert(buildEntry({ kind: 'metric_doc' }));
+  it('listForSearch returns all entries within org', async () => {
+    await repo.insert(buildEntry());
+    await repo.insert(buildEntry());
+    await repo.insert(buildEntry());
     const all = await repo.listForSearch(ORG);
     expect(all).toHaveLength(3);
   });
 
-  it('listForSearch filters by kind when provided', async () => {
-    await repo.insert(buildEntry({ kind: 'pattern' }));
-    await repo.insert(buildEntry({ kind: 'template' }));
-    const justPatterns = await repo.listForSearch(ORG, { kind: 'pattern' });
-    expect(justPatterns).toHaveLength(1);
-    expect(justPatterns[0]!.kind).toBe('pattern');
+  it('listForSearch filters by source', async () => {
+    await repo.insert(buildEntry({ source: 'bundled' }));
+    await repo.insert(buildEntry({ source: 'saved' }));
+    const bundled = await repo.listForSearch(ORG, { source: 'bundled' });
+    expect(bundled).toHaveLength(1);
+    expect(bundled[0]!.source).toBe('bundled');
   });
 
-  it('getById throws when content column is corrupt JSON', async () => {
+  it('getById throws when intent_tags is corrupt JSON', async () => {
     const e = await repo.insert(buildEntry());
     db.run(
-      sql`UPDATE knowledge_entries SET content = ${'{not json'} WHERE id = ${e.id}`,
+      sql`UPDATE knowledge_entries SET intent_tags = ${'{not json'} WHERE id = ${e.id}`,
     );
     await expect(repo.getById(ORG, e.id)).rejects.toThrow(
-      /corrupt JSON in column "content"/,
+      /corrupt JSON in column "intent_tags"/,
     );
   });
 
@@ -166,18 +204,11 @@ describe('SqliteKnowledgeRepository', () => {
     );
   });
 
-  it('list throws when content is corrupt for any row', async () => {
-    const _good = await repo.insert(buildEntry({ title: 'good' }));
-    const bad = await repo.insert(buildEntry({ title: 'bad' }));
-    db.run(
-      sql`UPDATE knowledge_entries SET content = ${'{nope'} WHERE id = ${bad.id}`,
-    );
-    await expect(repo.list(ORG)).rejects.toThrow(/corrupt JSON/);
-  });
-
   it('insert satisfies KnowledgeEntry shape', async () => {
     const e: KnowledgeEntry = await repo.insert(buildEntry());
     expect(typeof e.createdAt).toBe('string');
     expect(typeof e.updatedAt).toBe('string');
+    expect(typeof e.description).toBe('string');
+    expect(typeof e.body).toBe('string');
   });
 });

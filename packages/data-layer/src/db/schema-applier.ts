@@ -54,6 +54,7 @@ export function applySchema(db: SqliteClient): void {
   // Runs before CREATE TABLE IF NOT EXISTS so the existing data is preserved
   // instead of a fresh empty `users` table appearing alongside it.
   renameLegacyUserTable(db);
+  dropLegacyKnowledgeEntriesTable(db);
   const statements = splitSqlStatements(loadSchemaSql());
   for (const stmt of statements) {
     db.run(sql.raw(stmt));
@@ -89,6 +90,25 @@ function renameLegacyUserTable(db: SqliteClient): void {
  */
 function dropLegacyConnectorTeamPoliciesTable(db: SqliteClient): void {
   db.run(sql.raw('DROP TABLE IF EXISTS connector_team_policies'));
+}
+
+/**
+ * Drop the legacy `knowledge_entries` table if it still carries the old
+ * `kind` column. The skill-style refactor removed `kind` + `content` and
+ * added `description` + `body`; ALTER incrementally is more code than a
+ * clean drop. Only legacy rows are discarded — bundled seeds re-load on
+ * boot via the gateway loader.
+ */
+function dropLegacyKnowledgeEntriesTable(db: SqliteClient): void {
+  const cols = db.all<{ name: string }>(
+    sql.raw("PRAGMA table_info('knowledge_entries')"),
+  );
+  if (cols.length === 0) return;
+  const names = new Set(cols.map((c) => c.name));
+  if (names.has('description')) return;
+  if (names.has('kind')) {
+    db.run(sql.raw('DROP TABLE IF EXISTS knowledge_entries'));
+  }
 }
 
 function addProvenanceColumnIfMissing(db: SqliteClient): void {

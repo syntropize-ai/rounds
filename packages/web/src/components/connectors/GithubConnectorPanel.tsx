@@ -21,6 +21,11 @@ export interface GithubConnectorPanelProps {
   canWrite: boolean;
   /** Called after a sync that should refetch the list. */
   onChanged: () => void;
+  /** True when at least one github connector is already active for this
+   *  org. When set, the "Connect to GitHub" button hides (the user is
+   *  already connected) — only Sync / Re-register / Install on another
+   *  org are exposed. */
+  hasActiveConnector?: boolean;
 }
 
 /**
@@ -30,6 +35,7 @@ export interface GithubConnectorPanelProps {
 export function GithubConnectorPanel({
   canWrite,
   onChanged,
+  hasActiveConnector = false,
 }: GithubConnectorPanelProps): React.ReactElement {
   const [reg, setReg] = useState<RegState>({ state: 'loading' });
   const [banner, setBanner] = useState<{ kind: 'ok' | 'err'; message: string } | null>(null);
@@ -189,11 +195,22 @@ export function GithubConnectorPanel({
       {reg.state === 'registered' && (
         <div className="space-y-3">
           <p className="text-xs text-[var(--color-on-surface-variant)]">
-            Authorize the Rounds GitHub App on your org. Repos you select become accessible to investigations and remediation plans.
+            {hasActiveConnector
+              ? 'This org is connected to GitHub. Use Sync to refresh repo access after installing the App on additional repos, or Install on another org to extend access.'
+              : 'Authorize the Rounds GitHub App on your org. Repos you select become accessible to investigations and remediation plans.'}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" disabled={!canWrite || connecting} className={btnPrimary} onClick={() => void handleConnect()}>
-              {connecting ? 'Opening…' : 'Connect to GitHub'}
+            <button
+              type="button"
+              disabled={!canWrite || connecting}
+              className={hasActiveConnector ? btnSecondary : btnPrimary}
+              onClick={() => void handleConnect()}
+            >
+              {connecting
+                ? 'Opening…'
+                : hasActiveConnector
+                  ? 'Install on another org'
+                  : 'Connect to GitHub'}
             </button>
             <button type="button" disabled={!canWrite || syncing} className={btnSecondary} onClick={() => void syncAndReload(true)}>
               {syncing ? 'Syncing…' : 'Sync installed app'}

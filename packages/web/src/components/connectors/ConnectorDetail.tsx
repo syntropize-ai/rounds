@@ -137,7 +137,11 @@ export function ConnectorDetail({
 
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
         {connector.type === 'github' ? (
-          <GithubConnectorPanel canWrite={canWrite} onChanged={onSaved} />
+          <GithubConnectorPanel
+            canWrite={canWrite}
+            onChanged={onSaved}
+            hasActiveConnector={connector.status === 'active'}
+          />
         ) : (
           <ConnectorConfigSection
             connector={connector}

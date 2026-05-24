@@ -67,4 +67,8 @@ export {
   handleKbSearch,
   handleKbGet,
   handleKbRecommend,
+  handleGithubListRepos,
+  handleGithubListPrs,
+  handleGithubGetPr,
+  handleGithubGetDiff,
 } from './handlers/index.js';

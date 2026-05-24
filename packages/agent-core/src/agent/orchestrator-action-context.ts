@@ -45,6 +45,8 @@ export interface OrchestratorActionContextDeps {
   sessionConnectorPins?: Record<string, string>;
   opsCommandRunner?: OpsCommandRunner;
   opsConnectors?: OpsConnectorConfig[];
+  /** GitHub VCS read surface for the four `github_*` tools. */
+  githubToolRunner?: import('./agent-types.js').GithubToolRunner;
   /** P4 — when present, registers `remediation_plan.create` + `.create_rescue` tools. */
   remediationPlans?: RemediationPlanStore;
   /** P4 — used to auto-emit a plan-level ApprovalRequest on plan creation. */
@@ -122,6 +124,7 @@ export function buildActionContext(
     sessionConnectorPins: deps.sessionConnectorPins,
     opsCommandRunner: deps.opsCommandRunner,
     opsConnectors: deps.opsConnectors,
+    githubToolRunner: deps.githubToolRunner,
     remediationPlans: deps.remediationPlans,
     approvalRequests: deps.approvalRequests,
     configService: deps.configService,

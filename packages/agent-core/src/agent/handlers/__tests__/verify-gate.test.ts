@@ -54,7 +54,7 @@ describe('isVerifyGateEnabled', () => {
 });
 
 describe('runDashboardVerifyGate', () => {
-  it('flags preview errors when queries return 0 series', async () => {
+  it('passes with a warning when queries return 0 series (pre-deploy is legit)', async () => {
     const rangeQuery = vi.fn().mockResolvedValue([]);
     const ctx = makeFakeActionContext({
       adapters: makeAdapters(rangeQuery),
@@ -62,11 +62,14 @@ describe('runDashboardVerifyGate', () => {
     });
     const report = await runDashboardVerifyGate(ctx, {
       panels: [
-        { title: 'P1', visualization: 'time_series', queries: [{ expr: 'missing_metric' }] },
+        // Description must satisfy dashboard-has-questions to isolate the
+        // 0-series behavior under test.
+        { title: 'P1', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric' }] },
       ],
     });
-    expect(report.ok).toBe(false);
-    expect(report.previewIssues.some((i) => i.severity === 'error')).toBe(true);
+    expect(report.ok).toBe(true);
+    expect(report.previewIssues.some((i) => i.severity === 'warn' && i.message.includes('0 series'))).toBe(true);
+    expect(report.previewIssues.some((i) => i.severity === 'error')).toBe(false);
   });
 
   it('passes when every panel previews cleanly', async () => {
@@ -115,8 +118,10 @@ describe('runDashboardVerifyGate', () => {
 });
 
 describe('runDashboardVerifyGate — real lint integration', () => {
-  it('rejects when a panel violates the `dashboard-has-questions` rule (error severity)', async () => {
-    // Panel description does NOT start with "Q: ..." → error.
+  it('rejects when a panel violates the `histogram-quantile-form` rule (error severity)', async () => {
+    // Non-canonical histogram_quantile shape → error. (We moved away from
+    // `dashboard-has-questions` for this test because that rule is now a
+    // style warning, not blocking.)
     const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
     const ctx = makeFakeActionContext({
       adapters: makeAdapters(rangeQuery),
@@ -125,17 +130,18 @@ describe('runDashboardVerifyGate — real lint integration', () => {
     const report = await runDashboardVerifyGate(ctx, {
       panels: [
         {
-          title: 'unquestioned',
-          description: 'just a description',
+          title: 'bad histogram',
+          description: 'Q: latency?',
           visualization: 'time_series',
-          queries: [{ expr: 'sum(rate(x[5m]))' }],
+          // Missing rate() inside the sum — classic broken histogram shape.
+          queries: [{ expr: 'histogram_quantile(0.95, sum(http_request_duration_bucket) by (le))' }],
         },
       ],
     });
     expect(report.ok).toBe(false);
     const errs = report.lintIssues.filter((i) => i.severity === 'error');
     expect(errs.length).toBeGreaterThan(0);
-    expect(errs.some((i) => i.code === 'dashboard-has-questions')).toBe(true);
+    expect(errs.some((i) => i.code === 'histogram-quantile-form')).toBe(true);
   });
 
   it('does NOT reject when only `viz-matches-data` (info severity) fires', async () => {
@@ -199,19 +205,37 @@ describe('dashboard_add_panels — verify-gate integration', () => {
     ctx.dashboardBuildEvidence.webSearchCount = 1;
     ctx.dashboardBuildEvidence.validatedQueries.add('sum(rate(x[5m]))');
     ctx.dashboardBuildEvidence.validatedQueries.add('missing_metric');
+    ctx.dashboardBuildEvidence.validatedQueries.add(
+      'histogram_quantile(0.95, sum(http_request_duration_bucket) by (le))',
+    );
     return ctx;
   }
 
-  it('gate ON: rejects the save when verify finds errors', async () => {
+  const BAD_HISTOGRAM = 'histogram_quantile(0.95, sum(http_request_duration_bucket) by (le))';
+
+  it('gate ON: rejects the save when verify finds errors (real lint error)', async () => {
     process.env[ENV_KEY] = '1';
-    const rangeQuery = vi.fn().mockResolvedValue([]); // empty -> error
+    // 0 series is now a warn (pre-deploy is legit) and dashboard-has-questions
+    // is a style warning, so to test the reject path we trigger a genuine
+    // correctness error: non-canonical histogram_quantile shape.
+    const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
+    const ctx = buildCtx(rangeQuery);
+    const out = await handleDashboardAddPanels(ctx, {
+      panels: [{ title: 'P', description: 'Q: p95?', visualization: 'time_series', queries: [{ expr: BAD_HISTOGRAM, datasourceId: 'prom' }] }],
+    });
+    expect(out).toContain('rejected by verify-gate');
+    expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('gate ON: accepts the save when queries return 0 series (pre-deployment is legitimate)', async () => {
+    process.env[ENV_KEY] = '1';
+    const rangeQuery = vi.fn().mockResolvedValue([]); // empty
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
       panels: [{ title: 'P', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
     });
-    expect(out).toContain('rejected by verify-gate');
-    // The actionExecutor.execute must NOT have run.
-    expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(out).toContain('Added 1 panel');
+    expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
   });
 
   it('gate ON: accepts the save when verify is clean', async () => {
@@ -227,10 +251,12 @@ describe('dashboard_add_panels — verify-gate integration', () => {
 
   it('gate OFF: accepts the save even when verify finds errors (logs at WARN)', async () => {
     process.env[ENV_KEY] = '0';
-    const rangeQuery = vi.fn().mockResolvedValue([]); // empty -> would-be error
+    // Trigger a real correctness error (bad histogram shape) and confirm
+    // the bypass path still saves.
+    const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
-      panels: [{ title: 'P', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
+      panels: [{ title: 'P', description: 'Q: p95?', visualization: 'time_series', queries: [{ expr: BAD_HISTOGRAM, datasourceId: 'prom' }] }],
     });
     expect(out).toContain('Added 1 panel');
     expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);

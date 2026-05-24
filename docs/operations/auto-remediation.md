@@ -282,7 +282,3 @@ project if you need any:
   executor does not unwind a failed plan automatically.
 - Cross-cluster fan-out — one connector per step.
 
-## Reference: design doc
-
-The full design (state machine, file map, intentional non-goals) is in
-[`docs/design/auto-remediation.md`](https://github.com/syntropize/rounds/blob/main/docs/design/auto-remediation.md).

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { ChatEvent } from '../../hooks/useDashboardChat.js';
 import { buildSteps, buildToolActivityGroups } from './event-processing.js';
 import type { ToolActivityGroup, ToolCallCard } from './event-processing.js';
+import { RoundsSpinner } from './RoundsSpinner.js';
 
 // Icons
 
@@ -246,7 +247,7 @@ export default function AgentActivityBlock({
         <ChevronIcon expanded={expanded} />
         {isLive ? (
           <>
-            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+            <RoundsSpinner className="w-3.5 h-3.5 text-on-surface-variant" />
             <span className="text-xs text-on-surface-variant truncate">{summaryText}</span>
           </>
         ) : (
@@ -271,7 +272,7 @@ export default function AgentActivityBlock({
             <div className="mt-1 px-3 pb-2 border-l border-outline-variant">
               {preStatus && activityGroups.length === 0 && (
                 <div className="flex items-center gap-2 py-1.5">
-                  <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
+                  <RoundsSpinner className="w-3.5 h-3.5 text-on-surface-variant" />
                   <span className="text-xs text-on-surface-variant">{preStatus}</span>
                 </div>
               )}

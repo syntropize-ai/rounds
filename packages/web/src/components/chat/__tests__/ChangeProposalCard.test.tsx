@@ -38,16 +38,16 @@ describe('derivedDiffBullets', () => {
       queries: [{ expr: 'a'.repeat(120) }],
     };
     const bullets = derivedDiffBullets('add_panel', null, after);
-    expect(bullets[0]).toBe('新增面板: CPU');
-    expect(bullets[1]).toBe('可视化: time_series');
-    expect(bullets[2]).toMatch(/^查询: a+…$/);
+    expect(bullets[0]).toBe('Panel: CPU');
+    expect(bullets[1]).toBe('Visualization: time_series');
+    expect(bullets[2]).toMatch(/^Query: a+…$/);
     expect(bullets[2]!.length).toBeLessThanOrEqual(80);
   });
 
   it('describes remove_panel with the title from beforeJson', () => {
     const before = { title: 'Gone' };
     const bullets = derivedDiffBullets('remove_panel', before, null);
-    expect(bullets).toEqual(['删除面板: Gone']);
+    expect(bullets).toEqual(['Removed panel: Gone']);
   });
 
   it('describes set_title with both title and description deltas', () => {
@@ -55,8 +55,8 @@ describe('derivedDiffBullets', () => {
     const after = { title: 'B', description: 'y' };
     const bullets = derivedDiffBullets('set_title', before, after);
     expect(bullets).toHaveLength(2);
-    expect(bullets[0]).toContain('标题');
-    expect(bullets[1]).toContain('描述');
+    expect(bullets[0]).toContain('Title');
+    expect(bullets[1]).toContain('Description');
   });
 
   it('describes add_variable with name + default', () => {
@@ -64,7 +64,7 @@ describe('derivedDiffBullets', () => {
       name: 'datasource',
       defaultValue: 'prom',
     });
-    expect(bullets).toEqual(['新增变量: datasource (default: prom)']);
+    expect(bullets).toEqual(['Variable: datasource (default: prom)']);
   });
 });
 
@@ -85,7 +85,7 @@ describe('ChangeProposalCard render', () => {
     );
     expect(html).toContain('change-proposal-apply-p1');
     expect(html).toContain('change-proposal-cancel-p1');
-    expect(html).toContain('待你确认');
+    expect(html).toContain('Pending your approval');
   });
 
   it('omits Apply/Cancel in accepted state and shows the header', () => {
@@ -93,14 +93,14 @@ describe('ChangeProposalCard render', () => {
       <ChangeProposalCard {...baseProps} initialStatus="accepted" resolvedAt="2026-05-17T09:00:00Z" />,
     );
     expect(html).not.toContain('change-proposal-apply-p1');
-    expect(html).toContain('已应用');
+    expect(html).toContain('Applied');
   });
 
   it('renders rejected state with muted opacity', () => {
     const html = renderToStaticMarkup(
       <ChangeProposalCard {...baseProps} initialStatus="rejected" />,
     );
-    expect(html).toContain('已取消');
+    expect(html).toContain('Cancelled');
     expect(html).toMatch(/opacity-\d/);
   });
 
@@ -108,7 +108,7 @@ describe('ChangeProposalCard render', () => {
     const html = renderToStaticMarkup(
       <ChangeProposalCard {...baseProps} initialStatus="expired" />,
     );
-    expect(html).toContain('已过期');
+    expect(html).toContain('Expired');
     expect(html).toContain('自动清理');
   });
 
@@ -116,7 +116,7 @@ describe('ChangeProposalCard render', () => {
     const html = renderToStaticMarkup(
       <ChangeProposalCard {...baseProps} initialStatus="pending" controlledStatus="accepted" />,
     );
-    expect(html).toContain('已应用');
+    expect(html).toContain('Applied');
     expect(html).not.toContain('change-proposal-apply-p1');
   });
 });

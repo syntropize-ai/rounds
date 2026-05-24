@@ -12,10 +12,10 @@ import type {
  * tool_call, user clicks Apply or Cancel, conversation continues.
  *
  * Status transitions:
- *   pending  → ✓ 应用 / ✗ 取消 buttons visible
- *   accepted → header turns to "已应用", buttons hidden
- *   rejected → header turns to "已取消", muted
- *   expired  → header turns to "已过期", subtitle explains TTL
+ *   pending  → ✓ Apply / ✗ Cancel buttons visible
+ *   accepted → header turns to "Applied", buttons hidden
+ *   rejected → header turns to "Cancelled", muted
+ *   expired  → header turns to "Expired", subtitle explains TTL
  */
 export interface ChangeProposalProps {
   proposalId: string;
@@ -106,23 +106,23 @@ export function derivedDiffBullets(
     const after = (afterJson as Record<string, unknown> | null) ?? {};
     const title = typeof after['title'] === 'string' ? (after['title'] as string) : '(untitled)';
     const viz = typeof after['visualization'] === 'string' ? (after['visualization'] as string) : '?';
-    bullets.push(`新增面板: ${title}`);
-    bullets.push(`可视化: ${viz}`);
+    bullets.push(`Panel: ${title}`);
+    bullets.push(`Visualization: ${viz}`);
     const qs = after['queries'] as Array<{ expr?: string }> | undefined;
     const expr = qs?.[0]?.expr;
-    if (expr) bullets.push(`查询: ${trunc(expr, 60)}`);
+    if (expr) bullets.push(`Query: ${trunc(expr, 60)}`);
   } else if (changeKind === 'remove_panel') {
     const before = (beforeJson as Record<string, unknown> | null) ?? {};
     const title = typeof before['title'] === 'string' ? (before['title'] as string) : '(untitled)';
-    bullets.push(`删除面板: ${title}`);
+    bullets.push(`Removed panel: ${title}`);
   } else if (changeKind === 'set_title') {
     const before = (beforeJson as Record<string, unknown> | null) ?? {};
     const after = (afterJson as Record<string, unknown> | null) ?? {};
     if (before['title'] !== after['title']) {
-      bullets.push(`标题: ${fmt(before['title'])} → ${fmt(after['title'])}`);
+      bullets.push(`Title: ${fmt(before['title'])} → ${fmt(after['title'])}`);
     }
     if ((before['description'] ?? '') !== (after['description'] ?? '')) {
-      bullets.push(`描述: ${fmt(before['description'])} → ${fmt(after['description'])}`);
+      bullets.push(`Description: ${fmt(before['description'])} → ${fmt(after['description'])}`);
     }
   } else if (changeKind === 'add_variable') {
     const v = (afterJson as Record<string, unknown> | null) ?? {};
@@ -133,7 +133,7 @@ export function derivedDiffBullets(
           ? (v['key'] as string)
           : '?';
     const def = v['defaultValue'] ?? v['current'] ?? '';
-    bullets.push(`新增变量: ${name}${def ? ` (default: ${String(def)})` : ''}`);
+    bullets.push(`Variable: ${name}${def ? ` (default: ${String(def)})` : ''}`);
   }
 
   return bullets;
@@ -144,22 +144,22 @@ const STATUS_PRESENTATION: Record<
   { header: string; borderClass: string; opacityClass: string }
 > = {
   pending: {
-    header: '待你确认',
+    header: 'Pending your approval',
     borderClass: 'border-amber-400/50',
     opacityClass: '',
   },
   accepted: {
-    header: '已应用',
+    header: 'Applied',
     borderClass: 'border-emerald-500/50',
     opacityClass: '',
   },
   rejected: {
-    header: '已取消',
+    header: 'Cancelled',
     borderClass: 'border-outline-variant',
     opacityClass: 'opacity-60',
   },
   expired: {
-    header: '已过期',
+    header: 'Expired',
     borderClass: 'border-outline-variant',
     opacityClass: 'opacity-50',
   },
@@ -286,7 +286,7 @@ export default function ChangeProposalCard(props: ChangeProposalProps) {
             disabled={busy}
             className="px-2.5 py-1 rounded text-xs font-semibold bg-amber-400 text-amber-950 hover:bg-amber-300 disabled:opacity-50 transition-colors"
           >
-            ✓ 应用
+            ✓ Apply
           </button>
           <button
             type="button"
@@ -295,7 +295,7 @@ export default function ChangeProposalCard(props: ChangeProposalProps) {
             disabled={busy}
             className="px-2.5 py-1 rounded text-xs border border-outline-variant text-on-surface-variant hover:bg-surface-high disabled:opacity-50 transition-colors"
           >
-            ✗ 取消
+            ✗ Cancel
           </button>
         </div>
       )}

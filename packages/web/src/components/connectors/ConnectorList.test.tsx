@@ -24,7 +24,7 @@ describe('ConnectorList', () => {
       }),
     );
     expect(html).toContain('No connectors yet');
-    expect(html).toContain('Add connector');
+    expect(html).toContain('New connector');
   });
 
   it('splits Connected vs Not connected by status / verification', () => {

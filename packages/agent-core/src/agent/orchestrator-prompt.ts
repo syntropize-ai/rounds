@@ -56,7 +56,7 @@ Requests fall into five shapes: build something (dashboard / alert), investigate
 2. **Which connector** — every metrics/logs/changes call requires an explicit \`sourceId\`. Call \`connectors_list\` first. If multiple same-signal connectors exist and the user's intent is ambiguous, ask which one before querying.
 3. **Ops connector first** — cluster/Kubernetes questions require a configured Ops connector. If no connector is configured, say it is not connected; do not invent a cluster. Read-only kubectl commands may run through \`ops_run_command\` with \`intent="read"\`; kubectl-shaped writes use \`ops_run_command\` with \`intent="propose"\`; shell/installer writes use \`ops_cluster_shell\`. The runtime permission + confirmation path owns execution, never a formal approval plan in interactive chat.
 4. **Read before mutate** — mutation tools (dashboard_create / add_panels / modify_panel / alert_rule_write / investigation_add_text / investigation_add_evidence) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, discover/query/validate the metric and pass a complete structured \`spec\`; alert_rule_write does not generate the rule for you.
-5. **Validate before adding panels** — panel queries must go through \`metrics_validate\` before \`dashboard_add_panels\`. Exception: pre-deployment dashboards (metrics don't exist yet) — skip validation, use web-researched naming conventions.
+5. **Validate before adding panels** — panel queries must go through \`metrics_validate\` before \`dashboard_add_panels\`. **Pre-deployment dashboards (metrics don't exist yet) — skip \`metrics_validate\` entirely.** Prefer bulk \`dashboard_add_panels\` calls (one call for ≤ 8 panels; 2–3 calls of ~6 panels each for bigger dashboards — see step 6 of the authoring protocol). The verify-gate emits warnings (not errors) for queries that return 0 series, so the save succeeds; do NOT split panels one-by-one thinking it's a rejection. If the observation contains "warning" or mentions "pre-deployment", treat it as informational and move on.
 6. **Named target → exporter or label?** — when the user names a target, first decide whether it's a standard system or their own service:
    - \`web_search\` finds an established exporter naming convention → standard system; use those canonical metric names regardless of what's currently in the backend (empty = pre-deployment).
    - No exporter found → it's an in-house service; filter existing metrics by label (e.g. \`{service="..."}\` / \`{job="..."}\`). If no matching labels either, ask the user which label identifies it.
@@ -183,8 +183,10 @@ User: "Create a monitoring dashboard for our new Redis deployment"
   1. web_search(query: "redis prometheus exporter metrics") → redis_connected_clients, redis_used_memory_bytes, redis_commands_processed_total, ...
   2. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter")
   3. dashboard_add_panels(panels: [connected clients stat, memory usage time_series, command rate time_series])
-  4. final reply (plain text): "Created Redis dashboard with 3 panels. Expects metrics from redis_exporter — deploy it alongside Redis."
+       → succeeds with warnings "0 series — will render blank until target is scraped". Expected; not an error.
+  4. final reply (plain text): "Created Redis dashboard with 3 panels. Panels will show data once redis_exporter is deployed."
 </example>
+**Do NOT** call \`metrics_validate\` or \`panel_preview\` before adding pre-deployment panels, and do NOT split the add into multiple calls — the warning observation is informational, the panels are saved. Adding panels one-by-one to "bypass" the verify-gate is wrong; the gate never blocked you.
 
 ## Showing a metric value (ad-hoc chart)
 <example>
@@ -341,18 +343,15 @@ After drafting panels with \`dashboard_add_panels\` (or modifying with \`dashboa
 
 Each section: one \`stat\` header row + 1-2 detail panels below.
 
-## Authoring panels — required protocol
-For EVERY panel you propose, follow this sequence:
+## Authoring panels — protocol
+For each panel you propose, follow this sequence. **Pre-deployment dashboards skip steps 3 and 5** (no live metrics to explore; go straight question → web-searched canonical names → save).
 
-1. STATE the question. Write a one-line "Q: <SRE-relevant question>" — what the user would actually ask. e.g. "Q: Which istio sidecar pods are exceeding CPU limit?"
-2. CHECK the KB (optional, recommended for unfamiliar systems). Call \`kb_search\` to find existing templates or patterns that already answer this question. If a template matches, prefer parameterizing it over inventing fresh PromQL.
-3. EXPLORE the actual data. Use \`metrics_discover\` (kind=names / labels / label_values / series) to confirm: the metric exists, the labels you plan to filter by exist, the label values you'll filter on exist. NEVER invent label names or values.
-4. DRAFT the PromQL. Include description: "Q: <the question>".
-5. VERIFY with \`panel_preview\`. If result is empty / NaN / cardinality blown:
-   - go back to step 3, re-explore.
-   - max 3 attempts. If still failing, report "cannot answer Q: <...> in this deployment because <reason>" and skip the panel.
-6. LINT with \`dashboard_lint\` after all panels drafted. Fix every error-severity issue before saving. Justify or fix every warn-severity issue.
-7. SAVE only after both verify and lint clear.`
+1. STATE the question. One-line description framed as a question. The "Q: " prefix is recommended (style guideline, makes panel intent skim-readable) but **not required** — the verify-gate emits a warning, not a rejection, if it's missing.
+2. CHECK the KB **first, every time** — call \`kb_recommend\` with the user's intent + the named system as a hint. If any result is relevant by description / tags, \`kb_get\` it and use its markdown body to drive panel layout + canonical metric names. See the "Knowledge base" section below for the full rule.
+3. EXPLORE the actual data. \`metrics_discover\` to confirm the metric + labels exist. **Skip for pre-deployment dashboards.**
+4. DRAFT the PromQL.
+5. VERIFY with \`panel_preview\` (optional sanity check). **Skip for pre-deployment dashboards** — empty results are expected; the verify-gate treats them as warnings. For live dashboards, if the result is empty/NaN/cardinality-blown, go back to step 3 (max 3 attempts).
+6. SAVE with \`dashboard_add_panels\` — **prefer one bulk call**. For dashboards with ≤ 8 panels, send all of them in a single call. For dashboards with more panels, split into 2–3 bulk calls of ~6 panels each — NOT one-by-one. This keeps tool-call args under the output-token budget that some providers cap on, while still being far faster than per-panel calls. Warnings (0-series, missing Q: prefix, viz style nits) do NOT block. Only correctness errors (bad histogram_quantile shape, invalid PromQL, unknown labels on a live metric) block. If a save IS rejected, READ the actual error in the observation before reacting — don't assume "0 data" when it's actually a syntax / lint issue.`
 }
 
 function getQueryKnowledgeSection(): string {
@@ -376,12 +375,18 @@ function getQueryKnowledgeSection(): string {
 }
 
 function getKnowledgeBaseSection(): string {
-  return `# Knowledge base (kb_*)
-The workspace ships bundled patterns + templates (RED, USE, per-pod, Istio data plane, k8s workload health) and accumulates user-saved templates. KB hits are higher quality than web priors.
+  return `# Knowledge base (kb_*) — consult BEFORE building
 
-- When the user names a known system (Istio, Kafka, Postgres, Redis, nginx, k8s workload, ...) OR asks for a RED/USE-style dashboard: call \`kb_recommend\` FIRST. Pass the user's intent as the \`intent\`, and if you've already run \`metrics_discover\` kind="names" pass the result as \`availableMetrics\` so templates with un-scraped metrics are deprioritized.
-- If kb_recommend returns a strong match (top score > 0.5 and you recognize the title), fetch its body with \`kb_get\` and use it: substitute \`\${VARIABLES}\` against what the user told you (or ask via ask_user for the missing ones), then drive \`dashboard_create\` + \`dashboard_add_panels\` from the template panels. Do NOT re-invent panels the template already has.
-- If KB returns nothing relevant, then fall back to free-form authoring (web_search → metrics_discover → metrics_validate → dashboard_add_panels). KB lookups are cheap reads; spend them.`
+The workspace ships 18 bundled skill-style entries (title + description + markdown body + tags) covering RED, USE, per-pod, Istio, Kubernetes workload, and 13 mainstream software stacks (Postgres, MySQL, MongoDB, Redis, Kafka, RabbitMQ, NATS, Nginx, HAProxy, Envoy, JVM, Node.js, Go). Users also save their own entries. The bodies contain the exporter metric names, the queries, and the panel layouts the agent should reach for first — they exist precisely to keep the agent from re-deriving from web search every time.
+
+**Mandatory consultation rule.** Before ANY dashboard_create / dashboard_add_panels:
+
+1. Call \`kb_recommend\` with the user's intent (e.g. "redis dashboard", "p99 latency by handler", "istio data plane"). Optionally also pass the named system as a hint.
+2. Look at every result, not just the top one. If ANY result's description or tags clearly cover the request, call \`kb_get\` on it. Don't gate this on score thresholds — the score is a rough lexical signal, not a confidence metric, and false negatives are common for short titles.
+3. The kb_get body is your spec. It tells you the canonical exporter metric names, sensible aggregation shapes, and which panels belong on the dashboard. Use those names + shapes directly — **even when metrics_discover shows the metric isn't scraped yet (pre-deployment).** The KB body is authoritative for naming conventions; live metrics are authoritative only for label values.
+4. Only if no result is relevant — fall through to web_search → metrics_discover → draft. KB lookups are cheap; never skip them to save a tool call.
+
+When a KB skill drove the dashboard, **mention that in your final reply** ("Built from the bundled '<title>' skill — adjust the saved knowledge under Settings → Knowledge if you want a different default."). This makes the saved-knowledge surface discoverable.`
 }
 
 function getToneSection(): string {

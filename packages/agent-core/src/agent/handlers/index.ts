@@ -82,6 +82,13 @@ export { handleNavigate } from './navigation.js';
 export { handleFolderCreate, handleFolderList } from './folder.js';
 export { handleOpsRunCommand, handleOpsClusterShell } from './ops.js';
 
+export {
+  handleGithubListRepos,
+  handleGithubListPrs,
+  handleGithubGetPr,
+  handleGithubGetDiff,
+} from './github-tools.js';
+
 export { handleRemediationPlanCreate, handleRemediationPlanCreateRescue } from './remediation-plan.js';
 
 export { handleKbSearch } from './kb-search.js';

@@ -1,16 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { slideIn } from '../animations.js';
 import type { ChatEvent } from '../hooks/useDashboardChat.js';
-import { groupEvents, liveAgentBlockId } from './chat/event-processing.js';
-import { UserMessage, AssistantMessage, ErrorMessage } from './chat/MessageComponents.js';
-import AgentActivityBlock from './chat/AgentActivityBlock.js';
-import AskUserPrompt from './chat/AskUserPrompt.js';
-import { DatasourceChoiceChip } from './chat/DatasourceChoiceChip.js';
-import InlineChartMessage from './InlineChartMessage.js';
-import ChangeProposalCard from './chat/ChangeProposalCard.js';
-import OpsCommandConfirmCard from './chat/OpsCommandConfirmCard.js';
-import type { PendingChangeKind, PendingChangeStatus } from '../types/pending-changes.js';
+import { ErrorMessage } from './chat/MessageComponents.js';
+import ChatTranscript from './chat/ChatTranscript.js';
+import type { PendingChangeStatus } from '../types/pending-changes.js';
 import { RoundsLogo } from './RoundsLogo.js';
 
 // Types
@@ -46,21 +40,15 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
   const prevEventCountRef = useRef(events.length);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  const proposalStatusMap = useMemo(() => {
-    const out: Record<string, PendingChangeStatus> = {};
-    if (proposalStatusOverlay) {
-      for (const [id, status] of proposalStatusOverlay) out[id] = status;
-    }
-    return out;
-  }, [proposalStatusOverlay]);
-  const blocks = useMemo(
-    () => groupEvents(events, proposalStatusMap),
-    [events, proposalStatusMap],
-  );
-  const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
-
+  // First mount jumps to the bottom instantly (no animated scroll-from-top
+  // when the page reloads with N existing messages). Subsequent length
+  // changes (new live events) smooth-scroll.
+  const didInitialScrollRef = useRef(false);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (events.length === 0) return;
+    const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'instant';
+    bottomRef.current?.scrollIntoView({ behavior });
+    didInitialScrollRef.current = true;
   }, [events.length]);
 
   useEffect(() => {
@@ -246,94 +234,12 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
           </div>
         )}
 
-        {blocks.map((block) => {
-          if (block.type === 'message') {
-            const evt = block.event;
-            if (evt.kind === 'error') {
-              return <ErrorMessage key={evt.id} content={evt.content ?? 'An error occurred'} />;
-            }
-            if (evt.kind === 'ask_user') {
-              return (
-                <AskUserPrompt
-                  key={evt.id}
-                  question={evt.question ?? ''}
-                  options={evt.options ?? []}
-                  onSelect={(id) => onSendMessage(`option:${id}`)}
-                />
-              );
-            }
-            if (evt.kind === 'inline_chart' && evt.inlineChart) {
-              const c = evt.inlineChart;
-              return (
-                <InlineChartMessage
-                  key={evt.id}
-                  id={c.id}
-                  initialQuery={c.query}
-                  initialTimeRange={c.timeRange}
-                  initialSeries={c.series}
-                  initialSummary={c.summary}
-                  metricKind={c.metricKind}
-                  datasourceId={c.datasourceId}
-                  pivotSuggestions={c.pivotSuggestions}
-                  warnings={c.warnings}
-                  onSendMessage={onSendMessage}
-                />
-              );
-            }
-            if (evt.kind === 'pending_change_created' && evt.pendingChange) {
-              const p = evt.pendingChange;
-              const overlay = proposalStatusOverlay?.get(p.id);
-              return (
-                <ChangeProposalCard
-                  key={evt.id}
-                  proposalId={p.id}
-                  dashboardId={p.dashboardId}
-                  panelId={p.panelId ?? null}
-                  changeKind={(p.changeKind as PendingChangeKind) ?? 'modify_panel'}
-                  summary={p.summary ?? 'Proposed change'}
-                  beforeJson={p.beforeJson}
-                  afterJson={p.afterJson}
-                  initialStatus={(p.status as PendingChangeStatus) ?? 'pending'}
-                  {...(overlay ? { controlledStatus: overlay } : {})}
-                />
-              );
-            }
-            if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation) {
-              return <OpsCommandConfirmCard key={evt.id} confirmation={evt.opsConfirmation} />;
-            }
-            if (evt.kind === 'ds_choice') {
-              return (
-                <DatasourceChoiceChip
-                  key={evt.id}
-                  chosenName={evt.chosenName ?? ''}
-                  reason={evt.chooseReason ?? ''}
-                  confidence={evt.confidence ?? 'low'}
-                  alternatives={evt.alternatives ?? []}
-                  onSwitch={(altId) => onSendMessage(`option:${altId}`)}
-                />
-              );
-            }
-            if (evt.message?.role === 'user') {
-              return <UserMessage key={evt.id} content={evt.message.content} />;
-            }
-            if (evt.message?.role === 'assistant') {
-              return <AssistantMessage key={evt.id} content={evt.message.content} />;
-            }
-            return null;
-          }
-
-          if (block.type === 'agent') {
-            return (
-              <AgentActivityBlock
-                key={block.id}
-                events={block.events}
-                isLive={block.id === liveBlockId}
-              />
-            );
-          }
-
-          return null;
-        })}
+        <ChatTranscript
+          events={events}
+          isGenerating={isGenerating}
+          onSendMessage={onSendMessage}
+          proposalStatusOverlay={proposalStatusOverlay}
+        />
 
         <div ref={bottomRef} />
       </div>
@@ -355,29 +261,32 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
               el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
             }}
           />
-          {isGenerating && onStop && (
+          {isGenerating && onStop ? (
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-12 bottom-3 w-8 h-8 bg-surface-highest hover:bg-error/20 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
               title="Stop"
+              aria-label="Stop"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                 <rect x="5" y="5" width="10" height="10" rx="1" />
               </svg>
             </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+              title="Send"
+              aria-label="Send"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z" clipRule="evenodd" transform="rotate(-90 10 10)" />
+              </svg>
+            </button>
           )}
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!input.trim()}
-            className="absolute right-3 bottom-3 w-8 h-8 bg-primary hover:bg-primary-container flex items-center justify-center text-on-primary-fixed transition-colors disabled:opacity-30"
-            title="Send"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z" clipRule="evenodd" transform="rotate(-90 10 10)" />
-            </svg>
-          </button>
         </div>
         {!isGenerating && (
           <p className="text-[10px] text-center text-on-surface-variant/50">

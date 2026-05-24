@@ -72,6 +72,10 @@ export interface OrchestratorDeps {
   sessionConnectorPins?: Record<string, string>
   opsCommandRunner?: OpsCommandRunner
   opsConnectors?: OpsConnectorConfig[]
+  /** GitHub VCS read surface. Wired by chat-service when both connectorRepo
+   *  and githubAppTokenService are available; agent-core depends on the
+   *  interface only. */
+  githubToolRunner?: import('./agent-types.js').GithubToolRunner
   /** P4 — when present, registers remediation_plan.create + .create_rescue tools. */
   remediationPlans?: RemediationPlanStore
   /** P4 — used to auto-emit a plan-level ApprovalRequest on plan creation. */

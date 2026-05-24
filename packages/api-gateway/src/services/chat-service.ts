@@ -45,6 +45,8 @@ import type {
   ILlmAuditRepository,
 } from '@agentic-obs/data-layer';
 import { KubectlOpsCommandRunner, connectorToOpsConfig } from './ops-command-runner.js';
+import { GithubToolRunner } from './github-tool-runner.js';
+import type { GithubAppTokenService } from './github-app-token-service.js';
 import type { OpsConnectorConfig } from '@agentic-obs/agent-core';
 
 const log = createLogger('chat-service');
@@ -244,6 +246,12 @@ export interface ChatServiceDeps {
    * ops tool reports "no ops connectors configured".
    */
   connectorRepo?: IConnectorRepository;
+  /**
+   * GitHub App installation-token service. When wired alongside
+   * `connectorRepo`, the four `github_*` agent tools are usable.
+   * Optional — without it, the agent reports "GitHub connector not configured".
+   */
+  githubAppTokenService?: GithubAppTokenService;
 }
 
 /**
@@ -434,6 +442,18 @@ export class ChatService {
           orgId: identity.orgId,
         })
       : undefined;
+    // GitHub tool runner: read-only VCS surface (github_list_repos /
+    // github_list_prs / github_get_pr / github_get_diff). Requires both the
+    // connector repo (for resolution + policy lookup) and the App token
+    // service (for installation-token mint). When either is missing, the
+    // handler falls back to "GitHub connector not configured".
+    const githubToolRunner = this.deps.connectorRepo && this.deps.githubAppTokenService
+      ? new GithubToolRunner({
+          tokens: this.deps.githubAppTokenService,
+          connectors: this.deps.connectorRepo,
+          orgId: identity.orgId,
+        })
+      : undefined;
     // Parse relative time range (e.g., "1h", "6h", "24h", "7d") to absolute
     // start/end. Carry the client's IANA timezone so the prompt can label
     // both UTC and local time — without that the agent can't reconcile a
@@ -549,6 +569,7 @@ export class ChatService {
         // Ops connector view derived from the connectors table — see filter above.
         opsConnectors,
         ...(opsCommandRunner ? { opsCommandRunner } : {}),
+        ...(githubToolRunner ? { githubToolRunner } : {}),
         // Live pin bag for this session — the agent mutates it via
         // connectors.pin/unpin and we read it back across messages.
         sessionConnectorPins: getSessionConnectorPins(resolvedSessionId),

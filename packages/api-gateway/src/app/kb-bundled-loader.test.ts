@@ -25,10 +25,26 @@ function inMemoryKbRepo(): IKnowledgeRepository {
       const out: KnowledgeEntry[] = [];
       for (const [k, v] of rows) {
         if (!k.startsWith(`${orgId}::`)) continue;
-        if (opts?.kind && v.kind !== opts.kind) continue;
+        if (opts?.source && v.source !== opts.source) continue;
         out.push(v);
       }
       return out;
+    },
+    async update(orgId, id, patch) {
+      const k = `${orgId}::${id}`;
+      const cur = rows.get(k);
+      if (!cur) return null;
+      const next: KnowledgeEntry = {
+        ...cur,
+        title: patch.title ?? cur.title,
+        description: patch.description ?? cur.description,
+        body: patch.body ?? cur.body,
+        intentTags: patch.intentTags ?? cur.intentTags,
+        sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : cur.sourceRef,
+        updatedAt: new Date().toISOString(),
+      };
+      rows.set(k, next);
+      return next;
     },
     async bumpUseCount() {},
     async recordFeedback() {},

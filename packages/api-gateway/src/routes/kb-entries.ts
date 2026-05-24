@@ -1,20 +1,18 @@
 /**
- * Knowledge-base entries HTTP surface (generic CRUD).
+ * Knowledge-base entries HTTP surface (skill-style unified CRUD).
  *
- *   GET    /api/kb/entries          — list (?kind=&source=&limit=)
+ *   GET    /api/kb/entries          — list (?source=&limit=)
  *   GET    /api/kb/entries/:id      — get by id
  *   POST   /api/kb/entries          — create (source forced to 'saved')
- *   PUT    /api/kb/entries/:id      — patch title/kind/intentTags/content/sourceRef
+ *   PUT    /api/kb/entries/:id      — patch title/description/body/intentTags/sourceRef
  *   DELETE /api/kb/entries/:id      — delete
  *
- * Bundled entries are read-only over HTTP: PUT/DELETE return 403 with
- * code BUNDLED_READONLY. The kb-templates router stays untouched and
- * remains the path for the "save dashboard as template" capture flow.
+ * Entries no longer carry a `kind` — every entry is a unified skill-style
+ * record (title + description + markdown body + tags). The old `?kind=`
+ * filter / `kind` field returns 400 so stale clients see the break.
  *
- * Permission gating mirrors kb-templates.ts: reads use `chat:use` as the
- * lowest read scope every authenticated caller has; writes use
- * `dashboards:create` + `folders:*` to match kb-templates POST. Both
- * swap to `kb:read` / `kb:write` once those RBAC actions land.
+ * Bundled entries are read-only over HTTP: PUT/DELETE return 403 with
+ * code BUNDLED_READONLY. POST with id starting `bundled-` returns 409.
  */
 
 import { Router } from 'express';
@@ -25,7 +23,6 @@ import {
   type IKnowledgeRepository,
   type KnowledgeEntry,
   type KnowledgeInsertInput,
-  type KnowledgeKind,
   type KnowledgeListOptions,
   type KnowledgePatch,
   type KnowledgeSource,
@@ -41,22 +38,14 @@ export interface KbEntriesRouterDeps {
   accessControl: AccessControlSurface;
 }
 
-const VALID_KINDS: readonly KnowledgeKind[] = [
-  'pattern',
-  'template',
-  'metric_doc',
-  'system_fact',
-];
 const VALID_SOURCES: readonly KnowledgeSource[] = ['bundled', 'saved', 'distilled'];
+
+const KIND_REMOVED_MSG = 'kind is no longer supported; entries are unified';
 
 function resolveOrgId(req: Request): string {
   const authed = (req as Request & { auth?: { orgId?: string } }).auth;
   if (authed?.orgId) return authed.orgId;
   return getOrgId(req);
-}
-
-function isKnowledgeKind(v: unknown): v is KnowledgeKind {
-  return typeof v === 'string' && (VALID_KINDS as readonly string[]).includes(v);
 }
 
 function isKnowledgeSource(v: unknown): v is KnowledgeSource {
@@ -66,9 +55,9 @@ function isKnowledgeSource(v: unknown): v is KnowledgeSource {
 interface CreateBody {
   id?: string;
   title: string;
-  kind: KnowledgeKind;
+  description: string;
+  body: string;
   intentTags: string[];
-  content: Record<string, unknown>;
   sourceRef?: string | null;
 }
 
@@ -77,23 +66,28 @@ function validateCreate(raw: unknown): { ok: true; body: CreateBody } | { ok: fa
     return { ok: false, message: 'body must be a JSON object' };
   }
   const b = raw as Record<string, unknown>;
+  if ('kind' in b) {
+    return { ok: false, message: KIND_REMOVED_MSG };
+  }
   if (typeof b['title'] !== 'string' || !b['title'].trim()) {
     return { ok: false, message: 'title is required' };
   }
-  if (!isKnowledgeKind(b['kind'])) {
-    return { ok: false, message: `kind must be one of: ${VALID_KINDS.join(', ')}` };
+  if (typeof b['description'] !== 'string' || !b['description'].trim()) {
+    return { ok: false, message: 'description is required' };
   }
-  if (!Array.isArray(b['intentTags']) || !b['intentTags'].every((t) => typeof t === 'string')) {
-    return { ok: false, message: 'intentTags must be an array of strings' };
+  if ('body' in b && typeof b['body'] !== 'string') {
+    return { ok: false, message: 'body must be a string' };
   }
-  if (!b['content'] || typeof b['content'] !== 'object' || Array.isArray(b['content'])) {
-    return { ok: false, message: 'content must be an object' };
+  if ('intentTags' in b) {
+    if (!Array.isArray(b['intentTags']) || !b['intentTags'].every((t) => typeof t === 'string')) {
+      return { ok: false, message: 'intentTags must be an array of strings' };
+    }
   }
   const out: CreateBody = {
     title: b['title'].trim(),
-    kind: b['kind'],
-    intentTags: b['intentTags'] as string[],
-    content: b['content'] as Record<string, unknown>,
+    description: b['description'].trim(),
+    body: typeof b['body'] === 'string' ? b['body'] : '',
+    intentTags: Array.isArray(b['intentTags']) ? (b['intentTags'] as string[]) : [],
   };
   if (typeof b['id'] === 'string' && b['id'].trim()) out.id = b['id'].trim();
   if (b['sourceRef'] === null || typeof b['sourceRef'] === 'string') {
@@ -107,6 +101,9 @@ function validatePatch(raw: unknown): { ok: true; patch: KnowledgePatch } | { ok
     return { ok: false, message: 'body must be a JSON object' };
   }
   const b = raw as Record<string, unknown>;
+  if ('kind' in b) {
+    return { ok: false, message: KIND_REMOVED_MSG };
+  }
   const patch: KnowledgePatch = {};
   if ('title' in b) {
     if (typeof b['title'] !== 'string' || !b['title'].trim()) {
@@ -114,23 +111,23 @@ function validatePatch(raw: unknown): { ok: true; patch: KnowledgePatch } | { ok
     }
     patch.title = b['title'].trim();
   }
-  if ('kind' in b) {
-    if (!isKnowledgeKind(b['kind'])) {
-      return { ok: false, message: `kind must be one of: ${VALID_KINDS.join(', ')}` };
+  if ('description' in b) {
+    if (typeof b['description'] !== 'string' || !b['description'].trim()) {
+      return { ok: false, message: 'description must be a non-empty string' };
     }
-    patch.kind = b['kind'];
+    patch.description = b['description'].trim();
+  }
+  if ('body' in b) {
+    if (typeof b['body'] !== 'string') {
+      return { ok: false, message: 'body must be a string' };
+    }
+    patch.body = b['body'];
   }
   if ('intentTags' in b) {
     if (!Array.isArray(b['intentTags']) || !b['intentTags'].every((t) => typeof t === 'string')) {
       return { ok: false, message: 'intentTags must be an array of strings' };
     }
     patch.intentTags = b['intentTags'] as string[];
-  }
-  if ('content' in b) {
-    if (!b['content'] || typeof b['content'] !== 'object' || Array.isArray(b['content'])) {
-      return { ok: false, message: 'content must be an object' };
-    }
-    patch.content = b['content'];
   }
   if ('sourceRef' in b) {
     if (b['sourceRef'] !== null && typeof b['sourceRef'] !== 'string') {
@@ -144,11 +141,8 @@ function validatePatch(raw: unknown): { ok: true; patch: KnowledgePatch } | { ok
 function parseListQuery(req: Request): { ok: true; opts: KnowledgeListOptions } | { ok: false; message: string } {
   const opts: KnowledgeListOptions = {};
   const q = req.query as Record<string, unknown>;
-  if (typeof q['kind'] === 'string') {
-    if (!isKnowledgeKind(q['kind'])) {
-      return { ok: false, message: `kind must be one of: ${VALID_KINDS.join(', ')}` };
-    }
-    opts.kind = q['kind'];
+  if ('kind' in q) {
+    return { ok: false, message: KIND_REMOVED_MSG };
   }
   if (typeof q['source'] === 'string') {
     if (!isKnowledgeSource(q['source'])) {
@@ -242,10 +236,10 @@ export function createKbEntriesRouter(deps: KbEntriesRouterDeps): ExpressRouter 
           orgId,
           source: 'saved', // server-controlled — never trust the client.
           sourceRef: parsed.body.sourceRef ?? null,
-          kind: parsed.body.kind,
           title: parsed.body.title,
+          description: parsed.body.description,
+          body: parsed.body.body,
           intentTags: parsed.body.intentTags,
-          content: parsed.body.content,
           createdBy: userId,
         };
         const entry = await deps.knowledge.insert(input);

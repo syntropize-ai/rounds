@@ -25,7 +25,7 @@ function inMemoryKbRepo(): IKnowledgeRepository {
       const out: KnowledgeEntry[] = [];
       for (const [k, v] of rows) {
         if (!k.startsWith(`${orgId}::`)) continue;
-        if (opts?.kind && v.kind !== opts.kind) continue;
+        if (opts?.source && v.source !== opts.source) continue;
         out.push(v);
       }
       return out;
@@ -37,9 +37,9 @@ function inMemoryKbRepo(): IKnowledgeRepository {
       const next: KnowledgeEntry = {
         ...cur,
         title: patch.title ?? cur.title,
-        kind: patch.kind ?? cur.kind,
+        description: patch.description ?? cur.description,
+        body: patch.body ?? cur.body,
         intentTags: patch.intentTags ?? cur.intentTags,
-        content: patch.content !== undefined ? patch.content : cur.content,
         sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : cur.sourceRef,
         updatedAt: new Date().toISOString(),
       };

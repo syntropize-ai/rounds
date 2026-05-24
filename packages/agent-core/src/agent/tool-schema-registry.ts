@@ -1327,16 +1327,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'kb_search',
       description:
-        'Keyword-search the workspace knowledge base for bundled and saved templates and patterns. Call before web_search when the user names a known system.',
+        'Keyword-search the workspace knowledge base for bundled and saved skill-style entries (title + description + markdown body + tags). Call before web_search when the user names a known system.',
       input_schema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Free-text search query' },
-          kind: {
-            type: 'string',
-            enum: ['pattern', 'template', 'metric_doc', 'system_fact'],
-            description: 'Optional kind filter.',
-          },
           limit: { type: 'integer', description: 'Max entries to return (default 5, capped at 20)' },
         },
         required: ['query'],

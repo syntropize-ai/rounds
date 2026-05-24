@@ -36,6 +36,7 @@ export async function applyPostgresSchema(db: DbClient): Promise<void> {
     // rename. Runs inside the same tx as the CREATE TABLE IF NOT EXISTS so
     // either both happen or neither does.
     await renameLegacyUserTable(tx);
+    await dropLegacyKnowledgeEntriesTable(tx);
     for (const stmt of statements) {
       await tx.execute(sql.raw(stmt));
     }
@@ -72,6 +73,29 @@ async function fixLegacyBooleanColumns(tx: {
       $$;
     `));
   }
+}
+
+async function dropLegacyKnowledgeEntriesTable(tx: {
+  execute: (q: ReturnType<typeof sql>) => Promise<unknown>;
+}): Promise<void> {
+  // Skill-style refactor: legacy `knowledge_entries` had `kind` + `content`
+  // columns that no longer exist. Drop the whole table if those legacy cols
+  // are still present (no migration of rows — bundled seeds re-load on boot).
+  await tx.execute(sql.raw(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'knowledge_entries' AND column_name = 'kind'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'knowledge_entries' AND column_name = 'description'
+      ) THEN
+        EXECUTE 'DROP TABLE IF EXISTS knowledge_entries';
+      END IF;
+    END
+    $$;
+  `));
 }
 
 async function renameLegacyUserTable(tx: {

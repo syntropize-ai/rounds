@@ -22,10 +22,10 @@ function buildEntry(overrides: Partial<InsertInput> = {}): InsertInput {
     orgId: overrides.orgId ?? ORG,
     source: overrides.source ?? 'bundled',
     sourceRef: overrides.sourceRef ?? null,
-    kind: overrides.kind ?? 'pattern',
     title: overrides.title ?? 'Sample entry',
+    description: overrides.description ?? 'When investigating latency issues.',
+    body: overrides.body ?? '# Body\n\nMarkdown content.',
     intentTags: overrides.intentTags ?? ['latency', 'p99'],
-    content: overrides.content ?? { promql: 'up' },
     createdBy: overrides.createdBy ?? null,
   };
 }
@@ -53,12 +53,12 @@ describeIfPg('PostgresKnowledgeRepository', () => {
   it('insert + getById round-trip preserves every field', async () => {
     const repo = new PostgresKnowledgeRepository(db);
     const input = buildEntry({
-      kind: 'template',
       source: 'saved',
       sourceRef: 'tmpl-1',
       title: 'Latency p99',
+      description: 'Use when triaging slow endpoints.',
+      body: '## Steps\n\n1. Query p99\n2. Group by service',
       intentTags: ['latency', 'service'],
-      content: { panels: [{ title: 'p99' }] },
       createdBy: 'u-1',
     });
     const saved = await repo.insert(input);
@@ -66,9 +66,10 @@ describeIfPg('PostgresKnowledgeRepository', () => {
     expect(saved.id).toBe(input.id);
     expect(saved.source).toBe('saved');
     expect(saved.sourceRef).toBe('tmpl-1');
-    expect(saved.kind).toBe('template');
+    expect(saved.title).toBe('Latency p99');
+    expect(saved.description).toBe(input.description);
+    expect(saved.body).toBe(input.body);
     expect(saved.intentTags).toEqual(['latency', 'service']);
-    expect(saved.content).toEqual({ panels: [{ title: 'p99' }] });
     expect(saved.useCount).toBe(0);
     expect(saved.approvedCount).toBe(0);
     expect(saved.rejectedCount).toBe(0);
@@ -88,17 +89,14 @@ describeIfPg('PostgresKnowledgeRepository', () => {
     expect(await repo.getById('org-b', e.id)).toBeNull();
   });
 
-  it('list filters by kind/source and respects limit', async () => {
+  it('list filters by source and respects limit', async () => {
     const repo = new PostgresKnowledgeRepository(db);
-    await repo.insert(buildEntry({ kind: 'pattern', source: 'bundled' }));
-    await repo.insert(buildEntry({ kind: 'pattern', source: 'saved' }));
-    await repo.insert(buildEntry({ kind: 'template', source: 'bundled' }));
+    await repo.insert(buildEntry({ source: 'bundled' }));
+    await repo.insert(buildEntry({ source: 'saved' }));
+    await repo.insert(buildEntry({ source: 'bundled' }));
 
-    expect(await repo.list(ORG, { kind: 'pattern' })).toHaveLength(2);
     expect(await repo.list(ORG, { source: 'bundled' })).toHaveLength(2);
-    expect(
-      await repo.list(ORG, { kind: 'pattern', source: 'bundled' }),
-    ).toHaveLength(1);
+    expect(await repo.list(ORG, { source: 'saved' })).toHaveLength(1);
     expect(await repo.list(ORG, { limit: 1 })).toHaveLength(1);
   });
 
@@ -120,6 +118,23 @@ describeIfPg('PostgresKnowledgeRepository', () => {
     expect(after!.rejectedCount).toBe(1);
   });
 
+  it('update patches title/description/body/intentTags/sourceRef', async () => {
+    const repo = new PostgresKnowledgeRepository(db);
+    const e = await repo.insert(buildEntry({ title: 'old', description: 'old', body: 'old' }));
+    const updated = await repo.update(ORG, e.id, {
+      title: 'new',
+      description: 'new desc',
+      body: '# new body',
+      intentTags: ['x', 'y'],
+      sourceRef: 'ref-1',
+    });
+    expect(updated!.title).toBe('new');
+    expect(updated!.description).toBe('new desc');
+    expect(updated!.body).toBe('# new body');
+    expect(updated!.intentTags).toEqual(['x', 'y']);
+    expect(updated!.sourceRef).toBe('ref-1');
+  });
+
   it('delete removes the row', async () => {
     const repo = new PostgresKnowledgeRepository(db);
     const e = await repo.insert(buildEntry());
@@ -127,22 +142,22 @@ describeIfPg('PostgresKnowledgeRepository', () => {
     expect(await repo.getById(ORG, e.id)).toBeNull();
   });
 
-  it('listForSearch returns all when kind omitted, filters when provided', async () => {
+  it('listForSearch returns all when source omitted, filters when provided', async () => {
     const repo = new PostgresKnowledgeRepository(db);
-    await repo.insert(buildEntry({ kind: 'pattern' }));
-    await repo.insert(buildEntry({ kind: 'template' }));
+    await repo.insert(buildEntry({ source: 'bundled' }));
+    await repo.insert(buildEntry({ source: 'saved' }));
     expect(await repo.listForSearch(ORG)).toHaveLength(2);
-    expect(await repo.listForSearch(ORG, { kind: 'pattern' })).toHaveLength(1);
+    expect(await repo.listForSearch(ORG, { source: 'bundled' })).toHaveLength(1);
   });
 
-  it('getById throws when content column is corrupt JSON', async () => {
+  it('getById throws when intent_tags is corrupt JSON', async () => {
     const repo = new PostgresKnowledgeRepository(db);
     const e = await repo.insert(buildEntry());
     await db.execute(
-      sql`UPDATE knowledge_entries SET content = ${'{not json'} WHERE id = ${e.id}`,
+      sql`UPDATE knowledge_entries SET intent_tags = ${'{not json'} WHERE id = ${e.id}`,
     );
     await expect(repo.getById(ORG, e.id)).rejects.toThrow(
-      /corrupt JSON in column "content"/,
+      /corrupt JSON in column "intent_tags"/,
     );
   });
 });

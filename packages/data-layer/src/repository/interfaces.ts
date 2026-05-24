@@ -499,17 +499,17 @@ export interface IChatSessionEventRepository {
   ): MaybeAsync<ChatSessionEventRecord | null>;
 }
 
-// — KnowledgeEntry (B1 — KB foundation)
+// — KnowledgeEntry (skill-style: title + description + markdown body + tags)
 
 export interface KnowledgeEntry {
   id: string;
   orgId: string;
   source: 'bundled' | 'saved' | 'distilled';
   sourceRef: string | null;
-  kind: 'pattern' | 'template' | 'metric_doc' | 'system_fact';
   title: string;
+  description: string;
+  body: string;
   intentTags: string[];
-  content: unknown;
   useCount: number;
   approvedCount: number;
   rejectedCount: number;
@@ -584,7 +584,6 @@ export interface IKnowledgeRepository {
   list(
     orgId: string,
     opts?: {
-      kind?: KnowledgeEntry['kind'];
       source?: KnowledgeEntry['source'];
       limit?: number;
     },
@@ -593,7 +592,7 @@ export interface IKnowledgeRepository {
     orgId: string,
     id: string,
     patch: Partial<
-      Pick<KnowledgeEntry, 'title' | 'kind' | 'intentTags' | 'content' | 'sourceRef'>
+      Pick<KnowledgeEntry, 'title' | 'description' | 'body' | 'intentTags' | 'sourceRef'>
     >,
   ): Promise<KnowledgeEntry | null>;
   bumpUseCount(orgId: string, id: string): Promise<void>;
@@ -601,6 +600,9 @@ export interface IKnowledgeRepository {
   delete(orgId: string, id: string): Promise<void>;
   listForSearch(
     orgId: string,
-    opts?: { kind?: KnowledgeEntry['kind'] },
+    opts?: {
+      source?: KnowledgeEntry['source'];
+      limit?: number;
+    },
   ): Promise<KnowledgeEntry[]>;
 }

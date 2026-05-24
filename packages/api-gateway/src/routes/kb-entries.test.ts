@@ -1,5 +1,5 @@
 /**
- * Tests for the generic KB entries CRUD route.
+ * Tests for the generic KB entries CRUD route (unified skill-style shape).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import express from 'express';
@@ -57,7 +57,6 @@ function inMemoryKbRepo(): IKnowledgeRepository {
       const out: KnowledgeEntry[] = [];
       for (const [k, v] of rows) {
         if (!k.startsWith(`${orgId}::`)) continue;
-        if (opts?.kind && v.kind !== opts.kind) continue;
         if (opts?.source && v.source !== opts.source) continue;
         out.push(v);
       }
@@ -69,9 +68,9 @@ function inMemoryKbRepo(): IKnowledgeRepository {
       const next: KnowledgeEntry = {
         ...cur,
         title: patch.title ?? cur.title,
-        kind: patch.kind ?? cur.kind,
+        description: patch.description ?? cur.description,
+        body: patch.body ?? cur.body,
         intentTags: patch.intentTags ?? cur.intentTags,
-        content: patch.content !== undefined ? patch.content : cur.content,
         sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : cur.sourceRef,
         updatedAt: new Date().toISOString(),
       };
@@ -117,10 +116,10 @@ async function seed(repo: IKnowledgeRepository, overrides: Partial<KnowledgeInse
     orgId: overrides.orgId ?? 'org_main',
     source: overrides.source ?? 'saved',
     sourceRef: overrides.sourceRef ?? null,
-    kind: overrides.kind ?? 'pattern',
     title: overrides.title ?? 'sample',
+    description: overrides.description ?? 'sample description',
+    body: overrides.body ?? '',
     intentTags: overrides.intentTags ?? [],
-    content: overrides.content ?? { v: 1 },
     createdBy: overrides.createdBy ?? null,
   });
 }
@@ -141,20 +140,21 @@ describe('kb-entries route', () => {
       expect(res.body.entries).toEqual([]);
     });
 
-    it('filters by kind=template', async () => {
-      await seed(knowledge, { id: 't1', kind: 'template' });
-      await seed(knowledge, { id: 'p1', kind: 'pattern' });
+    it('filters by source=bundled', async () => {
+      await seed(knowledge, { id: 'b1', source: 'bundled' });
+      await seed(knowledge, { id: 's1', source: 'saved' });
       const app = buildApp(knowledge, makeAc());
-      const res = await request(app).get('/api/kb/entries?kind=template');
+      const res = await request(app).get('/api/kb/entries?source=bundled');
       expect(res.status).toBe(200);
       expect(res.body.entries).toHaveLength(1);
-      expect(res.body.entries[0].id).toBe('t1');
+      expect(res.body.entries[0].id).toBe('b1');
     });
 
-    it('rejects invalid kind with 400', async () => {
+    it('rejects ?kind= with 400 (kind is no longer supported)', async () => {
       const app = buildApp(knowledge, makeAc());
-      const res = await request(app).get('/api/kb/entries?kind=bogus');
+      const res = await request(app).get('/api/kb/entries?kind=template');
       expect(res.status).toBe(400);
+      expect(res.body.error.message).toMatch(/kind is no longer supported/);
     });
   });
 
@@ -180,49 +180,52 @@ describe('kb-entries route', () => {
       const res = await request(app)
         .post('/api/kb/entries')
         .send({
-          title: 'My pattern',
-          kind: 'pattern',
+          title: 'My skill',
+          description: 'Picks the right exporter for latency dashboards',
+          body: '# How to use\n\nDo X then Y.',
           intentTags: ['latency'],
-          content: { promql: 'up' },
           // client lies about source — must be ignored.
           source: 'bundled',
         });
       expect(res.status).toBe(201);
       expect(res.body.entry.source).toBe('saved');
-      expect(res.body.entry.title).toBe('My pattern');
-      expect(res.body.entry.kind).toBe('pattern');
+      expect(res.body.entry.title).toBe('My skill');
+      expect(res.body.entry.description).toBe('Picks the right exporter for latency dashboards');
+      expect(res.body.entry.body).toBe('# How to use\n\nDo X then Y.');
+    });
+
+    it('defaults body to empty string when omitted', async () => {
+      const app = buildApp(knowledge, makeAc());
+      const res = await request(app)
+        .post('/api/kb/entries')
+        .send({ title: 't', description: 'd', intentTags: [] });
+      expect(res.status).toBe(201);
+      expect(res.body.entry.body).toBe('');
     });
 
     it('returns 400 when title is missing', async () => {
       const app = buildApp(knowledge, makeAc());
       const res = await request(app)
         .post('/api/kb/entries')
-        .send({ kind: 'pattern', intentTags: [], content: {} });
+        .send({ description: 'd', body: '', intentTags: [] });
       expect(res.status).toBe(400);
     });
 
-    it('returns 400 when kind is missing', async () => {
+    it('returns 400 when description is missing', async () => {
       const app = buildApp(knowledge, makeAc());
       const res = await request(app)
         .post('/api/kb/entries')
-        .send({ title: 'x', intentTags: [], content: {} });
+        .send({ title: 't', body: '', intentTags: [] });
       expect(res.status).toBe(400);
     });
 
-    it('returns 400 when content is missing', async () => {
+    it('returns 400 when kind is present (kind is removed)', async () => {
       const app = buildApp(knowledge, makeAc());
       const res = await request(app)
         .post('/api/kb/entries')
-        .send({ title: 'x', kind: 'pattern', intentTags: [] });
+        .send({ title: 't', description: 'd', kind: 'pattern', intentTags: [] });
       expect(res.status).toBe(400);
-    });
-
-    it('returns 400 on invalid kind', async () => {
-      const app = buildApp(knowledge, makeAc());
-      const res = await request(app)
-        .post('/api/kb/entries')
-        .send({ title: 'x', kind: 'bogus', intentTags: [], content: {} });
-      expect(res.status).toBe(400);
+      expect(res.body.error.message).toMatch(/kind is no longer supported/);
     });
 
     it('returns 409 when id starts with "bundled-"', async () => {
@@ -231,10 +234,10 @@ describe('kb-entries route', () => {
         .post('/api/kb/entries')
         .send({
           id: 'bundled-foo',
-          title: 'x',
-          kind: 'pattern',
+          title: 't',
+          description: 'd',
+          body: '',
           intentTags: [],
-          content: {},
         });
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('BUNDLED_NAMESPACE');
@@ -244,22 +247,23 @@ describe('kb-entries route', () => {
       const app = buildApp(knowledge, makeAc({ allowWrite: false }));
       const res = await request(app)
         .post('/api/kb/entries')
-        .send({ title: 'x', kind: 'pattern', intentTags: [], content: {} });
+        .send({ title: 't', description: 'd', body: '', intentTags: [] });
       expect(res.status).toBe(403);
     });
   });
 
   describe('PUT /api/kb/entries/:id', () => {
-    it('returns 200 and applies title/intentTags/content', async () => {
-      const e = await seed(knowledge, { id: 'e1', title: 'old', intentTags: ['a'] });
+    it('returns 200 and applies title/description/body/intentTags', async () => {
+      const e = await seed(knowledge, { id: 'e1', title: 'old', description: 'old desc', intentTags: ['a'] });
       const app = buildApp(knowledge, makeAc());
       const res = await request(app)
         .put(`/api/kb/entries/${e.id}`)
-        .send({ title: 'new', intentTags: ['b'], content: { v: 2 } });
+        .send({ title: 'new', description: 'new desc', body: 'new body', intentTags: ['b'] });
       expect(res.status).toBe(200);
       expect(res.body.entry.title).toBe('new');
+      expect(res.body.entry.description).toBe('new desc');
+      expect(res.body.entry.body).toBe('new body');
       expect(res.body.entry.intentTags).toEqual(['b']);
-      expect(res.body.entry.content).toEqual({ v: 2 });
     });
 
     it('returns 403 BUNDLED_READONLY when entry is bundled', async () => {
@@ -280,12 +284,12 @@ describe('kb-entries route', () => {
       expect(res.status).toBe(404);
     });
 
-    it('returns 400 on invalid kind', async () => {
+    it('returns 400 when kind is present (kind is removed)', async () => {
       const e = await seed(knowledge);
       const app = buildApp(knowledge, makeAc());
       const res = await request(app)
         .put(`/api/kb/entries/${e.id}`)
-        .send({ kind: 'bogus' });
+        .send({ kind: 'pattern' });
       expect(res.status).toBe(400);
     });
   });

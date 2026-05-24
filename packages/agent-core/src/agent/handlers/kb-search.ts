@@ -1,16 +1,13 @@
 /**
- * `kb_search` — keyword search over the knowledge base, ranked by TF-IDF
- * across title + intent tags + content body. Returns the top N entries with a
- * short snippet so the model can pick one and follow up with `kb_get`.
+ * `kb_search` — keyword search over the unified knowledge base, ranked by
+ * TF-IDF across title + description + body + intentTags. Returns the top N
+ * entries with a short snippet so the model can pick one and follow up with
+ * `kb_get`.
  */
 
-import { tfIdfSearch, type KnowledgeKind } from '@agentic-obs/common';
+import { tfIdfSearch } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary } from './_shared.js';
-
-const VALID_KINDS: ReadonlySet<KnowledgeKind> = new Set<KnowledgeKind>([
-  'pattern', 'template', 'metric_doc', 'system_fact',
-]);
 
 export async function handleKbSearch(
   ctx: ActionContext,
@@ -19,10 +16,6 @@ export async function handleKbSearch(
   const query = typeof args['query'] === 'string' ? args['query'].trim() : '';
   if (!query) return 'Error: "query" is required.';
 
-  const kindArg = typeof args['kind'] === 'string' ? args['kind'] : undefined;
-  const kind = kindArg && VALID_KINDS.has(kindArg as KnowledgeKind)
-    ? (kindArg as KnowledgeKind)
-    : undefined;
   const limitArg = typeof args['limit'] === 'number' ? args['limit'] : 5;
   const limit = Math.max(1, Math.min(20, Math.floor(limitArg)));
 
@@ -34,19 +27,16 @@ export async function handleKbSearch(
   return withToolEventBoundary(
     ctx.sendEvent,
     'kb_search',
-    { query, kind, limit },
+    { query, limit },
     `Searching knowledge base for "${query.slice(0, 60)}"`,
     async () => {
-      const entries = await repo.listForSearch(
-        ctx.identity.orgId,
-        kind ? { kind } : {},
-      );
+      const entries = await repo.listForSearch(ctx.identity.orgId, {});
       if (entries.length === 0) {
         return 'No knowledge base entries available.';
       }
       const docs = entries.map((e) => ({
         id: e.id,
-        text: `${e.title}\n${e.intentTags.join(' ')}\n${safeStringify(e.content)}`,
+        text: `${e.title}\n${e.description}\n${e.intentTags.join(' ')}\n${e.body}`,
       }));
       const hits = tfIdfSearch(docs, query, limit);
       if (hits.length === 0) {
@@ -58,7 +48,7 @@ export async function handleKbSearch(
         return {
           id: e.id,
           title: e.title,
-          kind: e.kind,
+          description: e.description,
           source: e.source,
           score: Number(h.score.toFixed(4)),
           snippet: h.snippet,
@@ -67,12 +57,4 @@ export async function handleKbSearch(
       return JSON.stringify({ entries: out });
     },
   );
-}
-
-function safeStringify(v: unknown): string {
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
 }

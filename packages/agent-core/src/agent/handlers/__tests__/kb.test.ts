@@ -1,7 +1,7 @@
 /**
- * Tests for kb_search / kb_get / kb_recommend handlers.
+ * Tests for kb_search / kb_get / kb_recommend handlers (unified skill-style).
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type {
   IKnowledgeRepository,
   KnowledgeEntry,
@@ -14,8 +14,6 @@ import { makeFakeActionContext } from '../_test-helpers.js';
 
 function inMemoryKb(seed: KnowledgeInsertInput[] = []): IKnowledgeRepository {
   const rows = new Map<string, KnowledgeEntry>();
-  // Seed synchronously so the test body doesn't have to await before
-  // exercising the handler.
   for (const s of seed) {
     const now = new Date().toISOString();
     rows.set(`${s.orgId}::${s.id}`, {
@@ -38,7 +36,7 @@ function inMemoryKb(seed: KnowledgeInsertInput[] = []): IKnowledgeRepository {
       const out: KnowledgeEntry[] = [];
       for (const [k, v] of rows) {
         if (!k.startsWith(`${orgId}::`)) continue;
-        if (opts?.kind && v.kind !== opts.kind) continue;
+        if (opts?.source && v.source !== opts.source) continue;
         out.push(v);
       }
       return out;
@@ -49,9 +47,9 @@ function inMemoryKb(seed: KnowledgeInsertInput[] = []): IKnowledgeRepository {
       const next: KnowledgeEntry = {
         ...cur,
         title: patch.title ?? cur.title,
-        kind: patch.kind ?? cur.kind,
+        description: patch.description ?? cur.description,
+        body: patch.body ?? cur.body,
         intentTags: patch.intentTags ?? cur.intentTags,
-        content: patch.content !== undefined ? patch.content : cur.content,
         sourceRef: patch.sourceRef !== undefined ? patch.sourceRef : cur.sourceRef,
         updatedAt: new Date().toISOString(),
       };
@@ -69,55 +67,50 @@ function inMemoryKb(seed: KnowledgeInsertInput[] = []): IKnowledgeRepository {
   return repo;
 }
 
-const KAFKA_TEMPLATE: KnowledgeInsertInput = {
-  id: 'tpl-kafka',
+const KAFKA: KnowledgeInsertInput = {
+  id: 'sk-kafka',
   orgId: 'test-org',
   source: 'bundled',
   sourceRef: null,
-  kind: 'template',
   title: 'Kafka cluster overview',
+  description: 'Pick exporter metrics and panels for a Kafka cluster overview dashboard.',
+  body: 'Use kafka_server_brokertopicmetrics_messagesin_total and consumer lag metrics.',
   intentTags: ['kafka', 'consumer', 'lag'],
-  content: {
-    panels: [{
-      queries: [{ expr: 'sum(rate(kafka_server_brokertopicmetrics_messagesin_total[5m]))' }],
-    }],
-  },
   createdBy: null,
 };
-const REDIS_TEMPLATE: KnowledgeInsertInput = {
-  id: 'tpl-redis',
+const REDIS: KnowledgeInsertInput = {
+  id: 'sk-redis',
   orgId: 'test-org',
   source: 'bundled',
   sourceRef: null,
-  kind: 'template',
   title: 'Redis instance health',
+  description: 'Surface Redis instance health using redis_exporter metrics.',
+  body: 'Watch redis_connected_clients_info and memory usage.',
   intentTags: ['redis', 'cache'],
-  content: {
-    panels: [{ queries: [{ expr: 'redis_connected_clients_info' }] }],
-  },
   createdBy: null,
 };
-const RED_PATTERN: KnowledgeInsertInput = {
-  id: 'pat-red',
+const RED: KnowledgeInsertInput = {
+  id: 'sk-red',
   orgId: 'test-org',
   source: 'bundled',
   sourceRef: null,
-  kind: 'pattern',
   title: 'RED method',
+  description: 'Apply the RED method (Rate, Errors, Duration) to a request service.',
+  body: 'Use one panel-row per service with request rate, error rate, and duration.',
   intentTags: ['red', 'http'],
-  content: { applicableWhen: 'request services' },
   createdBy: null,
 };
 
 describe('handleKbSearch', () => {
   it('returns matching entries by intent tag', async () => {
     const ctx = makeFakeActionContext({
-      knowledge: inMemoryKb([KAFKA_TEMPLATE, REDIS_TEMPLATE, RED_PATTERN]),
+      knowledge: inMemoryKb([KAFKA, REDIS, RED]),
     });
     const out = await handleKbSearch(ctx, { query: 'kafka' });
     const parsed = JSON.parse(out);
     expect(parsed.entries.length).toBeGreaterThanOrEqual(1);
-    expect(parsed.entries[0].id).toBe('tpl-kafka');
+    expect(parsed.entries[0].id).toBe('sk-kafka');
+    expect(parsed.entries[0].description).toBeTypeOf('string');
   });
 
   it('returns a clear message when no KB repo is wired', async () => {
@@ -133,7 +126,7 @@ describe('handleKbSearch', () => {
   });
 
   it('reports zero matches gracefully', async () => {
-    const ctx = makeFakeActionContext({ knowledge: inMemoryKb([REDIS_TEMPLATE]) });
+    const ctx = makeFakeActionContext({ knowledge: inMemoryKb([REDIS]) });
     const out = await handleKbSearch(ctx, { query: 'kafka' });
     expect(out).toMatch(/No KB entries matched/);
   });
@@ -141,13 +134,16 @@ describe('handleKbSearch', () => {
 
 describe('handleKbGet', () => {
   it('returns the entry and bumps useCount', async () => {
-    const repo = inMemoryKb([KAFKA_TEMPLATE]);
+    const repo = inMemoryKb([KAFKA]);
     const ctx = makeFakeActionContext({ knowledge: repo });
-    const out = await handleKbGet(ctx, { id: 'tpl-kafka' });
-    expect(JSON.parse(out).entry.id).toBe('tpl-kafka');
+    const out = await handleKbGet(ctx, { id: 'sk-kafka' });
+    const parsed = JSON.parse(out);
+    expect(parsed.entry.id).toBe('sk-kafka');
+    expect(parsed.entry.description).toBeTypeOf('string');
+    expect(parsed.entry.body).toBeTypeOf('string');
     // bumpUseCount is fire-and-forget; allow microtasks to flush.
     await new Promise((r) => setImmediate(r));
-    const entry = await repo.getById('test-org', 'tpl-kafka');
+    const entry = await repo.getById('test-org', 'sk-kafka');
     expect(entry!.useCount).toBe(1);
   });
 
@@ -159,24 +155,20 @@ describe('handleKbGet', () => {
 });
 
 describe('handleKbRecommend', () => {
-  it('ranks intent-matching template higher than unrelated entries', async () => {
+  it('ranks intent-matching entry higher than unrelated entries', async () => {
     const ctx = makeFakeActionContext({
-      knowledge: inMemoryKb([KAFKA_TEMPLATE, REDIS_TEMPLATE, RED_PATTERN]),
+      knowledge: inMemoryKb([KAFKA, REDIS, RED]),
     });
     const out = await handleKbRecommend(ctx, { intent: 'kafka consumer lag dashboard' });
     const parsed = JSON.parse(out);
-    expect(parsed.entries[0].id).toBe('tpl-kafka');
+    expect(parsed.entries[0].id).toBe('sk-kafka');
     expect(parsed.entries.length).toBeLessThanOrEqual(3);
   });
 
-  it('penalizes templates whose required metrics are not exposed (server-side resolution)', async () => {
-    // Bug 1 fix: availableMetrics is no longer an LLM-supplied arg — the
-    // handler resolves it server-side from the metrics adapter. We wire
-    // two contexts: one with no adapter (coverage=0.5 unknown) and one
-    // whose adapter reports only redis metric names.
+  it('penalizes entries whose required metrics are not exposed (server-side resolution)', async () => {
     const { AdapterRegistry } = await import('../../../adapters/registry.js');
     const ctxNoAdapter = makeFakeActionContext({
-      knowledge: inMemoryKb([KAFKA_TEMPLATE, REDIS_TEMPLATE]),
+      knowledge: inMemoryKb([KAFKA, REDIS]),
     });
     const reg = new AdapterRegistry();
     reg.register({
@@ -186,7 +178,7 @@ describe('handleKbRecommend', () => {
       } as never,
     });
     const ctxWithAdapter = makeFakeActionContext({
-      knowledge: inMemoryKb([KAFKA_TEMPLATE, REDIS_TEMPLATE]),
+      knowledge: inMemoryKb([KAFKA, REDIS]),
       adapters: reg,
       allConnectors: [{ id: 'prom', type: 'prometheus', isDefault: true } as never],
     });
@@ -195,16 +187,16 @@ describe('handleKbRecommend', () => {
     const out2 = await handleKbRecommend(ctxWithAdapter, { intent: 'instance health' });
     const before = JSON.parse(out1).entries[0].id;
     const after = JSON.parse(out2).entries[0].id;
-    expect(after).toBe('tpl-redis');
-    const kafkaAfter = JSON.parse(out2).entries.find((e: { id: string }) => e.id === 'tpl-kafka');
-    const kafkaBefore = JSON.parse(out1).entries.find((e: { id: string }) => e.id === 'tpl-kafka');
+    expect(after).toBe('sk-redis');
+    const kafkaAfter = JSON.parse(out2).entries.find((e: { id: string }) => e.id === 'sk-kafka');
+    const kafkaBefore = JSON.parse(out1).entries.find((e: { id: string }) => e.id === 'sk-kafka');
     expect(kafkaAfter.score).toBeLessThan(kafkaBefore.score);
-    expect(before).toBe('tpl-redis');
+    expect(before).toBe('sk-redis');
   });
 
   it('empty KB returns a helpful message', async () => {
     const ctx = makeFakeActionContext({ knowledge: inMemoryKb([]) });
     const out = await handleKbRecommend(ctx, { intent: 'kafka' });
-    expect(out).toMatch(/No templates/);
+    expect(out).toMatch(/No knowledge base entries/);
   });
 });

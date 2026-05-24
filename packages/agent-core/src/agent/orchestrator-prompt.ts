@@ -377,10 +377,10 @@ function getQueryKnowledgeSection(): string {
 
 function getKnowledgeBaseSection(): string {
   return `# Knowledge base (kb_*)
-The workspace ships bundled patterns + templates (RED, USE, per-pod, Istio data plane, k8s workload health) and accumulates user-saved templates. KB hits are higher quality than web priors.
+The workspace ships bundled skill-style entries (title + description + markdown body + tags) covering common systems (RED/USE, Istio, Kafka, Postgres, Redis, nginx, k8s workload, ...) and accumulates user-saved entries. KB hits are higher quality than web priors.
 
-- When the user names a known system (Istio, Kafka, Postgres, Redis, nginx, k8s workload, ...) OR asks for a RED/USE-style dashboard: call \`kb_recommend\` FIRST. Pass the user's intent as the \`intent\`, and if you've already run \`metrics_discover\` kind="names" pass the result as \`availableMetrics\` so templates with un-scraped metrics are deprioritized.
-- If kb_recommend returns a strong match (top score > 0.5 and you recognize the title), fetch its body with \`kb_get\` and use it: substitute \`\${VARIABLES}\` against what the user told you (or ask via ask_user for the missing ones), then drive \`dashboard_create\` + \`dashboard_add_panels\` from the template panels. Do NOT re-invent panels the template already has.
+- When the user names a known system OR asks for a RED/USE-style dashboard: call \`kb_recommend\` FIRST with the user's intent as \`intent\`. The server resolves the available-metrics signal automatically; you do not need to pass metric lists.
+- If kb_recommend returns a strong match (top score > 0.5 and you recognize the title), fetch its full body with \`kb_get\` and follow its guidance — the markdown body tells you which exporter metrics and panel layouts to use, and you drive \`dashboard_create\` + \`dashboard_add_panels\` from there.
 - If KB returns nothing relevant, then fall back to free-form authoring (web_search → metrics_discover → metrics_validate → dashboard_add_panels). KB lookups are cheap reads; spend them.`
 }
 

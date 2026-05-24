@@ -1,20 +1,18 @@
 /**
- * Top-level Knowledge settings tab: filter bar + entry list + new-entry form.
- * Single-pane layout matching the other Settings tabs.
+ * Top-level Knowledge settings tab: header + source filter + skill list.
+ * Skill-style: every entry is a markdown skill the agent consults based on
+ * its description. Bundled entries are read-only; saved/distilled are
+ * editable when canWrite is true.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import type {
-  KnowledgeEntry,
-  KnowledgeKind,
-  KnowledgeSource,
-} from '@agentic-obs/common';
+import type { KnowledgeEntry, KnowledgeSource } from '@agentic-obs/common';
 import { btnPrimary, selectCls } from '../connectors/styles.js';
 import KnowledgeEntryForm from './KnowledgeEntryForm.js';
 import KnowledgeEntryRow from './KnowledgeEntryRow.js';
 import {
   defaultKnowledgeApi,
   type KnowledgeApi,
-  type KnowledgeWriteBody,
+  type KnowledgeCreateBody,
 } from './knowledge-api.js';
 
 interface Props {
@@ -23,17 +21,14 @@ interface Props {
   api?: KnowledgeApi;
 }
 
-type KindFilter = 'all' | KnowledgeKind;
 type SourceFilter = 'all' | KnowledgeSource;
 
-const KIND_OPTIONS: KindFilter[] = ['all', 'pattern', 'template', 'metric_doc', 'system_fact'];
 const SOURCE_OPTIONS: SourceFilter[] = ['all', 'bundled', 'saved', 'distilled'];
 
 export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Props) {
   const [entries, setEntries] = useState<KnowledgeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [showNewForm, setShowNewForm] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -42,7 +37,6 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
     setLoading(true);
     try {
       const list = await api.list({
-        kind: kindFilter === 'all' ? undefined : kindFilter,
         source: sourceFilter === 'all' ? undefined : sourceFilter,
       });
       setEntries(list);
@@ -52,17 +46,16 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
     } finally {
       setLoading(false);
     }
-  }, [api, kindFilter, sourceFilter]);
+  }, [api, sourceFilter]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  const handleCreate = async (body: KnowledgeWriteBody) => {
+  const handleCreate = async (body: KnowledgeCreateBody) => {
     setCreating(true);
     try {
       const entry = await api.create(body);
-      // Insert at top — server side already orders, but optimistic feels snappier.
       setEntries((prev) => [entry, ...prev]);
       setShowNewForm(false);
       setError(null);
@@ -73,19 +66,17 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
     }
   };
 
-  const handleUpdate = async (id: string, body: KnowledgeWriteBody) => {
+  const handleUpdate = async (id: string, body: KnowledgeCreateBody) => {
     const prev = entries;
-    // Optimistic: patch local copy. We don't have the full server response yet
-    // so merge the patch into the existing row.
     setEntries((rows) =>
       rows.map((r) =>
         r.id === id
           ? {
               ...r,
               title: body.title,
-              kind: body.kind,
+              description: body.description,
+              body: body.body,
               intentTags: body.intentTags,
-              content: body.content,
               sourceRef: body.sourceRef ?? null,
             }
           : r,
@@ -99,7 +90,7 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
       setEntries(prev);
       const msg = err instanceof Error ? err.message : 'Failed to update entry';
       setError(/BUNDLED_READONLY/i.test(msg)
-        ? 'Bundled entries are read-only and cannot be edited.'
+        ? 'Bundled skills are read-only and cannot be edited.'
         : msg);
       throw err;
     }
@@ -115,7 +106,7 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
       setEntries(prev);
       const msg = err instanceof Error ? err.message : 'Failed to delete entry';
       setError(/BUNDLED_READONLY/i.test(msg)
-        ? 'Bundled entries are read-only and cannot be deleted.'
+        ? 'Bundled skills are read-only and cannot be deleted.'
         : msg);
       throw err;
     }
@@ -123,6 +114,13 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
 
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="text-xl font-semibold text-[var(--color-on-surface)]">Knowledge</h2>
+        <p className="text-sm text-[var(--color-on-surface-variant)] mt-1">
+          Skills the agent consults when working in your environment. Bundled skills ship with Rounds and cannot be edited.
+        </p>
+      </div>
+
       {error && (
         <div className="flex items-start justify-between gap-3 p-3 rounded-lg border border-error/40 bg-error/10 text-sm text-error">
           <span>{error}</span>
@@ -146,18 +144,7 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
       )}
 
       <div className="flex items-center gap-2">
-        <label className="text-xs font-medium text-[var(--color-on-surface-variant)]">Kind</label>
-        <select
-          value={kindFilter}
-          onChange={(e) => setKindFilter(e.target.value as KindFilter)}
-          className={selectCls + ' w-auto'}
-        >
-          {KIND_OPTIONS.map((k) => (
-            <option key={k} value={k}>{k === 'all' ? 'All' : k}</option>
-          ))}
-        </select>
-
-        <label className="text-xs font-medium text-[var(--color-on-surface-variant)] ml-2">Source</label>
+        <label className="text-xs font-medium text-[var(--color-on-surface-variant)]">Source</label>
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as SourceFilter)}
@@ -172,7 +159,7 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
 
         {canWrite && !showNewForm && (
           <button type="button" onClick={() => setShowNewForm(true)} className={btnPrimary}>
-            + New entry
+            + New skill
           </button>
         )}
       </div>
@@ -180,12 +167,12 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
       <div className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-lowest)] overflow-hidden">
         {loading ? (
           <div className="px-4 py-6 text-sm text-[var(--color-on-surface-variant)]">
-            Loading knowledge entries…
+            Loading skills…
           </div>
         ) : entries.length === 0 ? (
           <div className="px-4 py-6 text-sm text-[var(--color-on-surface-variant)]">
-            No knowledge entries match these filters.
-            {canWrite ? ' Create one with + New entry.' : ''}
+            No skills match this filter.
+            {canWrite ? ' Create one with + New skill.' : ''}
           </div>
         ) : (
           entries.map((entry) => (

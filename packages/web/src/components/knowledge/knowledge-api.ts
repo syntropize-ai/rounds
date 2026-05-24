@@ -1,39 +1,38 @@
 /**
  * Thin REST wrapper for /api/kb/entries. Mirrors connectors/policies-api.ts —
  * keeps the wire shape testable without dragging in the real fetch layer.
+ *
+ * Skill-style schema: entries are { title, description, body (markdown),
+ * intentTags, sourceRef? }. The `kind` axis is gone.
  */
-import type {
-  KnowledgeEntry,
-  KnowledgeKind,
-  KnowledgeSource,
-} from '@agentic-obs/common';
+import type { KnowledgeEntry, KnowledgeSource } from '@agentic-obs/common';
 import { apiClient } from '../../api/client.js';
 
 export interface KnowledgeListFilter {
-  kind?: KnowledgeKind;
   source?: KnowledgeSource;
   limit?: number;
 }
 
-export interface KnowledgeWriteBody {
+export interface KnowledgeCreateBody {
   title: string;
-  kind: KnowledgeKind;
+  description: string;
+  body: string;
   intentTags: string[];
-  content: unknown;
   sourceRef?: string | null;
 }
+
+export type KnowledgeUpdateBody = Partial<KnowledgeCreateBody>;
 
 export interface KnowledgeApi {
   list(filter?: KnowledgeListFilter): Promise<KnowledgeEntry[]>;
   get(id: string): Promise<KnowledgeEntry>;
-  create(body: KnowledgeWriteBody): Promise<KnowledgeEntry>;
-  update(id: string, body: Partial<KnowledgeWriteBody>): Promise<KnowledgeEntry>;
+  create(body: KnowledgeCreateBody): Promise<KnowledgeEntry>;
+  update(id: string, body: KnowledgeUpdateBody): Promise<KnowledgeEntry>;
   remove(id: string): Promise<void>;
 }
 
 function buildListQuery(filter?: KnowledgeListFilter): string {
   const params = new URLSearchParams();
-  if (filter?.kind) params.set('kind', filter.kind);
   if (filter?.source) params.set('source', filter.source);
   if (filter?.limit !== undefined) params.set('limit', String(filter.limit));
   const qs = params.toString();

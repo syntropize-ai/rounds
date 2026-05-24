@@ -1,8 +1,8 @@
 /**
  * Wire-shape tests for the knowledge api wrapper:
- * - GET /kb/entries (+ kind/source/limit query)
+ * - GET /kb/entries (+ source/limit query)
  * - GET /kb/entries/:id
- * - POST /kb/entries with body
+ * - POST /kb/entries with skill-style body
  * - PUT /kb/entries/:id with patch body
  * - DELETE /kb/entries/:id
  *
@@ -46,14 +46,14 @@ describe('buildListQuery', () => {
     expect(buildListQuery({})).toBe('');
   });
 
-  it('encodes kind + source + limit', () => {
-    expect(buildListQuery({ kind: 'pattern', source: 'bundled', limit: 50 })).toBe(
-      '?kind=pattern&source=bundled&limit=50',
+  it('encodes source + limit', () => {
+    expect(buildListQuery({ source: 'bundled', limit: 50 })).toBe(
+      '?source=bundled&limit=50',
     );
   });
 
   it('omits undefined fields', () => {
-    expect(buildListQuery({ kind: 'template' })).toBe('?kind=template');
+    expect(buildListQuery({ source: 'saved' })).toBe('?source=saved');
   });
 });
 
@@ -73,12 +73,12 @@ describe('defaultKnowledgeApi', () => {
     expect(url).toBe('/api/kb/entries');
   });
 
-  it('list() appends kind + source query', async () => {
+  it('list() appends source query', async () => {
     const mock = mockOk({ entries: [] });
     globalThis.fetch = mock as unknown as typeof fetch;
-    await defaultKnowledgeApi.list({ kind: 'pattern', source: 'saved' });
+    await defaultKnowledgeApi.list({ source: 'saved' });
     const url = (mock.mock.calls[0]?.[0] as string) ?? '';
-    expect(url).toBe('/api/kb/entries?kind=pattern&source=saved');
+    expect(url).toBe('/api/kb/entries?source=saved');
   });
 
   it('get() hits /kb/entries/:id', async () => {
@@ -89,26 +89,29 @@ describe('defaultKnowledgeApi', () => {
     expect(url).toBe('/api/kb/entries/e%201');
   });
 
-  it('create() POSTs body verbatim', async () => {
+  it('create() POSTs skill-style body verbatim', async () => {
     const mock = mockOk({ entry: { id: 'e1' } });
     globalThis.fetch = mock as unknown as typeof fetch;
     await defaultKnowledgeApi.create({
-      title: 'My runbook',
-      kind: 'system_fact',
+      title: 'PostgreSQL slow queries',
+      description: 'When investigating PostgreSQL slow queries...',
+      body: '## Key metrics\n\n- pg_stat_statements',
       intentTags: ['oncall', 'db'],
-      content: { foo: 'bar' },
       sourceRef: 'https://example.com',
     });
     const [url, init] = mock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('/api/kb/entries');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body as string)).toEqual({
-      title: 'My runbook',
-      kind: 'system_fact',
+    const parsed = JSON.parse(init.body as string);
+    expect(parsed).toEqual({
+      title: 'PostgreSQL slow queries',
+      description: 'When investigating PostgreSQL slow queries...',
+      body: '## Key metrics\n\n- pg_stat_statements',
       intentTags: ['oncall', 'db'],
-      content: { foo: 'bar' },
       sourceRef: 'https://example.com',
     });
+    expect(parsed).not.toHaveProperty('kind');
+    expect(parsed).not.toHaveProperty('content');
   });
 
   it('update() PUTs to /kb/entries/:id with patch body', async () => {

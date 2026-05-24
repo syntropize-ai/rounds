@@ -83,6 +83,30 @@ function formatValueForDisplay(
   return `${out.prefix ?? ''}${out.text}${out.suffix ?? ''}`;
 }
 
+let measureCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null | undefined;
+
+function getMeasureContext(): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null {
+  if (measureCtx !== undefined) return measureCtx;
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    measureCtx = canvas.getContext('2d');
+    return measureCtx;
+  }
+  if (typeof OffscreenCanvas !== 'undefined') {
+    measureCtx = new OffscreenCanvas(1, 1).getContext('2d');
+    return measureCtx;
+  }
+  measureCtx = null;
+  return measureCtx;
+}
+
+function measureTextWidth(text: string, font: string): number {
+  const ctx = getMeasureContext();
+  if (!ctx) return 0;
+  ctx.font = font;
+  return ctx.measureText(text).width;
+}
+
 export class UPlotConfigBuilder {
   private readonly height: number;
   private readonly showLegend: boolean;
@@ -357,6 +381,11 @@ export class UPlotConfigBuilder {
     };
 
     const yFormatter = getFormatter(unit);
+    const yAxisFont = `${VIZ_TOKENS.axis.tickFontSize}px sans-serif`;
+    const formatYAxisTick = (v: number): string => {
+      const out = yFormatter(v, undefined);
+      return `${out.prefix ?? ''}${out.text}${out.suffix ?? ''}`;
+    };
     const yAxis: uPlot.Axis = {
       stroke: axisColor,
       grid: {
@@ -367,26 +396,22 @@ export class UPlotConfigBuilder {
         stroke: gridColor,
         width: VIZ_TOKENS.grid.lineWidth,
       },
-      font: `${VIZ_TOKENS.axis.tickFontSize}px sans-serif`,
+      font: yAxisFont,
       values: ((_u: uPlot, splits: number[]) =>
-        splits.map((v) => {
-          const out = yFormatter(v, undefined);
-          return `${out.prefix ?? ''}${out.text}${out.suffix ?? ''}`;
-        })) as unknown as uPlot.Axis.Values,
-      // Dynamic gutter sizing — uPlot's default 50px is too narrow for labels
-      // like "180 req/s" or "1.50 GiB" and clips the leading digit. Compute
-      // width from the longest formatted tick label per render. Capped 50-140
-      // so a single huge value (e.g. an outlier with many digits) can't blow
-      // up the chart, and short labels stay compact.
+        splits.map((v) => formatYAxisTick(v))) as unknown as uPlot.Axis.Values,
+      // Dynamic gutter sizing from the *formatted* tick labels using real
+      // text measurement. String-length math is wrong for `%`, `GiB`,
+      // browser zoom, tabular digits, and non-default fonts — exactly the
+      // cases that clipped the left side of y-axis labels.
       size: (_u, values) => {
         if (!Array.isArray(values) || values.length === 0) return 50;
-        let maxLen = 0;
+        let maxWidth = 0;
         for (const v of values) {
-          const s = String(v ?? '');
-          if (s.length > maxLen) maxLen = s.length;
+          const n = typeof v === 'number' ? v : Number(v);
+          const s = Number.isFinite(n) ? formatYAxisTick(n) : String(v ?? '');
+          maxWidth = Math.max(maxWidth, measureTextWidth(s, yAxisFont));
         }
-        // ~7 px per char at the 12px sans-serif we use, plus 16px tick + pad.
-        return Math.max(50, Math.min(140, maxLen * 7 + 16));
+        return Math.max(42, Math.min(160, Math.ceil(maxWidth) + 22));
       },
     };
 

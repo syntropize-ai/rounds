@@ -669,7 +669,7 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   // stats, which is genuinely useful information. The agent's panel-generation
   // prompt now sets `legendStats` per panel intent; when omitted, we default
   // to a sensible set so the legend never collapses to a bare refId.
-  const effectiveLegendStats: LegendStat[] | undefined =
+  const requestedLegendStats: LegendStat[] =
     legendStats && legendStats.length > 0 ? legendStats : ['mean', 'max', 'last'];
 
   // T-201 — adaptive legend mode by series count AND stat width.
@@ -693,8 +693,6 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
         .slice(0, TOP_N)
         .map(({ m }) => m)
     : metas;
-  const statColumns = effectiveLegendStats?.length ?? 0;
-
   // Single source of truth for sizing. `usePanelLayout` owns the
   // ResizeObserver and projects width/height to a size class; the
   // `decideLegendLayout` pure function maps that + series shape to a
@@ -705,10 +703,14 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   const legendDecision = decideLegendLayout(
     panelLayout,
     metas.length,
-    statColumns,
+    requestedLegendStats.length,
     legend,
   );
   const showLegend = legendDecision.mode !== 'hidden';
+  const effectiveLegendStats = requestedLegendStats.slice(
+    0,
+    Math.max(1, legendDecision.statBudget),
+  );
 
   // -- Render ----------------------------------------------------------------
 
@@ -1043,15 +1045,12 @@ const ALL_STATS: LegendStat[] = ['last', 'mean', 'max', 'min'];
 const MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
 
 /**
- * Cap the legend at one third of the chart container so it never crowds out
- * the chart. `overflow-y: auto` lets dense legends scroll. We rely on the
- * parent flex column at `containerRef` setting `min-h-0` on the chart slot
- * (already in place) so this max-height is honored even when the legend
- * could otherwise expand to its content height.
+ * Shared legend chrome. Height is intentionally not fixed here; the layout
+ * decision owns the legend budget from measured panel height so the chart
+ * keeps a readable plot area on short panels and dense legends scroll.
  */
 const LEGEND_CONTAINER_STYLE: CSSProperties = {
   marginTop: 8,
-  maxHeight: '33%',
   overflowY: 'auto',
   flexShrink: 0,
   // Match the chart's left/right gutter so the legend doesn't visually
@@ -1072,7 +1071,8 @@ function LegendLayer({
   unit,
   stats,
 }: LegendLayerProps): JSX.Element | null {
-  const { mode, itemBasis } = decision;
+  const { mode, itemBasis, maxHeight } = decision;
+  const legendStyle: CSSProperties = { ...LEGEND_CONTAINER_STYLE, maxHeight };
 
   if (mode === 'hidden') return null;
 
@@ -1081,7 +1081,7 @@ function LegendLayer({
     // show: render all four. When specified, honor the order/subset.
     const columns: LegendStat[] = stats && stats.length > 0 ? stats : ALL_STATS;
     return (
-      <div style={{ ...LEGEND_CONTAINER_STYLE, overflowX: 'auto' }}>
+      <div style={{ ...legendStyle, overflowX: 'auto' }}>
         <table
           style={{
             width: '100%',
@@ -1187,6 +1187,7 @@ function LegendLayer({
       <div
         style={{
           ...LEGEND_CONTAINER_STYLE,
+          maxHeight,
           display: 'flex',
           flexDirection: 'column',
           gap: 6,
@@ -1272,6 +1273,7 @@ function LegendLayer({
     <div
       style={{
         ...LEGEND_CONTAINER_STYLE,
+        maxHeight,
         display: 'flex',
         flexWrap: 'wrap',
         gap: '4px 12px',

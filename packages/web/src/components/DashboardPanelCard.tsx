@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { resolvePanelUnit } from '@agentic-obs/common';
+import { resolvePanelDisplayUnit } from '@agentic-obs/common';
 import { apiClient } from '../api/client.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import { useDatasourceLookup } from '../hooks/useDatasourceLookup.js';
@@ -178,6 +178,40 @@ function QueryBadge({ queries }: { queries: PanelQuery[] }) {
   );
 }
 
+function PanelInspectButton({ queries }: { queries: PanelQuery[] }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={() => setExpanded((v) => !v)}
+        className="p-1 rounded hover:bg-surface-highest text-on-surface-variant hover:text-on-surface transition-colors"
+        title="Inspect query"
+        aria-label="Inspect query"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+          <path d="M4 5.5A1.5 1.5 0 015.5 4h9A1.5 1.5 0 0116 5.5v1A1.5 1.5 0 0114.5 8h-9A1.5 1.5 0 014 6.5v-1zM4 12.5A1.5 1.5 0 015.5 11h9a1.5 1.5 0 011.5 1.5v1a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 014 13.5v-1z" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="absolute right-0 top-7 z-20 w-[min(520px,80vw)] rounded-lg border border-outline-variant bg-surface-container shadow-lg overflow-hidden">
+          <QueryBadge queries={queries} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function scaleNumber(value: number | null, scale: number): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value * scale : undefined;
+}
+
+function scaleThresholds(thresholds: PanelConfig['thresholds'], scale: number): PanelConfig['thresholds'] {
+  if (!thresholds || scale === 1) return thresholds;
+  return thresholds.map((threshold) => ({ ...threshold, value: threshold.value * scale }));
+}
+
 /** Convert a relative time range string to {start, end} ISO timestamps */
 function resolveTimeRange(range: string): { start: string; end: string } {
   const end = new Date();
@@ -313,7 +347,13 @@ export default function DashboardPanelCard({
   );
 
   const cacheMaxAgeMs = (panel.refreshIntervalSec ?? 30) * 1000;
-  const displayUnit = useMemo(() => resolvePanelUnit(panel), [panel]);
+  const display = useMemo(() => resolvePanelDisplayUnit(panel), [panel]);
+  const displayUnit = display.unit;
+  const valueScale = display.valueScale;
+  const displayThresholds = useMemo(
+    () => scaleThresholds(panel.thresholds, valueScale),
+    [panel.thresholds, valueScale],
+  );
 
   /** Returns true if the error message / object looks like a transient failure */
   function isTransientMsg(msg: string): boolean {
@@ -713,7 +753,14 @@ export default function DashboardPanelCard({
     }
 
     const flattenedSeries = multiRangeData.flatMap((r) =>
-      r.series.map((s) => ({ ...s, refId: r.refIds, legendFormat: r.legendFormat })),
+      r.series.map((s) => ({
+        ...s,
+        refId: r.refIds,
+        legendFormat: r.legendFormat,
+        points: valueScale === 1
+          ? s.points
+          : s.points.map((p) => ({ ...p, value: p.value * valueScale })),
+      })),
     );
     const stacking: 'none' | 'normal' | 'percent' =
       panel.stackMode === 'normal' ? 'normal' : panel.stackMode === 'percent' ? 'percent' : 'none';
@@ -726,7 +773,7 @@ export default function DashboardPanelCard({
               series={flattenedSeries}
               stacking={stacking}
               unit={displayUnit}
-              thresholds={panel.thresholds}
+              thresholds={displayThresholds}
               lineWidth={panel.lineWidth}
               fillOpacity={panel.fillOpacity}
               showPoints={panel.showPoints}
@@ -747,60 +794,51 @@ export default function DashboardPanelCard({
           </div>
         );
       case 'stat': {
-        const val = firstInstantValue(instantData);
+        const val = scaleNumber(firstInstantValue(instantData), valueScale);
+        const scaledSparkline = sparklineData && valueScale !== 1
+          ? { timestamps: sparklineData.timestamps, values: sparklineData.values.map((v) => v * valueScale) }
+          : sparklineData;
         return (
           <StatViz
             value={val}
             unit={displayUnit}
             decimals={panel.decimals}
-            thresholds={panel.thresholds}
+            thresholds={displayThresholds}
             colorMode={panel.colorMode ?? 'value'}
-            sparkline={sparklineData ?? undefined}
+            sparkline={scaledSparkline ?? undefined}
           />
         );
       }
       case 'gauge': {
-        const rawVal = firstInstantValue(instantData);
-        // percentunit (0-1) is rendered as 0-100% via the 'percent' formatter;
-        // percent (already 0-100) keeps its formatter. Other units pass through.
+        const rawVal = scaleNumber(firstInstantValue(instantData), valueScale);
         let val = rawVal;
         let max = 100;
         let gaugeUnit = displayUnit;
-        if (displayUnit === 'percentunit' && typeof rawVal === 'number') {
-          val = rawVal * 100;
-          gaugeUnit = 'percent';
-        }
         return (
           <div className="flex h-full w-full items-center justify-center">
             <GaugeViz
               value={val}
               max={max}
               unit={gaugeUnit}
-              thresholds={panel.thresholds}
+              thresholds={displayThresholds}
             />
           </div>
         );
       }
       case 'bar': {
-        const items = instantToBarItems(instantData);
+        const items = instantToBarItems(instantData).map((it) => ({ ...it, value: it.value * valueScale }));
         return (
           <div className="h-full px-3 pb-2">
-            <BarViz items={items} unit={displayUnit} thresholds={panel.thresholds} />
+            <BarViz items={items} unit={displayUnit} thresholds={displayThresholds} />
           </div>
         );
       }
       case 'bar_gauge': {
-        const items = instantToBarItems(instantData);
-        // percentunit (0-1) → percent (0-100) so the formatter and the
-        // implicit ceiling line up with the user's mental model.
+        const items = instantToBarItems(instantData).map((it) => ({ ...it, value: it.value * valueScale }));
         let displayItems = items;
         let displayMax = panel.barGaugeMax;
         let barGaugeUnit = displayUnit;
-        if (displayUnit === 'percentunit') {
-          displayItems = items.map((it) => ({ ...it, value: it.value * 100 }));
-          barGaugeUnit = 'percent';
-          if (displayMax === undefined) displayMax = 100;
-        } else if (displayUnit === 'percent' && displayMax === undefined) {
+        if (displayUnit === 'percent' && displayMax === undefined) {
           displayMax = 100;
         }
         return (
@@ -808,7 +846,7 @@ export default function DashboardPanelCard({
             <BarGaugeViz
               items={displayItems}
               unit={barGaugeUnit}
-              thresholds={panel.thresholds}
+              thresholds={displayThresholds}
               mode={panel.barGaugeMode ?? 'gradient'}
               {...(displayMax !== undefined ? { max: displayMax } : {})}
             />
@@ -825,13 +863,13 @@ export default function DashboardPanelCard({
               series={flattenedSeries}
               stacking={stacking}
               unit={displayUnit}
-              thresholds={panel.thresholds}
+              thresholds={displayThresholds}
             />
           </div>
         );
       }
       case 'pie': {
-        const items = instantToPieItems(instantData);
+        const items = instantToPieItems(instantData).map((it) => ({ ...it, value: it.value * valueScale }));
         return (
           <div className="h-full px-3 pb-2">
             <PieViz items={items} unit={displayUnit} />
@@ -950,6 +988,7 @@ export default function DashboardPanelCard({
         </div>
 
         <div className={`flex items-center gap-1 shrink-0 transition-opacity duration-150 ${editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+            {effectiveQueries.length > 0 && <PanelInspectButton queries={effectiveQueries} />}
             {onEdit && (
               <button type="button" onClick={onEdit} className="p-1 rounded hover:bg-surface-highest text-on-surface-variant hover:text-on-surface transition-colors" title="Edit panel">
                 <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-8.5 8.5L5 15l.086-2.914 8.5-8.5zM4 16h12v1H4z" /></svg>
@@ -964,8 +1003,6 @@ export default function DashboardPanelCard({
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">{renderContent()}</div>
-
-      <QueryBadge queries={effectiveQueries} />
     </div>
   );
 }

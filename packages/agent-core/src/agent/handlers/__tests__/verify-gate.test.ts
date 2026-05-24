@@ -54,7 +54,7 @@ describe('isVerifyGateEnabled', () => {
 });
 
 describe('runDashboardVerifyGate', () => {
-  it('flags preview errors when queries return 0 series', async () => {
+  it('passes with a warning when queries return 0 series (pre-deploy is legit)', async () => {
     const rangeQuery = vi.fn().mockResolvedValue([]);
     const ctx = makeFakeActionContext({
       adapters: makeAdapters(rangeQuery),
@@ -62,11 +62,14 @@ describe('runDashboardVerifyGate', () => {
     });
     const report = await runDashboardVerifyGate(ctx, {
       panels: [
-        { title: 'P1', visualization: 'time_series', queries: [{ expr: 'missing_metric' }] },
+        // Description must satisfy dashboard-has-questions to isolate the
+        // 0-series behavior under test.
+        { title: 'P1', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric' }] },
       ],
     });
-    expect(report.ok).toBe(false);
-    expect(report.previewIssues.some((i) => i.severity === 'error')).toBe(true);
+    expect(report.ok).toBe(true);
+    expect(report.previewIssues.some((i) => i.severity === 'warn' && i.message.includes('0 series'))).toBe(true);
+    expect(report.previewIssues.some((i) => i.severity === 'error')).toBe(false);
   });
 
   it('passes when every panel previews cleanly', async () => {
@@ -202,16 +205,29 @@ describe('dashboard_add_panels — verify-gate integration', () => {
     return ctx;
   }
 
-  it('gate ON: rejects the save when verify finds errors', async () => {
+  it('gate ON: rejects the save when verify finds errors (real lint error)', async () => {
     process.env[ENV_KEY] = '1';
-    const rangeQuery = vi.fn().mockResolvedValue([]); // empty -> error
+    // Empty result is now a WARN (pre-deploy is legitimate), so to test the
+    // reject path we trigger a real lint error: panel description missing the
+    // mandatory "Q: ..." prefix triggers `dashboard-has-questions` (error).
+    const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
+    const ctx = buildCtx(rangeQuery);
+    const out = await handleDashboardAddPanels(ctx, {
+      panels: [{ title: 'P', description: 'no question prefix', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))', datasourceId: 'prom' }] }],
+    });
+    expect(out).toContain('rejected by verify-gate');
+    expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+
+  it('gate ON: accepts the save when queries return 0 series (pre-deployment is legitimate)', async () => {
+    process.env[ENV_KEY] = '1';
+    const rangeQuery = vi.fn().mockResolvedValue([]); // empty
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
       panels: [{ title: 'P', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
     });
-    expect(out).toContain('rejected by verify-gate');
-    // The actionExecutor.execute must NOT have run.
-    expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+    expect(out).toContain('Added 1 panel');
+    expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
   });
 
   it('gate ON: accepts the save when verify is clean', async () => {
@@ -227,10 +243,12 @@ describe('dashboard_add_panels — verify-gate integration', () => {
 
   it('gate OFF: accepts the save even when verify finds errors (logs at WARN)', async () => {
     process.env[ENV_KEY] = '0';
-    const rangeQuery = vi.fn().mockResolvedValue([]); // empty -> would-be error
+    // Use the dashboard-has-questions error to exercise the bypass path
+    // (empty results no longer error since pre-deploy is legit).
+    const rangeQuery = vi.fn().mockResolvedValue(ONE_SERIES);
     const ctx = buildCtx(rangeQuery);
     const out = await handleDashboardAddPanels(ctx, {
-      panels: [{ title: 'P', description: 'Q: present?', visualization: 'time_series', queries: [{ expr: 'missing_metric', datasourceId: 'prom' }] }],
+      panels: [{ title: 'P', description: 'no question prefix', visualization: 'time_series', queries: [{ expr: 'sum(rate(x[5m]))', datasourceId: 'prom' }] }],
     });
     expect(out).toContain('Added 1 panel');
     expect((ctx.actionExecutor.execute as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);

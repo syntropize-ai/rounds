@@ -4,7 +4,8 @@
  * Covers:
  *   - happy path: queries return data; ok=true; per-query sample populated
  *   - no datasource configured → ok=false with a clear error issue
- *   - empty result on every query → ok=false with the "0 series" error
+ *   - empty result on every query → ok=true with a "0 series" WARN
+ *     (pre-deployment dashboards are a legitimate state)
  *   - multi-query mixed status: one fails, one succeeds → ok=false (the
  *     failure dominates) with both perQuery entries populated
  *   - viz-rule warnings (stat+rate; heatmap without `by (le)`)
@@ -68,7 +69,7 @@ describe('panel_preview — error paths', () => {
     expect(result.issues[0]!.message).toContain('No metrics datasource');
   });
 
-  it('returns ok=false with the empty-result error when every query returns 0 series', async () => {
+  it('returns ok=true with a "0 series" warning when every query returns 0 series (pre-deploy)', async () => {
     const rangeQuery = vi.fn().mockResolvedValue([]);
     const ctx = makeFakeActionContext({
       adapters: makeAdapters(rangeQuery),
@@ -81,8 +82,11 @@ describe('panel_preview — error paths', () => {
         queries: [{ expr: 'nonexistent_metric' }],
       },
     });
-    expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.severity === 'error' && i.message.includes('0 series'))).toBe(true);
+    // Empty results are a legitimate pre-deployment state — the gate must NOT
+    // block. The warning is still emitted so the agent can mention it.
+    expect(result.ok).toBe(true);
+    expect(result.issues.some((i) => i.severity === 'warn' && i.message.includes('0 series'))).toBe(true);
+    expect(result.issues.some((i) => i.severity === 'error')).toBe(false);
   });
 
   it('mixed multi-query: one succeeds, one fails → ok=false; both perQuery entries present', async () => {

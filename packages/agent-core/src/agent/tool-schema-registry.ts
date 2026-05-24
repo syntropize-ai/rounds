@@ -1323,7 +1323,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   // Knowledge base (TF-IDF over bundled + saved + distilled entries)
   // -------------------------------------------------------------------------
   'kb_search': {
-    category: 'deferred',
+    category: 'always-on',
     schema: {
       name: 'kb_search',
       description:
@@ -1339,7 +1339,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     },
   },
   'kb_get': {
-    category: 'deferred',
+    category: 'always-on',
     schema: {
       name: 'kb_get',
       description:
@@ -1354,7 +1354,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     },
   },
   'kb_recommend': {
-    category: 'deferred',
+    category: 'always-on',
     schema: {
       name: 'kb_recommend',
       description:

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { apiClient } from '../api/client.js';
 import { ModelCombobox } from '../components/ModelCombobox.js';
 import ConnectorsPanel from '../components/connectors/ConnectorsPanel.js';
+import KnowledgeTab from '../components/knowledge/KnowledgeTab.js';
 import { llmBaseUrlPlaceholder } from '../constants/placeholders.js';
 import { LLM_PROVIDERS } from './setup/types.js';
 import type { LlmProvider, LlmConfig } from './setup/types.js';
@@ -150,10 +151,11 @@ const selectCls = inputCls;
 const btnPrimary = 'px-4 py-2 rounded-lg bg-[var(--color-primary)] text-[var(--color-on-primary-fixed)] text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity';
 const btnSecondary = 'px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] text-sm font-medium text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] disabled:opacity-50 transition-colors';
 
-type SettingsTab = 'connectors' | 'ai' | 'notifications' | 'account' | 'danger';
+type SettingsTab = 'connectors' | 'knowledge' | 'ai' | 'notifications' | 'account' | 'danger';
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
   { id: 'connectors', label: 'Connectors', icon: <span className="text-xs font-bold">C</span> },
+  { id: 'knowledge', label: 'Knowledge', icon: <span className="text-xs font-bold">K</span> },
   { id: 'ai', label: 'AI Provider', icon: <span className="text-xs font-bold">AI</span> },
   { id: 'notifications', label: 'Notifications', icon: <span className="text-xs font-bold">N</span> },
   { id: 'account', label: 'Account', icon: <span className="text-xs font-bold">A</span> },
@@ -519,12 +521,14 @@ export default function Settings() {
               {TABS.find((t) => t.id === tab)?.label}
             </h2>
             <p className="text-sm text-[var(--color-on-surface-variant)] mb-6">
+              {tab === 'knowledge' && 'Knowledge entries the agent consults for dashboards, metric meaning, and patterns. Bundled entries ship with Rounds and cannot be edited.'}
               {tab === 'ai' && 'Configure the AI model used for investigations and analysis.'}
               {tab === 'notifications' && 'Set up alert delivery channels.'}
               {tab === 'account' && 'Review your account details.'}
               {tab === 'danger' && 'Irreversible actions for your Rounds instance.'}
             </p>
 
+            {tab === 'knowledge' && <KnowledgeTab canWrite={canWriteConnectors} />}
             {tab === 'ai' && <LlmTab canWrite={canAdminWrite} />}
             {tab === 'notifications' && <NotificationsTab canWrite={canAdminWrite} />}
             {tab === 'account' && <AccountTab />}

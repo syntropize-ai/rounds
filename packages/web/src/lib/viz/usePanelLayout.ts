@@ -39,7 +39,13 @@ export type LegendMode = 'hidden' | 'stacked' | 'list' | 'table';
 
 const NARROW_MAX_WIDTH = 300;
 const WIDE_MIN_WIDTH = 600;
-const MIN_HEIGHT_FOR_LEGEND = 180;
+// Threshold below which the legend gets dropped to give the chart breathing
+// room. Was 180; the agent's default panel height (grid h=3 → ~240px raw,
+// minus card chrome → ~190-200px) sits right on the old threshold, so a
+// slightly narrow window pushed every time_series panel into the no-legend
+// branch. 140 keeps the legend on standard 3-row panels and only hides it
+// when the panel is genuinely too short to read it.
+const MIN_HEIGHT_FOR_LEGEND = 140;
 
 export interface PanelLayout {
   /** Container width in CSS px. 0 until first ResizeObserver fire. */

@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { slideIn } from '../animations.js';
 import type { ChatEvent } from '../hooks/useDashboardChat.js';
-import { groupEvents, liveAgentBlockId } from './chat/event-processing.js';
 import { ErrorMessage } from './chat/MessageComponents.js';
 import ChatTranscript from './chat/ChatTranscript.js';
 import type { PendingChangeStatus } from '../types/pending-changes.js';
@@ -40,19 +39,6 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevEventCountRef = useRef(events.length);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
-
-  const proposalStatusMap = useMemo(() => {
-    const out: Record<string, PendingChangeStatus> = {};
-    if (proposalStatusOverlay) {
-      for (const [id, status] of proposalStatusOverlay) out[id] = status;
-    }
-    return out;
-  }, [proposalStatusOverlay]);
-  const blocks = useMemo(
-    () => groupEvents(events, proposalStatusMap),
-    [events, proposalStatusMap],
-  );
-  const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
 
   // First mount jumps to the bottom instantly (no animated scroll-from-top
   // when the page reloads with N existing messages). Subsequent length
@@ -249,8 +235,8 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
         )}
 
         <ChatTranscript
-          blocks={blocks}
-          liveBlockId={liveBlockId}
+          events={events}
+          isGenerating={isGenerating}
           onSendMessage={onSendMessage}
           proposalStatusOverlay={proposalStatusOverlay}
         />

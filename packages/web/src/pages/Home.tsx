@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { fadeIn } from '../animations.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
-import { groupEvents, liveAgentBlockId } from '../components/chat/event-processing.js';
 import ChatTranscript from '../components/chat/ChatTranscript.js';
 import { RoundsLogo } from '../components/RoundsLogo.js';
 
@@ -92,9 +91,6 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const hasMessages = events.length > 0;
-
-  const blocks = useMemo(() => groupEvents(events), [events]);
-  const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
 
   // Auto-scroll on new events. First mount jumps to the bottom instantly
   // (no animated scroll-from-top when the page reloads with N existing
@@ -257,8 +253,8 @@ export default function Home() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 w-full pt-8 pb-4">
           <ChatTranscript
-            blocks={blocks}
-            liveBlockId={liveBlockId}
+            events={events}
+            isGenerating={isGenerating}
             onSendMessage={sendMessage}
           />
           <div ref={bottomRef} />

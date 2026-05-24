@@ -168,9 +168,15 @@ export default function Home() {
     wasGeneratingRef.current = isGenerating;
   }, [isGenerating, refreshSessions]);
 
-  // Auto-scroll on new events
+  // Auto-scroll on new events. First mount jumps to the bottom instantly
+  // (no animated scroll-from-top when the page reloads with N existing
+  // messages); subsequent length changes smooth-scroll.
+  const didInitialScrollRef = useRef(false);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (events.length === 0) return;
+    const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'instant';
+    bottomRef.current?.scrollIntoView({ behavior });
+    didInitialScrollRef.current = true;
   }, [events.length]);
 
   const handleSend = useCallback(() => {

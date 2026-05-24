@@ -123,27 +123,11 @@ export default function DashboardWorkspace() {
 
   const loadDashboard = useCallback(async () => {
     if (!id) return;
-    // Wrap the whole fetch+validate path so a thrown
-    // ApiResponseShapeError from the validator (or any other unexpected
-    // error) still clears the loading state — otherwise the workspace
-    // spinner runs forever and the user sees nothing happen.
-    let res: Awaited<ReturnType<typeof apiClient.getValidated<Dashboard>>>;
-    try {
-      res = await apiClient.getValidated<Dashboard>(
-        `/dashboards/${id}`,
-        DashboardSchema,
-        'Dashboard',
-      );
-    } catch (err) {
-      retryCountRef.current = 0;
-      if (!dashboardLoadedRef.current) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setLoadError(`Failed to load dashboard: ${msg}`);
-      }
-      setLoading(false);
-      return;
-    }
-
+    const res = await apiClient.getValidated<Dashboard>(
+      `/dashboards/${id}`,
+      DashboardSchema,
+      'Dashboard',
+    );
     const errStatus = Number(
       (res.error as Record<string, unknown> | undefined)?.status,
     );

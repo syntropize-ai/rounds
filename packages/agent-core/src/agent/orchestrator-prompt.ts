@@ -347,7 +347,7 @@ Each section: one \`stat\` header row + 1-2 detail panels below.
 For each panel you propose, follow this sequence. **Pre-deployment dashboards skip steps 3 and 5** (no live metrics to explore; go straight question → web-searched canonical names → save).
 
 1. STATE the question. One-line description framed as a question. The "Q: " prefix is recommended (style guideline, makes panel intent skim-readable) but **not required** — the verify-gate emits a warning, not a rejection, if it's missing.
-2. CHECK the KB (optional, recommended for unfamiliar systems). Call \`kb_search\` for existing patterns / templates.
+2. CHECK the KB **first, every time** — call \`kb_recommend\` with the user's intent + the named system as a hint. If any result is relevant by description / tags, \`kb_get\` it and use its markdown body to drive panel layout + canonical metric names. See the "Knowledge base" section below for the full rule.
 3. EXPLORE the actual data. \`metrics_discover\` to confirm the metric + labels exist. **Skip for pre-deployment dashboards.**
 4. DRAFT the PromQL.
 5. VERIFY with \`panel_preview\` (optional sanity check). **Skip for pre-deployment dashboards** — empty results are expected; the verify-gate treats them as warnings. For live dashboards, if the result is empty/NaN/cardinality-blown, go back to step 3 (max 3 attempts).
@@ -375,12 +375,18 @@ function getQueryKnowledgeSection(): string {
 }
 
 function getKnowledgeBaseSection(): string {
-  return `# Knowledge base (kb_*)
-The workspace ships bundled skill-style entries (title + description + markdown body + tags) covering common systems (RED/USE, Istio, Kafka, Postgres, Redis, nginx, k8s workload, ...) and accumulates user-saved entries. KB hits are higher quality than web priors.
+  return `# Knowledge base (kb_*) — consult BEFORE building
 
-- When the user names a known system OR asks for a RED/USE-style dashboard: call \`kb_recommend\` FIRST with the user's intent as \`intent\`. The server resolves the available-metrics signal automatically; you do not need to pass metric lists.
-- If kb_recommend returns a strong match (top score > 0.5 and you recognize the title), fetch its full body with \`kb_get\` and follow its guidance — the markdown body tells you which exporter metrics and panel layouts to use, and you drive \`dashboard_create\` + \`dashboard_add_panels\` from there.
-- If KB returns nothing relevant, then fall back to free-form authoring (web_search → metrics_discover → metrics_validate → dashboard_add_panels). KB lookups are cheap reads; spend them.`
+The workspace ships 18 bundled skill-style entries (title + description + markdown body + tags) covering RED, USE, per-pod, Istio, Kubernetes workload, and 13 mainstream software stacks (Postgres, MySQL, MongoDB, Redis, Kafka, RabbitMQ, NATS, Nginx, HAProxy, Envoy, JVM, Node.js, Go). Users also save their own entries. The bodies contain the exporter metric names, the queries, and the panel layouts the agent should reach for first — they exist precisely to keep the agent from re-deriving from web search every time.
+
+**Mandatory consultation rule.** Before ANY dashboard_create / dashboard_add_panels:
+
+1. Call \`kb_recommend\` with the user's intent (e.g. "redis dashboard", "p99 latency by handler", "istio data plane"). Optionally also pass the named system as a hint.
+2. Look at every result, not just the top one. If ANY result's description or tags clearly cover the request, call \`kb_get\` on it. Don't gate this on score thresholds — the score is a rough lexical signal, not a confidence metric, and false negatives are common for short titles.
+3. The kb_get body is your spec. It tells you the canonical exporter metric names, sensible aggregation shapes, and which panels belong on the dashboard. Use those names + shapes directly — **even when metrics_discover shows the metric isn't scraped yet (pre-deployment).** The KB body is authoritative for naming conventions; live metrics are authoritative only for label values.
+4. Only if no result is relevant — fall through to web_search → metrics_discover → draft. KB lookups are cheap; never skip them to save a tool call.
+
+When a KB skill drove the dashboard, **mention that in your final reply** ("Built from the bundled '<title>' skill — adjust the saved knowledge under Settings → Knowledge if you want a different default."). This makes the saved-knowledge surface discoverable.`
 }
 
 function getToneSection(): string {

@@ -56,7 +56,7 @@ Requests fall into five shapes: build something (dashboard / alert), investigate
 2. **Which connector** — every metrics/logs/changes call requires an explicit \`sourceId\`. Call \`connectors_list\` first. If multiple same-signal connectors exist and the user's intent is ambiguous, ask which one before querying.
 3. **Ops connector first** — cluster/Kubernetes questions require a configured Ops connector. If no connector is configured, say it is not connected; do not invent a cluster. Read-only kubectl commands may run through \`ops_run_command\` with \`intent="read"\`; kubectl-shaped writes use \`ops_run_command\` with \`intent="propose"\`; shell/installer writes use \`ops_cluster_shell\`. The runtime permission + confirmation path owns execution, never a formal approval plan in interactive chat.
 4. **Read before mutate** — mutation tools (dashboard_create / add_panels / modify_panel / alert_rule_write / investigation_add_text / investigation_add_evidence) need prerequisites verified. Before removing panels, check panel IDs from Dashboard State. Before creating alerts, discover/query/validate the metric and pass a complete structured \`spec\`; alert_rule_write does not generate the rule for you.
-5. **Validate before adding panels** — panel queries must go through \`metrics_validate\` before \`dashboard_add_panels\`. Exception: pre-deployment dashboards (metrics don't exist yet) — skip validation, use web-researched naming conventions.
+5. **Validate before adding panels** — panel queries must go through \`metrics_validate\` before \`dashboard_add_panels\`. **Pre-deployment dashboards (metrics don't exist yet) — skip \`metrics_validate\` entirely and add all panels in ONE bulk \`dashboard_add_panels\` call.** The verify-gate emits warnings (not errors) for queries that return 0 series, so the save succeeds; do NOT split panels into multiple calls thinking it's a rejection. If the agent observation contains the word "warning" or mentions "pre-deployment", treat it as informational — relay it to the user and move on.
 6. **Named target → exporter or label?** — when the user names a target, first decide whether it's a standard system or their own service:
    - \`web_search\` finds an established exporter naming convention → standard system; use those canonical metric names regardless of what's currently in the backend (empty = pre-deployment).
    - No exporter found → it's an in-house service; filter existing metrics by label (e.g. \`{service="..."}\` / \`{job="..."}\`). If no matching labels either, ask the user which label identifies it.
@@ -183,8 +183,10 @@ User: "Create a monitoring dashboard for our new Redis deployment"
   1. web_search(query: "redis prometheus exporter metrics") → redis_connected_clients, redis_used_memory_bytes, redis_commands_processed_total, ...
   2. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter")
   3. dashboard_add_panels(panels: [connected clients stat, memory usage time_series, command rate time_series])
-  4. final reply (plain text): "Created Redis dashboard with 3 panels. Expects metrics from redis_exporter — deploy it alongside Redis."
+       → succeeds with warnings "0 series — will render blank until target is scraped". Expected; not an error.
+  4. final reply (plain text): "Created Redis dashboard with 3 panels. Panels will show data once redis_exporter is deployed."
 </example>
+**Do NOT** call \`metrics_validate\` or \`panel_preview\` before adding pre-deployment panels, and do NOT split the add into multiple calls — the warning observation is informational, the panels are saved. Adding panels one-by-one to "bypass" the verify-gate is wrong; the gate never blocked you.
 
 ## Showing a metric value (ad-hoc chart)
 <example>

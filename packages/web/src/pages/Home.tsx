@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { apiClient } from '../api/client.js';
 import { fadeIn } from '../animations.js';
-import ConfirmDialog from '../components/ConfirmDialog.js';
-import { relativeTime } from '../utils/time.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
 import { groupEvents, liveAgentBlockId } from '../components/chat/event-processing.js';
 import {
@@ -19,21 +15,6 @@ import { RoundsLogo } from '../components/RoundsLogo.js';
 
 // Types
 
-interface Dashboard {
-  id: string;
-  title: string;
-  panels: unknown[];
-  status: 'generating' | 'ready' | 'error';
-  createdAt: string;
-  updatedAt?: string;
-}
-
-interface ChatSession {
-  id: string;
-  title?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
 
 // Quick action cards
 
@@ -106,67 +87,21 @@ const QUICK_ACTIONS = [
 // Main
 
 export default function Home() {
-  const navigate = useNavigate();
-  const location = useLocation();
   const globalChat = useGlobalChat();
   const {
     events,
     isGenerating,
     sendMessage,
     stopGeneration,
-    currentSessionId,
-    loadSession,
   } = globalChat;
 
   const [input, setInput] = useState('');
-  const [dashboards, setDashboards] = useState<Dashboard[]>([]);
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [deletingDashId, setDeletingDashId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const hasMessages = events.length > 0;
 
   const blocks = useMemo(() => groupEvents(events), [events]);
   const liveBlockId = useMemo(() => liveAgentBlockId(blocks, isGenerating), [blocks, isGenerating]);
-
-  // Session id is owned by ChatProvider's React state (currentSessionId), not
-  // the URL. Refresh / new tab = empty state = new conversation. Explicit
-  // resume = Recents click in Navigation.tsx, which calls loadSession(id).
-  // Home renders whatever state globalChat currently holds.
-
-  const handleDeleteDashboard = useCallback(async (id: string) => {
-    const res = await apiClient.delete(`/dashboards/${id}`);
-    if (!res.error) {
-      setDashboards((prev) => prev.filter((d) => d.id !== id));
-    }
-  }, []);
-
-  useEffect(() => {
-    void apiClient.get<Dashboard[]>(`/dashboards?limit=6`).then((res) => {
-      if (!res.error && Array.isArray(res.data))
-        setDashboards(res.data.slice(0, 6));
-    });
-  }, []);
-
-  const refreshSessions = useCallback(() => {
-    void apiClient
-      .get<{ sessions: ChatSession[] }>('/chat/sessions?limit=10')
-      .then((res) => {
-        if (!res.error && res.data?.sessions) setSessions(res.data.sessions);
-      });
-  }, []);
-
-  useEffect(() => {
-    refreshSessions();
-  }, [refreshSessions]);
-
-  const wasGeneratingRef = useRef(false);
-  useEffect(() => {
-    if (wasGeneratingRef.current && !isGenerating) {
-      refreshSessions();
-    }
-    wasGeneratingRef.current = isGenerating;
-  }, [isGenerating, refreshSessions]);
 
   // Auto-scroll on new events. First mount jumps to the bottom instantly
   // (no animated scroll-from-top when the page reloads with N existing
@@ -196,17 +131,6 @@ export default function Home() {
   const handleQuickAction = (actionPrompt: string) => {
     void sendMessage(actionPrompt);
   };
-
-  const handleOpenSession = useCallback(
-    (sessionId: string) => {
-      void loadSession(sessionId);
-      // No URL mutation — session id lives in React state, the route stays '/'.
-      // Browser back-button still works via the normal history stack since
-      // we don't push entries for chat switches anymore.
-      if (location.pathname !== '/') navigate('/');
-    },
-    [loadSession, navigate, location.pathname],
-  );
 
   // Reusable input component (used in both modes)
   const inputArea = (
@@ -325,81 +249,8 @@ export default function Home() {
               ))}
             </motion.div>
 
-            {sessions.length > 0 && (
-              <motion.section
-                className="mt-10"
-                variants={fadeIn}
-                initial="hidden"
-                animate="visible"
-                transition={{ delay: 0.25 }}
-                aria-label="My conversations"
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
-                    My conversations
-                  </h2>
-                  {currentSessionId && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        globalChat.startNewSession();
-                        navigate('/', { replace: true });
-                      }}
-                      className="text-xs text-primary hover:text-primary-container transition-colors"
-                    >
-                      New chat
-                    </button>
-                  )}
-                </div>
-                <div className="grid gap-2">
-                  {sessions.map((session) => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      onClick={() => handleOpenSession(session.id)}
-                      className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                        session.id === currentSessionId
-                          ? 'border-primary/50 bg-primary/5'
-                          : 'border-outline-variant bg-surface-container/60 hover:border-outline hover:bg-surface-container'
-                      }`}
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-on-surface">
-                          {session.title?.trim() || 'Untitled conversation'}
-                        </span>
-                        <span className="block text-xs text-on-surface-variant">
-                          {relativeTime(session.updatedAt ?? session.createdAt)}
-                        </span>
-                      </span>
-                      <svg
-                        className="h-4 w-4 shrink-0 text-on-surface-variant"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                    </button>
-                  ))}
-                </div>
-              </motion.section>
-            )}
           </div>
         </div>
-
-        <ConfirmDialog
-          open={deletingDashId !== null}
-          title="Delete dashboard?"
-          message="This dashboard and all its panels will be permanently deleted."
-          onConfirm={() => {
-            if (deletingDashId) void handleDeleteDashboard(deletingDashId);
-            setDeletingDashId(null);
-          }}
-          onCancel={() => setDeletingDashId(null)}
-        />
       </div>
     );
   }

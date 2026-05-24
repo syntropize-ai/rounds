@@ -91,9 +91,7 @@ function mkPolicy(capability: string, humanPolicy: 'allow' | 'ask' | 'block'): C
     subjectId: 'org_a',
     capability,
     humanPolicy,
-    grafanaScope: null,
-    updatedAt: '2026-01-01T00:00:00Z',
-    updatedBy: 'u1',
+    scope: null,
   };
 }
 

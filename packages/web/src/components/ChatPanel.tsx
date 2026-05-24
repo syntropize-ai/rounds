@@ -3,14 +3,9 @@ import { motion } from 'framer-motion';
 import { slideIn } from '../animations.js';
 import type { ChatEvent } from '../hooks/useDashboardChat.js';
 import { groupEvents, liveAgentBlockId } from './chat/event-processing.js';
-import { UserMessage, AssistantMessage, ErrorMessage } from './chat/MessageComponents.js';
-import AgentActivityBlock from './chat/AgentActivityBlock.js';
-import AskUserPrompt from './chat/AskUserPrompt.js';
-import { DatasourceChoiceChip } from './chat/DatasourceChoiceChip.js';
-import InlineChartMessage from './InlineChartMessage.js';
-import ChangeProposalCard from './chat/ChangeProposalCard.js';
-import OpsCommandConfirmCard from './chat/OpsCommandConfirmCard.js';
-import type { PendingChangeKind, PendingChangeStatus } from '../types/pending-changes.js';
+import { ErrorMessage } from './chat/MessageComponents.js';
+import ChatTranscript from './chat/ChatTranscript.js';
+import type { PendingChangeStatus } from '../types/pending-changes.js';
 import { RoundsLogo } from './RoundsLogo.js';
 
 // Types
@@ -253,94 +248,12 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
           </div>
         )}
 
-        {blocks.map((block) => {
-          if (block.type === 'message') {
-            const evt = block.event;
-            if (evt.kind === 'error') {
-              return <ErrorMessage key={evt.id} content={evt.content ?? 'An error occurred'} />;
-            }
-            if (evt.kind === 'ask_user') {
-              return (
-                <AskUserPrompt
-                  key={evt.id}
-                  question={evt.question ?? ''}
-                  options={evt.options ?? []}
-                  onSelect={(id) => onSendMessage(`option:${id}`)}
-                />
-              );
-            }
-            if (evt.kind === 'inline_chart' && evt.inlineChart) {
-              const c = evt.inlineChart;
-              return (
-                <InlineChartMessage
-                  key={evt.id}
-                  id={c.id}
-                  initialQuery={c.query}
-                  initialTimeRange={c.timeRange}
-                  initialSeries={c.series}
-                  initialSummary={c.summary}
-                  metricKind={c.metricKind}
-                  datasourceId={c.datasourceId}
-                  pivotSuggestions={c.pivotSuggestions}
-                  warnings={c.warnings}
-                  onSendMessage={onSendMessage}
-                />
-              );
-            }
-            if (evt.kind === 'pending_change_created' && evt.pendingChange) {
-              const p = evt.pendingChange;
-              const overlay = proposalStatusOverlay?.get(p.id);
-              return (
-                <ChangeProposalCard
-                  key={evt.id}
-                  proposalId={p.id}
-                  dashboardId={p.dashboardId}
-                  panelId={p.panelId ?? null}
-                  changeKind={(p.changeKind as PendingChangeKind) ?? 'modify_panel'}
-                  summary={p.summary ?? 'Proposed change'}
-                  beforeJson={p.beforeJson}
-                  afterJson={p.afterJson}
-                  initialStatus={(p.status as PendingChangeStatus) ?? 'pending'}
-                  {...(overlay ? { controlledStatus: overlay } : {})}
-                />
-              );
-            }
-            if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation) {
-              return <OpsCommandConfirmCard key={evt.id} confirmation={evt.opsConfirmation} />;
-            }
-            if (evt.kind === 'ds_choice') {
-              return (
-                <DatasourceChoiceChip
-                  key={evt.id}
-                  chosenName={evt.chosenName ?? ''}
-                  reason={evt.chooseReason ?? ''}
-                  confidence={evt.confidence ?? 'low'}
-                  alternatives={evt.alternatives ?? []}
-                  onSwitch={(altId) => onSendMessage(`option:${altId}`)}
-                />
-              );
-            }
-            if (evt.message?.role === 'user') {
-              return <UserMessage key={evt.id} content={evt.message.content} />;
-            }
-            if (evt.message?.role === 'assistant') {
-              return <AssistantMessage key={evt.id} content={evt.message.content} />;
-            }
-            return null;
-          }
-
-          if (block.type === 'agent') {
-            return (
-              <AgentActivityBlock
-                key={block.id}
-                events={block.events}
-                isLive={block.id === liveBlockId}
-              />
-            );
-          }
-
-          return null;
-        })}
+        <ChatTranscript
+          blocks={blocks}
+          liveBlockId={liveBlockId}
+          onSendMessage={onSendMessage}
+          proposalStatusOverlay={proposalStatusOverlay}
+        />
 
         <div ref={bottomRef} />
       </div>

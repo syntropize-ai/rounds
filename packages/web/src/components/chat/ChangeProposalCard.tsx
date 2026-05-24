@@ -12,7 +12,7 @@ import type {
  * tool_call, user clicks Apply or Cancel, conversation continues.
  *
  * Status transitions:
- *   pending  → ✓ 应用 / ✗ 取消 buttons visible
+ *   pending  → ✓ Apply / ✗ Cancel buttons visible
  *   accepted → header turns to "Applied", buttons hidden
  *   rejected → header turns to "Cancelled", muted
  *   expired  → header turns to "Expired", subtitle explains TTL
@@ -286,7 +286,7 @@ export default function ChangeProposalCard(props: ChangeProposalProps) {
             disabled={busy}
             className="px-2.5 py-1 rounded text-xs font-semibold bg-amber-400 text-amber-950 hover:bg-amber-300 disabled:opacity-50 transition-colors"
           >
-            ✓ 应用
+            ✓ Apply
           </button>
           <button
             type="button"
@@ -295,7 +295,7 @@ export default function ChangeProposalCard(props: ChangeProposalProps) {
             disabled={busy}
             className="px-2.5 py-1 rounded text-xs border border-outline-variant text-on-surface-variant hover:bg-surface-high disabled:opacity-50 transition-colors"
           >
-            ✗ 取消
+            ✗ Cancel
           </button>
         </div>
       )}

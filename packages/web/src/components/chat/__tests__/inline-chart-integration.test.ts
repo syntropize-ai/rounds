@@ -63,7 +63,7 @@ describe('groupEvents with inline_chart', () => {
 });
 
 describe('groupEvents with ops confirmations', () => {
-  it('does not pause the transcript at an ops confirmation — the card collapses itself after the user clicks Run/Cancel and the agent\'s subsequent events keep streaming below', () => {
+  it('pauses the transcript at a pending ops confirmation', () => {
     const events: ChatEvent[] = [
       { id: 't1', kind: 'tool_call', tool: 'ops_cluster_shell', content: 'running' },
       {
@@ -89,9 +89,49 @@ describe('groupEvents with ops confirmations', () => {
     ];
 
     const blocks = groupEvents(events);
-    expect(blocks).toHaveLength(3);
+    expect(blocks).toHaveLength(2);
     expect(blocks[0]!.type).toBe('agent');
     expect(blocks[1]!.type === 'message' && blocks[1]!.event.kind).toBe('ops_command_confirmation_required');
+  });
+
+  it('releases the transcript after an ops confirmation resolves', () => {
+    const events: ChatEvent[] = [
+      { id: 't1', kind: 'tool_call', tool: 'ops_cluster_shell', content: 'running' },
+      {
+        id: 'c1',
+        kind: 'ops_command_confirmation_required',
+        opsConfirmation: {
+          id: 'confirm-1',
+          connectorId: 'kube-prod',
+          command: 'istioctl install -y',
+          status: 'pending',
+        },
+      },
+      {
+        id: 'r1',
+        kind: 'ops_command_confirmation_resolved',
+        opsConfirmation: {
+          id: 'confirm-1',
+          connectorId: '',
+          command: '',
+          status: 'executed',
+        },
+      },
+      {
+        id: 'm1',
+        kind: 'message',
+        message: {
+          id: 'm1',
+          role: 'assistant',
+          content: 'Istio installed successfully.',
+          timestamp: '2026-01-01T00:00:00Z',
+        },
+      },
+    ];
+
+    const blocks = groupEvents(events);
+    expect(blocks).toHaveLength(3);
+    expect(blocks[1]!.type === 'message' && blocks[1]!.event.opsConfirmation?.status).toBe('executed');
     expect(blocks[2]!.type === 'message' && blocks[2]!.event.kind).toBe('message');
   });
 });

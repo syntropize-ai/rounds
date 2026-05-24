@@ -3,14 +3,7 @@ import { motion } from 'framer-motion';
 import { fadeIn } from '../animations.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
 import { groupEvents, liveAgentBlockId } from '../components/chat/event-processing.js';
-import {
-  UserMessage,
-  AssistantMessage,
-  ErrorMessage,
-} from '../components/chat/MessageComponents.js';
-import AgentActivityBlock from '../components/chat/AgentActivityBlock.js';
-import InlineChartMessage from '../components/InlineChartMessage.js';
-import OpsCommandConfirmCard from '../components/chat/OpsCommandConfirmCard.js';
+import ChatTranscript from '../components/chat/ChatTranscript.js';
 import { RoundsLogo } from '../components/RoundsLogo.js';
 
 // Types
@@ -263,71 +256,11 @@ export default function Home() {
       {/* Scrollable messages area */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 w-full pt-8 pb-4">
-          {blocks.map((block) => {
-            if (block.type === 'message') {
-              const evt = block.event;
-              if (evt.kind === 'error') {
-                return (
-                  <ErrorMessage
-                    key={evt.id}
-                    content={evt.content ?? 'An error occurred'}
-                  />
-                );
-              }
-              if (evt.kind === 'inline_chart' && evt.inlineChart) {
-                const c = evt.inlineChart;
-                return (
-                  <InlineChartMessage
-                    key={evt.id}
-                    id={c.id}
-                    initialQuery={c.query}
-                    initialTimeRange={c.timeRange}
-                    initialSeries={c.series}
-                    initialSummary={c.summary}
-                    metricKind={c.metricKind}
-                    datasourceId={c.datasourceId}
-                    pivotSuggestions={c.pivotSuggestions}
-                    warnings={c.warnings}
-                    onSendMessage={sendMessage}
-                  />
-                );
-              }
-              if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation) {
-                return (
-                  <OpsCommandConfirmCard
-                    key={evt.id}
-                    confirmation={evt.opsConfirmation}
-                  />
-                );
-              }
-              if (evt.message?.role === 'user') {
-                return (
-                  <UserMessage key={evt.id} content={evt.message.content} />
-                );
-              }
-              if (evt.message?.role === 'assistant') {
-                return (
-                  <AssistantMessage
-                    key={evt.id}
-                    content={evt.message.content}
-                  />
-                );
-              }
-              return null;
-            }
-
-            if (block.type === 'agent') {
-              return (
-                <AgentActivityBlock
-                  key={block.id}
-                  events={block.events}
-                  isLive={block.id === liveBlockId}
-                />
-              );
-            }
-
-            return null;
-          })}
+          <ChatTranscript
+            blocks={blocks}
+            liveBlockId={liveBlockId}
+            onSendMessage={sendMessage}
+          />
           <div ref={bottomRef} />
         </div>
       </div>

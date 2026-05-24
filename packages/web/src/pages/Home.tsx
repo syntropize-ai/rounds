@@ -227,28 +227,26 @@ export default function Home() {
             el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
           }}
         />
-        {isGenerating && (
+        {isGenerating ? (
           <button
             type="button"
             onClick={stopGeneration}
-            className="absolute right-14 bottom-3 w-8 h-8 bg-surface-highest hover:bg-error/15 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors rounded-full"
+            className="absolute right-3 bottom-3 w-7 h-7 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
             title="Stop"
+            aria-label="Stop"
           >
-            <svg
-              className="w-3.5 h-3.5"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
               <rect x="5" y="5" width="10" height="10" rx="1" />
             </svg>
           </button>
-        )}
+        ) : (
         <button
           type="button"
           onClick={handleSend}
-          disabled={!input.trim() || isGenerating}
-          className="absolute right-3 bottom-3 w-9 h-9 bg-on-surface hover:bg-primary-container flex items-center justify-center text-surface-lowest transition-colors disabled:opacity-25 rounded-full"
+          disabled={!input.trim()}
+          className="absolute right-3 bottom-3 w-7 h-7 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
           title="Send"
+          aria-label="Send"
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path
@@ -259,6 +257,7 @@ export default function Home() {
             />
           </svg>
         </button>
+        )}
       </div>
     </div>
   );

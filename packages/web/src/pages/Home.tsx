@@ -231,12 +231,12 @@ export default function Home() {
           <button
             type="button"
             onClick={stopGeneration}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
             title="Stop"
             aria-label="Stop"
           >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <rect x="5" y="5" width="10" height="10" rx="1" />
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="1.5" />
             </svg>
           </button>
         ) : (
@@ -244,17 +244,20 @@ export default function Home() {
           type="button"
           onClick={handleSend}
           disabled={!input.trim()}
-          className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
           title="Send"
           aria-label="Send"
         >
-          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-            <path
-              fillRule="evenodd"
-              d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z"
-              clipRule="evenodd"
-              transform="rotate(-90 10 10)"
-            />
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.25}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 19V5M5 12l7-7 7 7" />
           </svg>
         </button>
         )}

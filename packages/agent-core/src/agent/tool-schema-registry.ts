@@ -1371,6 +1371,83 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
 
   // -------------------------------------------------------------------------
+  // GitHub VCS read tools. Reads via the configured GitHub connector. The
+  // connector must be configured in Settings → Connectors → GitHub. All four
+  // are read-only and gated by the connector policy capabilities
+  // `vcs.repo.read` / `vcs.pr.read` / `vcs.diff.read`.
+  // -------------------------------------------------------------------------
+  'github_list_repos': {
+    category: 'deferred',
+    schema: {
+      name: 'github_list_repos',
+      description:
+        'List repositories the GitHub App installation can see. Reads via the configured GitHub connector. The connector must be configured in Settings → Connectors → GitHub. Pass connectorId only if the org has multiple GitHub connectors; otherwise the single configured one is used.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          connectorId: { type: 'string', description: 'GitHub connector id. Optional when the org has exactly one.' },
+        },
+        required: [],
+      },
+    },
+  },
+  'github_list_prs': {
+    category: 'deferred',
+    schema: {
+      name: 'github_list_prs',
+      description:
+        'List pull requests on a repository. Reads via the configured GitHub connector. The connector must be configured in Settings → Connectors → GitHub.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          connectorId: { type: 'string', description: 'GitHub connector id. Optional when the org has exactly one.' },
+          owner: { type: 'string', description: 'Repository owner (org or user login).' },
+          repo: { type: 'string', description: 'Repository name.' },
+          state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'PR state filter. Default open.' },
+          limit: { type: 'number', description: 'Max PRs to return. Default 20, max 100.' },
+        },
+        required: ['owner', 'repo'],
+      },
+    },
+  },
+  'github_get_pr': {
+    category: 'deferred',
+    schema: {
+      name: 'github_get_pr',
+      description:
+        'Fetch full detail for a single pull request (title, body, head/base SHAs, file/line stats, mergedAt). Reads via the configured GitHub connector. The connector must be configured in Settings → Connectors → GitHub.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          connectorId: { type: 'string', description: 'GitHub connector id. Optional when the org has exactly one.' },
+          owner: { type: 'string', description: 'Repository owner.' },
+          repo: { type: 'string', description: 'Repository name.' },
+          number: { type: 'number', description: 'Pull request number.' },
+        },
+        required: ['owner', 'repo', 'number'],
+      },
+    },
+  },
+  'github_get_diff': {
+    category: 'deferred',
+    schema: {
+      name: 'github_get_diff',
+      description:
+        'Fetch the unified diff text for a pull request. Reads via the configured GitHub connector. The connector must be configured in Settings → Connectors → GitHub. Large diffs are truncated at ~256 KB with a marker; for a structured view of file paths and stats use github_get_pr.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          connectorId: { type: 'string', description: 'GitHub connector id. Optional when the org has exactly one.' },
+          owner: { type: 'string', description: 'Repository owner.' },
+          repo: { type: 'string', description: 'Repository name.' },
+          number: { type: 'number', description: 'Pull request number.' },
+        },
+        required: ['owner', 'repo', 'number'],
+      },
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // Clarifying question — only tool besides "no tool call" that ends a turn.
   // -------------------------------------------------------------------------
   'ask_user': {

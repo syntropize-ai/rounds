@@ -32,6 +32,7 @@ import type {
   AgentConfigService,
 } from '../types.js';
 import type { ActionExecutor } from '../action-executor.js';
+import type { GithubToolRunner } from '../agent-types.js';
 import type { IAccessControlService } from '../types-permissions.js';
 import type { IPanelEventRepository } from '../panel-event-recorder.js';
 import type { IPendingChangeRepository } from '@agentic-obs/data-layer';
@@ -69,6 +70,13 @@ export interface ActionContext {
   sessionConnectorPins?: Record<string, string>;
   opsCommandRunner?: OpsCommandRunner;
   opsConnectors?: OpsConnectorConfig[];
+  /**
+   * GitHub VCS read surface used by the four `github_*` tools. When
+   * present, the agent can list repos / PRs and fetch PR detail + diff via
+   * the org's configured GitHub App connector. Optional — when omitted the
+   * handlers return a clear "GitHub connector not configured" observation.
+   */
+  githubToolRunner?: GithubToolRunner;
   /**
    * Remediation plan store. When present, the `remediation_plan_create`
    * and `.create_rescue` tools are registered. Optional so test/in-memory

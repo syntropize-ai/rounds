@@ -38,6 +38,8 @@ export type AgentToolName =
   // Kubernetes / Ops integrations
   | 'ops_run_command'
   | 'ops_cluster_shell'
+  // GitHub VCS read tools (configured via Settings → Connectors → GitHub)
+  | 'github_list_repos' | 'github_list_prs' | 'github_get_pr' | 'github_get_diff'
   // Remediation plans (proposal-only; PlanExecutorService runs approved steps)
   | 'remediation_plan_create' | 'remediation_plan_create_rescue'
   // Connector discovery (always-allowed, no RBAC)
@@ -64,3 +66,47 @@ export type ArtifactKind =
 export type AgentPermissionMode =
   | 'read_only' | 'artifact_mutation'
   | 'propose_only' | 'approval_required' | 'guarded_execution';
+
+/**
+ * Result shape for every `github_*` agent tool. We never throw across the
+ * runner boundary — the runner surfaces auth failures, rate limits, 404s,
+ * and policy denials as polite observation strings so the model can read
+ * them and tell the user. `data` is present on success and is a
+ * tool-specific structured payload (array | object | string for diffs).
+ */
+export interface GithubToolResult {
+  observation: string;
+  data?: unknown;
+  truncated?: boolean;
+}
+
+/**
+ * Agent-facing GitHub VCS surface. The concrete implementation lives in
+ * api-gateway (`services/github-tool-runner.ts`) — agent-core only depends
+ * on this interface so the package stays decoupled from express / data-layer.
+ */
+export interface GithubToolRunner {
+  listRepos(args: { connectorId?: string; identity: import('@agentic-obs/common').Identity }): Promise<GithubToolResult>;
+  listPrs(args: {
+    connectorId?: string;
+    owner: string;
+    repo: string;
+    state?: 'open' | 'closed' | 'all';
+    limit?: number;
+    identity: import('@agentic-obs/common').Identity;
+  }): Promise<GithubToolResult>;
+  getPr(args: {
+    connectorId?: string;
+    owner: string;
+    repo: string;
+    number: number;
+    identity: import('@agentic-obs/common').Identity;
+  }): Promise<GithubToolResult>;
+  getDiff(args: {
+    connectorId?: string;
+    owner: string;
+    repo: string;
+    number: number;
+    identity: import('@agentic-obs/common').Identity;
+  }): Promise<GithubToolResult>;
+}

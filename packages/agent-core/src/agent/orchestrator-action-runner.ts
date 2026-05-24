@@ -64,6 +64,10 @@ import {
   handleKbSearch,
   handleKbGet,
   handleKbRecommend,
+  handleGithubListRepos,
+  handleGithubListPrs,
+  handleGithubGetPr,
+  handleGithubGetDiff,
 } from './orchestrator-action-handlers.js';
 import type { ToolAuditReporter } from './orchestrator-audit-reporter.js';
 
@@ -260,6 +264,11 @@ async function dispatchAction(
     case 'kb_search': return handleKbSearch(ctx, args);
     case 'kb_get': return handleKbGet(ctx, args);
     case 'kb_recommend': return handleKbRecommend(ctx, args);
+    // GitHub VCS read tools
+    case 'github_list_repos': return handleGithubListRepos(ctx, args);
+    case 'github_list_prs': return handleGithubListPrs(ctx, args);
+    case 'github_get_pr': return handleGithubGetPr(ctx, args);
+    case 'github_get_diff': return handleGithubGetDiff(ctx, args);
     // `tool_search` is intercepted by ReActLoop before dispatch — it
     // resolves deferred-tool schemas and feeds them back as an observation
     // without round-tripping through the dispatcher. Listed here as a

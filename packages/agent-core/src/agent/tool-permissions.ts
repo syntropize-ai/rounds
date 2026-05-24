@@ -253,6 +253,31 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'setting_get': () => ac.eval(ACTIONS.InstanceConfigWrite),
   'setting_set': () => ac.eval(ACTIONS.InstanceConfigWrite),
 
+  // -- GitHub VCS read tools -----------------------------------------------
+  // Read-only — gated like other connector reads (ConnectorsQuery on the
+  // connector id). Runner-side connector policy (`vcs.*.read`) gives a
+  // second gate that org admins can tighten without changing RBAC.
+  'github_list_repos': (args: Record<string, unknown>) =>
+    ac.eval(
+      ACTIONS.ConnectorsQuery,
+      `connectors:id:${String(args.connectorId ?? '*')}`,
+    ),
+  'github_list_prs': (args: Record<string, unknown>) =>
+    ac.eval(
+      ACTIONS.ConnectorsQuery,
+      `connectors:id:${String(args.connectorId ?? '*')}`,
+    ),
+  'github_get_pr': (args: Record<string, unknown>) =>
+    ac.eval(
+      ACTIONS.ConnectorsQuery,
+      `connectors:id:${String(args.connectorId ?? '*')}`,
+    ),
+  'github_get_diff': (args: Record<string, unknown>) =>
+    ac.eval(
+      ACTIONS.ConnectorsQuery,
+      `connectors:id:${String(args.connectorId ?? '*')}`,
+    ),
+
   // -- Web / knowledge ------------------------------------------------------
   'web_search': () => ac.eval('chat:use'),
 

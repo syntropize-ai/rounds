@@ -58,6 +58,7 @@ import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
 import { createChatRouter } from '../routes/chat.js';
+import { GithubAppTokenService } from '../services/github-app-token-service.js';
 import { createOpsCommandConfirmationsRouter } from '../routes/ops-command-confirmations.js';
 import { bootstrapAware } from '../middleware/bootstrap-aware.js';
 import { authMiddleware } from '../middleware/auth.js';
@@ -414,6 +415,19 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     // kubernetes connectors directly from the full data-layer repo (we want
     // `getSecret` here — the local `ConnectorRepository` view drops it).
     connectorRepo: repos.connectors,
+    // GitHub agent tools (github_list_repos/_prs, github_get_pr/_diff).
+    // The token service caches installation tokens in-process so each chat
+    // turn doesn't pay a JWT-sign + 2x GitHub round-trip. Only wired when
+    // the github_app_config repo is present (instance not registered → no
+    // token service → handler reports "GitHub connector not configured").
+    ...(githubAppConfigRepo
+      ? {
+          githubAppTokenService: new GithubAppTokenService({
+            githubAppConfig: githubAppConfigRepo,
+            connectors: repos.connectors,
+          }),
+        }
+      : {}),
   }));
   app.use('/api/ops-command-confirmations', createOpsCommandConfirmationsRouter({
     connectors: repos.connectors,

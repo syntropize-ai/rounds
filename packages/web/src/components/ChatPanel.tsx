@@ -355,29 +355,32 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
               el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
             }}
           />
-          {isGenerating && onStop && (
+          {isGenerating && onStop ? (
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-12 bottom-3 w-8 h-8 bg-surface-highest hover:bg-error/20 text-on-surface-variant hover:text-error flex items-center justify-center transition-colors"
+              className="absolute right-3 bottom-3 w-8 h-8 bg-primary hover:bg-error flex items-center justify-center text-on-primary-fixed transition-colors"
               title="Stop"
+              aria-label="Stop"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                 <rect x="5" y="5" width="10" height="10" rx="1" />
               </svg>
             </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="absolute right-3 bottom-3 w-8 h-8 bg-primary hover:bg-primary-container flex items-center justify-center text-on-primary-fixed transition-colors disabled:opacity-30"
+              title="Send"
+              aria-label="Send"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z" clipRule="evenodd" transform="rotate(-90 10 10)" />
+              </svg>
+            </button>
           )}
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!input.trim()}
-            className="absolute right-3 bottom-3 w-8 h-8 bg-primary hover:bg-primary-container flex items-center justify-center text-on-primary-fixed transition-colors disabled:opacity-30"
-            title="Send"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z" clipRule="evenodd" transform="rotate(-90 10 10)" />
-            </svg>
-          </button>
         </div>
         {!isGenerating && (
           <p className="text-[10px] text-center text-on-surface-variant/50">

@@ -231,7 +231,7 @@ export default function Home() {
           <button
             type="button"
             onClick={stopGeneration}
-            className="absolute right-2.5 bottom-2.5 w-10 h-10 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
             title="Stop"
             aria-label="Stop"
           >
@@ -244,7 +244,7 @@ export default function Home() {
           type="button"
           onClick={handleSend}
           disabled={!input.trim()}
-          className="absolute right-2.5 bottom-2.5 w-10 h-10 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+          className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
           title="Send"
           aria-label="Send"
         >

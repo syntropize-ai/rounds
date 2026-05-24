@@ -46,6 +46,8 @@ const WIDE_MIN_WIDTH = 600;
 // branch. 140 keeps the legend on standard 3-row panels and only hides it
 // when the panel is genuinely too short to read it.
 const MIN_HEIGHT_FOR_LEGEND = 140;
+const MIN_PLOT_HEIGHT = 150;
+const COMPACT_STATS_HEIGHT = 220;
 
 export interface PanelLayout {
   /** Container width in CSS px. 0 until first ResizeObserver fire. */
@@ -64,6 +66,10 @@ export interface LegendLayoutDecision {
    *  only — table mode lays out columns via the table itself, stacked mode
    *  uses block layout. */
   itemBasis: number;
+  /** Maximum legend block height in CSS px. */
+  maxHeight: number;
+  /** How many stat columns should render at this size. */
+  statBudget: number;
 }
 
 /**
@@ -82,19 +88,23 @@ export function decideLegendLayout(
   statCount: number,
   requested: 'list' | 'table' | 'hidden',
 ): LegendLayoutDecision {
+  const height = layout.height || 260;
+  const availableLegendHeight = Math.max(0, Math.min(120, height - MIN_PLOT_HEIGHT));
+  const statBudget = height > 0 && height < COMPACT_STATS_HEIGHT ? 1 : statCount;
+
   if (requested === 'hidden' || seriesCount === 0) {
-    return { mode: 'hidden', itemBasis: 0 };
+    return { mode: 'hidden', itemBasis: 0, maxHeight: 0, statBudget: 0 };
   }
 
-  if (layout.height > 0 && layout.height < MIN_HEIGHT_FOR_LEGEND) {
-    return { mode: 'hidden', itemBasis: 0 };
+  if (layout.height > 0 && (layout.height < MIN_HEIGHT_FOR_LEGEND || availableLegendHeight < 28)) {
+    return { mode: 'hidden', itemBasis: 0, maxHeight: 0, statBudget: 0 };
   }
 
   // Narrow containers cannot fit name + stats inline without truncating
   // CJK labels. Switch to stacked: name owns the first row, stats own
   // the second. Width-only check; even a tall narrow panel benefits.
   if (layout.sizeClass === 'narrow') {
-    return { mode: 'stacked', itemBasis: 0 };
+    return { mode: 'stacked', itemBasis: 0, maxHeight: availableLegendHeight, statBudget };
   }
 
   // Inline list overflows when each row carries multiple stat columns,
@@ -103,15 +113,15 @@ export function decideLegendLayout(
   // before the name even starts; in any panel below ~700 px the name
   // gets squeezed to zero. Table mode aligns the stats into proper
   // columns and lets the name reflow under its own column.
-  if (requested === 'table' || seriesCount > 6 || statCount >= 2) {
-    return { mode: 'table', itemBasis: 0 };
+  if (requested === 'table' || seriesCount > 6 || statBudget >= 2) {
+    return { mode: 'table', itemBasis: 0, maxHeight: availableLegendHeight, statBudget };
   }
 
   // Wide gets a roomier basis so series-rich panels read as a tidy
   // multi-column grid; medium goes tighter so a single CJK name + one
   // stat fits in one row.
   const itemBasis = layout.sizeClass === 'wide' ? 220 : 140;
-  return { mode: 'list', itemBasis };
+  return { mode: 'list', itemBasis, maxHeight: availableLegendHeight, statBudget };
 }
 
 /**

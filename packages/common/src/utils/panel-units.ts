@@ -18,6 +18,12 @@ export interface PanelUnitInput {
   metadataByMetric?: Record<string, PanelMetricMetadata | undefined>;
 }
 
+export interface PanelDisplayUnit {
+  unit?: string;
+  /** Multiplicative transform applied to raw query values before formatting. */
+  valueScale: number;
+}
+
 export const CANONICAL_PANEL_UNITS = [
   'none',
   'short',
@@ -116,6 +122,22 @@ function looksLikePercentPanel(text: string): boolean {
   );
 }
 
+function hasPercentTransform(text: string): boolean {
+  return /\*\s*100\b/.test(text) || /100\s*\*/.test(text);
+}
+
+function looksLikeCpuSecondsRate(text: string): boolean {
+  return /\brate\s*\(/.test(text) && /\b(?:process|container|node|system)?_?cpu(?:_usage)?_seconds_total\b/.test(text);
+}
+
+function looksLikeCpuPercentPanel(text: string): boolean {
+  return (
+    /\bcpu\b/.test(text) &&
+    /\b(utili[sz]ation|usage|percent|percentage)\b/.test(text) &&
+    looksLikeCpuSecondsRate(text)
+  );
+}
+
 function looksLikeRequestRatePanel(text: string): boolean {
   return /\brate\s*\(/.test(text) && /(?:requests?|http|grpc|rpc).*_total\b/.test(text);
 }
@@ -159,35 +181,60 @@ function firstMetadataType(panel: PanelUnitInput): string | undefined {
  * panel's metric family, e.g. CPU utilization marked as request rate.
  */
 export function resolvePanelUnit(panel: PanelUnitInput): string | undefined {
+  return resolvePanelDisplayUnit(panel).unit;
+}
+
+/**
+ * Resolve both display unit and raw-value scaling. Some metric families are
+ * semantically percentages but PromQL returns a ratio/core value unless the
+ * query explicitly multiplies by 100. Treating this as just a unit suffix is
+ * how panels end up showing CPU "0.34%" instead of "34%".
+ */
+export function resolvePanelDisplayUnit(panel: PanelUnitInput): PanelDisplayUnit {
   const declared = normalizePanelUnit(panel.unit);
   const text = panelText(panel);
   const metadataUnit = firstMetadataUnit(panel);
   const metadataType = firstMetadataType(panel);
 
   if (metadataUnit === 'percent' || metadataUnit === 'percentunit') {
-    return metadataUnit;
+    return metadataUnit === 'percentunit'
+      ? { unit: 'percent', valueScale: 100 }
+      : { unit: metadataUnit, valueScale: 1 };
   }
 
   if (metadataUnit === 'bytes' && looksLikeByteRatePanel(text)) {
-    return 'Bps';
+    return { unit: 'Bps', valueScale: 1 };
   }
 
   if ((metadataUnit === 's' || metadataUnit === 'seconds') && /\brate\s*\(|\birate\s*\(/.test(text)) {
-    return declared ?? 'short';
+    if (looksLikeCpuPercentPanel(text)) {
+      return { unit: 'percent', valueScale: hasPercentTransform(text) ? 1 : 100 };
+    }
+    return { unit: declared ?? 'short', valueScale: 1 };
+  }
+
+  if (looksLikeCpuPercentPanel(text)) {
+    return { unit: 'percent', valueScale: hasPercentTransform(text) ? 1 : 100 };
   }
 
   if (looksLikePercentPanel(text)) {
-    if (!declared || REQUEST_RATE_UNITS.has(declared.toLowerCase())) return 'percent';
+    if (!declared || REQUEST_RATE_UNITS.has(declared.toLowerCase())) {
+      return { unit: 'percent', valueScale: 1 };
+    }
   }
 
   if (!declared) {
-    if (metadataUnit) return metadataUnit;
-    if (metadataType === 'counter' && looksLikeRequestRatePanel(text)) return 'reqps';
-    if (looksLikeByteRatePanel(text)) return 'Bps';
-    if (looksLikeRequestRatePanel(text)) return 'reqps';
-    if (looksLikeBytesPanel(text)) return 'bytes';
-    if (looksLikeDurationPanel(text)) return 's';
+    if (metadataUnit) return { unit: metadataUnit, valueScale: 1 };
+    if (metadataType === 'counter' && looksLikeRequestRatePanel(text)) return { unit: 'reqps', valueScale: 1 };
+    if (looksLikeByteRatePanel(text)) return { unit: 'Bps', valueScale: 1 };
+    if (looksLikeRequestRatePanel(text)) return { unit: 'reqps', valueScale: 1 };
+    if (looksLikeBytesPanel(text)) return { unit: 'bytes', valueScale: 1 };
+    if (looksLikeDurationPanel(text)) return { unit: 's', valueScale: 1 };
   }
 
-  return declared;
+  if (declared === 'percentunit') {
+    return { unit: 'percent', valueScale: 100 };
+  }
+
+  return { unit: declared, valueScale: 1 };
 }

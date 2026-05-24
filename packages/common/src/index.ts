@@ -73,9 +73,10 @@ export {
   extractPanelMetricNames,
   isCanonicalPanelUnit,
   normalizePanelUnit,
+  resolvePanelDisplayUnit,
   resolvePanelUnit,
 } from './utils/panel-units.js';
-export type { PanelMetricMetadata, PanelUnitInput, PanelUnitQuery } from './utils/panel-units.js';
+export type { PanelDisplayUnit, PanelMetricMetadata, PanelUnitInput, PanelUnitQuery } from './utils/panel-units.js';
 
 // PromQL signature normalization — consumed by the panel-event repository
 // to aggregate "same query shape, different filter values" into a single

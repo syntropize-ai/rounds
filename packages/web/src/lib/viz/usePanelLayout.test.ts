@@ -28,6 +28,7 @@ describe('decideLegendLayout — narrow', () => {
     const layout = makeLayout({ width: 250, sizeClass: 'narrow' });
     const d = decideLegendLayout(layout, 1, 1, 'list');
     expect(d.mode).toBe('stacked');
+    expect(d.maxHeight).toBeGreaterThan(0);
   });
 
   it('still hides when height < 180 even on narrow', () => {
@@ -51,6 +52,13 @@ describe('decideLegendLayout — medium', () => {
     expect(d.itemBasis).toBe(140);
   });
 
+  it('reduces stat budget on short panels before switching to table', () => {
+    const layout = makeLayout({ width: 400, height: 200, sizeClass: 'medium' });
+    const d = decideLegendLayout(layout, 1, 3, 'list');
+    expect(d.mode).toBe('list');
+    expect(d.statBudget).toBe(1);
+  });
+
   it('upgrades to table on multi-stat regardless of series count', () => {
     // Regression: previous trigger required `series >= 2 && stat >= 2`,
     // so single-series + 3-stat (default) ran in list mode and the
@@ -59,6 +67,7 @@ describe('decideLegendLayout — medium', () => {
     const layout = makeLayout({ width: 400, sizeClass: 'medium' });
     const d = decideLegendLayout(layout, 1, 3, 'list');
     expect(d.mode).toBe('table');
+    expect(d.statBudget).toBe(3);
   });
 
   it('upgrades to table when more than 6 series', () => {

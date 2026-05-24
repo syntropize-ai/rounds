@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCanonicalPanelUnit, resolvePanelUnit } from './panel-units.js';
+import { isCanonicalPanelUnit, resolvePanelDisplayUnit, resolvePanelUnit } from './panel-units.js';
 
 describe('resolvePanelUnit', () => {
   it('normalizes common unit aliases', () => {
@@ -57,5 +57,20 @@ describe('resolvePanelUnit', () => {
         container_cpu_usage_seconds_total: { type: 'counter', help: 'CPU seconds', unit: 'seconds' },
       },
     })).toBe('short');
+  });
+
+  it('returns a valueScale for CPU seconds utilization queries', () => {
+    expect(resolvePanelDisplayUnit({
+      title: 'CPU Usage by Proxy',
+      queries: [{ expr: 'sum(rate(process_cpu_seconds_total[5m]))' }],
+      metadataByMetric: {
+        process_cpu_seconds_total: { type: 'counter', help: 'CPU seconds', unit: 'seconds' },
+      },
+    })).toEqual({ unit: 'percent', valueScale: 100 });
+
+    expect(resolvePanelDisplayUnit({
+      title: 'CPU utilization',
+      queries: [{ expr: 'sum(rate(container_cpu_usage_seconds_total[5m])) * 100' }],
+    })).toEqual({ unit: 'percent', valueScale: 1 });
   });
 });

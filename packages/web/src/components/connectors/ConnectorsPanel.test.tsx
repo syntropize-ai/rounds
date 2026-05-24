@@ -34,7 +34,7 @@ describe('ConnectorsPanel', () => {
       React.createElement(ConnectorsPanel, { canWrite: true }),
     );
     // Middle pane affordances.
-    expect(html).toContain('Add connector');
+    expect(html).toContain('New connector');
     // The detail pane initial state when nothing is selected and loading is true.
     expect(html).toContain('Loading connectors…');
   });

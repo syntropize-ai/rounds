@@ -111,6 +111,7 @@ describe('handleKbSearch', () => {
     expect(parsed.entries.length).toBeGreaterThanOrEqual(1);
     expect(parsed.entries[0].id).toBe('sk-kafka');
     expect(parsed.entries[0].description).toBeTypeOf('string');
+    expect(ctx.dashboardBuildEvidence.kbConsultCount).toBe(1);
   });
 
   it('returns a clear message when no KB repo is wired', async () => {
@@ -141,6 +142,7 @@ describe('handleKbGet', () => {
     expect(parsed.entry.id).toBe('sk-kafka');
     expect(parsed.entry.description).toBeTypeOf('string');
     expect(parsed.entry.body).toBeTypeOf('string');
+    expect(ctx.dashboardBuildEvidence.kbConsultCount).toBe(1);
     // bumpUseCount is fire-and-forget; allow microtasks to flush.
     await new Promise((r) => setImmediate(r));
     const entry = await repo.getById('test-org', 'sk-kafka');
@@ -163,6 +165,7 @@ describe('handleKbRecommend', () => {
     const parsed = JSON.parse(out);
     expect(parsed.entries[0].id).toBe('sk-kafka');
     expect(parsed.entries.length).toBeLessThanOrEqual(3);
+    expect(ctx.dashboardBuildEvidence.kbConsultCount).toBe(1);
   });
 
   it('penalizes entries whose required metrics are not exposed (server-side resolution)', async () => {

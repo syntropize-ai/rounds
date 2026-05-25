@@ -42,6 +42,7 @@ export async function handleKbSearch(
       if (hits.length === 0) {
         return `No KB entries matched "${query}".`;
       }
+      ctx.dashboardBuildEvidence.kbConsultCount += 1;
       const byId = new Map(entries.map((e) => [e.id, e]));
       const out = hits.map((h) => {
         const e = byId.get(h.id)!;

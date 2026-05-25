@@ -28,6 +28,7 @@ export async function handleKbGet(
       if (!entry) {
         return `KB entry "${id}" not found.`;
       }
+      ctx.dashboardBuildEvidence.kbConsultCount += 1;
       // Fire-and-forget — counter bookkeeping should not break the handler.
       void repo.bumpUseCount(ctx.identity.orgId, id).catch(() => undefined);
       return JSON.stringify({ entry });

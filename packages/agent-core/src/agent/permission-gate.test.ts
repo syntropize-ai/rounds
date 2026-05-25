@@ -27,6 +27,7 @@ function makeCtx(allowAll = true): ActionContext {
     investigationProvenance: new Map(),
     freshlyCreatedDashboards: new Set<string>(),
     dashboardBuildEvidence: {
+      kbConsultCount: 0,
       webSearchCount: 0,
       metricDiscoveryCount: 0,
       validatedQueries: new Set<string>(),

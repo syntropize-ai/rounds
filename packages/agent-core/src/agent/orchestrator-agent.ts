@@ -183,6 +183,7 @@ export class OrchestratorAgent {
    *  pre-existing dashboards funnel modifications through pendingChanges. */
   private readonly freshlyCreatedDashboards: Set<string> = new Set()
   private readonly dashboardBuildEvidence = {
+    kbConsultCount: 0,
     webSearchCount: 0,
     metricDiscoveryCount: 0,
     validatedQueries: new Set<string>(),

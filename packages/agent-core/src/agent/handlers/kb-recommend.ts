@@ -135,7 +135,11 @@ export async function handleKbRecommend(
         if (b.score !== a.score) return b.score - a.score;
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
-      return JSON.stringify({ entries: ranked.slice(0, 3) });
+      const entries = ranked.slice(0, 3);
+      if (entries.length > 0) {
+        ctx.dashboardBuildEvidence.kbConsultCount += 1;
+      }
+      return JSON.stringify({ entries });
     },
   );
 }

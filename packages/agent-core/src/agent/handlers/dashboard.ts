@@ -555,8 +555,8 @@ export async function handleDashboardAddPanels(
     .filter((expr) => expr.length > 0);
   if (queries.length > 0) {
     const evidence = ctx.dashboardBuildEvidence;
-    if (evidence.webSearchCount === 0 && evidence.metricDiscoveryCount === 0) {
-      return 'Error: dashboard_add_panels requires prior metric research. Call web_search for named-system/exporter dashboards or metrics_discover for existing metrics before adding panels.';
+    if (evidence.kbConsultCount === 0 && evidence.webSearchCount === 0 && evidence.metricDiscoveryCount === 0) {
+      return 'Error: dashboard_add_panels requires prior metric research. Call kb_recommend/kb_get first for named-system dashboards, or metrics_discover for existing live metrics before adding panels.';
     }
     const unvalidated = [...new Set(queries)].filter((expr) => !evidence.validatedQueries.has(expr));
     if (unvalidated.length > 0) {

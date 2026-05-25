@@ -151,6 +151,7 @@ function makeContextRuntime(): Parameters<typeof buildActionContext>[1] {
     activeDashboardIdRef: { current: null },
     freshlyCreatedDashboards: new Set<string>(),
     dashboardBuildEvidence: {
+      kbConsultCount: 0,
       webSearchCount: 0,
       metricDiscoveryCount: 0,
       validatedQueries: new Set<string>(),

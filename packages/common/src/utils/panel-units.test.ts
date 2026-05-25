@@ -9,30 +9,13 @@ describe('resolvePanelUnit', () => {
     expect(isCanonicalPanelUnit('qps')).toBe(true);
   });
 
-  it('corrects CPU utilization panels that were mislabeled as request rate', () => {
-    expect(resolvePanelUnit({
-      title: 'CPU utilization',
-      unit: 'reqps',
-      queries: [{ expr: 'sum(rate(container_cpu_usage_seconds_total[5m])) * 100' }],
-    })).toBe('percent');
+  it('honors the declared unit verbatim', () => {
+    expect(resolvePanelUnit({ unit: 'percent' })).toBe('percent');
+    expect(resolvePanelUnit({ unit: 's' })).toBe('s');
+    expect(resolvePanelUnit({ unit: 'Bps' })).toBe('Bps');
   });
 
-  it('infers common units when the panel omits unit', () => {
-    expect(resolvePanelUnit({
-      title: 'Request rate',
-      queries: [{ expr: 'sum(rate(http_requests_total[5m]))' }],
-    })).toBe('reqps');
-    expect(resolvePanelUnit({
-      title: 'Memory used',
-      queries: [{ expr: 'container_memory_working_set_bytes' }],
-    })).toBe('bytes');
-    expect(resolvePanelUnit({
-      title: 'p99 latency',
-      queries: [{ expr: 'histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))' }],
-    })).toBe('s');
-  });
-
-  it('uses metric metadata before title/query heuristics', () => {
+  it('falls back to metadata unit when no unit is declared', () => {
     expect(resolvePanelUnit({
       title: 'CPU usage',
       queries: [{ expr: 'cpu_usage_percent' }],
@@ -41,36 +24,54 @@ describe('resolvePanelUnit', () => {
       },
     })).toBe('percent');
     expect(resolvePanelUnit({
-      title: 'Network transmit',
-      queries: [{ expr: 'sum(rate(container_network_transmit_bytes_total[5m]))' }],
+      title: 'Bytes received',
+      queries: [{ expr: 'container_network_receive_bytes_total' }],
       metadataByMetric: {
-        container_network_transmit_bytes_total: { type: 'counter', help: 'TX bytes', unit: 'bytes' },
+        container_network_receive_bytes_total: { type: 'counter', help: 'RX bytes', unit: 'bytes' },
       },
-    })).toBe('Bps');
+    })).toBe('bytes');
   });
 
-  it('does not turn CPU seconds counters into percent without percent semantics', () => {
+  it('declared unit wins over metadata unit', () => {
     expect(resolvePanelUnit({
-      title: 'CPU cores used',
-      queries: [{ expr: 'sum(rate(container_cpu_usage_seconds_total[5m]))' }],
+      unit: 'short',
+      queries: [{ expr: 'cpu_usage_percent' }],
       metadataByMetric: {
-        container_cpu_usage_seconds_total: { type: 'counter', help: 'CPU seconds', unit: 'seconds' },
+        cpu_usage_percent: { type: 'gauge', help: 'CPU usage', unit: 'percent' },
       },
     })).toBe('short');
   });
 
-  it('returns a valueScale for CPU seconds utilization queries', () => {
-    expect(resolvePanelDisplayUnit({
-      title: 'CPU Usage by Proxy',
-      queries: [{ expr: 'sum(rate(process_cpu_seconds_total[5m]))' }],
-      metadataByMetric: {
-        process_cpu_seconds_total: { type: 'counter', help: 'CPU seconds', unit: 'seconds' },
-      },
-    })).toEqual({ unit: 'percent', valueScale: 100 });
+  it('returns undefined when neither declared nor metadata unit is set', () => {
+    expect(resolvePanelUnit({
+      title: 'CPU cores used',
+      queries: [{ expr: 'sum(rate(container_cpu_usage_seconds_total[5m]))' }],
+    })).toBeUndefined();
+  });
+});
 
+describe('resolvePanelDisplayUnit', () => {
+  it('rewrites percentunit to percent with valueScale=100 (Prometheus definition)', () => {
+    expect(resolvePanelDisplayUnit({ unit: 'percentunit' })).toEqual({
+      unit: 'percent',
+      valueScale: 100,
+    });
     expect(resolvePanelDisplayUnit({
-      title: 'CPU utilization',
-      queries: [{ expr: 'sum(rate(container_cpu_usage_seconds_total[5m])) * 100' }],
-    })).toEqual({ unit: 'percent', valueScale: 1 });
+      queries: [{ expr: 'whatever' }],
+      metadataByMetric: { whatever: { type: 'gauge', unit: 'percentunit' } },
+    })).toEqual({ unit: 'percent', valueScale: 100 });
+  });
+
+  it('leaves percent (already in 0..100) alone', () => {
+    expect(resolvePanelDisplayUnit({ unit: 'percent' })).toEqual({
+      unit: 'percent',
+      valueScale: 1,
+    });
+  });
+
+  it('uses valueScale=1 for non-percent units', () => {
+    expect(resolvePanelDisplayUnit({ unit: 'bytes' })).toEqual({ unit: 'bytes', valueScale: 1 });
+    expect(resolvePanelDisplayUnit({ unit: 's' })).toEqual({ unit: 's', valueScale: 1 });
+    expect(resolvePanelDisplayUnit({})).toEqual({ unit: undefined, valueScale: 1 });
   });
 });

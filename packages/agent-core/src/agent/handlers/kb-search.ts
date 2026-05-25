@@ -1,11 +1,11 @@
 /**
- * `kb_search` — keyword search over the unified knowledge base, ranked by
- * TF-IDF across title + description + body + intentTags. Returns the top N
- * entries with a short snippet so the model can pick one and follow up with
- * `kb_get`.
+ * `kb_search` — hybrid search over the unified knowledge base, ranked by
+ * lexical TF-IDF plus local semantic features across title + description +
+ * body + intentTags. Returns the top N entries with a short snippet so the
+ * model can pick one and follow up with `kb_get`.
  */
 
-import { tfIdfSearch } from '@agentic-obs/common';
+import { hybridKnowledgeSearch } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary } from './_shared.js';
 
@@ -34,11 +34,7 @@ export async function handleKbSearch(
       if (entries.length === 0) {
         return 'No knowledge base entries available.';
       }
-      const docs = entries.map((e) => ({
-        id: e.id,
-        text: `${e.title}\n${e.description}\n${e.intentTags.join(' ')}\n${e.body}`,
-      }));
-      const hits = tfIdfSearch(docs, query, limit);
+      const hits = hybridKnowledgeSearch(entries, query, limit);
       if (hits.length === 0) {
         return `No KB entries matched "${query}".`;
       }
@@ -52,6 +48,8 @@ export async function handleKbSearch(
           description: e.description,
           source: e.source,
           score: Number(h.score.toFixed(4)),
+          lexicalScore: Number(h.lexicalScore.toFixed(4)),
+          semanticScore: Number(h.semanticScore.toFixed(4)),
           snippet: h.snippet,
         };
       });

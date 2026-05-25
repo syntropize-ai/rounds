@@ -100,6 +100,17 @@ const RED: KnowledgeInsertInput = {
   intentTags: ['red', 'http'],
   createdBy: null,
 };
+const ISTIO: KnowledgeInsertInput = {
+  id: 'sk-istio',
+  orgId: 'test-org',
+  source: 'bundled',
+  sourceRef: null,
+  title: 'Istio data plane dashboard',
+  description: 'Envoy sidecar resources, ingress gateway traffic, and service mesh request flow.',
+  body: 'Use istio_requests_total, istio_tcp_sent_bytes_total, and container_cpu_usage_seconds_total for istio-proxy.',
+  intentTags: ['istio', 'service-mesh', 'envoy', 'gateway'],
+  createdBy: null,
+};
 
 describe('handleKbSearch', () => {
   it('returns matching entries by intent tag', async () => {
@@ -130,6 +141,16 @@ describe('handleKbSearch', () => {
     const ctx = makeFakeActionContext({ knowledge: inMemoryKb([REDIS]) });
     const out = await handleKbSearch(ctx, { query: 'kafka' });
     expect(out).toMatch(/No KB entries matched/);
+  });
+
+  it('uses hybrid semantics for related but non-identical wording', async () => {
+    const ctx = makeFakeActionContext({
+      knowledge: inMemoryKb([ISTIO, REDIS]),
+    });
+    const out = await handleKbSearch(ctx, { query: 'sidecar proxy traffic panels' });
+    const parsed = JSON.parse(out);
+    expect(parsed.entries[0].id).toBe('sk-istio');
+    expect(parsed.entries[0].semanticScore).toBeGreaterThan(0);
   });
 });
 
@@ -166,6 +187,17 @@ describe('handleKbRecommend', () => {
     expect(parsed.entries[0].id).toBe('sk-kafka');
     expect(parsed.entries.length).toBeLessThanOrEqual(3);
     expect(ctx.dashboardBuildEvidence.kbConsultCount).toBe(1);
+  });
+
+  it('recommends Istio for dataplane spelling variants', async () => {
+    const ctx = makeFakeActionContext({
+      knowledge: inMemoryKb([ISTIO, REDIS, RED]),
+    });
+    const out = await handleKbRecommend(ctx, { intent: 'create a dashboard for istio dataplane' });
+    const parsed = JSON.parse(out);
+    expect(parsed.entries[0].id).toBe('sk-istio');
+    expect(parsed.entries[0].intentScore).toBeGreaterThan(0);
+    expect(parsed.entries[0].semanticScore).toBeGreaterThan(0);
   });
 
   it('penalizes entries whose required metrics are not exposed (server-side resolution)', async () => {

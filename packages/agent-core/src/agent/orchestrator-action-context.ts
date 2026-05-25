@@ -57,6 +57,8 @@ export interface OrchestratorActionContextDeps {
   panelEvents?: IPanelEventRepository;
   /** Pending-change repository — agent mutation proposals persist here. */
   pendingChanges?: IPendingChangeRepository;
+  /** Knowledge-base repository — backs kb_search / kb_get / kb_recommend. */
+  knowledge?: import('@agentic-obs/data-layer').IKnowledgeRepository;
   sendEvent: (event: DashboardSseEvent) => void;
   identity: Identity;
   accessControl: IAccessControlService;
@@ -130,6 +132,7 @@ export function buildActionContext(
     configService: deps.configService,
     panelEvents: deps.panelEvents,
     pendingChanges: deps.pendingChanges,
+    knowledge: deps.knowledge,
     sendEvent: deps.sendEvent,
     sessionId: runtime.sessionId,
     identity: deps.identity,

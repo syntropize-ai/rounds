@@ -689,8 +689,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       name: 'dashboard_add_panels',
       description:
         'Add one or more panels to the active dashboard. Call dashboard_create or dashboard_open first; this tool implicitly targets that dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.\n\n' +
-        'PRE-FLIGHT: if the dashboard targets a NAMED system (Redis, Kafka, Postgres, nginx, ...) AND no exporter metric names appear anywhere in the conversation context, call web_search FIRST to get the canonical exporter metric naming + a reference layout. Carve-out: skip web_search only when the exact metric names you\'re about to use are already quoted in the current conversation (user pasted them, an earlier metrics_discover returned them, etc.).\n\n' +
-        'Skipping the pre-flight is the dominant failure mode: training-data priors invent plausible-looking names → metrics_validate rejects → re-plan → wasted turns. The web_search round trip is one cheap read; the rebuild is several mutations.\n\n' +
+        'PRE-FLIGHT: if the dashboard targets a NAMED system (Redis, Kafka, Postgres, nginx, Istio, ...) call kb_recommend FIRST, then kb_get any relevant result and use that body as the canonical metric/layout source. Call web_search only after KB returns no relevant entry. Carve-out: skip KB only when the exact metric names and layout you are about to use are already quoted in the current conversation.\n\n' +
+        'Skipping the pre-flight is the dominant failure mode: training-data priors invent plausible-looking names → metrics_validate rejects → re-plan → wasted turns. KB lookups are cheap and bundled entries are the source of truth for common stacks.\n\n' +
         'Validate every non-trivial query through metrics_validate before this call. The handler rejects unvalidated queries. If the user asks for several distinct dashboard areas, create and populate one focused dashboard at a time instead of combining them into one oversized dashboard.',
       input_schema: {
         type: 'object',
@@ -1124,9 +1124,9 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'web_search',
       description:
-        'Search the web for monitoring best practices, metric naming conventions, and dashboard patterns. Cheap read — same cost class as metrics_discover. Spend it liberally; the model\'s training-data priors on metric names go stale.\n\n' +
+        'Search the web for monitoring best practices, metric naming conventions, and dashboard patterns when the workspace KB has no relevant entry. Cheap read — same cost class as metrics_discover. Spend it when KB and live discovery do not answer the question; the model\'s training-data priors on metric names go stale.\n\n' +
         'Call this BEFORE the next tool when ANY of:\n' +
-        '1. Named-system dashboard — user names a standard system (Redis, Kafka, Postgres, nginx, etcd, ...). Search for the canonical exporter + reference layout BEFORE constructing panel queries. Skip ONLY if the exact exporter metric names already appear in the conversation.\n' +
+        '1. Named-system dashboard with no relevant KB entry — user names a standard system (Redis, Kafka, Postgres, nginx, etcd, ...), kb_recommend/kb_get returned no useful entry, and exact exporter metric names are not already in the conversation. Search for the canonical exporter + reference layout BEFORE constructing panel queries.\n' +
         '2. Investigation hits an unfamiliar metric / label / vendor behavior — when you hit a name like `redis_aof_rewrite_in_progress` or `kafka_consumergroup_lag` and you can\'t say what it means in one line from context, search before guessing. Same for "is this a known upstream bug" hypotheses — vendor docs / GitHub issues are the disambiguator.\n' +
         '3. Best-practice panel layout for an in-house service pattern (HTTP server, gRPC, queue consumer, batch job) when the worked example doesn\'t already cover it.\n\n' +
         'Anti-pattern: skipping the search and inventing metric names from training-data priors. The downstream cost is dashboard_add_panels → metrics_validate failure → wasted turns; cheaper to web_search up front.',
@@ -1320,14 +1320,14 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
 
   // -------------------------------------------------------------------------
-  // Knowledge base (TF-IDF over bundled + saved + distilled entries)
+  // Knowledge base (hybrid retrieval over bundled + saved + distilled entries)
   // -------------------------------------------------------------------------
   'kb_search': {
     category: 'always-on',
     schema: {
       name: 'kb_search',
       description:
-        'Keyword-search the workspace knowledge base for bundled and saved skill-style entries (title + description + markdown body + tags). Call before web_search when the user names a known system.',
+        'Hybrid-search the workspace knowledge base for bundled and saved skill-style entries (title + description + markdown body + tags), combining lexical TF-IDF and semantic intent features. Call before web_search when the user names a known system.',
       input_schema: {
         type: 'object',
         properties: {

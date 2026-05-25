@@ -127,7 +127,11 @@ function hasPercentTransform(text: string): boolean {
 }
 
 function looksLikeCpuSecondsRate(text: string): boolean {
-  return /\brate\s*\(/.test(text) && /\b(?:process|container|node|system)?_?cpu(?:_usage)?_seconds_total\b/.test(text);
+  // Match any metric ending in `cpu(_usage)?_seconds_total` regardless of
+  // prefix. Word boundaries don't help here because `_` is a word char, so
+  // `\bcpu_seconds_total\b` wouldn't match e.g. `istio_agent_process_cpu_seconds_total`
+  // — the `cpu` sits between two underscores with no boundary on either side.
+  return /\brate\s*\(/.test(text) && /cpu(?:_usage)?_seconds_total\b/.test(text);
 }
 
 function looksLikeCpuPercentPanel(text: string): boolean {

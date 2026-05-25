@@ -72,5 +72,18 @@ describe('resolvePanelUnit', () => {
       title: 'CPU utilization',
       queries: [{ expr: 'sum(rate(container_cpu_usage_seconds_total[5m])) * 100' }],
     })).toEqual({ unit: 'percent', valueScale: 1 });
+
+    // Regression: metric names with a vendor prefix don't sit at word
+    // boundaries (the `_` before `cpu` is a word char), so the previous
+    // `\bcpu_seconds_total\b` failed to match. Match by suffix instead.
+    expect(resolvePanelDisplayUnit({
+      title: 'CPU Usage by App',
+      queries: [{ expr: 'sum by (app) (rate(istio_agent_process_cpu_seconds_total[5m]))' }],
+    })).toEqual({ unit: 'percent', valueScale: 100 });
+
+    expect(resolvePanelDisplayUnit({
+      title: 'Node CPU usage',
+      queries: [{ expr: '1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))' }],
+    })).toEqual({ unit: 'percent', valueScale: 100 });
   });
 });

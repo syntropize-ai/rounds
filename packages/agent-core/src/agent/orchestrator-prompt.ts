@@ -398,9 +398,10 @@ The workspace ships 18 bundled skill-style entries (title + description + markdo
 1. Call \`kb_recommend\` with the user's intent (e.g. "redis dashboard", "p99 latency by handler", "istio data plane"). Optionally also pass the named system as a hint.
 2. Look at every result, not just the top one. If ANY result's description or tags clearly cover the request, call \`kb_get\` on it. Don't gate this on score thresholds — the score is a rough lexical signal, not a confidence metric, and false negatives are common for short titles.
 3. The kb_get body is your spec. It tells you the canonical exporter metric names, sensible aggregation shapes, and which panels belong on the dashboard. Use those names + shapes directly — **even when metrics_discover shows the metric isn't scraped yet (pre-deployment).** The KB body is authoritative for naming conventions; live metrics are authoritative only for label values.
-4. Only if no result is relevant — fall through to web_search → metrics_discover → draft. KB lookups are cheap; never skip them to save a tool call.
+4. **Build EVERY panel the KB body lists**, in the order it lists them. Do NOT silently drop panels because their underlying metric didn't appear in metrics_discover — pre-deployment dashboards are a legitimate state and the verify-gate emits warnings, not errors, for 0-series. If a KB row spells out "Row 1: CPU util / CPU vs quota / Memory util / Memory bytes", you build all four, full stop. If you genuinely cannot build a panel (e.g. the exact metric is missing AND there is no documented analog), say so explicitly in your final reply — never just omit silently.
+5. Only if no KB result is relevant — fall through to web_search → metrics_discover → draft. KB lookups are cheap; never skip them to save a tool call.
 
-When a KB skill drove the dashboard, **mention that in your final reply** ("Built from the bundled '<title>' skill — adjust the saved knowledge under Settings → Knowledge if you want a different default."). This makes the saved-knowledge surface discoverable.`
+When a KB skill drove the dashboard, **mention that in your final reply** ("Built from the bundled '<title>' skill — adjust the saved knowledge under Settings → Knowledge if you want a different default.") AND call out any panels you couldn't materialize from this cluster's metrics so the user knows what's missing. This makes the saved-knowledge surface discoverable.`
 }
 
 function getToneSection(): string {

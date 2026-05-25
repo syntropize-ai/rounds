@@ -1,6 +1,6 @@
 /**
  * `kb_recommend` — given a free-text intent, rank the top-3 KB entries by a
- * blend of TF-IDF intent match + required-metric coverage.
+ * blend of hybrid intent match + required-metric coverage.
  *
  * Required metrics are extracted from the entry's markdown body by regex
  * (anything that looks like an exporter-shaped metric name). Coverage is
@@ -10,7 +10,7 @@
  * nor hurts the ranking.
  */
 
-import { tfIdfSearch, type KnowledgeEntry } from '@agentic-obs/common';
+import { hybridKnowledgeSearch, type KnowledgeEntry } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary } from './_shared.js';
@@ -26,6 +26,9 @@ interface Recommendation {
   description: string;
   source: KnowledgeEntry['source'];
   score: number;
+  intentScore: number;
+  lexicalScore: number;
+  semanticScore: number;
   reason: string;
 }
 
@@ -91,20 +94,16 @@ export async function handleKbRecommend(
         return 'No knowledge base entries available.';
       }
 
-      // Build TF-IDF corpus over title+description+intentTags so the intent
-      // text scores against high-signal fields (vs. the entire markdown body
-      // which would drown the title under boilerplate).
-      const docs = all.map((e) => ({
-        id: e.id,
-        text: `${e.title}\n${e.description}\n${e.intentTags.join(' ')}`,
-      }));
-      const tfHits = tfIdfSearch(docs, intent, all.length);
-      const tfScoreById = new Map(tfHits.map((h) => [h.id, h.score]));
-      const maxTf = tfHits.length > 0 ? tfHits[0]!.score : 0;
+      const intentHits = hybridKnowledgeSearch(
+        all.map((e) => ({ ...e, body: '' })),
+        intent,
+        all.length,
+      );
+      const intentScoreById = new Map(intentHits.map((h) => [h.id, h]));
 
       const ranked: Recommendation[] = all.map((entry) => {
-        const tfRaw = tfScoreById.get(entry.id) ?? 0;
-        const tfNorm = maxTf > 0 ? tfRaw / maxTf : 0;
+        const intentHit = intentScoreById.get(entry.id);
+        const intentScore = intentHit?.score ?? 0;
         const required = extractRequiredMetrics(entry);
         let coverage: number;
         let coverageDesc: string;
@@ -120,13 +119,16 @@ export async function handleKbRecommend(
           coverage = matched / required.size;
           coverageDesc = `${matched}/${required.size} required metrics available`;
         }
-        const score = tfNorm * 0.6 + coverage * 0.4;
+        const score = intentScore * 0.6 + coverage * 0.4;
         return {
           id: entry.id,
           title: entry.title,
           description: entry.description,
           source: entry.source,
           score: Number(score.toFixed(4)),
+          intentScore: Number(intentScore.toFixed(4)),
+          lexicalScore: Number((intentHit?.lexicalScore ?? 0).toFixed(4)),
+          semanticScore: Number((intentHit?.semanticScore ?? 0).toFixed(4)),
           reason: `Matches intent '${intent}'. ${coverageDesc}.`,
         };
       });
@@ -135,7 +137,11 @@ export async function handleKbRecommend(
         if (b.score !== a.score) return b.score - a.score;
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
-      return JSON.stringify({ entries: ranked.slice(0, 3) });
+      const entries = ranked.slice(0, 3);
+      if (entries.length > 0) {
+        ctx.dashboardBuildEvidence.kbConsultCount += 1;
+      }
+      return JSON.stringify({ entries });
     },
   );
 }

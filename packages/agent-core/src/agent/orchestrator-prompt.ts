@@ -168,23 +168,25 @@ Each example shows a representative tool-call flow. Tool input/output is shown a
 <example>
 User: "Create a dashboard for HTTP monitoring"
   1. connectors_list(signalType: "metrics") → id: prom-prod
-  2. web_search(query: "http service monitoring RED method")
-  3. metrics_discover(sourceId: "prom-prod", kind: "names", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
-  4. metrics_discover(sourceId: "prom-prod", kind: "metadata", metric: "http_requests_total") → counter
-  5. dashboard_create(title: "HTTP Service Monitoring") → dashboard becomes the active target for follow-up tools
-  6. metrics_validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total[5m]))") → Valid (repeat per query)
-  7. dashboard_add_panels(panels: [request rate stat, error rate gauge, p95 latency time_series])
-  8. final reply (plain text): "Created HTTP Monitoring dashboard with 3 panels: request rate, error rate, p95 latency."
+  2. kb_recommend(intent: "HTTP service monitoring dashboard") → bundled RED/HTTP entry
+  3. kb_get(id: "...") → canonical RED layout + metric shapes
+  4. metrics_discover(sourceId: "prom-prod", kind: "names", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
+  5. metrics_discover(sourceId: "prom-prod", kind: "metadata", metric: "http_requests_total") → counter
+  6. dashboard_create(title: "HTTP Service Monitoring") → dashboard becomes the active target for follow-up tools
+  7. metrics_validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total[5m]))") → Valid (repeat per query)
+  8. dashboard_add_panels(panels: [request rate stat, error rate gauge, p95 latency time_series])
+  9. final reply (plain text): "Created HTTP Monitoring dashboard with 3 panels: request rate, error rate, p95 latency."
 </example>
 
 ## Creating a Dashboard (metrics don't exist yet — pre-deployment)
 <example>
 User: "Create a monitoring dashboard for our new Redis deployment"
-  1. web_search(query: "redis prometheus exporter metrics") → redis_connected_clients, redis_used_memory_bytes, redis_commands_processed_total, ...
-  2. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter")
-  3. dashboard_add_panels(panels: [connected clients stat, memory usage time_series, command rate time_series])
+  1. kb_recommend(intent: "Redis monitoring dashboard") → bundled Redis entry
+  2. kb_get(id: "bundled-redis") → redis_connected_clients, redis_memory_used_bytes, redis_commands_processed_total, ...
+  3. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter")
+  4. dashboard_add_panels(panels: [connected clients stat, memory usage time_series, command rate time_series])
        → succeeds with warnings "0 series — will render blank until target is scraped". Expected; not an error.
-  4. final reply (plain text): "Created Redis dashboard with 3 panels. Panels will show data once redis_exporter is deployed."
+  5. final reply (plain text): "Created Redis dashboard with 3 panels. Panels will show data once redis_exporter is deployed."
 </example>
 **Do NOT** call \`metrics_validate\` or \`panel_preview\` before adding pre-deployment panels, and do NOT split the add into multiple calls — the warning observation is informational, the panels are saved. Adding panels one-by-one to "bypass" the verify-gate is wrong; the gate never blocked you.
 
@@ -371,7 +373,19 @@ function getQueryKnowledgeSection(): string {
 
 ## Rules
 - rate()/increase() need [5m] range. histogram_quantile() needs by (le).
-- Use "instant": true for stat, gauge, pie, bar. Use percentunit only for 0-1 ratios.`
+- Use "instant": true for stat, gauge, pie, bar. Use percentunit only for 0-1 ratios.
+
+## Unit contract — declare AND match
+The renderer does NOT guess units from panel titles or rewrite values. It honors whatever \`unit\` you declare on the panel; you are responsible for shaping the query so its values match that unit:
+
+- \`unit: "percent"\` — the query MUST produce values in 0..100. If your raw expression returns a ratio in 0..1 (typical for \`rate(cpu_seconds_total)\` divided by core count, or \`x / y\`), multiply the whole expression by 100. Don't ask the renderer to do it.
+- \`unit: "percentunit"\` — same data range as percent ratios (0..1) but the renderer formats as percentage. Pick this OR percent, not both.
+- \`unit: "Bps"\` / \`"bps"\` — bytes-per-second / bits-per-second. \`rate(*_bytes_total)\` gives Bps directly.
+- \`unit: "s"\` — seconds. Histogram quantiles on \`_seconds_bucket\` are already in seconds.
+- \`unit: "bytes"\` — raw byte counts (gauges like \`*_bytes\`).
+- omit \`unit\` if the value isn't a known quantity; the renderer falls back to "short" formatting.
+
+If you find yourself wanting "the renderer should scale this value", you're holding it wrong: edit the PromQL.`
 }
 
 function getKnowledgeBaseSection(): string {
@@ -384,9 +398,10 @@ The workspace ships 18 bundled skill-style entries (title + description + markdo
 1. Call \`kb_recommend\` with the user's intent (e.g. "redis dashboard", "p99 latency by handler", "istio data plane"). Optionally also pass the named system as a hint.
 2. Look at every result, not just the top one. If ANY result's description or tags clearly cover the request, call \`kb_get\` on it. Don't gate this on score thresholds — the score is a rough lexical signal, not a confidence metric, and false negatives are common for short titles.
 3. The kb_get body is your spec. It tells you the canonical exporter metric names, sensible aggregation shapes, and which panels belong on the dashboard. Use those names + shapes directly — **even when metrics_discover shows the metric isn't scraped yet (pre-deployment).** The KB body is authoritative for naming conventions; live metrics are authoritative only for label values.
-4. Only if no result is relevant — fall through to web_search → metrics_discover → draft. KB lookups are cheap; never skip them to save a tool call.
+4. **Build EVERY panel the KB body lists**, in the order it lists them. Do NOT silently drop panels because their underlying metric didn't appear in metrics_discover — pre-deployment dashboards are a legitimate state and the verify-gate emits warnings, not errors, for 0-series. If a KB row spells out "Row 1: CPU util / CPU vs quota / Memory util / Memory bytes", you build all four, full stop. If you genuinely cannot build a panel (e.g. the exact metric is missing AND there is no documented analog), say so explicitly in your final reply — never just omit silently.
+5. Only if no KB result is relevant — fall through to web_search → metrics_discover → draft. KB lookups are cheap; never skip them to save a tool call.
 
-When a KB skill drove the dashboard, **mention that in your final reply** ("Built from the bundled '<title>' skill — adjust the saved knowledge under Settings → Knowledge if you want a different default."). This makes the saved-knowledge surface discoverable.`
+When a KB skill drove the dashboard, **mention that in your final reply** ("Built from the bundled '<title>' skill — adjust the saved knowledge under Settings → Knowledge if you want a different default.") AND call out any panels you couldn't materialize from this cluster's metrics so the user knows what's missing. This makes the saved-knowledge surface discoverable.`
 }
 
 function getToneSection(): string {

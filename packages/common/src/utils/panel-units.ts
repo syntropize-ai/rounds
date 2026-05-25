@@ -1,5 +1,28 @@
 import { extractMetricSelectors } from '../lint/promql-extract.js';
 
+/**
+ * Panel unit resolution. Deliberately a thin layer over the two
+ * authoritative sources:
+ *
+ *   1. `panel.unit` — explicitly declared on the panel.
+ *   2. `panel.metadataByMetric[<metric>].unit` — Prometheus metadata
+ *      (HELP / UNIT exposed by the exporter, scraped by the backend).
+ *
+ * There is no title-string parsing, no query-shape regex, no
+ * "looks-like-CPU-percent" heuristic. Inferring panel intent from a
+ * stringified title was rule-based fallback dressed up as inference —
+ * it broke quietly on vendor-prefixed metric names and contradicted
+ * what the panel actually declared.
+ *
+ * The one definition-based transform we keep is `percentunit → percent`:
+ * Prometheus documents `percentunit` as a value in [0, 1] formatted as
+ * a percentage; that's not a guess, it's the unit's specification.
+ * Everything else is reported as-declared (or undefined when neither
+ * source has an opinion). If the agent or a user wants a metric
+ * displayed in a particular unit, they declare it; if they need
+ * scaling, they bake `* 100` (or whatever) into the PromQL.
+ */
+
 export interface PanelUnitQuery {
   expr?: string;
 }
@@ -20,7 +43,9 @@ export interface PanelUnitInput {
 
 export interface PanelDisplayUnit {
   unit?: string;
-  /** Multiplicative transform applied to raw query values before formatting. */
+  /** Multiplicative transform applied to raw query values before formatting.
+   *  Only set when the declared / metadata unit is `percentunit` (data in
+   *  [0,1], rendered as percentage). Otherwise 1. */
   valueScale: number;
 }
 
@@ -62,7 +87,6 @@ const UNIT_ALIASES: Record<string, string> = {
   'op/s': 'opsps',
   'errors/s': 'opsps',
   'error/s': 'opsps',
-  'err/s': 'opsps',
   'bytes/s': 'Bps',
   'b/s': 'Bps',
   'byte/s': 'Bps',
@@ -73,27 +97,16 @@ const UNIT_ALIASES: Record<string, string> = {
   millisecond: 'ms',
 };
 
-const REQUEST_RATE_UNITS = new Set(['reqps', 'rps', 'qps', 'req/s', 'request/s', 'requests/s', '1/req']);
-
 export function normalizePanelUnit(unit: string | undefined): string | undefined {
   const trimmed = unit?.trim();
   if (!trimmed) return undefined;
   const lower = trimmed.toLowerCase();
-  const normalized = UNIT_ALIASES[lower] ?? trimmed;
-  return CANONICAL_PANEL_UNIT_SET.has(normalized) ? normalized : normalized;
+  return UNIT_ALIASES[lower] ?? trimmed;
 }
 
 export function isCanonicalPanelUnit(unit: string | undefined): boolean {
   const normalized = normalizePanelUnit(unit);
   return !!normalized && CANONICAL_PANEL_UNIT_SET.has(normalized);
-}
-
-function panelText(panel: PanelUnitInput): string {
-  const exprs = [
-    panel.query,
-    ...(panel.queries ?? []).map((q) => q.expr),
-  ].filter((v): v is string => typeof v === 'string');
-  return `${panel.title ?? ''}\n${exprs.join('\n')}`.toLowerCase();
 }
 
 export function extractPanelMetricNames(panel: PanelUnitInput): string[] {
@@ -110,54 +123,6 @@ export function extractPanelMetricNames(panel: PanelUnitInput): string[] {
   return [...names];
 }
 
-function looksLikePercentPanel(text: string): boolean {
-  return (
-    /\b(utili[sz]ation|usage|saturation|percent|percentage|ratio)\b/.test(text) &&
-    (
-      /\b(percent|percentage|ratio)\b/.test(text) ||
-      /\blimit\b|\bquota\b/.test(text) ||
-      /\*\s*100\b/.test(text) ||
-      /\/\s*.+\*\s*100\b/.test(text)
-    )
-  );
-}
-
-function hasPercentTransform(text: string): boolean {
-  return /\*\s*100\b/.test(text) || /100\s*\*/.test(text);
-}
-
-function looksLikeCpuSecondsRate(text: string): boolean {
-  // Match any metric ending in `cpu(_usage)?_seconds_total` regardless of
-  // prefix. Word boundaries don't help here because `_` is a word char, so
-  // `\bcpu_seconds_total\b` wouldn't match e.g. `istio_agent_process_cpu_seconds_total`
-  // — the `cpu` sits between two underscores with no boundary on either side.
-  return /\brate\s*\(/.test(text) && /cpu(?:_usage)?_seconds_total\b/.test(text);
-}
-
-function looksLikeCpuPercentPanel(text: string): boolean {
-  return (
-    /\bcpu\b/.test(text) &&
-    /\b(utili[sz]ation|usage|percent|percentage)\b/.test(text) &&
-    looksLikeCpuSecondsRate(text)
-  );
-}
-
-function looksLikeRequestRatePanel(text: string): boolean {
-  return /\brate\s*\(/.test(text) && /(?:requests?|http|grpc|rpc).*_total\b/.test(text);
-}
-
-function looksLikeByteRatePanel(text: string): boolean {
-  return /\brate\s*\(/.test(text) && /_bytes_total\b/.test(text);
-}
-
-function looksLikeBytesPanel(text: string): boolean {
-  return /_bytes\b/.test(text) && !looksLikeByteRatePanel(text);
-}
-
-function looksLikeDurationPanel(text: string): boolean {
-  return /(?:duration|latency|seconds|milliseconds|p9[059])/.test(text) && /_seconds(?:_bucket|_sum|_count)?\b/.test(text);
-}
-
 function firstMetadataUnit(panel: PanelUnitInput): string | undefined {
   const metadata = panel.metadataByMetric;
   if (!metadata) return undefined;
@@ -168,77 +133,28 @@ function firstMetadataUnit(panel: PanelUnitInput): string | undefined {
   return undefined;
 }
 
-function firstMetadataType(panel: PanelUnitInput): string | undefined {
-  const metadata = panel.metadataByMetric;
-  if (!metadata) return undefined;
-  for (const name of extractPanelMetricNames(panel)) {
-    const type = metadata[name]?.type?.trim();
-    if (type) return type.toLowerCase();
-  }
-  return undefined;
-}
-
 /**
- * Resolve the display unit for a panel from its declared unit plus the metric
- * semantics visible in the title/query. This is intentionally conservative:
- * a declared unit wins unless it is missing or obviously contradicts the
- * panel's metric family, e.g. CPU utilization marked as request rate.
- */
-export function resolvePanelUnit(panel: PanelUnitInput): string | undefined {
-  return resolvePanelDisplayUnit(panel).unit;
-}
-
-/**
- * Resolve both display unit and raw-value scaling. Some metric families are
- * semantically percentages but PromQL returns a ratio/core value unless the
- * query explicitly multiplies by 100. Treating this as just a unit suffix is
- * how panels end up showing CPU "0.34%" instead of "34%".
+ * Resolve the display unit for a panel.
+ *
+ *   declared unit  →  honored (after normalization)
+ *   metadata unit  →  used only when no declared unit
+ *   neither        →  undefined; renderer falls back to its default formatter
+ *
+ * `percentunit` is rewritten to `percent` with `valueScale: 100`
+ * because that's the Prometheus-documented meaning of the unit.
  */
 export function resolvePanelDisplayUnit(panel: PanelUnitInput): PanelDisplayUnit {
   const declared = normalizePanelUnit(panel.unit);
-  const text = panelText(panel);
   const metadataUnit = firstMetadataUnit(panel);
-  const metadataType = firstMetadataType(panel);
+  const chosen = declared ?? metadataUnit;
 
-  if (metadataUnit === 'percent' || metadataUnit === 'percentunit') {
-    return metadataUnit === 'percentunit'
-      ? { unit: 'percent', valueScale: 100 }
-      : { unit: metadataUnit, valueScale: 1 };
-  }
-
-  if (metadataUnit === 'bytes' && looksLikeByteRatePanel(text)) {
-    return { unit: 'Bps', valueScale: 1 };
-  }
-
-  if ((metadataUnit === 's' || metadataUnit === 'seconds') && /\brate\s*\(|\birate\s*\(/.test(text)) {
-    if (looksLikeCpuPercentPanel(text)) {
-      return { unit: 'percent', valueScale: hasPercentTransform(text) ? 1 : 100 };
-    }
-    return { unit: declared ?? 'short', valueScale: 1 };
-  }
-
-  if (looksLikeCpuPercentPanel(text)) {
-    return { unit: 'percent', valueScale: hasPercentTransform(text) ? 1 : 100 };
-  }
-
-  if (looksLikePercentPanel(text)) {
-    if (!declared || REQUEST_RATE_UNITS.has(declared.toLowerCase())) {
-      return { unit: 'percent', valueScale: 1 };
-    }
-  }
-
-  if (!declared) {
-    if (metadataUnit) return { unit: metadataUnit, valueScale: 1 };
-    if (metadataType === 'counter' && looksLikeRequestRatePanel(text)) return { unit: 'reqps', valueScale: 1 };
-    if (looksLikeByteRatePanel(text)) return { unit: 'Bps', valueScale: 1 };
-    if (looksLikeRequestRatePanel(text)) return { unit: 'reqps', valueScale: 1 };
-    if (looksLikeBytesPanel(text)) return { unit: 'bytes', valueScale: 1 };
-    if (looksLikeDurationPanel(text)) return { unit: 's', valueScale: 1 };
-  }
-
-  if (declared === 'percentunit') {
+  if (chosen === 'percentunit') {
     return { unit: 'percent', valueScale: 100 };
   }
+  return { unit: chosen, valueScale: 1 };
+}
 
-  return { unit: declared, valueScale: 1 };
+/** Convenience wrapper for callers that only need the unit string. */
+export function resolvePanelUnit(panel: PanelUnitInput): string | undefined {
+  return resolvePanelDisplayUnit(panel).unit;
 }

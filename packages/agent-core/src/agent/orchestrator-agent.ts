@@ -94,6 +94,15 @@ export interface OrchestratorDeps {
    * Optional; legacy in-store appendPendingChanges path stays as fallback.
    */
   pendingChanges?: import('@agentic-obs/data-layer').IPendingChangeRepository
+  /**
+   * Knowledge-base repository — wired so the kb_search / kb_get / kb_recommend
+   * handlers can hit the bundled + saved entries. When absent the handlers
+   * short-circuit with a "knowledge base not configured" observation; the
+   * agent typically interprets that as "no KB available, fall through to
+   * web_search" which is exactly the bug we hit when the dep didn't reach
+   * here.
+   */
+  knowledge?: import('@agentic-obs/data-layer').IKnowledgeRepository
   sendEvent: (event: DashboardSseEvent) => void
   timeRange?: { start: string; end: string; clientTimezone?: string }
   maxTokenBudget?: number
@@ -183,6 +192,7 @@ export class OrchestratorAgent {
    *  pre-existing dashboards funnel modifications through pendingChanges. */
   private readonly freshlyCreatedDashboards: Set<string> = new Set()
   private readonly dashboardBuildEvidence = {
+    kbConsultCount: 0,
     webSearchCount: 0,
     metricDiscoveryCount: 0,
     validatedQueries: new Set<string>(),

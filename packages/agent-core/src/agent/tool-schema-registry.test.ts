@@ -42,7 +42,7 @@ describe('tool-schema-registry', () => {
   const INLINED_GUIDANCE: { tool: string; mustContain: string[] }[] = [
     { tool: 'ops_run_command', mustContain: ['intent="read"', 'intent="propose"', 'intent="execute_approved"'] },
     { tool: 'remediation_plan_create_rescue', mustContain: ['Pair with the primary plan ONLY', 'silence beats fabrication'] },
-    { tool: 'dashboard_add_panels', mustContain: ['PRE-FLIGHT', 'web_search FIRST', 'training-data priors'] },
+    { tool: 'dashboard_add_panels', mustContain: ['PRE-FLIGHT', 'kb_recommend FIRST', 'training-data priors'] },
     { tool: 'investigation_create', mustContain: ['Trigger on diagnostic intents', 'BEFORE running discovery queries'] },
     { tool: 'investigation_add_text', mustContain: ['Interleave', 'short `## heading`'] },
     { tool: 'investigation_add_evidence', mustContain: ['Reuse the query', 'auto-captured snapshot'] },

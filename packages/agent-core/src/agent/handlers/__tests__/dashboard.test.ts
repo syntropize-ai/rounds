@@ -126,6 +126,7 @@ describe('dashboard handlers', () => {
       const ctx = makeFakeActionContext({
         activeDashboardId: 'd1',
         dashboardBuildEvidence: {
+          kbConsultCount: 0,
           webSearchCount: 1,
           metricDiscoveryCount: 0,
           validatedQueries: new Set<string>(),
@@ -148,6 +149,7 @@ describe('dashboard handlers', () => {
       const ctx = makeFakeActionContext({
         activeDashboardId: 'd1',
         dashboardBuildEvidence: {
+          kbConsultCount: 0,
           webSearchCount: 0,
           metricDiscoveryCount: 1,
           validatedQueries: new Set<string>([expr]),
@@ -165,6 +167,31 @@ describe('dashboard handlers', () => {
         expect.objectContaining({ type: 'add_panels' }),
       ]);
       expect(observation).toContain('Added 1 panel(s): Request rate');
+    });
+
+    it('treats KB consultation as dashboard research evidence', async () => {
+      const expr = 'sum(rate(istio_requests_total[5m]))';
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd1',
+        dashboardBuildEvidence: {
+          kbConsultCount: 1,
+          webSearchCount: 0,
+          metricDiscoveryCount: 0,
+          validatedQueries: new Set<string>([expr]),
+        },
+      });
+      const observation = await handleDashboardAddPanels(ctx, {
+        panels: [{
+          title: 'Istio request rate',
+          description: 'Q: what is the dataplane request rate?',
+          visualization: 'time_series',
+          queries: [{ refId: 'A', expr, datasourceId: 'prom' }],
+        }],
+      });
+      expect(ctx.actionExecutor.execute).toHaveBeenCalledWith('d1', [
+        expect.objectContaining({ type: 'add_panels' }),
+      ]);
+      expect(observation).toContain('Added 1 panel(s): Istio request rate');
     });
 
     it('returns an error when panels array is empty', async () => {

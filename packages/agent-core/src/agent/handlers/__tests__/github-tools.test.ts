@@ -36,6 +36,7 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
     activeDashboardId: null,
     freshlyCreatedDashboards: new Set(),
     dashboardBuildEvidence: {
+      kbConsultCount: 0,
       webSearchCount: 0,
       metricDiscoveryCount: 0,
       validatedQueries: new Set(),

@@ -244,6 +244,22 @@ Memory bytes:
 container_memory_working_set_bytes{container="istio-proxy", namespace="$NAMESPACE"}
 \`\`\`
 
+**Without cAdvisor (no \`container_*\` metrics scraped).** When the cluster scrapes only the Istio sidecars themselves (no kubelet/cAdvisor), use the metrics the pilot-agent + envoy expose directly. They share \`kubernetes_pod_name\` / \`app\` labels so per-pod grouping still works:
+
+\`\`\`promql
+# CPU per pod (percent) — pilot-agent process is a stand-in for the proxy:
+sum by (kubernetes_pod_name) (rate(istio_agent_process_cpu_seconds_total{kubernetes_namespace="$NAMESPACE"}[$TIME_RANGE])) * 100
+
+# Memory per pod (bytes) — envoy's own allocator:
+sum by (kubernetes_pod_name) (envoy_server_memory_allocated{kubernetes_namespace="$NAMESPACE"})
+
+# Memory ratio per pod (allocated / heap_size):
+sum by (kubernetes_pod_name) (envoy_server_memory_allocated{kubernetes_namespace="$NAMESPACE"})
+  / sum by (kubernetes_pod_name) (envoy_server_memory_heap_size{kubernetes_namespace="$NAMESPACE"}) * 100
+\`\`\`
+
+Prefer the cAdvisor path when both are available — it's the true container view. The Istio-native path is the fallback so the dashboard still has a CPU/memory row in clusters that didn't deploy cAdvisor.
+
 ### Row 2 — Ingress requests (reporter="destination")
 
 Four panels: total / 2xx / 4xx / 5xx, plus a fifth for non-OK envoy response_flags.

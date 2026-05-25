@@ -245,6 +245,10 @@ export const USER_VISIBLE_TOOLS = new Set([
   'alert_rule_history',
   // Web search primitive
   'web_search',
+  // Knowledge-base primitives — bundled + saved skill-style entries
+  'kb_search',
+  'kb_get',
+  'kb_recommend',
   // Ops connector — single entrypoint for kubectl/cluster commands
   'ops_run_command',
   'ops_cluster_shell',
@@ -296,6 +300,10 @@ export function phaseOf(tool: string): string {
 
   // Web search
   if (tool === 'web_search') return 'research';
+
+  // Knowledge base — kb_recommend / kb_search are discovery, kb_get is a fetch
+  if (tool === 'kb_recommend' || tool === 'kb_search') return 'kb_lookup';
+  if (tool === 'kb_get') return 'kb_fetch';
 
   // Ops / cluster commands
   if (tool === 'ops_run_command' || tool === 'ops_cluster_shell') return 'ops';
@@ -352,6 +360,12 @@ export const TOOL_LABELS: Record<string, string> = {
   'logs_label_values': 'Listing log label values',
   // Changes / deployment events
   'changes_list_recent': 'Checking recent changes',
+  // Knowledge base
+  'kb_search': 'Searching knowledge',
+  'kb_get': 'Reading knowledge entry',
+  'kb_recommend': 'Looking up skills',
+  'kb_lookup': 'Looking up skills',
+  'kb_fetch': 'Reading knowledge entry',
   // Dashboard mutation primitives
   'dashboard_create': 'Creating dashboard',
   'dashboard_list': 'Listing dashboards',

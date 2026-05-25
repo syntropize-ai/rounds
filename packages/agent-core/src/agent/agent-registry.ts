@@ -68,7 +68,7 @@ agentRegistry.register({
     'github_list_repos', 'github_list_prs', 'github_get_pr', 'github_get_diff',
     // Knowledge
     'web_search',
-    // Knowledge base — TF-IDF + bundled seeds
+    // Knowledge base — hybrid retrieval + bundled seeds
     'kb_search', 'kb_get', 'kb_recommend',
     // Alert rules
     'alert_rule_write', 'alert_rule_list', 'alert_rule_history',

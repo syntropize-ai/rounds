@@ -223,6 +223,7 @@ export interface ActionContext {
    * read/verify-first instead of relying only on prompt discipline.
    */
   dashboardBuildEvidence: {
+    kbConsultCount: number;
     webSearchCount: number;
     metricDiscoveryCount: number;
     validatedQueries: Set<string>;

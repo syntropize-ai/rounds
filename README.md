@@ -28,11 +28,11 @@
 ---
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=EbNIbS2uY3o">
-    <img src="https://img.youtube.com/vi/EbNIbS2uY3o/maxresdefault.jpg" width="760" alt="Rounds demo — watch on YouTube" />
+  <a href="https://www.youtube.com/watch?v=sykQjRaLEN8">
+    <img src="https://img.youtube.com/vi/sykQjRaLEN8/maxresdefault.jpg" width="760" alt="Rounds demo — watch on YouTube" />
   </a>
 </p>
-<p align="center"><sub>▶ <a href="https://www.youtube.com/watch?v=EbNIbS2uY3o">Watch the 1-minute demo on YouTube</a></sub></p>
+<p align="center"><sub>▶ <a href="https://www.youtube.com/watch?v=sykQjRaLEN8">Watch the 1-minute demo on YouTube</a></sub></p>
 
 ## Quick Start
 

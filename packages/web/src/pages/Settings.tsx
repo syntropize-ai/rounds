@@ -7,6 +7,8 @@ import { llmBaseUrlPlaceholder } from '../constants/placeholders.js';
 import { LLM_PROVIDERS } from './setup/types.js';
 import type { LlmProvider, LlmConfig } from './setup/types.js';
 import { useAuth } from '../contexts/AuthContext.js';
+import { useTheme } from '../contexts/ThemeContext.js';
+import { Link } from 'react-router-dom';
 import type { ConnectorCredentialKind } from '@agentic-obs/common';
 
 /**
@@ -445,9 +447,18 @@ function DangerTab({ canReset }: { canReset: boolean }) {
 
 
 function AccountTab() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const canSeeAdmin =
+    !!user &&
+    (user.isServerAdmin ||
+      hasPermission('users:read') ||
+      hasPermission('orgs:read') ||
+      hasPermission('teams:read') ||
+      hasPermission('serviceaccounts:read'));
+
   return (
-    <div className="space-y-4 text-sm">
+    <div className="space-y-5 text-sm">
       <div>
         <p className="text-xs font-medium text-[var(--color-on-surface-variant)]">Signed in as</p>
         <p className="mt-1 text-[var(--color-on-surface)]">{user?.email ?? user?.name ?? 'Unknown user'}</p>
@@ -456,6 +467,29 @@ function AccountTab() {
         <p className="text-xs font-medium text-[var(--color-on-surface-variant)]">Role</p>
         <p className="mt-1 text-[var(--color-on-surface)]">{user?.isServerAdmin ? 'Server admin' : 'Member'}</p>
       </div>
+
+      <div className="border-t border-[var(--color-outline-variant)]/40 pt-5">
+        <p className="text-xs font-medium text-[var(--color-on-surface-variant)] mb-2">Appearance</p>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="inline-flex items-center gap-2 rounded-md border border-[var(--color-outline-variant)] px-3 py-1.5 text-sm text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] transition-colors"
+        >
+          {theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        </button>
+      </div>
+
+      {canSeeAdmin && (
+        <div className="border-t border-[var(--color-outline-variant)]/40 pt-5">
+          <p className="text-xs font-medium text-[var(--color-on-surface-variant)] mb-2">Admin</p>
+          <Link
+            to="/admin"
+            className="inline-flex items-center gap-2 rounded-md border border-[var(--color-outline-variant)] px-3 py-1.5 text-sm text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] transition-colors"
+          >
+            Open Admin Console →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

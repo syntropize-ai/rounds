@@ -29,6 +29,25 @@ import { getOrgId } from '../middleware/workspace-context.js';
 import { createLogger } from '@agentic-obs/server-utils/logging';
 
 const log = createLogger('pending-changes-routes');
+const PANEL_VISUALIZATION_VALUES = new Set([
+  'time_series',
+  'stat',
+  'table',
+  'gauge',
+  'bar',
+  'bar_gauge',
+  'heatmap',
+  'pie',
+  'histogram',
+  'status_timeline',
+]);
+
+class InvalidPendingChangeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidPendingChangeError';
+  }
+}
 
 export interface PendingChangesRouterDeps {
   pendingChanges: IPendingChangeRepository;
@@ -48,6 +67,21 @@ function resolveOrgId(req: Request): string {
 function actorId(req: Request): string {
   const a = (req as AuthenticatedRequest).auth;
   return a?.userId ?? 'anonymous';
+}
+
+function assertValidPanel(panel: PanelConfig): void {
+  if (typeof panel.id !== 'string' || panel.id.trim() === '') {
+    throw new InvalidPendingChangeError('panel id is required');
+  }
+  if (typeof panel.title !== 'string' || panel.title.trim() === '') {
+    throw new InvalidPendingChangeError(`panel ${panel.id} has invalid title`);
+  }
+  if (
+    typeof panel.visualization !== 'string' ||
+    !PANEL_VISUALIZATION_VALUES.has(panel.visualization)
+  ) {
+    throw new InvalidPendingChangeError(`panel ${panel.id} has invalid visualization`);
+  }
 }
 
 /**
@@ -71,6 +105,7 @@ async function applyChange(
     case 'modify_panel': {
       const after = change.afterJson as PanelConfig;
       const panels = dash.panels.map((p) => (p.id === after.id ? { ...p, ...after } : p));
+      for (const panel of panels) assertValidPanel(panel);
       return (await store.updatePanels(change.dashboardId, panels)) ?? null;
     }
     case 'add_panel': {
@@ -78,6 +113,7 @@ async function applyChange(
       // If the row stored a config without an id (the handler passed the raw
       // proposed panel), mint one at apply time.
       const panel: PanelConfig = after.id ? after : { ...after, id: cryptoRandomId() };
+      assertValidPanel(panel);
       return (await store.updatePanels(change.dashboardId, [...dash.panels, panel])) ?? null;
     }
     case 'remove_panel': {
@@ -216,8 +252,11 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
             { changeId, dashboardId: id, err: err instanceof Error ? err.message : String(err) },
             'apply pending change failed',
           );
-          res.status(500).json({
-            error: { code: 'APPLY_FAILED', message: err instanceof Error ? err.message : 'apply failed' },
+          res.status(err instanceof InvalidPendingChangeError ? 400 : 500).json({
+            error: {
+              code: err instanceof InvalidPendingChangeError ? 'INVALID_PENDING_CHANGE' : 'APPLY_FAILED',
+              message: err instanceof Error ? err.message : 'apply failed',
+            },
           });
           return;
         }

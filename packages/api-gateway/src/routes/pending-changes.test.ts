@@ -185,6 +185,31 @@ describe('pending-changes router', () => {
     expect(repo.resolve).toHaveBeenCalledWith('org_main', 'pc-1', 'accepted', 'user_1');
   });
 
+  it('POST accept rejects a proposal that would corrupt required panel fields', async () => {
+    const row = mockPending({
+      changeKind: 'modify_panel',
+      afterJson: { id: 'p-1', title: null, visualization: null },
+    });
+    const dash = mockDashboard();
+    const repo = {
+      getById: vi.fn(async () => row),
+      resolve: vi.fn(),
+    } as unknown as IPendingChangeRepository;
+    const updatePanels = vi.fn();
+    const dashboards = {
+      findById: vi.fn(async () => dash),
+      updatePanels,
+    } as unknown as IGatewayDashboardStore;
+    const app = makeApp({ repo, dashboards });
+
+    const res = await request(app).post('/api/dashboards/d-1/pending-changes/pc-1/accept').send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_PENDING_CHANGE');
+    expect(updatePanels).not.toHaveBeenCalled();
+    expect(repo.resolve).not.toHaveBeenCalled();
+  });
+
   it('POST accept 404s for unknown change id', async () => {
     const repo = {
       getById: vi.fn(async () => null),

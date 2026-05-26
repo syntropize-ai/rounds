@@ -3,7 +3,7 @@ import type { ChatEvent } from '../../hooks/useDashboardChat.js';
 import type { PendingChangeKind, PendingChangeStatus } from '../../types/pending-changes.js';
 import AgentActivityBlock from './AgentActivityBlock.js';
 import AskUserPrompt from './AskUserPrompt.js';
-import ChangeProposalCard from './ChangeProposalCard.js';
+import DashboardChangeConfirmCard from './DashboardChangeConfirmCard.js';
 import { DatasourceChoiceChip } from './DatasourceChoiceChip.js';
 import { ErrorMessage, UserMessage, AssistantMessage } from './MessageComponents.js';
 import OpsCommandConfirmCard from './OpsCommandConfirmCard.js';
@@ -110,31 +110,29 @@ function renderMessageBlock(
     );
   }
 
-  if (evt.kind === 'pending_change_created' && evt.pendingChange) {
-    const p = evt.pendingChange;
-    const overlay = proposalStatusOverlay?.get(p.id);
-    return (
-      <ChangeProposalCard
-        key={evt.id}
-        proposalId={p.id}
-        dashboardId={p.dashboardId}
-        panelId={p.panelId ?? null}
-        changeKind={(p.changeKind as PendingChangeKind) ?? 'modify_panel'}
-        summary={p.summary ?? 'Proposed change'}
-        beforeJson={p.beforeJson}
-        afterJson={p.afterJson}
-        initialStatus={(p.status as PendingChangeStatus) ?? 'pending'}
-        {...(overlay ? { controlledStatus: overlay } : {})}
-      />
-    );
-  }
-
   if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation) {
     return (
       <OpsCommandConfirmCard
         key={evt.id}
         confirmation={evt.opsConfirmation}
         onResolved={onOpsConfirmationResolved}
+      />
+    );
+  }
+
+  if (evt.kind === 'pending_change_created' && evt.pendingChange) {
+    const p = evt.pendingChange;
+    const overlay = proposalStatusOverlay?.get(p.id);
+    return (
+      <DashboardChangeConfirmCard
+        key={evt.id}
+        proposalId={p.id}
+        dashboardId={p.dashboardId}
+        panelId={p.panelId ?? null}
+        changeKind={(p.changeKind as PendingChangeKind) ?? 'modify_panel'}
+        summary={p.summary ?? 'Apply proposed dashboard update'}
+        initialStatus={(p.status as PendingChangeStatus) ?? 'pending'}
+        {...(overlay ? { controlledStatus: overlay } : {})}
       />
     );
   }

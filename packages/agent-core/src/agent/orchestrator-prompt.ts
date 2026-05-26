@@ -1,6 +1,7 @@
 import type { Dashboard, DashboardMessage, Identity } from '@agentic-obs/common'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import type { ConnectorConfig, OpsConnectorConfig } from './types.js'
+import type { AgentType } from './agent-types.js'
 import { buildStructuredAlertHistory } from './orchestrator-alert-helpers.js'
 import { TOOL_REGISTRY, deferredToolNamesForAgent } from './tool-schema-registry.js'
 
@@ -507,9 +508,9 @@ function getAlertRulesSection(
   if (alertRules.length > 0) {
     parts.push(`\n# Alert Rules\n${alertRules.map((r) => `- [${r.id}] "${r.name}" (${r.severity}) — ${(r.condition as Record<string, unknown>).query ?? ''} ${(r.condition as Record<string, unknown>).operator ?? ''} ${(r.condition as Record<string, unknown>).threshold ?? ''}`).join('\n')}`)
   }
-  const structuredAlertHistory = buildStructuredAlertHistory(history)
+  const structuredAlertHistory = buildStructuredAlertHistory(history, alertRules)
   if (structuredAlertHistory) {
-    parts.push(`\n# Alert History\n${structuredAlertHistory}`)
+    parts.push(`\n# Alert History\nHistorical alert actions. Created/modified entries are included only when the rule still exists in the current alert store; deleted entries are not candidates to recreate unless the user explicitly asks.\n${structuredAlertHistory}`)
   }
   if (activeAlertRule) {
     parts.push(`\n# Active Alert\n[${activeAlertRule.id}] "${activeAlertRule.name}" (${activeAlertRule.severity}). If user says "it"/"this alert"/"change it", means this one.`)
@@ -611,6 +612,14 @@ export interface SystemPromptOptions {
    * context (e.g. some unit tests) don't need it.
    */
   allowedTools?: readonly string[]
+  /**
+   * Agent registry type for the current run. When set to
+   * `'background_orchestrator'` we append the read-only-shell contract
+   * that pairs with the ops_run_command confirmation bypass — the runner
+   * trusts the agent not to issue writes inside `kubectl exec` or
+   * non-kubectl shells, so the contract must be explicit in the prompt.
+   */
+  agentType?: AgentType
 }
 
 /**
@@ -678,6 +687,32 @@ function getRoleHint(orgRole: string | undefined): string {
   return ''
 }
 
+/**
+ * Read-only shell contract for background agents. Pairs with the
+ * `readOnlyAgentBypass` flag on KubectlOpsCommandRunner: the runner skips
+ * confirmation for surface-read-shaped commands (`curl`, `jq`,
+ * `kubectl exec ... -- ps/cat/...`) so background investigations don't
+ * stall on a confirmation card no one will click. That bypass is only
+ * safe if the agent honors the contract below.
+ *
+ * The runner still hard-blocks `delete`/`drain`/`rm`/`mkfs` and explicit
+ * write verbs (`apply`/`create`/`patch`/...) — even with bypass on, those
+ * always confirm. This section is about the cases the regex CAN'T see:
+ * inner commands inside `kubectl exec` and arbitrary shell invocations.
+ */
+function getBackgroundShellContractSection(agentType: AgentType | undefined): string {
+  if (agentType !== 'background_orchestrator') return ''
+  return `## Read-only shell contract (background runs)
+
+You're running in the background — no human is at the keyboard to approve commands. The runner auto-approves read-shaped \`ops_run_command\` calls for you so investigations don't stall. In exchange, you MUST keep every shell invocation read-only.
+
+- \`kubectl exec ... -- <inner>\` — the inner command must be read-only: \`ps\`, \`cat\`, \`ls\`, \`netstat\`, \`ss\`, \`pidstat\`, \`curl http://localhost:.../...\` (GET), \`/usr/local/bin/pilot-agent request GET ...\` (Istio config dump). Never \`sh -c '...mutation...'\`, \`rm\`, \`kill\`, \`pkill\`, \`iptables\`, \`sysctl\`, \`echo > /etc/...\`, \`mount\`, \`tc\`, package installs, or anything that changes container/process/network state.
+- Non-kubectl shell (\`curl\`, \`jq\`, \`grep\`, \`awk\`, pipe chains) — read-only: GET requests, parsing, filtering. No \`curl -X POST/PUT/PATCH/DELETE\`, no \`curl ... | sh\`, no writes to host paths.
+- Real mutations (scale a deployment, patch a config, restart a pod, run helm) — STOP and emit a \`remediation_plan_create\` proposal instead. Humans gate execution; never try to bypass with a creatively-shaped \`exec\`.
+
+The runner audit-logs every command. If you violate this contract the operator sees it post-hoc and the bypass gets revoked.`
+}
+
 export function buildSystemPrompt(
   dashboard: Dashboard | null,
   history: DashboardMessage[],
@@ -710,6 +745,7 @@ export function buildSystemPrompt(
     getSystemSection(),
     getDoingTasksSection(),
     getActionsSection(options?.allowedTools?.includes('remediation_plan_create') === true),
+    getBackgroundShellContractSection(options?.agentType),
     getExamplesSection(),
     getQueryKnowledgeSection(),
     getKnowledgeBaseSection(),

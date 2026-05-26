@@ -13,6 +13,47 @@ import type { KnowledgeInsertInput } from './types.js';
 
 type Seed = Omit<KnowledgeInsertInput, 'orgId'>;
 
+function compactSeed(input: {
+  id: string;
+  title: string;
+  description: string;
+  intentTags: string[];
+  dashboard: string[];
+  alerts: string[];
+  troubleshooting: string[];
+  notes?: string[];
+}): Seed {
+  return {
+    id: input.id,
+    source: 'bundled',
+    sourceRef: null,
+    title: input.title,
+    description: input.description,
+    intentTags: input.intentTags,
+    createdBy: null,
+    body: `## When to use
+
+${input.description}
+
+## Dashboard
+
+${input.dashboard.map((line) => `- ${line}`).join('\n')}
+
+## Alerts
+
+${input.alerts.map((line) => `- ${line}`).join('\n')}
+
+## Troubleshooting
+
+${input.troubleshooting.map((line) => `- ${line}`).join('\n')}${input.notes && input.notes.length > 0 ? `
+
+## Notes
+
+${input.notes.map((line) => `- ${line}`).join('\n')}` : ''}
+`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Patterns
 // ---------------------------------------------------------------------------
@@ -203,112 +244,174 @@ const istio: Seed = {
   id: 'bundled-istio',
   source: 'bundled',
   sourceRef: null,
-  title: 'Istio data plane dashboard',
+  title: 'Istio',
   description:
-    'When the user runs Istio service mesh and wants a data-plane dashboard covering envoy sidecar resources, per-pod inbound/outbound request flow, TCP layer, and ingress gateway traffic.',
-  intentTags: ['istio', 'service-mesh', 'envoy', 'ingress', 'gateway', 'k8s', 'kubernetes'],
+    'When working with Istio service mesh dashboards or alerts across data plane, control plane, gateways, xDS, mTLS certificates, and Envoy sidecars.',
+  intentTags: ['istio', 'service-mesh', 'envoy', 'ingress', 'gateway', 'xds', 'mtls', 'alert', 'dashboard', 'kubernetes'],
   createdBy: null,
   body: `## When to use
 
-The cluster runs Istio and you want an operational data-plane view scoped to a namespace. Mirrors a real production layout: sidecar resources, per-pod request status code split (inbound and outbound), TCP layer, and the ingress gateway viewed separately. Requires cAdvisor + kube-state-metrics + Istio metrics scraping.
+Use this for Istio dashboards, alert rules, and investigations. Keep dashboards split by data plane vs control plane. Before creating alerts, check that the metric exists and preview the query.
 
-Variables to expose: \`NAMESPACE\` (k8s namespace), \`WORKLOAD\` (workload regex, default \`.*\`), \`TIME_RANGE\` (rate window, default \`5m\`).
+Variables: \`NAMESPACE\`, \`WORKLOAD\` (regex, default \`.*\`), \`TIME_RANGE\` (default \`5m\`).
 
-## Recommended dashboard
+## Data plane dashboard
 
-### Row 1 — Proxy resource usage (4 panels, w=3 each)
+Use these for sidecars and gateways.
 
-CPU utilization (percent):
+Proxy CPU per pod:
 
 \`\`\`promql
 sum by (pod) (rate(container_cpu_usage_seconds_total{container="istio-proxy", namespace="$NAMESPACE"}[$TIME_RANGE])) * 100
 \`\`\`
 
-CPU vs quota (percent):
-
-\`\`\`promql
-sum by (pod) (rate(container_cpu_usage_seconds_total{container="istio-proxy", namespace="$NAMESPACE"}[$TIME_RANGE]))
-  / on(pod) group_left() (container_spec_cpu_quota{container="istio-proxy", namespace="$NAMESPACE"} / 100000) * 100
-\`\`\`
-
-Memory utilization (percent):
-
-\`\`\`promql
-container_memory_working_set_bytes{container="istio-proxy", namespace="$NAMESPACE"}
-  / container_spec_memory_limit_bytes{container="istio-proxy", namespace="$NAMESPACE"} * 100
-\`\`\`
-
-Memory bytes:
+Proxy memory per pod:
 
 \`\`\`promql
 container_memory_working_set_bytes{container="istio-proxy", namespace="$NAMESPACE"}
 \`\`\`
 
-**Without cAdvisor (no \`container_*\` metrics scraped).** When the cluster scrapes only the Istio sidecars themselves (no kubelet/cAdvisor), use the metrics the pilot-agent + envoy expose directly. They share \`kubernetes_pod_name\` / \`app\` labels so per-pod grouping still works:
+Inbound request rate:
 
 \`\`\`promql
-# CPU per pod (percent) — pilot-agent process is a stand-in for the proxy:
+sum by (destination_workload) (
+  rate(istio_requests_total{reporter="destination", destination_workload_namespace="$NAMESPACE"}[$TIME_RANGE])
+)
+\`\`\`
+
+Inbound 5xx rate:
+
+\`\`\`promql
+sum by (destination_workload) (
+  rate(istio_requests_total{reporter="destination", destination_workload_namespace="$NAMESPACE", response_code=~"5.."}[$TIME_RANGE])
+)
+\`\`\`
+
+P99 latency:
+
+\`\`\`promql
+histogram_quantile(0.99,
+  sum by (le, destination_workload) (
+    rate(istio_request_duration_milliseconds_bucket{reporter="destination", destination_workload_namespace="$NAMESPACE"}[$TIME_RANGE])
+  )
+)
+\`\`\`
+
+If cAdvisor is missing, use Istio-native sidecar metrics:
+
+\`\`\`promql
 sum by (kubernetes_pod_name) (rate(istio_agent_process_cpu_seconds_total{kubernetes_namespace="$NAMESPACE"}[$TIME_RANGE])) * 100
-
-# Memory per pod (bytes) — envoy's own allocator:
 sum by (kubernetes_pod_name) (envoy_server_memory_allocated{kubernetes_namespace="$NAMESPACE"})
-
-# Memory ratio per pod (allocated / heap_size):
-sum by (kubernetes_pod_name) (envoy_server_memory_allocated{kubernetes_namespace="$NAMESPACE"})
-  / sum by (kubernetes_pod_name) (envoy_server_memory_heap_size{kubernetes_namespace="$NAMESPACE"}) * 100
 \`\`\`
 
-Prefer the cAdvisor path when both are available — it's the true container view. The Istio-native path is the fallback so the dashboard still has a CPU/memory row in clusters that didn't deploy cAdvisor.
+## Control plane dashboard
 
-### Row 2 — Ingress requests (reporter="destination")
+Use these for \`istiod\`.
 
-Four panels: total / 2xx / 4xx / 5xx, plus a fifth for non-OK envoy response_flags.
+Istiod CPU per pod:
 
 \`\`\`promql
-# Total
-sum by (pod) (rate(istio_requests_total{reporter="destination", destination_workload_namespace="$NAMESPACE"}[$TIME_RANGE]))
-
-# Per status class — vary response_code=~"2..|4..|5.."
-sum by (pod) (rate(istio_requests_total{reporter="destination", destination_workload_namespace="$NAMESPACE", response_code=~"5.."}[$TIME_RANGE]))
-
-# Non-OK flag
-sum by (pod) (rate(istio_requests_total{reporter="destination", destination_workload_namespace="$NAMESPACE", response_flags!="-"}[$TIME_RANGE]))
+sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="istio-system", pod=~"istiod-.*"}[$TIME_RANGE])) * 100
 \`\`\`
 
-### Row 3 — Egress requests (reporter="source")
-
-Mirror Row 2 but with \`reporter="source"\` and \`source_workload_namespace\`.
-
-### Row 4 — TCP layer
-
-Four panels: connections opened/closed (count), bytes sent/received (Bps).
+Istiod memory per pod:
 
 \`\`\`promql
-sum by (pod) (rate(istio_tcp_connections_opened_total{destination_workload_namespace="$NAMESPACE"}[$TIME_RANGE]))
-sum by (pod) (rate(istio_tcp_connections_closed_total{destination_workload_namespace="$NAMESPACE"}[$TIME_RANGE]))
-sum by (pod) (rate(istio_tcp_sent_bytes_total{destination_workload_namespace="$NAMESPACE"}[$TIME_RANGE]))
-sum by (pod) (rate(istio_tcp_received_bytes_total{destination_workload_namespace="$NAMESPACE"}[$TIME_RANGE]))
+container_memory_working_set_bytes{namespace="istio-system", pod=~"istiod-.*"}
 \`\`\`
 
-### Row 5 — Ingress gateway resources
-
-Three panels (w=4): gateway CPU vs quota, memory utilization, memory bytes — same shape as Row 1 but filtered by \`pod=~"istio-ingressgateway-.*"\`.
-
-### Row 6 — Gateway-originated requests
-
-Five panels: total + 2xx/4xx/5xx + non-OK flag, with \`source_workload="istio-ingressgateway"\`.
+Istiod target up:
 
 \`\`\`promql
-sum by (pod) (rate(istio_requests_total{source_workload="istio-ingressgateway"}[$TIME_RANGE]))
-sum by (pod) (rate(istio_requests_total{source_workload="istio-ingressgateway", response_code=~"5.."}[$TIME_RANGE]))
+up{job="istiod"}
+\`\`\`
+
+XDS proxy requests / responses:
+
+\`\`\`promql
+sum(rate(istio_agent_xds_proxy_requests[$TIME_RANGE]))
+sum(rate(istio_agent_xds_proxy_responses[$TIME_RANGE]))
+\`\`\`
+
+XDS connection failures:
+
+\`\`\`promql
+sum(rate(envoy_cluster_upstream_cx_connect_fail{cluster_name="xds-grpc"}[$TIME_RANGE]))
+\`\`\`
+
+## Gateway dashboard
+
+Gateway CPU, memory, request rate, and 5xx:
+
+\`\`\`promql
+sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="istio-system", pod=~"istio-ingressgateway-.*"}[$TIME_RANGE])) * 100
+container_memory_working_set_bytes{namespace="istio-system", pod=~"istio-ingressgateway-.*"}
+sum(rate(istio_requests_total{source_workload="istio-ingressgateway"}[$TIME_RANGE]))
+sum(rate(istio_requests_total{source_workload="istio-ingressgateway", response_code=~"5.."}[$TIME_RANGE]))
+\`\`\`
+
+## Alerts
+
+Istiod down. Prefer kube-state-metrics when available:
+
+\`\`\`promql
+kube_deployment_status_replicas_available{namespace="istio-system", deployment="istiod"} < 1
+\`\`\`
+
+If kube-state-metrics is not available, use target absence:
+
+\`\`\`promql
+absent(up{job="istiod"})
+\`\`\`
+
+xDS connection failures:
+
+\`\`\`promql
+sum(rate(envoy_cluster_upstream_cx_connect_fail{cluster_name="xds-grpc"}[5m])) > 0.05
+\`\`\`
+
+xDS remote drops:
+
+\`\`\`promql
+sum(rate(envoy_cluster_upstream_cx_destroy_remote_with_active_rq{cluster_name="xds-grpc"}[5m])) > 0.05
+\`\`\`
+
+mTLS cert expiring within 24h:
+
+\`\`\`promql
+count(istio_agent_cert_expiry_seconds < 86400) > 0
+\`\`\`
+
+Proxy CPU utilization over 50% by pod. Prefer cAdvisor when available:
+
+\`\`\`promql
+sum by (pod) (
+  rate(container_cpu_usage_seconds_total{container="istio-proxy", namespace="$NAMESPACE"}[5m])
+) * 100 > 50
+\`\`\`
+
+If cAdvisor is not available, use the Istio agent process metric:
+
+\`\`\`promql
+sum by (kubernetes_pod_name) (
+  rate(istio_agent_process_cpu_seconds_total{kubernetes_namespace="$NAMESPACE"}[5m])
+) * 100 > 50
+\`\`\`
+
+High 5xx ratio:
+
+\`\`\`promql
+sum(rate(istio_requests_total{reporter="destination", destination_workload_namespace="$NAMESPACE", response_code=~"5.."}[5m]))
+/
+sum(rate(istio_requests_total{reporter="destination", destination_workload_namespace="$NAMESPACE"}[5m])) > 0.05
 \`\`\`
 
 ## Troubleshooting
 
-- 5xx-class rising inbound but not outbound — the workload itself is failing, not its dependencies.
-- 5xx outbound on a service whose dependencies are healthy — check Envoy response_flags for circuit breaking (\`UO\`) or no healthy upstream (\`UH\`).
-- Sidecar CPU near limit — bump \`sidecar.istio.io/proxyCPULimit\`; tail Envoy logs for stat overflow.
-- Gateway saturated — scale ingress gateway replicas; check upstream cluster connection pool settings.
+- Data-plane 5xx rising: check workload logs, Envoy response flags, and upstream health.
+- Control-plane target absent: check \`kubectl get deploy,pods -n istio-system\` and \`kubectl logs -n istio-system deploy/istiod\`.
+- Cert expiry: check affected pods with \`min by (kubernetes_namespace,kubernetes_pod_name) (istio_agent_cert_expiry_seconds)\`.
+- For local demos, use short for-duration values; in production, use 2-5m for xDS alerts and 7d/24h thresholds for certs.
 `,
 };
 
@@ -393,6 +496,120 @@ sum by (pod) (rate(container_network_receive_bytes_total{namespace="$NAMESPACE",
 - Ready count drops below replicas — readiness probe failing; check probe config and pod logs.
 - 5xx ratio spike with stable latency — upstream dependency failure.
 - p99 spike with stable rate — GC pause, lock contention, or downstream slowness.
+`,
+};
+
+const kubernetesWorkloadAlerts: Seed = {
+  id: 'bundled-k8s-workload-alerts',
+  source: 'bundled',
+  sourceRef: null,
+  title: 'Kubernetes workload alert runbooks',
+  description:
+    'When creating or investigating Kubernetes workload alerts: unavailable deployments, pod restarts, CrashLoopBackOff, OOMKilled, CPU/memory saturation, and safe kubectl repairs.',
+  intentTags: ['k8s', 'kubernetes', 'alert', 'runbook', 'deployment', 'pod', 'crashloop', 'oom', 'restart'],
+  createdBy: null,
+  body: `## When to use
+
+Use this when the user asks for practical Kubernetes workload alerts or wants a demo that can be triggered and repaired with simple \`kubectl\` commands. Prefer kube-state-metrics for lifecycle alerts and cAdvisor for resource saturation.
+
+## Alert templates
+
+Deployment has unavailable replicas:
+
+\`\`\`promql
+kube_deployment_status_replicas_unavailable{namespace="$NAMESPACE", deployment="$DEPLOYMENT"} > 0
+\`\`\`
+
+Recommended severity: high for user-facing services. Recommended for-duration: 2m.
+
+Pod restart spike:
+
+\`\`\`promql
+sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total{namespace="$NAMESPACE"}[10m])) > 2
+\`\`\`
+
+Recommended severity: medium. Recommended for-duration: 0-2m.
+
+CrashLoopBackOff:
+
+\`\`\`promql
+max by (namespace, pod, container) (
+  kube_pod_container_status_waiting_reason{namespace="$NAMESPACE", reason="CrashLoopBackOff"}
+) > 0
+\`\`\`
+
+Recommended severity: high. Recommended for-duration: 2m.
+
+OOMKilled:
+
+\`\`\`promql
+sum by (namespace, pod, container) (
+  increase(kube_pod_container_status_restarts_total{namespace="$NAMESPACE"}[10m])
+)
+and on (namespace, pod, container)
+kube_pod_container_status_last_terminated_reason{namespace="$NAMESPACE", reason="OOMKilled"} == 1
+\`\`\`
+
+Recommended severity: high. Recommended for-duration: 0-2m.
+
+Container memory near limit:
+
+\`\`\`promql
+container_memory_working_set_bytes{namespace="$NAMESPACE", container!="", container!="POD"}
+  / container_spec_memory_limit_bytes{namespace="$NAMESPACE", container!="", container!="POD"} > 0.9
+\`\`\`
+
+Recommended severity: medium. Recommended for-duration: 10m.
+
+## Local simulation
+
+Unavailable deployment demo:
+
+\`\`\`bash
+kubectl scale deploy/productpage-v1 -n default --replicas=0
+\`\`\`
+
+Repair:
+
+\`\`\`bash
+kubectl scale deploy/productpage-v1 -n default --replicas=1
+kubectl rollout status deploy/productpage-v1 -n default
+\`\`\`
+
+Bad image / CrashLoop-style demo:
+
+\`\`\`bash
+kubectl set image deploy/productpage-v1 -n default productpage=does-not-exist:demo
+\`\`\`
+
+Repair by undoing the rollout:
+
+\`\`\`bash
+kubectl rollout undo deploy/productpage-v1 -n default
+kubectl rollout status deploy/productpage-v1 -n default
+\`\`\`
+
+Restart spike demo:
+
+\`\`\`bash
+kubectl rollout restart deploy/productpage-v1 -n default
+kubectl rollout status deploy/productpage-v1 -n default
+\`\`\`
+
+## Investigation checklist
+
+- Check rollout: \`kubectl rollout status deploy/$DEPLOYMENT -n $NAMESPACE\`.
+- Inspect pods: \`kubectl get pods -n $NAMESPACE -l app=$APP -o wide\`.
+- Describe failing pod: \`kubectl describe pod -n $NAMESPACE $POD\`.
+- Read logs: \`kubectl logs -n $NAMESPACE $POD --all-containers --tail=200\`.
+- For restarts, check previous logs: \`kubectl logs -n $NAMESPACE $POD --previous --all-containers --tail=200\`.
+- Correlate with recent changes: image updates, config maps, secrets, env vars, probes, resource limits.
+
+## Notes
+
+- Avoid alerting directly on pod count without deployment context; rolling updates naturally create short pod churn.
+- Prefer \`kube_deployment_status_replicas_unavailable\` for service impact and restart/OOM alerts for root-cause hints.
+- In local kind demos, use short for-duration values. In production, increase for-duration to avoid noise during expected rollouts.
 `,
 };
 
@@ -1162,6 +1379,628 @@ Reference: https://github.com/prometheus/client_golang
 };
 
 // ---------------------------------------------------------------------------
+// Compact product cards
+// ---------------------------------------------------------------------------
+
+const prometheus: Seed = compactSeed({
+  id: 'bundled-prometheus',
+  title: 'Prometheus',
+  description:
+    'Use for Prometheus server health, scrape reliability, TSDB pressure, rule evaluation, and alerting pipeline checks.',
+  intentTags: ['prometheus', 'metrics', 'tsdb', 'alertmanager', 'scrape', 'dashboard', 'alert'],
+  dashboard: [
+    '`up` by job and target',
+    '`scrape_duration_seconds`, `scrape_samples_scraped`, `scrape_series_added`',
+    '`prometheus_tsdb_head_series`, `prometheus_tsdb_head_chunks`, WAL/compaction metrics',
+    '`prometheus_rule_evaluation_duration_seconds` and failed rule evaluations',
+    'Alertmanager notification success/failure if Alertmanager is scraped',
+  ],
+  alerts: [
+    'Target down: `up == 0` with job scoping and a short for-duration',
+    'Scrape slow: high `scrape_duration_seconds / scrape_timeout_seconds`',
+    'TSDB cardinality growth: `increase(prometheus_tsdb_head_series[1h])` above expected baseline',
+    'Rule evaluation failures: `increase(prometheus_rule_evaluation_failures_total[5m]) > 0`',
+  ],
+  troubleshooting: [
+    'Check `/targets` for scrape errors and relabel output',
+    'Inspect high-cardinality labels before raising retention or resources',
+    'For slow rules, run the PromQL manually and reduce label fanout',
+  ],
+});
+
+const loki: Seed = compactSeed({
+  id: 'bundled-loki',
+  title: 'Loki',
+  description:
+    'Use for Loki ingestion, query latency, distributor/ingester health, rejected log lines, and tenant volume dashboards or alerts.',
+  intentTags: ['loki', 'logs', 'logql', 'grafana', 'observability', 'dashboard', 'alert'],
+  dashboard: [
+    'Ingestion rate by tenant, namespace, and stream',
+    'Rejected lines by reason and tenant',
+    'Query latency and query rate by frontend/querier',
+    'Ingester memory, chunks, flush failures, and WAL replay state',
+    'Object-store request errors and latency if available',
+  ],
+  alerts: [
+    'Rejected log lines: sustained `rate(loki_discarded_samples_total[5m]) > 0`',
+    'Ingestion down: distributor received bytes/log lines drop to zero for an active tenant',
+    'Query failures: sustained non-zero failed request rate',
+    'Ingester flush failures or WAL replay stuck',
+  ],
+  troubleshooting: [
+    'Start with rejected-line reasons and tenant limits',
+    'Check label cardinality; Loki incidents often come from unbounded labels',
+    'For missing logs, trace path: collector -> distributor -> ingester -> object store',
+  ],
+});
+
+const otelCollector: Seed = compactSeed({
+  id: 'bundled-opentelemetry-collector',
+  title: 'OpenTelemetry Collector',
+  description:
+    'Use for OpenTelemetry Collector pipelines: receiver load, processor drops, exporter failures, queue pressure, and telemetry routing.',
+  intentTags: ['otel', 'opentelemetry', 'collector', 'traces', 'metrics', 'logs', 'dashboard', 'alert'],
+  dashboard: [
+    'Receiver accepted/refused spans, metrics, and log records',
+    'Processor dropped items and batch processor queue behavior',
+    'Exporter sent/failed items by exporter',
+    'Exporter queue size/capacity and retry counts',
+    'Collector CPU, memory, and restarts',
+  ],
+  alerts: [
+    'Exporter failures: sustained `rate(otelcol_exporter_send_failed_spans[5m]) > 0` or equivalent signal type',
+    'Queue near full: exporter queue size / capacity > 0.8',
+    'Receiver refused items > 0',
+    'Collector restart spike or memory near limit',
+  ],
+  troubleshooting: [
+    'Find the first pipeline stage where accepted becomes refused/dropped',
+    'If exporter queue is full, check downstream backend latency and retry settings',
+    'Validate config after edits; many collector outages are config shape errors',
+  ],
+});
+
+const elasticsearch: Seed = compactSeed({
+  id: 'bundled-elasticsearch',
+  title: 'Elasticsearch / OpenSearch',
+  description:
+    'Use for Elasticsearch or OpenSearch clusters: shard health, indexing/search latency, JVM pressure, disk watermarks, and rejected thread pools.',
+  intentTags: ['elasticsearch', 'opensearch', 'search', 'lucene', 'jvm', 'dashboard', 'alert'],
+  dashboard: [
+    'Cluster health and unassigned/relocating shards',
+    'Indexing rate, search rate, indexing/search latency',
+    'JVM heap used percent, GC time, and old-gen pressure',
+    'Disk used percent per node and watermark proximity',
+    'Thread pool rejected tasks by pool',
+  ],
+  alerts: [
+    'Cluster red/yellow sustained',
+    'Unassigned shards > 0',
+    'JVM heap > 85% for 10m or GC overhead high',
+    'Disk watermark near high/flood-stage',
+    'Thread pool rejections > 0 for search/write',
+  ],
+  troubleshooting: [
+    'Check shard allocation explain before moving data manually',
+    'Correlate heap pressure with query/indexing changes',
+    'For disk pressure, delete/roll over indices before flood-stage blocks writes',
+  ],
+});
+
+const clickhouse: Seed = compactSeed({
+  id: 'bundled-clickhouse',
+  title: 'ClickHouse',
+  description:
+    'Use for ClickHouse health: query latency, merges, mutations, replication lag, parts count, disk pressure, and error rates.',
+  intentTags: ['clickhouse', 'olap', 'database', 'analytics', 'dashboard', 'alert'],
+  dashboard: [
+    'Query rate and p95/p99 query duration',
+    'Insert rate and failed query/insert rate',
+    'Merge backlog, active merges, and mutation backlog',
+    'Parts count per table and detached parts',
+    'Replication lag, readonly replicas, and disk usage',
+  ],
+  alerts: [
+    'Too many parts for hot tables',
+    'Replication lag growing or replica readonly',
+    'Disk free below threshold',
+    'Mutation backlog sustained',
+    'Query exception rate above baseline',
+  ],
+  troubleshooting: [
+    'Check `system.parts`, `system.merges`, `system.mutations`, and `system.replication_queue`',
+    'High parts usually means insert batching is too small',
+    'Disk pressure can block merges and make query latency worse',
+  ],
+});
+
+const cassandra: Seed = compactSeed({
+  id: 'bundled-cassandra',
+  title: 'Cassandra',
+  description:
+    'Use for Cassandra clusters: read/write latency, pending compactions, tombstones, dropped messages, repair, and disk pressure.',
+  intentTags: ['cassandra', 'database', 'nosql', 'jmx', 'dashboard', 'alert'],
+  dashboard: [
+    'Read/write request rate and p95/p99 latency',
+    'Pending compactions and compaction throughput',
+    'Tombstone scanned histogram and coordinator timeouts',
+    'Dropped messages by verb',
+    'Disk used, SSTable count, and node up/down',
+  ],
+  alerts: [
+    'Node down or unreachable',
+    'Read/write p99 latency above SLO',
+    'Pending compactions growing',
+    'Dropped messages > 0 sustained',
+    'Disk usage > 80-85%',
+  ],
+  troubleshooting: [
+    'Check `nodetool status`, `tpstats`, `compactionstats`, and table histograms',
+    'High tombstones usually need data-model or TTL review',
+    'Avoid restarting multiple nodes in the same replica set at once',
+  ],
+});
+
+const zookeeper: Seed = compactSeed({
+  id: 'bundled-zookeeper',
+  title: 'ZooKeeper',
+  description:
+    'Use for ZooKeeper quorum health: leader election, outstanding requests, latency, watches, connections, and znodes.',
+  intentTags: ['zookeeper', 'coordination', 'kafka', 'quorum', 'dashboard', 'alert'],
+  dashboard: [
+    'Server state by node: leader/follower/observer',
+    'Outstanding requests and request latency',
+    'Active connections and watches',
+    'Znode count, ephemeral nodes, and approximate data size',
+    'Disk fsync latency and snapshot/log size if available',
+  ],
+  alerts: [
+    'No leader or more than one leader',
+    'Quorum unavailable or node down',
+    'Outstanding requests sustained high',
+    'Request latency above baseline',
+    'Disk space low on data/log volume',
+  ],
+  troubleshooting: [
+    'Check four-letter commands or admin server output before restarting',
+    'Validate quorum config and network between peers',
+    'For Kafka-backed clusters, check broker impact before touching ZooKeeper',
+  ],
+});
+
+const awsEks: Seed = compactSeed({
+  id: 'bundled-aws-eks',
+  title: 'AWS EKS',
+  description:
+    'Use for EKS clusters: Kubernetes workload health plus AWS node group, API server, load balancer, and cluster add-on signals.',
+  intentTags: ['aws', 'eks', 'kubernetes', 'cloudwatch', 'dashboard', 'alert'],
+  dashboard: [
+    'Kubernetes node/pod health and workload availability',
+    'Managed node group desired/ready capacity',
+    'API server request rate, latency, and errors if control-plane metrics are enabled',
+    'AWS Load Balancer Controller errors and ALB/NLB target health',
+    'CoreDNS, CNI/IP exhaustion, and cluster add-on health',
+  ],
+  alerts: [
+    'Node not ready or node group below desired capacity',
+    'Pod pending due to IP exhaustion, quota, or insufficient resources',
+    'ALB/NLB unhealthy targets > 0',
+    'CoreDNS unavailable or DNS latency high',
+    'API server 5xx or latency above baseline',
+  ],
+  troubleshooting: [
+    'Check node group events, ASG activity, and EC2 capacity errors',
+    'For pod networking, inspect VPC CNI logs and ENI/IP usage',
+    'For ingress failures, inspect ALB target groups and controller logs',
+  ],
+});
+
+const awsEcs: Seed = compactSeed({
+  id: 'bundled-aws-ecs',
+  title: 'AWS ECS / Fargate',
+  description:
+    'Use for ECS services and Fargate tasks: desired vs running tasks, CPU/memory, deployment rollout, task exits, and load balancer target health.',
+  intentTags: ['aws', 'ecs', 'fargate', 'cloudwatch', 'container', 'dashboard', 'alert'],
+  dashboard: [
+    'Desired, running, pending, and stopped task counts per service',
+    'CPU and memory utilization per service/task',
+    'Deployment rollout state and task start/stop reasons',
+    'ALB target response time, 5xx, and unhealthy targets',
+    'Container logs error rate if logs are metricized',
+  ],
+  alerts: [
+    'Running tasks < desired tasks',
+    'Task restart/stop spike',
+    'CPU or memory > 85% sustained',
+    'Unhealthy ALB targets > 0',
+    'Deployment stuck or rollback detected',
+  ],
+  troubleshooting: [
+    'Start with ECS service events and stopped task reason',
+    'Check image pull, IAM task role, secrets, and health check config',
+    'If ALB targets are unhealthy, compare container port, security groups, and health path',
+  ],
+});
+
+const awsLambda: Seed = compactSeed({
+  id: 'bundled-aws-lambda',
+  title: 'AWS Lambda',
+  description:
+    'Use for Lambda functions: invocations, errors, duration, throttles, concurrency, cold starts, async failures, and DLQ/backlog.',
+  intentTags: ['aws', 'lambda', 'serverless', 'cloudwatch', 'dashboard', 'alert'],
+  dashboard: [
+    'Invocations, errors, and error rate by function/alias',
+    'Duration p95/p99 and timeout proximity',
+    'Throttles, concurrent executions, and provisioned concurrency utilization',
+    'Iterator age for stream/event-source mappings',
+    'DLQ/SQS destination failures and async event age',
+  ],
+  alerts: [
+    'Error rate above baseline',
+    'Throttles > 0 sustained',
+    'Duration p99 near timeout',
+    'Iterator age growing',
+    'DLQ messages or async failures > 0',
+  ],
+  troubleshooting: [
+    'Check recent deploy/alias shift and function logs first',
+    'Throttles can be account concurrency, reserved concurrency, or downstream backpressure',
+    'For stream sources, fix consumer errors before increasing parallelization',
+  ],
+});
+
+const awsRds: Seed = compactSeed({
+  id: 'bundled-aws-rds',
+  title: 'AWS RDS / Aurora',
+  description:
+    'Use for RDS or Aurora: CPU, connections, free storage, replica lag, deadlocks, read/write latency, and engine-specific database metrics.',
+  intentTags: ['aws', 'rds', 'aurora', 'postgres', 'mysql', 'database', 'cloudwatch', 'dashboard', 'alert'],
+  dashboard: [
+    'CPUUtilization, DatabaseConnections, FreeStorageSpace',
+    'Read/WriteIOPS and read/write latency',
+    'ReplicaLag or Aurora replica lag',
+    'Deadlocks, lock waits, rollbacks, and slow query indicators when exporter metrics exist',
+    'Burst balance / ACU / serverless capacity where relevant',
+  ],
+  alerts: [
+    'CPU > 85% sustained',
+    'Free storage low or storage autoscaling near limit',
+    'Connections > 80% of max connections',
+    'Replica lag above SLO',
+    'Deadlock or rollback rate spike',
+  ],
+  troubleshooting: [
+    'Check Performance Insights / slow query data for top SQL',
+    'Connection pressure usually needs pool tuning before instance scaling',
+    'Replica lag can be write volume, long transaction, storage I/O, or replica class too small',
+  ],
+});
+
+const awsElastiCache: Seed = compactSeed({
+  id: 'bundled-aws-elasticache',
+  title: 'AWS ElastiCache',
+  description:
+    'Use for ElastiCache Redis or Memcached: CPU, memory, evictions, connections, cache hit ratio, replication lag, and failover events.',
+  intentTags: ['aws', 'elasticache', 'redis', 'memcached', 'cache', 'cloudwatch', 'dashboard', 'alert'],
+  dashboard: [
+    'CPUUtilization / EngineCPUUtilization',
+    'DatabaseMemoryUsagePercentage or bytes used',
+    'Cache hit ratio, gets/sets, evictions, expired keys',
+    'CurrConnections and new connections',
+    'ReplicationLag and failover events for Redis clusters',
+  ],
+  alerts: [
+    'Memory usage > 85-90%',
+    'Evictions > 0 when not expected',
+    'Hit ratio below target',
+    'Replication lag above SLO',
+    'CPU sustained high or connection spike',
+  ],
+  troubleshooting: [
+    'Check hot keys and big keys before scaling',
+    'Evictions mean maxmemory policy and dataset size need review',
+    'Replication lag often follows write spikes or slow replica class',
+  ],
+});
+
+const awsAlbNlb: Seed = compactSeed({
+  id: 'bundled-aws-load-balancers',
+  title: 'AWS ALB / NLB',
+  description:
+    'Use for AWS load balancers: request rate, 4xx/5xx, target health, latency, connection errors, and capacity anomalies.',
+  intentTags: ['aws', 'alb', 'nlb', 'load-balancer', 'cloudwatch', 'dashboard', 'alert'],
+  dashboard: [
+    'RequestCount / ActiveFlowCount / NewFlowCount',
+    'TargetResponseTime p95/p99 for ALB',
+    'HTTPCode_ELB_5XX and HTTPCode_Target_5XX',
+    'HealthyHostCount and UnHealthyHostCount per target group',
+    'TargetConnectionErrorCount and rejected connections',
+  ],
+  alerts: [
+    'Unhealthy targets > 0',
+    'ELB 5xx > 0 sustained',
+    'Target 5xx ratio above SLO',
+    'Target response time above SLO',
+    'NLB TCP reset / rejected flow spike',
+  ],
+  troubleshooting: [
+    'Separate load balancer 5xx from target 5xx',
+    'For unhealthy targets, inspect health path, security groups, and app readiness',
+    'For latency, compare ALB target time with app RED metrics',
+  ],
+});
+
+const awsMessaging: Seed = compactSeed({
+  id: 'bundled-aws-messaging',
+  title: 'AWS SQS / SNS / EventBridge',
+  description:
+    'Use for AWS managed messaging: SQS backlog and age, DLQ growth, SNS delivery failures, and EventBridge failed invocations.',
+  intentTags: ['aws', 'sqs', 'sns', 'eventbridge', 'queue', 'messaging', 'cloudwatch', 'dashboard', 'alert'],
+  dashboard: [
+    'SQS visible messages, in-flight messages, and oldest message age',
+    'SQS sent/received/deleted message rates',
+    'DLQ visible messages',
+    'SNS published messages and delivery failures',
+    'EventBridge matched events, failed invocations, and throttles',
+  ],
+  alerts: [
+    'SQS oldest message age above SLO',
+    'SQS visible messages growing while consumers are healthy',
+    'DLQ messages > 0',
+    'SNS delivery failures > 0',
+    'EventBridge failed invocations or throttles > 0',
+  ],
+  troubleshooting: [
+    'Backlog can be producer spike, consumer errors, or downstream throttling',
+    'Inspect DLQ sample payloads before redrive',
+    'For EventBridge, check target permissions and target service limits',
+  ],
+});
+
+const gcpGke: Seed = compactSeed({
+  id: 'bundled-gcp-gke',
+  title: 'Google Kubernetes Engine',
+  description:
+    'Use for GKE clusters: Kubernetes workload health, node pools, control-plane/API health, load balancing, DNS, and autoscaler behavior.',
+  intentTags: ['gcp', 'gke', 'kubernetes', 'cloud-monitoring', 'dashboard', 'alert'],
+  dashboard: [
+    'Kubernetes node, pod, and workload availability',
+    'Node pool desired/ready node count and autoscaler events',
+    'API server request latency/errors if exposed',
+    'GCLB backend health, latency, 4xx/5xx',
+    'CoreDNS/kube-dns health and DNS latency',
+  ],
+  alerts: [
+    'Node not ready or node pool under target size',
+    'Pods pending due to resources, quota, or image pull',
+    'Backend unhealthy in load balancer',
+    'DNS unavailable or high error rate',
+    'Cluster autoscaler unable to scale',
+  ],
+  troubleshooting: [
+    'Check GKE events, node pool operations, and quota first',
+    'For networking, inspect NEG/backend service health',
+    'For pod scheduling, compare requests, quotas, and node taints',
+  ],
+});
+
+const gcpCloudRun: Seed = compactSeed({
+  id: 'bundled-gcp-cloud-run',
+  title: 'Google Cloud Run',
+  description:
+    'Use for Cloud Run services: request count, latency, 4xx/5xx, container instance count, cold starts, concurrency, and revisions.',
+  intentTags: ['gcp', 'cloud-run', 'serverless', 'cloud-monitoring', 'dashboard', 'alert'],
+  dashboard: [
+    'Request count and request latency by service/revision',
+    '4xx/5xx response count and error ratio',
+    'Container instance count and concurrency',
+    'CPU/memory utilization if available',
+    'Revision rollout and traffic split',
+  ],
+  alerts: [
+    '5xx ratio above SLO',
+    'Latency p95/p99 above SLO',
+    'Instance count at max with latency rising',
+    'Cold-start sensitive service has high startup latency',
+    'Revision error rate worse than previous revision',
+  ],
+  troubleshooting: [
+    'Compare failing revision with previous revision',
+    'Check container startup logs and health/startup probes',
+    'Tune min instances/concurrency before scaling blindly',
+  ],
+});
+
+const gcpCloudSql: Seed = compactSeed({
+  id: 'bundled-gcp-cloud-sql',
+  title: 'Google Cloud SQL',
+  description:
+    'Use for Cloud SQL MySQL/PostgreSQL/SQL Server: CPU, connections, storage, disk I/O, replication lag, locks, and slow queries.',
+  intentTags: ['gcp', 'cloud-sql', 'postgres', 'mysql', 'database', 'cloud-monitoring', 'dashboard', 'alert'],
+  dashboard: [
+    'CPU utilization, memory utilization, and disk utilization',
+    'Connections vs max connections',
+    'Read/write IOPS and disk latency',
+    'Replication lag for replicas',
+    'Engine-specific slow queries, deadlocks, locks, and cache hit ratio if exporter exists',
+  ],
+  alerts: [
+    'CPU > 85% sustained',
+    'Disk utilization or free bytes near limit',
+    'Connections > 80% of max',
+    'Replica lag above SLO',
+    'Deadlock/lock wait spike',
+  ],
+  troubleshooting: [
+    'Use Query Insights or engine logs for top SQL',
+    'Connection pressure usually needs pooling changes',
+    'Disk latency can come from storage limits, not only query volume',
+  ],
+});
+
+const gcpPubSub: Seed = compactSeed({
+  id: 'bundled-gcp-pubsub',
+  title: 'Google Pub/Sub',
+  description:
+    'Use for Pub/Sub topics and subscriptions: backlog, oldest unacked message age, ack latency, delivery failures, and dead-letter topics.',
+  intentTags: ['gcp', 'pubsub', 'messaging', 'queue', 'cloud-monitoring', 'dashboard', 'alert'],
+  dashboard: [
+    'Subscription backlog message count and bytes',
+    'Oldest unacked message age',
+    'Ack message count/rate and ack latency',
+    'Push subscription error response classes',
+    'Dead-letter topic publish count',
+  ],
+  alerts: [
+    'Oldest unacked message age above SLO',
+    'Backlog growing while consumers are healthy',
+    'Push endpoint 5xx/4xx sustained',
+    'Dead-letter messages > 0',
+    'Ack latency above baseline',
+  ],
+  troubleshooting: [
+    'Check subscriber error logs and downstream dependency health',
+    'For push, inspect endpoint status codes and auth',
+    'Backlog often needs consumer fixes before scaling subscriber count',
+  ],
+});
+
+const azureAks: Seed = compactSeed({
+  id: 'bundled-azure-aks',
+  title: 'Azure Kubernetes Service',
+  description:
+    'Use for AKS clusters: workload health, node pools, Azure load balancer/application gateway, DNS, CNI/IP pressure, and autoscaler state.',
+  intentTags: ['azure', 'aks', 'kubernetes', 'azure-monitor', 'dashboard', 'alert'],
+  dashboard: [
+    'Kubernetes node, pod, and deployment availability',
+    'Node pool ready count vs desired count',
+    'CPU/memory pressure by node and namespace',
+    'Application Gateway / Load Balancer backend health',
+    'CoreDNS health and Azure CNI IP usage if available',
+  ],
+  alerts: [
+    'Node not ready or node pool below desired',
+    'Deployment unavailable replicas > 0',
+    'Pod pending due to IP/resource pressure',
+    'Backend health probe failures',
+    'DNS unavailable or high error rate',
+  ],
+  troubleshooting: [
+    'Check AKS node pool events and VMSS health',
+    'For ingress, inspect Application Gateway backend health and AGIC logs',
+    'For pod scheduling, check quotas, taints, and Azure CNI IP exhaustion',
+  ],
+});
+
+const azureAppService: Seed = compactSeed({
+  id: 'bundled-azure-app-service',
+  title: 'Azure App Service / Functions',
+  description:
+    'Use for Azure App Service and Functions: request rate, response status, latency, instance count, CPU/memory, restarts, and dependency errors.',
+  intentTags: ['azure', 'app-service', 'functions', 'serverless', 'azure-monitor', 'dashboard', 'alert'],
+  dashboard: [
+    'Requests, response time, HTTP 4xx/5xx',
+    'CPU percentage and memory working set',
+    'Instance count and restarts',
+    'Function execution count, failures, and duration',
+    'Dependency failures from Application Insights if connected',
+  ],
+  alerts: [
+    'HTTP 5xx ratio above SLO',
+    'Response time p95/p99 above SLO',
+    'Function failures or timeout spike',
+    'CPU/memory high sustained',
+    'Restart count spike',
+  ],
+  troubleshooting: [
+    'Check deployment slot/recent release first',
+    'Use Application Insights traces and dependency failures',
+    'Scale out only after checking thread pool, connection pool, and downstream errors',
+  ],
+});
+
+const azureSql: Seed = compactSeed({
+  id: 'bundled-azure-sql',
+  title: 'Azure SQL Database',
+  description:
+    'Use for Azure SQL: DTU/vCore pressure, sessions, deadlocks, blocking, storage, log IO, query duration, and replication/failover health.',
+  intentTags: ['azure', 'sql', 'database', 'azure-monitor', 'dashboard', 'alert'],
+  dashboard: [
+    'CPU/DTU percentage, data IO percentage, log IO percentage',
+    'Sessions and workers percentage',
+    'Storage used and allocated data storage',
+    'Deadlocks, blocked processes, and query duration if query store is exposed',
+    'Replication lag/failover group health where applicable',
+  ],
+  alerts: [
+    'CPU/DTU > 85% sustained',
+    'Data or log IO > 85% sustained',
+    'Storage near max',
+    'Deadlocks > 0 sustained',
+    'Blocked sessions above baseline',
+  ],
+  troubleshooting: [
+    'Start with Query Store top resource-consuming queries',
+    'Check missing indexes and plan regressions before scaling tier',
+    'For log IO pressure, inspect transaction size and batching',
+  ],
+});
+
+const azureCosmosDb: Seed = compactSeed({
+  id: 'bundled-azure-cosmosdb',
+  title: 'Azure Cosmos DB',
+  description:
+    'Use for Cosmos DB: request units, throttles, latency, availability, partition skew, consistency, and storage pressure.',
+  intentTags: ['azure', 'cosmosdb', 'nosql', 'database', 'ru', 'azure-monitor', 'dashboard', 'alert'],
+  dashboard: [
+    'Total requests and normalized RU consumption',
+    '429 throttled requests by container/partition key range',
+    'Server-side latency p95/p99',
+    'Availability and failed requests by status code',
+    'Storage used by database/container',
+  ],
+  alerts: [
+    '429 rate above acceptable baseline',
+    'Normalized RU consumption > 80-90%',
+    'Latency p95/p99 above SLO',
+    'Availability below SLO',
+    'Storage near quota',
+  ],
+  troubleshooting: [
+    'Check partition key skew before increasing RU',
+    'Inspect top queries and indexing policy',
+    '429 can be normal if SDK retry hides it; alert on user-visible impact too',
+  ],
+});
+
+const azureServiceBus: Seed = compactSeed({
+  id: 'bundled-azure-service-bus',
+  title: 'Azure Service Bus',
+  description:
+    'Use for Service Bus queues and topics: active/dead-letter messages, age/backlog, incoming/outgoing rate, throttles, and consumer failures.',
+  intentTags: ['azure', 'service-bus', 'queue', 'messaging', 'azure-monitor', 'dashboard', 'alert'],
+  dashboard: [
+    'Active messages, scheduled messages, dead-letter messages',
+    'Incoming/outgoing messages and requests',
+    'Server errors, user errors, and throttled requests',
+    'Queue/topic size and oldest message age if available',
+    'Consumer processing latency from app metrics',
+  ],
+  alerts: [
+    'Dead-letter messages > 0',
+    'Active messages or oldest age growing',
+    'Throttled requests > 0 sustained',
+    'Server errors > 0 sustained',
+    'Consumer lag above SLO',
+  ],
+  troubleshooting: [
+    'Inspect DLQ sample messages before redrive',
+    'Backlog usually points to consumer errors or downstream slowness',
+    'Throttling may require SKU/namespace capacity changes or sender rate limits',
+  ],
+});
+
+// ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 
@@ -1171,6 +2010,7 @@ export const BUNDLED_SEEDS: ReadonlyArray<Omit<KnowledgeInsertInput, 'orgId'>> =
   perPodOps,
   istio,
   k8sWorkload,
+  kubernetesWorkloadAlerts,
   postgres,
   mysql,
   mongodb,
@@ -1184,4 +2024,27 @@ export const BUNDLED_SEEDS: ReadonlyArray<Omit<KnowledgeInsertInput, 'orgId'>> =
   jvm,
   nodejs,
   go,
+  prometheus,
+  loki,
+  otelCollector,
+  elasticsearch,
+  clickhouse,
+  cassandra,
+  zookeeper,
+  awsEks,
+  awsEcs,
+  awsLambda,
+  awsRds,
+  awsElastiCache,
+  awsAlbNlb,
+  awsMessaging,
+  gcpGke,
+  gcpCloudRun,
+  gcpCloudSql,
+  gcpPubSub,
+  azureAks,
+  azureAppService,
+  azureSql,
+  azureCosmosDb,
+  azureServiceBus,
 ];

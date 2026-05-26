@@ -395,6 +395,31 @@ describe('dashboard handlers', () => {
       expect(persisted[0]!.op.patch.title).toBe('Renamed');
     });
 
+    it('rejects null required panel fields before creating a pending change', async () => {
+      const appendPendingChanges = vi.fn().mockResolvedValue(undefined);
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd-shared',
+        store: {
+          findById: vi.fn(),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+          appendPendingChanges,
+        } as never,
+      });
+
+      const observation = await handleDashboardModifyPanel(ctx, {
+        panelId: 'p1',
+        title: null,
+        visualization: null,
+        queries: [{ refId: 'A', expr: 'up', datasourceId: 'ds-1' }],
+      });
+
+      expect(observation).toMatch(/title must be a string/);
+      expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
+      expect(appendPendingChanges).not.toHaveBeenCalled();
+    });
+
     it('emits a failed tool_result when modify fails', async () => {
       const ctx = makeFakeActionContext({
         activeDashboardId: 'd1',

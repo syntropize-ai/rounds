@@ -11,6 +11,7 @@ import type { IConnectorRepository } from '@agentic-obs/data-layer';
 import {
   KubectlOpsCommandRunner,
   connectorToOpsConfig,
+  isAgentReadSafeCommand,
   resolveOpsCommandConfirmation,
   type OpsCommandConfirmation,
 } from './ops-command-runner.js';
@@ -463,4 +464,127 @@ describe('KubectlOpsCommandRunner.runCommand — connector policy gate', () => {
     expect(r.success).toBe(false);
     expect(r.observation).toContain('Blocked by connector policy');
   });
+});
+
+describe('isAgentReadSafeCommand — background investigation bypass classifier', () => {
+  // Pairs with KubectlOpsCommandRunner.readOnlyAgentBypass. The runner skips
+  // the confirmation card for commands this classifier flags as read-safe
+  // BY SURFACE SHAPE — agent honesty about inner intent is the prompt's job.
+  // The cases below pin down "what does 'read-safe' mean to the runner".
+
+  it('flags `kubectl exec` as read-safe — agent contract limits inner cmds', () => {
+    // The whole point of the bypass: investigation agents need exec to look
+    // inside sidecars (`ps`, `netstat`, dump envoy admin). The classifier
+    // can't parse the inner command, so it trusts the prompt contract here.
+    expect(isAgentReadSafeCommand('kubectl exec pod-a -- ps aux')).toBe(true);
+    expect(isAgentReadSafeCommand('kubectl exec -n default pod-a -c istio-proxy -- curl http://localhost:15000/config_dump')).toBe(true);
+  });
+
+  it('flags non-kubectl reads (curl / jq / grep chains) as read-safe', () => {
+    expect(isAgentReadSafeCommand('curl http://prometheus:9090/api/v1/query?query=up')).toBe(true);
+    expect(isAgentReadSafeCommand('kubectl get pods -o json | jq ".items[].metadata.name"')).toBe(true);
+  });
+
+  it('flags `kubectl get/describe/logs/top` as read-safe (already low-risk)', () => {
+    expect(isAgentReadSafeCommand('kubectl get pods')).toBe(true);
+    expect(isAgentReadSafeCommand('kubectl describe pod foo')).toBe(true);
+    expect(isAgentReadSafeCommand('kubectl logs foo --tail=200')).toBe(true);
+    expect(isAgentReadSafeCommand('kubectl top pods')).toBe(true);
+  });
+
+  it('refuses `kubectl delete/drain` — critical risk, always confirms', () => {
+    expect(isAgentReadSafeCommand('kubectl delete pod foo')).toBe(false);
+    expect(isAgentReadSafeCommand('kubectl drain node-1')).toBe(false);
+  });
+
+  it('refuses destructive shell verbs (rm / mkfs / redirect to /)', () => {
+    expect(isAgentReadSafeCommand('rm -rf /tmp/data')).toBe(false);
+    expect(isAgentReadSafeCommand('mkfs.ext4 /dev/sdb1')).toBe(false);
+    expect(isAgentReadSafeCommand('echo bad > /etc/hosts')).toBe(false);
+  });
+
+  it('refuses explicit kubectl write verbs (apply / create / patch / scale / rollout / …)', () => {
+    // These are the writes the agent should propose via remediation_plan_create
+    // rather than execute directly. Even with bypass on, the runner forces
+    // the operator to approve them.
+    expect(isAgentReadSafeCommand('kubectl apply -f manifest.yaml')).toBe(false);
+    expect(isAgentReadSafeCommand('kubectl create deployment foo --image=nginx')).toBe(false);
+    expect(isAgentReadSafeCommand('kubectl patch deployment foo -p \'{"spec":{"replicas":3}}\'')).toBe(false);
+    expect(isAgentReadSafeCommand('kubectl scale deployment foo --replicas=5')).toBe(false);
+    expect(isAgentReadSafeCommand('kubectl rollout restart deployment foo')).toBe(false);
+    expect(isAgentReadSafeCommand('kubectl label pod foo team=infra')).toBe(false);
+  });
+
+  it('catches writes hidden in command chains', () => {
+    // The agent could try to sneak a write past the surface check by
+    // bundling it with a read. The regex matches on substring, so `apply`
+    // anywhere in the chain still flags.
+    expect(
+      isAgentReadSafeCommand('kubectl get pods && kubectl apply -f bad.yaml'),
+    ).toBe(false);
+    expect(
+      isAgentReadSafeCommand('kubectl get cm | xargs -I{} kubectl delete cm {}'),
+    ).toBe(false);
+  });
+});
+
+describe('resolveOpsCommandConfirmation — approver attribution', () => {
+  // Pairs with the /execute and /reject HTTP endpoints. The approver field is
+  // the audit trail's "who actually executed this" — "who approved = who
+  // executed" per the audit contract. Tests below pin the data shape so a
+  // refactor can't silently drop attribution.
+
+  // Imported lazily so the helper module remains under test isolation.
+  const id = 'test-confirmation';
+  function seedConfirmation(): void {
+    // Reach into the module via createConfirmation? Not exported. Use the
+    // runner end-to-end pattern: spawn a confirmation through the runner,
+    // capture its id, then resolve via the exported helper.
+  }
+  void seedConfirmation;
+
+  it('stamps approvedByUserId and approvedAt when an approver is supplied', async () => {
+    // Drive a real confirmation through the runner so we exercise the same
+    // code path as production (avoids reaching into private maps).
+    const runner = new KubectlOpsCommandRunner({
+      connectors: fakeConnectorRepo({
+        connectors: [
+          mkConnector({
+            id: 'kube-prod',
+            config: { kubeconfig: 'apiVersion: v1\nkind: Config' },
+          }),
+        ],
+        secrets: new Map(),
+      }),
+      orgId: 'org_a',
+    });
+    let captured: OpsCommandConfirmation | undefined;
+    const pending = runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux', // forces confirmation
+      intent: 'read',
+      identity: {
+        userId: 'agent-sa',
+        orgId: 'org_a',
+        orgRole: 'Editor' as const,
+        isServerAdmin: false,
+        authenticatedBy: 'api_key' as const,
+      },
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        captured = c;
+        // Simulate the /execute endpoint: approver = human "operator-bob".
+        resolveOpsCommandConfirmation(c.id, 'rejected', { userId: 'operator-bob' });
+      },
+    });
+    const r = await pending;
+    expect(r.observation).toContain('rejected');
+    expect(captured).toBeDefined();
+    if (!captured) return;
+    // Confirmation row preserves the approver + timestamp.
+    expect(captured.approvedByUserId).toBe('operator-bob');
+    expect(captured.approvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(captured.userId).toBe('agent-sa'); // proposer untouched
+  });
+  void id;
 });

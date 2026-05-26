@@ -43,6 +43,7 @@ import {
   resolveConnectorPolicy,
   templateDefaultPolicy,
 } from './ops-policy.js';
+import type { AuditWriter } from '../auth/audit-writer.js';
 
 const log = createLogger('ops-command-runner');
 
@@ -59,12 +60,44 @@ export interface KubectlOpsCommandRunnerDeps {
    * Optional — when omitted, only wildcard policies match.
    */
   resolveUserTeams?: (identity: Identity) => Promise<readonly string[]>;
+  /**
+   * Background investigation agents have no human at the keyboard to click a
+   * confirmation card. When true, this runner bypasses the confirmation gate
+   * for read-shaped commands (per `isAgentReadSafeCommand`) — covering
+   * non-kubectl probes (`curl`, `jq`) and `kubectl exec ... -- <read-cmd>`
+   * which the policy classifier flags as `runtime.exec`/'ask' by default.
+   *
+   * The bypass NEVER applies to (a) commands classified as `critical` risk
+   * (`kubectl delete/drain`, `rm`, `mkfs`, …), (b) explicit kubectl write
+   * verbs (`apply`/`create`/`patch`/…), or (c) commands where an operator
+   * has set an EXPLICIT (team/org) policy row — operator config always wins.
+   *
+   * Agent honesty about the command being read-only is enforced by the
+   * orchestrator prompt; the runner only checks the surface shape.
+   */
+  readOnlyAgentBypass?: boolean;
+  /**
+   * Optional audit sink. When provided, every executed command (success or
+   * failure) emits one `ops.command.run` row. Attribution rules:
+   *   - confirmed by a human → actor = the approver (the human "owns" the
+   *     execution per the "who approved = who executed" principle); the
+   *     proposing agent's id lives in metadata.agentUserId.
+   *   - bypassed (`readOnlyAgentBypass` opened the gate) → actor = the
+   *     agent SA; metadata.bypassed = true so SIEM can filter.
+   *   - no policy/risk gate hit at all (e.g. `kubectl get` from interactive
+   *     chat) → actor = the calling identity directly.
+   *
+   * Omit in tests that don't care about audit.
+   */
+  audit?: AuditWriter;
 }
 
 export interface OpsCommandConfirmation {
   id: string;
   kind: 'kubectl' | 'cluster_shell';
   orgId: string;
+  /** The agent identity that proposed the command. Audit attribution falls
+   *  back to this when no human approver is recorded (e.g. read-only bypass). */
   userId: string;
   sessionId: string;
   connectorId: string;
@@ -77,6 +110,12 @@ export interface OpsCommandConfirmation {
   summary: string;
   expiresAt: string;
   status: 'pending' | 'executed' | 'rejected' | 'expired' | 'failed';
+  /** The human who clicked approve/reject. Set by `/execute` and `/reject`.
+   *  Absent when status flips to `expired` or when bypassed. The audit row
+   *  attributes execution to this user — "who approved = who executed". */
+  approvedByUserId?: string;
+  /** ISO timestamp of the approve/reject click. Paired with approvedByUserId. */
+  approvedAt?: string;
 }
 
 export interface OpsRunResult {
@@ -131,6 +170,41 @@ export function classifyShellCommandRisk(command: string): OpsCommandConfirmatio
  */
 export function shellCommandNeedsConfirmation(command: string): boolean {
   return classifyShellCommandRisk(command) !== 'low';
+}
+
+/**
+ * Kubectl write verbs that are unambiguous mutations and must always
+ * confirm even when the caller is a background investigation agent.
+ *
+ * `exec` is intentionally excluded: agents legitimately use
+ * `kubectl exec ... -- ps/cat/netstat/curl localhost:15000/...` to probe
+ * sidecar internals. The inner command's read-only-ness is the prompt's
+ * contract, not the runner's regex job. `cp` is also excluded for the
+ * same reason (file extraction from a pod is read-shaped); a `cp` that
+ * pushes a file in is still detectable through the destination form
+ * only with deeper parsing — that's a follow-up.
+ */
+const KUBECTL_UNAMBIGUOUS_WRITE_RE =
+  /\bkubectl\s+(?:[^\n|;&]*\s)?(apply|create|patch|edit|replace|scale|cordon|uncordon|rollout|annotate|label|taint|set)\b/;
+
+/**
+ * Surface-level safety classifier for the background-investigation bypass.
+ *
+ * Returns true when the command shape is plausibly read-only: no critical
+ * verbs (`delete`/`drain`/`rm`/`mkfs`/…), no unambiguous kubectl writes
+ * (`apply`/`create`/`patch`/…). `kubectl exec` and pure non-kubectl shell
+ * commands (curl/jq/grep) pass — the agent is contractually limited to
+ * read-only inner commands by the orchestrator prompt.
+ *
+ * This is a SURFACE check only. A `kubectl exec -- sh -c 'rm -rf /'`
+ * passes because the inner script isn't parsed. The trust model:
+ * background agent prompt forbids writes; runner enforces the obvious
+ * cases; audit log captures everything for post-hoc review.
+ */
+export function isAgentReadSafeCommand(command: string): boolean {
+  if (classifyShellCommandRisk(command) === 'critical') return false;
+  if (KUBECTL_UNAMBIGUOUS_WRITE_RE.test(command)) return false;
+  return true;
 }
 
 function createConfirmation(params: {
@@ -201,10 +275,15 @@ export function getOpsCommandConfirmation(id: string): OpsCommandConfirmation | 
 export function resolveOpsCommandConfirmation(
   id: string,
   status: Extract<OpsCommandConfirmation['status'], 'executed' | 'rejected' | 'failed'>,
+  approver?: { userId: string },
 ): OpsCommandConfirmation | undefined {
   const confirmation = getOpsCommandConfirmation(id);
   if (!confirmation || confirmation.status !== 'pending') return confirmation;
   confirmation.status = status;
+  if (approver) {
+    confirmation.approvedByUserId = approver.userId;
+    confirmation.approvedAt = new Date().toISOString();
+  }
   const waiter = CONFIRMATION_WAITERS.get(id);
   if (waiter) {
     CONFIRMATION_WAITERS.delete(id);
@@ -327,8 +406,34 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
 
     const policyWantsConfirm = policy === 'ask';
     const riskWantsConfirm = shellCommandNeedsConfirmation(command);
-    const needsConfirmation =
+    let needsConfirmation =
       !params.confirmed && (policyWantsConfirm || riskWantsConfirm);
+
+    // Background investigation bypass: no human at the keyboard, so a
+    // confirmation card would block the run indefinitely. Only applies when
+    // (a) caller opted in, (b) command shape is read-safe, (c) operator has
+    // not set an explicit policy (explicit ask/block always wins).
+    if (
+      needsConfirmation &&
+      this.deps.readOnlyAgentBypass &&
+      explicit === 'no-policy' &&
+      isAgentReadSafeCommand(command)
+    ) {
+      needsConfirmation = false;
+      log.info(
+        {
+          userId: params.identity.userId,
+          capability,
+          commandHead: command.slice(0, 120),
+        },
+        'background investigation bypass: read-shaped command auto-approved',
+      );
+    }
+
+    // Track who approved (if anyone) — feeds the audit attribution below.
+    let approvedByUserId: string | undefined;
+    const bypassed = !needsConfirmation && (policyWantsConfirm || riskWantsConfirm);
+
     if (needsConfirmation) {
       const confirmation = createConfirmation({
         orgId: this.deps.orgId,
@@ -342,6 +447,10 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
       if (decision !== 'executed') {
         return { observation: `User did not approve "${command}" (${decision}).`, success: false };
       }
+      // Re-read so we see fields the `/execute` endpoint stamped onto the
+      // confirmation (approvedByUserId, approvedAt).
+      const settled = getOpsCommandConfirmation(confirmation.id);
+      approvedByUserId = settled?.approvedByUserId;
     }
 
     // Real shell semantics. The command runs as `sh -c <command>` with the
@@ -366,6 +475,34 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     // observation and decides for itself; the runner is a passthrough.
     const result = await adapter.execute(action);
     const observation = typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
+
+    // Audit emission. "Who approved = who executed" — when a human approved,
+    // they own the action; otherwise the agent SA does (with bypassed=true
+    // for SIEM filtering when the gate was opened by the read-only bypass).
+    if (this.deps.audit) {
+      const actorId = approvedByUserId ?? params.identity.userId;
+      const actorType: 'user' | 'service_account' =
+        approvedByUserId ? 'user' : 'service_account';
+      void this.deps.audit.log({
+        action: 'ops.command.run',
+        actorType,
+        actorId,
+        orgId: this.deps.orgId,
+        targetType: 'connector',
+        targetId: connector.id,
+        targetName: connector.name,
+        outcome: 'success',
+        metadata: {
+          command: command.slice(0, 2000),
+          capability,
+          agentUserId: params.identity.userId,
+          ...(approvedByUserId ? { approvedByUserId } : {}),
+          bypassed,
+          sessionId: params.sessionId,
+        },
+      });
+    }
+
     return { observation, success: true };
   }
 

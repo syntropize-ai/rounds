@@ -440,6 +440,7 @@ export class ChatService {
       ? new KubectlOpsCommandRunner({
           connectors: this.deps.connectorRepo,
           orgId: identity.orgId,
+          ...(this.deps.auditWriter ? { audit: this.deps.auditWriter } : {}),
         })
       : undefined;
     // GitHub tool runner: read-only VCS surface (github_list_repos /

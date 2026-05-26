@@ -99,9 +99,18 @@ export function buildBackgroundOrchestratorFactory(
     const opsConnectors = connectors
       .filter((c) => c.type === 'kubernetes')
       .map(connectorToOpsConfig);
+    // Background investigations run with no human at the keyboard. The
+    // ops_run_command confirmation gate would block them indefinitely on any
+    // command that the surface classifier flags as 'ask' (curl probes,
+    // kubectl exec for sidecar inspection, …). Enable the read-shaped bypass
+    // for background agents only — interactive chat keeps the confirmation
+    // card so the operator can review writes themselves.
+    const effectiveAgentType = agentType ?? 'background_orchestrator';
     const opsCommandRunner = new KubectlOpsCommandRunner({
       connectors: deps.persistence.repos.connectors,
       orgId: identity.orgId,
+      readOnlyAgentBypass: effectiveAgentType === 'background_orchestrator',
+      ...(deps.audit ? { audit: deps.audit } : {}),
     });
 
     return createAgentRunner({
@@ -126,7 +135,7 @@ export function buildBackgroundOrchestratorFactory(
       identity,
       accessControl: deps.accessControl,
       ...(deps.audit ? { auditWriter: deps.audit } : {}),
-      agentType: agentType ?? 'background_orchestrator',
+      agentType: effectiveAgentType,
     }, `bg_${randomUUID()}`);
   };
 }

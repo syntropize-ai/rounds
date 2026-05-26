@@ -232,6 +232,103 @@ describe('per-tool behavior guidance is now inlined into schema descriptions', (
   });
 });
 
+describe('buildSystemPrompt — alert history reflects current store', () => {
+  it('does not surface deleted alert creations as current recoverable rules', () => {
+    const history: DashboardMessage[] = [
+      {
+        id: 'm1',
+        role: 'assistant',
+        content: 'Created old alert.',
+        timestamp: '2026-04-18T00:00:00.000Z',
+        actions: [
+          {
+            type: 'create_alert_rule',
+            ruleId: 'old_alert',
+            name: 'Proxy Down',
+            severity: 'high',
+            query: 'envoy_server_live',
+            operator: '==',
+            threshold: 0,
+            forDurationSec: 300,
+            evaluationIntervalSec: 60,
+          },
+        ],
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content: 'Deleted old alert.',
+        timestamp: '2026-04-18T00:01:00.000Z',
+        actions: [
+          {
+            type: 'delete_alert_rule',
+            ruleId: 'old_alert',
+            name: 'Proxy Down',
+          },
+        ],
+      },
+    ] as DashboardMessage[];
+
+    const prompt = buildSystemPrompt(null, history, [], null, [], {
+      hasPrometheus: false,
+      now: '2026-04-18T00:02:00.000Z',
+    });
+
+    expect(prompt).not.toContain('Assistant created alert [old_alert]');
+    expect(prompt).toContain('Assistant deleted alert [old_alert] "Proxy Down"');
+    expect(prompt).toContain('deleted entries are not candidates to recreate');
+  });
+
+  it('keeps created alert history when the rule still exists', () => {
+    const history: DashboardMessage[] = [
+      {
+        id: 'm1',
+        role: 'assistant',
+        content: 'Created current alert.',
+        timestamp: '2026-04-18T00:00:00.000Z',
+        actions: [
+          {
+            type: 'create_alert_rule',
+            ruleId: 'current_alert',
+            name: 'Proxy Memory Pressure',
+            severity: 'medium',
+            query: 'envoy_server_memory_allocated / envoy_server_memory_heap_size',
+            operator: '>',
+            threshold: 0.85,
+            forDurationSec: 300,
+            evaluationIntervalSec: 60,
+          },
+        ],
+      },
+    ] as DashboardMessage[];
+
+    const prompt = buildSystemPrompt(
+      null,
+      history,
+      [{
+        id: 'current_alert',
+        name: 'Proxy Memory Pressure',
+        severity: 'medium',
+        condition: {
+          query: 'envoy_server_memory_allocated / envoy_server_memory_heap_size',
+          operator: '>',
+          threshold: 0.85,
+        },
+      }],
+      null,
+      [],
+      {
+        hasPrometheus: false,
+        now: '2026-04-18T00:02:00.000Z',
+      },
+    );
+
+    expect(prompt).toContain('Assistant created alert [current_alert]');
+    expect(prompt).toContain('# Alert Rules');
+    expect(prompt).toContain('Proxy Memory Pressure');
+  });
+});
+
 describe('buildSystemPrompt — deferred tools listing', () => {
   it('omits the <deferred-tools> block when allowedTools is not provided', () => {
     const prompt = buildSystemPrompt(null, [], [], null, [], {

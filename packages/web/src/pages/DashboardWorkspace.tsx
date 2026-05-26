@@ -338,7 +338,7 @@ export default function DashboardWorkspace() {
     const newPanels = panels.map((p) => (p.id === updated.id ? updated : p));
     const res = await apiClient.putValidated<Dashboard>(
       `/dashboards/${id}/panels`,
-      newPanels,
+      { panels: newPanels },
       DashboardSchema,
       'Dashboard',
     );

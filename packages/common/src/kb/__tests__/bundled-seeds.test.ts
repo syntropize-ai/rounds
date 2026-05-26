@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { BUNDLED_SEEDS } from '../bundled-seeds.js';
 
 describe('BUNDLED_SEEDS shape invariants', () => {
-  it('has exactly 18 entries', () => {
-    expect(BUNDLED_SEEDS.length).toBe(18);
+  it('has broad built-in coverage', () => {
+    expect(BUNDLED_SEEDS.length).toBeGreaterThanOrEqual(40);
   });
 
   it('every seed has a unique id', () => {
@@ -44,6 +44,35 @@ describe('BUNDLED_SEEDS shape invariants', () => {
     for (const s of BUNDLED_SEEDS) {
       expect(Array.isArray(s.intentTags)).toBe(true);
       expect(s.intentTags.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('ships compact Istio and Kubernetes alert guidance', () => {
+    const ids = new Set(BUNDLED_SEEDS.map((s) => s.id));
+    const istio = BUNDLED_SEEDS.find((s) => s.id === 'bundled-istio');
+    expect(istio?.title).toBe('Istio');
+    expect(istio?.body).toContain('## Data plane dashboard');
+    expect(istio?.body).toContain('## Control plane dashboard');
+    expect(istio?.body).toContain('## Alerts');
+    expect(ids.has('bundled-k8s-workload-alerts')).toBe(true);
+  });
+
+  it('covers common infra, cloud, and managed-service families', () => {
+    const ids = new Set(BUNDLED_SEEDS.map((s) => s.id));
+    for (const id of [
+      'bundled-prometheus',
+      'bundled-loki',
+      'bundled-opentelemetry-collector',
+      'bundled-elasticsearch',
+      'bundled-clickhouse',
+      'bundled-aws-eks',
+      'bundled-aws-rds',
+      'bundled-gcp-gke',
+      'bundled-gcp-pubsub',
+      'bundled-azure-aks',
+      'bundled-azure-cosmosdb',
+    ]) {
+      expect(ids.has(id)).toBe(true);
     }
   });
 });

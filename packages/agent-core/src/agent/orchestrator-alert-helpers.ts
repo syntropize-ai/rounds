@@ -37,16 +37,22 @@ export function getStructuredAlertRuleContext(
   return null
 }
 
-export function buildStructuredAlertHistory(history: DashboardMessage[]): string {
+export function buildStructuredAlertHistory(
+  history: DashboardMessage[],
+  currentAlertRules: AlertRuleSummary[] = [],
+): string {
   const entries: string[] = []
+  const currentRuleIds = new Set(currentAlertRules.map((rule) => rule.id))
 
   for (const message of history.slice(-10)) {
     const actions = message.actions ?? []
     for (const action of actions) {
       if (action.type === 'create_alert_rule') {
+        if (!currentRuleIds.has(action.ruleId)) continue
         entries.push(`- Assistant created alert [${action.ruleId}] "${action.name}" (${action.severity}) - ${action.query} ${action.operator} ${action.threshold}`)
       }
       else if (action.type === 'modify_alert_rule') {
+        if (!currentRuleIds.has(action.ruleId)) continue
         entries.push(`- Assistant modified alert [${action.ruleId}] with patch ${JSON.stringify(action.patch)}`)
       }
       else if (action.type === 'delete_alert_rule') {

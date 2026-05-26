@@ -14,6 +14,18 @@ import {
 } from './verify-gate.js';
 
 const log = createLogger('dashboard-handler');
+const PANEL_VISUALIZATION_VALUES = new Set([
+  'time_series',
+  'stat',
+  'table',
+  'gauge',
+  'bar',
+  'bar_gauge',
+  'heatmap',
+  'pie',
+  'histogram',
+  'status_timeline',
+]);
 
 /**
  * Best-effort `updateStatus` write. On failure we log a structured warning
@@ -185,6 +197,19 @@ function maybeEnum<K extends string, T extends string>(
 ): Partial<Record<K, T>> {
   const picked = pickEnum(value, allowed);
   return picked === undefined ? {} : ({ [key]: picked } as Partial<Record<K, T>>);
+}
+
+function validatePanelPatch(patch: Record<string, unknown>): string | null {
+  if (Object.prototype.hasOwnProperty.call(patch, 'title') && typeof patch.title !== 'string') {
+    return 'Error: dashboard_modify_panel title must be a string when provided. Omit title to keep the current title.';
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(patch, 'visualization') &&
+    (typeof patch.visualization !== 'string' || !PANEL_VISUALIZATION_VALUES.has(patch.visualization))
+  ) {
+    return 'Error: dashboard_modify_panel visualization must be a valid visualization string when provided. Omit visualization to keep the current visualization.';
+  }
+  return null;
 }
 
 async function fetchPanelMetadata(
@@ -918,6 +943,9 @@ export async function handleDashboardModifyPanel(
   if (!panelId) return 'Error: "panelId" is required.';
   const patch = { ...args } as Record<string, unknown>;
   delete patch.panelId;
+
+  const patchError = validatePanelPatch(patch);
+  if (patchError) return patchError;
 
   // If the patch replaces the queries list, every replacement query must
   // carry datasourceId — same strict contract as add_panels. Patches that

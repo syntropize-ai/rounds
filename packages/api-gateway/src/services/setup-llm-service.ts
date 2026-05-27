@@ -4,6 +4,7 @@ import type { LlmConfigWire } from '@agentic-obs/common';
 import {
   AnthropicProvider,
   OpenAIProvider,
+  OpenAICompatibleProvider,
   GeminiProvider,
   OllamaProvider,
   ProviderError,
@@ -285,7 +286,13 @@ export class SetupLlmService {
           return { models: await provider.listModels() };
         }
         case 'deepseek': {
-          return { models: await this.fetchDeepseekModels(cfg.apiKey ?? '', cfg.baseUrl) };
+          const provider = new OpenAICompatibleProvider({
+            providerId: 'deepseek',
+            providerName: 'DeepSeek',
+            apiKey: cfg.apiKey ?? '',
+            baseUrl: cfg.baseUrl || 'https://api.deepseek.com/v1',
+          });
+          return { models: await provider.listModels() };
         }
         case 'gemini': {
           const provider = new GeminiProvider({
@@ -332,28 +339,4 @@ export class SetupLlmService {
     }
   }
 
-  private async fetchDeepseekModels(apiKey: string, baseUrl?: string): Promise<ModelInfo[]> {
-    const base = baseUrl || 'https://api.deepseek.com/v1';
-    const target = `${base}/models`;
-    try {
-      if (baseUrl) await ensureSafeUrl(target);
-      const res = await fetch(target, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS),
-      });
-      if (!res.ok) {
-        log.warn({ status: res.status, base }, 'DeepSeek /models returned non-OK');
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const body = (await res.json()) as { data?: Array<{ id: string; owned_by?: string }> };
-      const data = body.data ?? [];
-      return data
-        .map((m) => m.id)
-        .sort()
-        .map((id) => ({ id, name: id, provider: 'deepseek' }));
-    } catch (err) {
-      log.warn({ err, base }, 'DeepSeek /models fetch failed');
-      throw err;
-    }
-  }
 }

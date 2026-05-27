@@ -80,7 +80,6 @@ function StatusBadge({ status }: { status: Dashboard['status'] }) {
 const PAGE_CONFIG = {
   title: 'Dashboards',
   subtitle: 'Monitor and visualize your infrastructure metrics.',
-  newLabel: '+ New Dashboard',
   emptyTitle: 'No dashboards yet',
   emptyDesc: 'Create a dashboard to start monitoring your infrastructure.',
   navTarget: '/dashboards',
@@ -95,8 +94,6 @@ export default function Dashboards() {
   // Editor+), create folder (`folders:create`, Editor+), delete dashboard
   // (`dashboards:delete`, Editor+), delete folder (`folders:delete`, Editor+).
   // Viewer has none of these.
-  const canCreateDashboard = !!user
-    && (user.isServerAdmin || hasPermission('dashboards:create'));
   const canCreateFolder = !!user
     && (user.isServerAdmin || hasPermission('folders:create'));
   const canDeleteDashboard = !!user
@@ -308,15 +305,6 @@ export default function Dashboards() {
                 + Folder
               </button>
             )}
-            {canCreateDashboard && (
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="bg-primary text-on-primary-fixed px-4 py-2 font-semibold text-sm transition-transform active:scale-95"
-              >
-                {config.newLabel}
-              </button>
-            )}
           </div>
         </div>
 
@@ -373,8 +361,7 @@ export default function Dashboards() {
         )}
 
         {/* Empty state — only when there are no folders either, otherwise the
-            folder tree below shows the actual structure and a redundant CTA
-            here just clutters the layout (header already has + New Dashboard). */}
+            folder tree below shows the actual structure. */}
         {!loadingList && !loadError && dashboards.length === 0 && folders.length === 0 && !showNewFolder && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-14 h-14 bg-surface-container border border-outline-variant flex items-center justify-center mb-4">
@@ -642,15 +629,6 @@ export default function Dashboards() {
                     >
                       View alert rules
                     </button>
-                    {canCreateDashboard && (
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/?folder=${encodeURIComponent(currentFolder.id)}`)}
-                        className="bg-primary text-on-primary-fixed px-4 py-2 text-xs font-semibold transition-transform active:scale-95"
-                      >
-                        Create dashboard here
-                      </button>
-                    )}
                   </div>
                 </div>
               ) : (

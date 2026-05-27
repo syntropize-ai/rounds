@@ -5,7 +5,7 @@ import React from 'react';
 export function UserMessage({ content }: { content: string }) {
   return (
     <div className="flex flex-col items-end gap-2 my-4">
-      <div className="max-w-[90%] p-4 text-sm leading-relaxed bg-primary/10 border border-primary/20 rounded-xl rounded-tr-none text-on-surface">
+      <div className="max-w-[90%] px-3.5 py-2.5 text-[13px] leading-[1.5] bg-primary/10 border border-primary/20 rounded-xl rounded-tr-none text-on-surface">
         {content}
       </div>
       <span className="text-[10px] text-on-surface-variant uppercase tracking-widest">You</span>
@@ -50,11 +50,11 @@ export function InlineMd({ text }: { text: string }) {
 export function AssistantMessage({ content }: { content: string }) {
   const lines = content.split('\n');
   return (
-    <div className="my-3 text-[15px] leading-relaxed text-on-surface">
+    <div className="my-3 text-[13px] leading-[1.55] text-on-surface">
       {lines.map((line, i) => {
         if (line.startsWith('## ')) {
           return (
-            <div key={i} className="text-base font-semibold text-on-surface mt-4 mb-2">
+            <div key={i} className="text-[13.5px] font-semibold text-on-surface mt-3 mb-1.5">
               {line.slice(3)}
             </div>
           );

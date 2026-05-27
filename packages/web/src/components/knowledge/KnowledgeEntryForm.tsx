@@ -162,7 +162,7 @@ export default function KnowledgeEntryForm({
           value={state.description}
           onChange={(e) => update('description', e.target.value)}
           className={inputCls}
-          placeholder="When should the agent consult this skill? e.g. 'When investigating PostgreSQL slow queries...'"
+          placeholder="When should the agent consult this entry? e.g. 'When investigating PostgreSQL slow queries...'"
           required
         />
       </div>

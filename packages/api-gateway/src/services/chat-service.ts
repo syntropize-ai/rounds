@@ -252,6 +252,16 @@ export interface ChatServiceDeps {
    * Optional — without it, the agent reports "GitHub connector not configured".
    */
   githubAppTokenService?: GithubAppTokenService;
+  /**
+   * In-process pub/sub for live event tailing. When present, every
+   * persisted chat event is also published to this bus AFTER the DB
+   * append resolves (the seq is stamped onto the bus payload so a
+   * subscriber doing replay-then-tail can dedupe across the boundary).
+   *
+   * Optional — without it the chat still runs and persists, but the new
+   * `/chat/sessions/:id/events/stream` endpoint has nothing to tail.
+   */
+  sessionEventBus?: import('./session-event-bus.js').SessionEventBus;
 }
 
 /**
@@ -351,16 +361,19 @@ export class ChatService {
     const resolvedSessionId = sessionId ?? randomUUID();
     const scope = ownerScope(identity);
 
-    // Ensure a chat_sessions record exists for this session
+    // Ensure a chat_sessions record exists. The legacy `throw "Chat session
+    // not found"` when the caller supplied an id without a matching row is
+    // gone — the route (chat.ts) now pre-allocates a sessionId before
+    // calling us so the supplied id is always a route-trusted value (a
+    // user-provided id is gated by ensureSessionInOrg up there; a
+    // route-generated id may not have a row yet). Either way, upsert
+    // semantics here: if the row exists, use it; otherwise create.
     if (this.deps.chatSessionStore) {
       const existing = await findOwnedChatSession(
         this.deps.chatSessionStore,
         resolvedSessionId,
         scope,
       );
-      if (sessionId && !existing) {
-        throw new Error('Chat session not found');
-      }
       if (!existing) {
         await this.deps.chatSessionStore.create({
           id: resolvedSessionId,
@@ -389,33 +402,94 @@ export class ChatService {
     }
 
     // Wrap sendEvent so every step event (thinking, tool_call, tool_result,
-    // panel_added, etc.) is persisted under this session. The live SSE stream
-    // still goes out immediately; persistence is awaited in the background so
-    // it doesn't add latency to user-visible updates.
+    // panel_added, etc.) is:
+    //   1. forwarded to the in-request SSE callback (if any) — legacy path,
+    //      used by tests and the in-request streaming response
+    //   2. persisted to chat_session_events with a fresh seq
+    //   3. published to the SessionEventBus AFTER the persist resolves, so
+    //      live subscribers (the new /events/stream endpoint) can do the
+    //      replay-then-tail handoff without missing events between query
+    //      and subscribe (see session-event-bus.ts for the protocol)
+    //
+    // CRITICAL ordering invariant: the persist-then-publish operations for
+    // a single session MUST execute in seq order. If two appends raced and
+    // append(seq=6) resolved before append(seq=5), publish(6) firing
+    // before append(5) commits would let a handoff subscriber miss event 5
+    // entirely (DB query at handoff sees up to seq=4, buffer already has
+    // 6 but not 5, then when 5 finally commits + publishes, the
+    // subscriber's `maxEmittedSeq` is already 6 and dedupe drops 5).
+    //
+    // We enforce the invariant by chaining each event onto a per-session
+    // `persistChain` tail Promise — appends serialize even though the
+    // underlying repo might service them in parallel. The cost is one
+    // microtask of latency per event; acceptable since persistence is
+    // already off the critical path (sendEvent fires the SSE/bus
+    // immediately to the live caller via step 1).
+    //
+    // Events whose DB write fails are NOT published to the bus; they
+    // surface in pino warn logs only, and live subscribers will see an
+    // explicit `event_gap` placeholder at that seq (see below) so the
+    // gap is visible rather than silent.
     const eventStore = this.deps.chatEventStore;
+    const bus = this.deps.sessionEventBus;
     let seq = eventStore ? await eventStore.nextSeq(resolvedSessionId) : 0;
-    const persistQueue: Array<Promise<void>> = [];
+    let persistChain: Promise<void> = Promise.resolve();
     const wrappedSendEvent = (event: DashboardSseEvent) => {
       sendEvent(event);
-      if (!eventStore) return;
+      if (!eventStore) {
+        // Without a DB, live subscribers can still tail via the bus.
+        // Stamp a synthetic seq (still monotonic per session within this
+        // process) so subscribers can order events; dedup is a no-op
+        // since there's no replay source.
+        if (bus) bus.publish(resolvedSessionId, seq++, event);
+        return;
+      }
       if (SKIP_PERSIST_KINDS.has(event.type)) return;
+      const eventSeq = seq++;
       const record = {
         id: randomUUID(),
         sessionId: resolvedSessionId,
-        seq: seq++,
+        seq: eventSeq,
         kind: event.type,
         payload: event as unknown as Record<string, unknown>,
         timestamp: new Date().toISOString(),
       };
-      persistQueue.push(
-        Promise.resolve(eventStore.append(record)).catch((err) => {
-          log.warn(
-            { err, sessionId: resolvedSessionId, kind: event.type },
-            'failed to persist chat event',
-          );
-        }),
+      // Chain onto the tail so per-session order is enforced. The chain
+      // itself never rejects (catch swallows) so a single bad event
+      // doesn't poison subsequent ones.
+      persistChain = persistChain.then(() =>
+        Promise.resolve(eventStore.append(record))
+          .then(() => {
+            if (bus) bus.publish(resolvedSessionId, eventSeq, event);
+          })
+          .catch((err) => {
+            log.warn(
+              { err, sessionId: resolvedSessionId, kind: event.type, seq: eventSeq },
+              'failed to persist chat event; publishing gap placeholder so subscribers see the loss',
+            );
+            // Surface the gap explicitly so a tailing subscriber doesn't
+            // think the seq number was simply skipped. Live subscribers
+            // see the placeholder; DB readers will see a real gap
+            // (acceptable — the persistence failure is itself logged).
+            if (bus) {
+              const placeholder = {
+                type: 'event_gap',
+                seq: eventSeq,
+              } as unknown as DashboardSseEvent;
+              bus.publish(resolvedSessionId, eventSeq, placeholder);
+            }
+          }),
       );
     };
+    // Expose the chain so handleMessage can `await persistChain` in its
+    // finally block — drains in-flight appends before returning so a
+    // subscriber that connects right after `done` sees everything. The
+    // try/finally below ensures the drain runs on both success and error
+    // paths (re-review finding: error path was skipping drain, letting
+    // bus publishes leak past the route's error response).
+    const drainPersistChain = (): Promise<void> => persistChain;
+
+    try {
 
     const auditSink = this.deps.llmAuditStore
       ? createDbAuditSink(this.deps.llmAuditStore)
@@ -662,13 +736,6 @@ export class ChatService {
       'session orchestrator done',
     );
 
-    // Wait for all queued event persistence to flush before we finalize the
-    // assistant message — guarantees the step trace is fully durable by the
-    // time the client sees 'done' and subsequent /messages loads are consistent.
-    if (persistQueue.length > 0) {
-      await Promise.all(persistQueue);
-    }
-
     // Persist assistant response to chat_messages
     const assistantMessageId = randomUUID();
     if (this.deps.chatMessageStore) {
@@ -706,5 +773,12 @@ export class ChatService {
       assistantMessageId,
       navigate,
     };
+    } finally {
+      // Drain in-flight persist+publish on BOTH success and error paths.
+      // Bounded by the serialization invariant above — this awaits all
+      // queued operations in seq order; failures are swallowed inside
+      // the chain so this await never rejects.
+      await drainPersistChain();
+    }
   }
 }

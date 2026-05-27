@@ -29,13 +29,6 @@ function isActive(status: string) {
 export default function Investigations() {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
-  // Backend gates via canonical `investigations:*` actions
-  // (packages/api-gateway/src/routes/investigation/router.ts). The legacy
-  // singular `investigation:*` fallback was removed once the backend rename
-  // landed.
-  const canCreateInvestigation = !!user
-    && (user.isServerAdmin
-      || hasPermission('investigations:create'));
   const canDeleteInvestigation = !!user
     && (user.isServerAdmin
       || hasPermission('investigations:delete')
@@ -101,22 +94,13 @@ export default function Investigations() {
   return (
     <div className="flex-1 overflow-y-auto bg-surface-lowest">
       <div className="max-w-5xl mx-auto p-8">
-        <div className="mb-8 flex items-end justify-between gap-6">
+        <div className="mb-8">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-on-surface font-[Manrope]">Investigations</h1>
             <p className="mt-1 text-sm text-on-surface-variant">
               Diagnose and troubleshoot production issues with AI-driven analysis.
             </p>
           </div>
-          {canCreateInvestigation && (
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary-fixed transition-transform active:scale-95"
-            >
-              + New Investigation
-            </button>
-          )}
         </div>
 
         <div className="mb-6">
@@ -161,7 +145,7 @@ export default function Investigations() {
               </svg>
             </div>
             <p className="mb-1 text-sm text-on-surface-variant">No investigations yet</p>
-            <p className="text-xs text-[var(--color-outline)]">Start an investigation to diagnose production issues with AI</p>
+            <p className="text-xs text-[var(--color-outline)]">Investigations from chats and alerts will appear here.</p>
           </div>
         )}
 

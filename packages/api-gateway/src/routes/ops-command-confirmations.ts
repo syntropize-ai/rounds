@@ -16,6 +16,15 @@ export interface OpsCommandConfirmationsRouterDeps {
   ac: AccessControlSurface;
 }
 
+function sendUnavailable(res: Response): void {
+  res.status(410).json({
+    error: {
+      code: 'CONFIRMATION_UNAVAILABLE',
+      message: 'This confirmation is no longer available. It may have expired or the API process was restarted.',
+    },
+  });
+}
+
 export function createOpsCommandConfirmationsRouter(
   deps: OpsCommandConfirmationsRouterDeps,
 ): Router {
@@ -40,7 +49,7 @@ export function createOpsCommandConfirmationsRouter(
         // approve, and audit attribution records exactly who clicked.
         const confirmation = getOpsCommandConfirmation(req.params['id'] ?? '');
         if (!confirmation || confirmation.orgId !== auth.orgId) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'confirmation not found' } });
+          sendUnavailable(res);
           return;
         }
         if (confirmation.status !== 'pending') {
@@ -80,7 +89,7 @@ export function createOpsCommandConfirmationsRouter(
         // userId-equality check is intentionally omitted.
         const confirmation = getOpsCommandConfirmation(req.params['id'] ?? '');
         if (!confirmation || confirmation.orgId !== auth.orgId) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'confirmation not found' } });
+          sendUnavailable(res);
           return;
         }
         if (confirmation.status !== 'pending') {

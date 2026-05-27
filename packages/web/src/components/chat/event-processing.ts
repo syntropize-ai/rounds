@@ -68,14 +68,14 @@ export function groupEvents(
       }
       if (evt.kind === 'ops_command_confirmation_required' && evt.opsConfirmation?.id) {
         const resolved = opsStatus.get(evt.opsConfirmation.id);
-        if (resolved) {
+        if (resolved || evt.opsConfirmation.status !== 'pending') {
           const block = blocks[blocks.length - 1];
           if (block?.type === 'message') {
             block.event = {
               ...block.event,
               opsConfirmation: {
                 ...evt.opsConfirmation,
-                ...resolved,
+                ...(resolved ?? {}),
                 connectorId: evt.opsConfirmation.connectorId,
                 command: evt.opsConfirmation.command,
               },

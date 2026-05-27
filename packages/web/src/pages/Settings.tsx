@@ -153,9 +153,10 @@ const selectCls = inputCls;
 const btnPrimary = 'px-4 py-2 rounded-lg bg-[var(--color-primary)] text-[var(--color-on-primary-fixed)] text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity';
 const btnSecondary = 'px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] text-sm font-medium text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] disabled:opacity-50 transition-colors';
 
-type SettingsTab = 'connectors' | 'knowledge' | 'ai' | 'notifications' | 'account' | 'danger';
+type SettingsTab = 'general' | 'connectors' | 'knowledge' | 'ai' | 'notifications' | 'account' | 'danger';
 
 const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+  { id: 'general', label: 'General', icon: <span className="text-xs font-bold">G</span> },
   { id: 'connectors', label: 'Connectors', icon: <span className="text-xs font-bold">C</span> },
   { id: 'knowledge', label: 'Knowledge', icon: <span className="text-xs font-bold">K</span> },
   { id: 'ai', label: 'AI Provider', icon: <span className="text-xs font-bold">AI</span> },
@@ -168,6 +169,7 @@ const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 
 function LlmTab({ canWrite }: { canWrite: boolean }) {
   const [config, setConfig] = useState<LlmConfig>({ provider: 'anthropic', apiKey: '', model: '', baseUrl: '', region: '', authType: 'api-key', apiKeyHelper: '', apiFormat: 'anthropic' });
+  const [savedApiKey, setSavedApiKey] = useState<{ provider: LlmProvider; masked: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -180,9 +182,16 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
   useEffect(() => {
     void apiClient.get<{ llm?: LlmConfig }>('/setup/config').then((res) => {
       if (!res.error && res.data?.llm) {
+        const maskedApiKey =
+          typeof res.data.llm!.apiKey === 'string' && res.data.llm!.apiKey.trim() !== ''
+            ? res.data.llm!.apiKey
+            : null;
+        const provider = (res.data.llm!.provider as LlmProvider) ?? 'anthropic';
+        setSavedApiKey(maskedApiKey ? { provider, masked: maskedApiKey } : null);
         setConfig((prev) => ({
           ...prev,
-          provider: (res.data.llm!.provider as LlmProvider) ?? prev.provider,
+          provider,
+          apiKey: '',
           model: res.data.llm!.model ?? prev.model,
           baseUrl: res.data.llm!.baseUrl ?? '',
           region: res.data.llm!.region ?? '',
@@ -195,6 +204,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
   }, []);
 
   const provider = LLM_PROVIDERS.find((p) => p.value === config.provider) ?? LLM_PROVIDERS[0]!;
+  const hasSavedApiKeyForProvider = savedApiKey?.provider === config.provider;
   // Prefer fetched models, but fall back to the provider's known list so
   // providers without a /models endpoint (e.g. corporate-gateway) still
   // surface options. The Default Model field is also free-text via
@@ -232,7 +242,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
   const handleSave = async () => {
     setSaving(true); setSaved(false);
     // PUT /api/system/llm replaces the legacy POST /setup/llm save path.
-    await apiClient.put('/system/llm', {
+    const res = await apiClient.put<{ ok: boolean; llm?: LlmConfig }>('/system/llm', {
       provider: config.provider,
       apiKey: config.apiKey || undefined,
       model: config.model,
@@ -242,7 +252,19 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
       apiKeyHelper: config.apiKeyHelper || undefined,
       apiFormat: config.provider === 'corporate-gateway' ? config.apiFormat : undefined,
     });
-    setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
+    setSaving(false);
+    if (res.error) {
+      setTestResult({ ok: false, message: res.error.message ?? 'Save failed' });
+      return;
+    }
+
+    const maskedApiKey =
+      typeof res.data?.llm?.apiKey === 'string' && res.data.llm.apiKey.trim() !== ''
+        ? res.data.llm.apiKey
+        : null;
+    setSavedApiKey(maskedApiKey ? { provider: config.provider, masked: maskedApiKey } : null);
+    setConfig((prev) => ({ ...prev, apiKey: '' }));
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
   const handleTest = async () => {
@@ -311,7 +333,18 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
       {provider.needsKey && (
         <div>
           <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">API Key (optional if helper or upstream auth is used)</label>
-          <input type="password" value={config.apiKey} onChange={(e) => { setConfig((prev) => ({ ...prev, apiKey: e.target.value })); setTestResult(null); setModelsWarning(null); }} placeholder="sk-... (leave blank for helper / unauth gateway)" className={inputCls} />
+          <input
+            type="password"
+            value={config.apiKey}
+            onChange={(e) => { setConfig((prev) => ({ ...prev, apiKey: e.target.value })); setTestResult(null); setModelsWarning(null); }}
+            placeholder={hasSavedApiKeyForProvider ? 'Enter a new key to replace the saved key' : 'sk-... (leave blank for helper / unauth gateway)'}
+            className={inputCls}
+          />
+          {hasSavedApiKeyForProvider && (
+            <p className="mt-1 text-xs text-[var(--color-on-surface-variant)]">
+              Saved key: <span className="font-mono">{savedApiKey.masked}</span>. Leave blank to keep it.
+            </p>
+          )}
         </div>
       )}
 
@@ -341,7 +374,7 @@ function LlmTab({ canWrite }: { canWrite: boolean }) {
             className="flex-1 min-w-0"
           />
           {provider.supportsModelFetch && (
-            <button type="button" onClick={() => void handleFetchModels()} disabled={fetchingModels || (provider.needsKey && !config.apiKey)} className={btnSecondary + ' whitespace-nowrap'}>
+            <button type="button" onClick={() => void handleFetchModels()} disabled={fetchingModels || (provider.needsKey && !config.apiKey && !hasSavedApiKeyForProvider)} className={btnSecondary + ' whitespace-nowrap'}>
               {fetchingModels ? 'Loading...' : 'Fetch Models'}
             </button>
           )}
@@ -443,12 +476,79 @@ function DangerTab({ canReset }: { canReset: boolean }) {
   );
 }
 
+// ─── General Tab ─────────────────────────────────────────────
+//
+// App-wide preferences that aren't tied to a specific connector or LLM. Kept
+// intentionally small for now (just Theme); add new rows here as we grow
+// (density / default time range / default refresh interval / timezone). The
+// segmented control is the right pattern for 2–3-option settings because it
+// shows all options at once — no hidden menu state.
+
+function GeneralTab() {
+  const { theme, setTheme } = useTheme();
+  const options: { value: 'light' | 'dark'; label: string }[] = [
+    { value: 'light', label: 'Light' },
+    { value: 'dark', label: 'Dark' },
+  ];
+  return (
+    <div className="space-y-6 text-sm">
+      <SettingRow
+        label="Theme"
+        description="Switch between light and dark color modes. Stored per browser."
+      >
+        <div className="inline-flex rounded-md border border-[var(--color-outline-variant)] p-0.5">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              aria-pressed={theme === opt.value}
+              onClick={() => setTheme(opt.value)}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                theme === opt.value
+                  ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
+                  : 'text-[var(--color-on-surface-variant)] hover:text-[var(--color-on-surface)]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </SettingRow>
+    </div>
+  );
+}
+
+/** Two-column "label + control" row used by GeneralTab. Left side describes
+ *  what the setting does; right side is the active control. Stacks vertically
+ *  on narrow viewports. */
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+      <div className="min-w-0 sm:max-w-md">
+        <p className="font-medium text-[var(--color-on-surface)]">{label}</p>
+        {description && (
+          <p className="mt-0.5 text-xs text-[var(--color-on-surface-variant)]">{description}</p>
+        )}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
 // ─── Main Settings Page ───
 
 
 function AccountTab() {
   const { user, hasPermission } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  // Theme moved to the General tab; AccountTab is now purely identity/admin.
   const canSeeAdmin =
     !!user &&
     (user.isServerAdmin ||
@@ -468,17 +568,6 @@ function AccountTab() {
         <p className="mt-1 text-[var(--color-on-surface)]">{user?.isServerAdmin ? 'Server admin' : 'Member'}</p>
       </div>
 
-      <div className="border-t border-[var(--color-outline-variant)]/40 pt-5">
-        <p className="text-xs font-medium text-[var(--color-on-surface-variant)] mb-2">Appearance</p>
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="inline-flex items-center gap-2 rounded-md border border-[var(--color-outline-variant)] px-3 py-1.5 text-sm text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] transition-colors"
-        >
-          {theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        </button>
-      </div>
-
       {canSeeAdmin && (
         <div className="border-t border-[var(--color-outline-variant)]/40 pt-5">
           <p className="text-xs font-medium text-[var(--color-on-surface-variant)] mb-2">Admin</p>
@@ -495,7 +584,7 @@ function AccountTab() {
 }
 
 export default function Settings() {
-  const [tab, setTab] = useState<SettingsTab>('connectors');
+  const [tab, setTab] = useState<SettingsTab>('general');
   const { user, hasPermission } = useAuth();
   const canWriteConnectors = !!user && (user.isServerAdmin || hasPermission('connectors:write') || hasPermission('instance.config:write'));
   // AI provider / Notifications / Danger reset: gated by the canonical
@@ -506,10 +595,17 @@ export default function Settings() {
 
   return (
     <div className="h-full flex">
-      {/* Left sidebar tabs */}
-      <div className="w-52 shrink-0 border-r border-[var(--color-outline-variant)]/30 py-6 px-3">
-        <h1 className="text-lg font-bold text-[var(--color-on-surface)] px-3 mb-5">Settings</h1>
-        <nav className="space-y-0.5">
+      {/* Left sidebar tabs.
+       *
+       * Header bar (border-b + px-3 py-3) is the shared "first row" pattern
+       * used by all three Settings panes (left/middle/right) so titles and
+       * actions sit on the same horizontal baseline. If you change the
+       * padding here, mirror it in ConnectorList and ConnectorDetail. */}
+      <div className="w-52 shrink-0 border-r border-[var(--color-outline-variant)]/30 flex flex-col">
+        <div className="border-b border-[var(--color-outline-variant)]/30 px-3 py-3">
+          <h1 className="text-lg font-bold text-[var(--color-on-surface)] px-3">Settings</h1>
+        </div>
+        <nav className="space-y-0.5 px-3 py-3">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -535,24 +631,33 @@ export default function Settings() {
           <ConnectorsPanel canWrite={canWriteConnectors} />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto py-6 px-8">
-          <div className="max-w-2xl">
-            <h2 className="text-base font-semibold text-[var(--color-on-surface)] mb-1">
+        // Non-Connectors tabs: header bar (px-8 py-3 — same px as the body,
+        // same py as the left rail header) wraps the tab title + description
+        // so the title's baseline aligns with the "Settings" h1 on the left.
+        // Content scrolls below with its own padding.
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="border-b border-[var(--color-outline-variant)]/30 px-8 py-3">
+            <h2 className="text-base font-semibold text-[var(--color-on-surface)]">
               {TABS.find((t) => t.id === tab)?.label}
             </h2>
-            <p className="text-sm text-[var(--color-on-surface-variant)] mb-6">
+            <p className="mt-1 text-xs text-[var(--color-on-surface-variant)]">
+              {tab === 'general' && 'App-wide preferences such as appearance.'}
               {tab === 'knowledge' && 'Knowledge entries the agent consults for dashboards, metric meaning, and patterns. Bundled entries ship with Rounds and cannot be edited.'}
               {tab === 'ai' && 'Configure the AI model used for investigations and analysis.'}
               {tab === 'notifications' && 'Set up alert delivery channels.'}
               {tab === 'account' && 'Review your account details.'}
               {tab === 'danger' && 'Irreversible actions for your Rounds instance.'}
             </p>
-
-            {tab === 'knowledge' && <KnowledgeTab canWrite={canWriteConnectors} />}
-            {tab === 'ai' && <LlmTab canWrite={canAdminWrite} />}
-            {tab === 'notifications' && <NotificationsTab canWrite={canAdminWrite} />}
-            {tab === 'account' && <AccountTab />}
-            {tab === 'danger' && <DangerTab canReset={canAdminWrite} />}
+          </div>
+          <div className="flex-1 overflow-y-auto px-8 py-6">
+            <div className="max-w-2xl">
+              {tab === 'general' && <GeneralTab />}
+              {tab === 'knowledge' && <KnowledgeTab canWrite={canWriteConnectors} />}
+              {tab === 'ai' && <LlmTab canWrite={canAdminWrite} />}
+              {tab === 'notifications' && <NotificationsTab canWrite={canAdminWrite} />}
+              {tab === 'account' && <AccountTab />}
+              {tab === 'danger' && <DangerTab canReset={canAdminWrite} />}
+            </div>
           </div>
         </div>
       )}

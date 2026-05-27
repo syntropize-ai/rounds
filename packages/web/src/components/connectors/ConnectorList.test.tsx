@@ -13,7 +13,11 @@ const mk = (over: Partial<ConnectorRow>): ConnectorRow => ({
 });
 
 describe('ConnectorList', () => {
-  it('renders empty-state hint when there are no connectors', () => {
+  it('renders the dashed Add row as the empty-state affordance', () => {
+    // The verbose "No connectors yet" hint was removed when the prominent
+    // "+ New connector" header button was dropped — the dashed Add row at
+    // the end of the list now doubles as the empty-state CTA, with its
+    // label switching to "Add your first connector" when the list is empty.
     const html = renderToStaticMarkup(
       React.createElement(ConnectorList, {
         connectors: [],
@@ -23,8 +27,8 @@ describe('ConnectorList', () => {
         canWrite: true,
       }),
     );
-    expect(html).toContain('No connectors yet');
-    expect(html).toContain('New connector');
+    expect(html).toContain('Add your first connector');
+    expect(html).toContain('aria-label="Add connector"');
   });
 
   it('splits Connected vs Not connected by status / verification', () => {

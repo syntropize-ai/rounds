@@ -80,15 +80,6 @@ function AlertsIcon({ className }: { className?: string }) {
   );
 }
 
-function SettingsIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className ?? 'w-5 h-5'} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-
 /* ───── Sidebar toggle icon (shown on hover) ───── */
 
 function SidebarToggleIcon({ expanded, className }: { expanded: boolean; className?: string }) {
@@ -167,10 +158,11 @@ function SidebarItem({ to, label, icon, end, expanded, badge }: SidebarItemProps
 interface UserMenuProps {
   user: { name: string; email?: string; avatarUrl?: string };
   expanded: boolean;
+  canSeeAdmin: boolean;
   onLogout: () => void;
 }
 
-function UserMenu({ user, expanded, onLogout }: UserMenuProps) {
+function UserMenu({ user, expanded, canSeeAdmin, onLogout }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -226,6 +218,24 @@ function UserMenu({ user, expanded, onLogout }: UserMenuProps) {
               <div className="text-xs text-on-surface-variant truncate">{user.email}</div>
             )}
           </div>
+          <NavLink
+            to="/settings"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block px-3 py-2 text-sm text-on-surface hover:bg-surface-high/70 transition-colors"
+          >
+            Settings
+          </NavLink>
+          {canSeeAdmin && (
+            <NavLink
+              to="/admin"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="block px-3 py-2 text-sm text-on-surface hover:bg-surface-high/70 transition-colors"
+            >
+              Admin
+            </NavLink>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -249,15 +259,15 @@ export default function Navigation() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, hasPermission } = useAuth();
-  // Settings page hosts write-only surfaces (datasources / LLM / notifications).
-  // Viewers have no grant there, so hiding the entry matches Grafana's
-  // behaviour and avoids a "Add source" button that 403s on click.
-  const canSeeSettings =
+  const canSeeAdmin =
     !!user
     && (user.isServerAdmin
-      || hasPermission('connectors:write')
-      || hasPermission('connectors:create')
-      || hasPermission('admin:write'));
+      || hasPermission('users:read')
+      || hasPermission('org.users:read')
+      || hasPermission('teams:read')
+      || hasPermission('serviceaccounts:read')
+      || hasPermission('roles:read')
+      || hasPermission('server.audit:read'));
   // Default expanded, persisted across sessions. User's explicit toggle wins
   // over any route-based behavior (we used to auto-collapse when leaving Home,
   // which fought against users who preferred the expanded rail everywhere).
@@ -507,20 +517,20 @@ export default function Navigation() {
         </div>
       )}
 
-      {/* Bottom nav items — Dark mode + Admin both moved into Settings
-          (Settings → Account) so the sidebar doesn't fragment user-level
-          actions across two surfaces. */}
+      {/* Bottom account menu — low-frequency account/settings actions live
+          behind the avatar instead of taking permanent sidebar space. */}
       <div className={`flex flex-col gap-1 mt-auto ${expanded ? '' : 'items-center'}`}>
-        {canSeeSettings && (
-          <SidebarItem to="/settings" label="Settings" icon={<SettingsIcon />} expanded={expanded} />
-        )}
-
         {/* User avatar — opens a small menu. Clicking the avatar itself used
             to sign the user out directly, which surprised everyone who
             expected a profile menu. Now it toggles a popover that contains
             the explicit Sign-out action. */}
         {user && (
-          <UserMenu user={user} expanded={expanded} onLogout={() => void handleLogout()} />
+          <UserMenu
+            user={user}
+            expanded={expanded}
+            canSeeAdmin={canSeeAdmin}
+            onLogout={() => void handleLogout()}
+          />
         )}
       </div>
     </nav>

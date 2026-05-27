@@ -906,26 +906,22 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
         }).format(new Date(ts))
       : '';
 
-  // Place the tooltip just below-right of the crosshair (Grafana style).
-  // Flip to below-left when it would overflow the right edge, and above when
-  // it would overflow the bottom. Use CSS transforms for the flip so the
-  // tooltip's edge sits exactly `TOOLTIP_OFFSET` from the cursor regardless
-  // of the tooltip's actual measured width — fixes the "left/right distance
-  // is different" bug where a 220px estimate left a gap when the real
-  // content was narrower.
+  // Keep the tooltip inside the chart content box. The parent dashboard panel
+  // clips overflow below the header, so the old "flip upward with translateY"
+  // could push tall multi-series tooltips under that clipping edge.
   const containerW = containerRef.current?.clientWidth ?? 0;
   const containerH = containerRef.current?.clientHeight ?? 0;
-  const TOOLTIP_W_ESTIMATE = 200;
   const visibleSeriesCount = metas.filter((m) => !hidden[m.displayName]).length;
   const TOOLTIP_H_ESTIMATE = 36 + visibleSeriesCount * 22;
-  const flipX = containerW > 0 && tooltip.left + TOOLTIP_OFFSET + TOOLTIP_W_ESTIMATE > containerW;
-  const flipY = containerH > 0 && tooltip.top + TOOLTIP_OFFSET + TOOLTIP_H_ESTIMATE > containerH;
-  // Anchor the tooltip's relevant edge to `cursor ± OFFSET`. Translate moves
-  // the box around its anchor so left/right distance is symmetric.
-  const left = flipX ? tooltip.left - TOOLTIP_OFFSET : tooltip.left + TOOLTIP_OFFSET;
-  const top = flipY ? tooltip.top - TOOLTIP_OFFSET : tooltip.top + TOOLTIP_OFFSET;
-  const transform =
-    `${flipX ? 'translateX(-100%)' : ''} ${flipY ? 'translateY(-100%)' : ''}`.trim();
+  const tooltipWidth = Math.min(maxWidth, Math.max(200, Math.floor(containerW * 0.55)));
+  const clamp = (value: number, min: number, max: number) =>
+    Math.max(min, Math.min(value, Math.max(min, max)));
+  const left = containerW > 0
+    ? clamp(tooltip.left + TOOLTIP_OFFSET, 4, containerW - tooltipWidth - 4)
+    : tooltip.left + TOOLTIP_OFFSET;
+  const top = containerH > 0
+    ? clamp(tooltip.top + TOOLTIP_OFFSET, 4, containerH - TOOLTIP_H_ESTIMATE - 4)
+    : tooltip.top + TOOLTIP_OFFSET;
 
   return (
     <div
@@ -934,7 +930,6 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
         position: 'absolute',
         left,
         top,
-        transform: transform || undefined,
         pointerEvents: 'none',
         zIndex: 10,
       }}
@@ -946,8 +941,8 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
           borderRadius: VIZ_TOKENS.tooltip.borderRadius,
           fontSize: VIZ_TOKENS.tooltip.fontSize,
           padding: '6px 8px',
-          minWidth: Math.min(160, maxWidth),
-          maxWidth,
+          width: tooltipWidth,
+          maxWidth: 'calc(100vw - 24px)',
           color: 'var(--color-on-surface)',
           // Soft drop-shadow. Kept at low alpha so it lands readably on both
           // dark (subtle lift off panel) and light (halo around tooltip).

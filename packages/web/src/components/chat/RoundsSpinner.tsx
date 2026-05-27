@@ -12,15 +12,33 @@ import React from 'react';
 export function RoundsSpinner({ className = 'w-3.5 h-3.5' }: { className?: string }): React.ReactElement {
   return (
     <svg
-      className={`${className} animate-spin shrink-0`}
+      className={`${className} shrink-0`}
       viewBox="0 0 64 64"
       fill="none"
       stroke="currentColor"
       strokeLinecap="round"
       aria-hidden="true"
     >
-      <path d="M 18 7.75 A 28 28 0 1 1 7.75 46" strokeWidth="7.8" />
-      <path d="M 45 32 A 13 13 0 1 1 32 19" strokeWidth="7.8" />
+      <path d="M 18 7.75 A 28 28 0 1 1 7.75 46" strokeWidth="7.8">
+        <animateTransform
+          attributeName="transform"
+          type="rotate"
+          from="0 32 32"
+          to="360 32 32"
+          dur="4.8s"
+          repeatCount="indefinite"
+        />
+      </path>
+      <path d="M 45 32 A 13 13 0 1 1 32 19" strokeWidth="7.8">
+        <animateTransform
+          attributeName="transform"
+          type="rotate"
+          from="360 32 32"
+          to="0 32 32"
+          dur="3.6s"
+          repeatCount="indefinite"
+        />
+      </path>
       <circle cx="32" cy="32" r="5" fill="#EF4444" stroke="none" />
     </svg>
   );

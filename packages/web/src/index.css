@@ -208,13 +208,41 @@
   box-sizing: border-box;
 }
 
+/* Global type tuning — pairs with the Inter web-font link in index.html.
+ *
+ * - 87.5% base shrinks every rem-derived size (Tailwind p-*, gap-*, text-base/sm,
+ *   etc.) to the Claude Code-ish density. If anything ends up too tight after
+ *   this change, bump the affected component's class up by one Tailwind step
+ *   rather than reverting this — keeping the global scale honest is what makes
+ *   the proportions feel right.
+ * - line-height 1.45 lands between Tailwind's default leading-normal (1.5) and
+ *   leading-snug (1.375). 1.5 was making the sidebar feel airy at 14px base.
+ */
+html {
+  font-size: 87.5%; /* 14px @ default 16px */
+}
+
 body {
   margin: 0;
-  font-family: Inter, "apple-system", BlinkMacSystemFont, sans-serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03'; /* Inter polish: single-story a, refined punctuation */
+  font-variant-numeric: tabular-nums;            /* aligned digits in tables/metrics */
+  -webkit-font-smoothing: antialiased;           /* macOS retina — biggest single-line "looks lighter" win */
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  line-height: 1.45;
   background: var(--color-surface);
   color: var(--color-on-surface);
   cursor: default;
   user-select: text;
+}
+
+/* Large display type (h1, hero) loses cohesion at default 0 tracking. The
+ * negative tracking pulls letterforms together so 28px+ headings read as a
+ * unit rather than a row of separate glyphs. */
+h1, h2, h3,
+.text-2xl, .text-3xl, .text-4xl, .text-5xl, .text-6xl {
+  letter-spacing: -0.02em;
 }
 
 input,

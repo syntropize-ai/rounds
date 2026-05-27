@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { apiClient } from '../api/client.js';
+import { subscribeStream, BASE_URL } from '../api/client.js';
 import type { ChatMessage, ChatEvent } from './useDashboardChat.js';
 import { parseAskUserPayload, parseInlineChartPayload } from './useDashboardChat.js';
 
@@ -225,7 +226,8 @@ export function payloadToChatEvent(
           risk: payload.risk as 'low' | 'medium' | 'high' | 'critical' | undefined,
           summary: payload.summary as string | undefined,
           expiresAt: payload.expiresAt as string | undefined,
-          status: 'pending',
+          status: 'expired',
+          error: 'This confirmation was from a previous chat load. Ask Rounds to propose the command again.',
         },
       };
     case 'ops_command_confirmation_resolved':
@@ -334,6 +336,23 @@ export function useChat(): UseChatResult {
   const loadTokenRef = useRef(0);
   const pageContextRef = useRef<PageContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Live-tail subscription to /chat/sessions/:id/events/stream. Open at
+  // most one per mounted hook instance. Lifecycle:
+  //   - opened by loadSession after history loads (so the user keeps
+  //     seeing live events from a still-running agent in this session)
+  //   - opened by sendMessage after the in-request SSE response closes
+  //     (covers the "agent emits more events after `done`" + tail)
+  //   - closed by the next loadSession/startNewSession or unmount
+  // Dedup against in-request events via maxSeqRef.
+  const subscriptionAbortRef = useRef<AbortController | null>(null);
+  const maxSeqRef = useRef<number>(-1);
+  // The active background runId for the in-progress generation. Captured
+  // from the `run_started` SSE event the backend emits at the top of every
+  // chat run (see Phase 1 in api-gateway/routes/chat.ts). Used by
+  // stopGeneration to POST /chat/runs/:runId/cancel — since the backend
+  // no longer cancels on client-disconnect, the local abort alone wouldn't
+  // actually stop the agent.
+  const runIdRef = useRef<string | null>(null);
   // Session id source of truth: the URL (`?chat=<id>`) for deeplinks plus the
   // Recents list on Home for picking a prior conversation. There used to be a
   // `localStorage.chat_session_id` mirror here so a new tab would auto-resume
@@ -397,6 +416,24 @@ export function useChat(): UseChatResult {
       const id = crypto.randomUUID();
 
       switch (resolvedType) {
+        // Backend-emitted at the start of every detached agent run (Phase 1).
+        // We don't surface it in the UI but we MUST capture the sessionId
+        // it carries: on a brand-new chat the client hasn't seen a `done`
+        // event yet so sessionIdRef is still empty, and a Stop click would
+        // be a no-op (cancel-active needs the sessionId). Setting it here
+        // closes that window — by the time the first agent token streams,
+        // we already have the session id and Stop works.
+        case 'run_started': {
+          const rid = parsed['runId'];
+          const sid = parsed['sessionId'];
+          if (typeof rid === 'string') runIdRef.current = rid;
+          if (typeof sid === 'string' && !sessionIdRef.current) {
+            sessionIdRef.current = sid;
+            setCurrentSessionId(sid);
+          }
+          break;
+        }
+
         case 'thinking': {
           appendEvent({
             id,
@@ -590,6 +627,11 @@ export function useChat(): UseChatResult {
             setPendingNavigation(navigateTo);
           }
           appendEvent({ id, kind: 'done', content: 'Generation complete' });
+          // The subscription path needs to drop the spinner when `done`
+          // arrives. The sendMessage path also reaches this case (via
+          // its in-request stream callback) and would set the flag false
+          // a beat before its own finally — either way, harmless.
+          setIsGenerating(false);
           break;
         }
 
@@ -599,6 +641,7 @@ export function useChat(): UseChatResult {
             (parsed.content as string) ??
             'An error occurred';
           appendEvent({ id, kind: 'error', content });
+          setIsGenerating(false);
           break;
         }
 
@@ -609,12 +652,70 @@ export function useChat(): UseChatResult {
     [appendEvent, upsertInlineChart],
   );
 
+  /**
+   * Open a live-tail subscription to /chat/sessions/:id/events/stream
+   * starting at sinceSeq+1. Closes any previously-open subscription.
+   * Events flow through handleSSEEvent for identical rendering vs. the
+   * in-request stream; we dedupe by seq via maxSeqRef so an event that
+   * already came through the in-request callback isn't re-rendered when
+   * the subscription replays the same seq.
+   */
+  const openSubscription = useCallback(
+    (subscribeToSessionId: string, sinceSeq: number) => {
+      // Tear down any prior subscription (e.g. from a previous session).
+      subscriptionAbortRef.current?.abort();
+      const controller = new AbortController();
+      subscriptionAbortRef.current = controller;
+      maxSeqRef.current = sinceSeq;
+      // BASE_URL is already `/api` (see api/config.ts). Don't double-prefix.
+      const url = `/chat/sessions/${encodeURIComponent(subscribeToSessionId)}/events/stream`;
+      const getReconnectUrl = () =>
+        `${url}?since=${encodeURIComponent(String(maxSeqRef.current))}`;
+      void subscribeStream(
+        BASE_URL,
+        getReconnectUrl,
+        (sseId, eventType, rawData) => {
+          // Dedup by seq — the SSE `id:` field carries the persisted seq.
+          if (sseId != null) {
+            const seq = Number(sseId);
+            if (Number.isFinite(seq)) {
+              if (seq <= maxSeqRef.current) return;
+              maxSeqRef.current = seq;
+            }
+          }
+          // Skip control events that aren't real chat events.
+          if (eventType === 'idle') return;
+          handleSSEEvent(eventType, rawData);
+        },
+        controller.signal,
+      ).catch((err: unknown) => {
+        // Aborted = caller closed us, expected. Anything else logs.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        console.warn('[useChat] events subscription error', err);
+      });
+    },
+    [handleSSEEvent],
+  );
+
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || isGenerating) return;
 
+      // Cancel-by-sessionId for the prior run (if any). Works whether or
+      // not we ever received `run_started` for that turn — server looks
+      // up activeRunFor(sessionId). Backend's POST /chat handler waits
+      // briefly for the cancelled run to release before starting the
+      // new one, closing the markComplete→releaseSession gap window.
+      const sid = sessionIdRef.current;
+      if (sid) {
+        void apiClient
+          .post(`/chat/sessions/${encodeURIComponent(sid)}/cancel-active`, {})
+          .catch(() => undefined);
+      }
       abortRef.current?.abort();
       abortRef.current = new AbortController();
+      // Fresh run — backend's `run_started` SSE event will repopulate.
+      runIdRef.current = null;
 
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
@@ -712,8 +813,21 @@ export function useChat(): UseChatResult {
   const loadSessionRef = useRef<((id: string) => Promise<void>) | null>(null);
 
   const stopGeneration = useCallback(() => {
+    // Backend Phase 1: client disconnect no longer cancels the agent — to
+    // actually stop the run we POST a cancel. Use the cancel-by-sessionId
+    // endpoint instead of cancel-by-runId so it works even when the user
+    // clicked Stop BEFORE `run_started` arrived (the runId-keyed variant
+    // would be a no-op in that window). Server resolves the active run
+    // for the session and aborts it; 204 if there's nothing to cancel.
+    const sid = sessionIdRef.current;
+    if (sid) {
+      void apiClient
+        .post(`/chat/sessions/${encodeURIComponent(sid)}/cancel-active`, {})
+        .catch(() => undefined);
+    }
     abortRef.current?.abort();
     abortRef.current = null;
+    runIdRef.current = null;
     setIsGenerating(false);
     appendEvent({
       id: crypto.randomUUID(),
@@ -729,8 +843,21 @@ export function useChat(): UseChatResult {
 
   const startNewSession = useCallback(() => {
     loadTokenRef.current += 1;
+    // Intentionally DO NOT cancel the prior session's run. The user
+    // wants a fresh conversation alongside the existing one — the prior
+    // agent should keep running in the background so its events keep
+    // accumulating in chat_session_events and the user can switch back
+    // later to see it complete. This is what makes "multiple concurrent
+    // conversations" actually work.
+    //
+    // Local abort just closes our SSE stream + live-tail subscription
+    // for the prior session; backend Phase 1 keeps the agent alive.
     abortRef.current?.abort();
     abortRef.current = null;
+    subscriptionAbortRef.current?.abort();
+    subscriptionAbortRef.current = null;
+    runIdRef.current = null;
+    maxSeqRef.current = -1;
     setMessages([]);
     setEvents([]);
     setIsGenerating(false);
@@ -739,6 +866,7 @@ export function useChat(): UseChatResult {
     // banner would otherwise sit on top of a fresh empty chat.
     setLoadError(null);
     lastLoadSessionIdRef.current = null;
+    sessionIdRef.current = '';
     setCurrentSessionId('');
   }, []);
 
@@ -747,6 +875,18 @@ export function useChat(): UseChatResult {
     // sees a higher token and bails. Capture the token for THIS call so we
     // can compare it against the latest after the request resolves.
     const token = ++loadTokenRef.current;
+
+    // Detach from the prior session's SSE stream + live-tail
+    // subscription — without these, the previous session's events would
+    // pollute the newly-loaded session's UI. Backend Phase 1 keeps the
+    // prior agent running in the background, persisting events to
+    // chat_session_events so they're visible when the user switches back.
+    abortRef.current?.abort();
+    abortRef.current = null;
+    subscriptionAbortRef.current?.abort();
+    subscriptionAbortRef.current = null;
+    runIdRef.current = null;
+    maxSeqRef.current = -1;
 
     // Switch to the requested session
     setCurrentSessionId(sessionId);
@@ -804,7 +944,30 @@ export function useChat(): UseChatResult {
       const loaded = res.data.messages;
       setMessages(loaded);
 
-      setEvents(rebuildChatEventsFromSession(loaded, res.data.events ?? []));
+      const persistedEvents = res.data.events ?? [];
+      setEvents(rebuildChatEventsFromSession(loaded, persistedEvents));
+
+      // Heuristic: if the most recent persisted event isn't a terminator
+      // (done / error), the agent is most likely still running. Set
+      // isGenerating so the spinner shows immediately after loadSession;
+      // the live-tail subscription's `done` event will clear it.
+      const terminators = new Set(['done', 'error']);
+      const lastKind = persistedEvents.length > 0
+        ? persistedEvents[persistedEvents.length - 1]?.kind
+        : undefined;
+      if (lastKind && !terminators.has(lastKind)) {
+        setIsGenerating(true);
+      }
+
+      // Open a live-tail subscription so the user keeps seeing new events
+      // if there's still an agent running on this session in the
+      // background (Phase 1 means the agent survives client disconnect).
+      // sinceSeq = the max seq we just loaded; subscription delivers
+      // anything with seq > that as it lands.
+      const maxLoadedSeq = persistedEvents.length > 0
+        ? Math.max(...persistedEvents.map((e) => e.seq))
+        : -1;
+      openSubscription(sessionId, maxLoadedSeq);
     } catch (err) {
       if (token !== loadTokenRef.current) {
         // Same race guard for thrown errors — a stale failure must not
@@ -817,7 +980,7 @@ export function useChat(): UseChatResult {
       console.error('[useChat] loadSession threw', { sessionId, error: err });
       setLoadError('network');
     }
-  }, []);
+  }, [openSubscription]);
 
   const retryLoadSession = useCallback(() => {
     const sid = lastLoadSessionIdRef.current;
@@ -830,10 +993,13 @@ export function useChat(): UseChatResult {
     loadSessionRef.current = loadSession;
   }, [loadSession]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — close streams + subscription. Backend Phase 1
+  // keeps the agent running regardless; the next mount reopens via
+  // loadSession.
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      subscriptionAbortRef.current?.abort();
     };
   }, []);
 

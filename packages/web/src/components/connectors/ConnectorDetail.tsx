@@ -105,7 +105,12 @@ export function ConnectorDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-[var(--color-outline-variant)]/30 px-6 py-4">
+      {/* Header bar — padding (`px-6 py-3`) matches the Settings left rail
+          and ConnectorList header so the three columns line up on the same
+          horizontal baseline. The subtitle/status/error rows live INSIDE
+          the header band but margin-down from the title so the first-line
+          baseline still aligns with the other panes' titles. */}
+      <header className="border-b border-[var(--color-outline-variant)]/30 px-6 py-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold text-[var(--color-on-surface)]">

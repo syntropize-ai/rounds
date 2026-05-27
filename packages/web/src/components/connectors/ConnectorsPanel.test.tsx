@@ -33,8 +33,9 @@ describe('ConnectorsPanel', () => {
     const html = renderToStaticMarkup(
       React.createElement(ConnectorsPanel, { canWrite: true }),
     );
-    // Middle pane affordances.
-    expect(html).toContain('New connector');
+    // Middle pane affordances. The compact list shows a single dashed "+ Add"
+    // pseudo-row at the end (no top "+ New connector" button anymore).
+    expect(html).toContain('aria-label="Add connector"');
     // The detail pane initial state when nothing is selected and loading is true.
     expect(html).toContain('Loading connectors…');
   });

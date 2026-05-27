@@ -58,6 +58,8 @@ import { createNotificationsRouter } from '../routes/notifications.js';
 import { createVersionRouter } from '../routes/versions.js';
 import { createSearchRouter } from '../routes/search.js';
 import { createChatRouter } from '../routes/chat.js';
+import { SessionEventBus } from '../services/session-event-bus.js';
+import { AgentRunRegistry } from '../services/agent-run-registry.js';
 import { GithubAppTokenService } from '../services/github-app-token-service.js';
 import { createOpsCommandConfirmationsRouter } from '../routes/ops-command-confirmations.js';
 import { bootstrapAware } from '../middleware/bootstrap-aware.js';
@@ -392,6 +394,14 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     authMiddleware,
     createAdminPanelEventsRouter({ panelEvents: repos.panelEvents }),
   );
+  // Singletons that wire the detached-run architecture: chat events flow
+  // through this bus AND get persisted; the registry tracks runs so a
+  // client can disconnect without killing the agent. Both must be the same
+  // instance across ChatService and the chat router for the live-tail
+  // subscribe-then-replay handoff to work.
+  const sessionEventBus = new SessionEventBus();
+  const agentRunRegistry = new AgentRunRegistry();
+
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,
     investigationReportStore: repos.investigationReports,
@@ -428,6 +438,10 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
           }),
         }
       : {}),
+    sessionEventBus,
+  }, {
+    runRegistry: agentRunRegistry,
+    sessionEventBus,
   }));
   app.use('/api/ops-command-confirmations', createOpsCommandConfirmationsRouter({
     connectors: repos.connectors,

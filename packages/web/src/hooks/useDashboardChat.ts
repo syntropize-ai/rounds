@@ -325,6 +325,13 @@ export function useDashboardChat(
   const [panels, setPanels] = useState<PanelConfig[]>(initialPanels);
   const [variables, setVariables] = useState<DashboardVariable[]>(initialVariables);
   const abortRef = useRef<AbortController | null>(null);
+  // See useChat.ts for the rationale. We capture both runId and the
+  // backend-resolved sessionId from `run_started`; the Stop button uses
+  // the sessionId-keyed cancel endpoint so it works even when clicked
+  // before the runId arrived (the runId-keyed variant would be a no-op
+  // in that window).
+  const runIdRef = useRef<string | null>(null);
+  const runSessionIdRef = useRef<string | null>(null);
 
   // Track whether SSE has modified panels during this generation cycle
   const sseModifiedRef = useRef(false);
@@ -391,6 +398,17 @@ export function useDashboardChat(
       const id = crypto.randomUUID();
 
       switch (resolvedType) {
+        // Backend-emitted at the start of every detached agent run
+        // (Phase 1). Captured for the Stop button. We keep both runId
+        // and sessionId — sessionId is the cancel-by-session key.
+        case 'run_started': {
+          const rid = parsed['runId'];
+          const sid = parsed['sessionId'];
+          if (typeof rid === 'string') runIdRef.current = rid;
+          if (typeof sid === 'string') runSessionIdRef.current = sid;
+          break;
+        }
+
         case 'thinking': {
           appendEvent({
             id,
@@ -661,8 +679,21 @@ export function useDashboardChat(
       if (!content.trim() || isGenerating) return;
 
       // Abort any in-flight stream
+      // Cancel-by-session for the previous run if still in flight. The
+      // backend's POST /chat handler waits briefly for the cancelled run
+      // to release before starting the new one, so we don't need to await
+      // this — fire-and-forget is safe.
+      const priorSid = runSessionIdRef.current;
+      if (priorSid) {
+        void apiClient
+          .post(`/chat/sessions/${encodeURIComponent(priorSid)}/cancel-active`, {})
+          .catch(() => undefined);
+      }
       abortRef.current?.abort();
       abortRef.current = new AbortController();
+      // Fresh run — backend's `run_started` event will repopulate both refs.
+      runIdRef.current = null;
+      runSessionIdRef.current = null;
 
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
@@ -701,8 +732,22 @@ export function useDashboardChat(
   );
 
   const stopGeneration = useCallback(() => {
+    // Backend Phase 1: client disconnect no longer cancels the agent.
+    // Use cancel-by-session so the Stop button works whether or not we
+    // already received `run_started` for this turn — server resolves
+    // the active run for the session on its own. If we don't even know
+    // the sessionId yet (very first message, no `run_started` arrived,
+    // very fast click) there's nothing we can target — the agent will
+    // run to completion in that edge case.
+    const sid = runSessionIdRef.current;
+    if (sid) {
+      void apiClient
+        .post(`/chat/sessions/${encodeURIComponent(sid)}/cancel-active`, {})
+        .catch(() => undefined);
+    }
     abortRef.current?.abort();
     abortRef.current = null;
+    runIdRef.current = null;
     setIsGenerating(false);
     appendEvent({
       id: crypto.randomUUID(),

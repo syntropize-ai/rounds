@@ -2,6 +2,149 @@ import type { SSEMessage } from './types.js';
 import { authHeaders, csrfHeaders } from './headers.js';
 
 /**
+ * Open a long-lived GET SSE subscription. Unlike `postStream`, this is for
+ * idempotent event subscriptions (no body, no side effects) — the kind of
+ * stream you keep alive for a whole session's lifetime to tail live events.
+ *
+ * Parses standard SSE `id:` / `event:` / `data:` frames and calls `onEvent`
+ * with each (id, eventType, rawData) tuple so the caller can use `id` as
+ * a dedupe key when reconnecting (the SSE `Last-Event-ID` semantics).
+ *
+ * Auto-reconnects with exponential backoff up to MAX_RECONNECTS. On each
+ * reconnect the caller's `getReconnectUrl` is called so the URL can carry
+ * the last seen id (e.g. `?since={lastId}`).
+ */
+export async function subscribeStream(
+  baseUrl: string,
+  getReconnectUrl: () => string,
+  onEvent: (id: string | null, eventType: string, rawData: string) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const MAX_RECONNECTS = 8; // higher than postStream — subscriptions live longer
+  let attempt = 0;
+
+  for (;;) {
+    if (signal.aborted) return;
+    const res = await fetch(`${baseUrl}${getReconnectUrl()}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'text/event-stream',
+        ...authHeaders(),
+      },
+      signal,
+    });
+
+    if (!res.ok || !res.body) {
+      // 404 means the session was deleted server-side — give up rather
+      // than reconnect-storming. Other failures still retry within budget.
+      if (res.status === 404) return;
+      if (attempt >= MAX_RECONNECTS) {
+        throw new Error(
+          `subscription failed: ${res.status} ${res.statusText} (max retries reached)`,
+        );
+      }
+      attempt += 1;
+      await backoff(attempt, signal);
+      continue;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = 'message';
+    let currentId: string | null = null;
+    let sawData = false;
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          // Server closed the stream — could be intentional (idle close)
+          // or transient. Retry within the budget.
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        // Strip CR before splitting so CRLF-terminated SSE (Windows
+        // proxies, some load balancers) parses identically to LF.
+        const lines = buffer.replace(/\r\n/g, '\n').split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.startsWith('id:')) {
+            currentId = line.slice(3).trim();
+          } else if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            const data = line.slice(5).trim();
+            onEvent(currentId, currentEvent, data);
+            // First data we've successfully received on this connection
+            // — reset attempt so a long-lived stream that drops after
+            // hours of healthy use starts its backoff escalation from 0
+            // rather than from whatever the last failure left it at.
+            if (!sawData) {
+              attempt = 0;
+              sawData = true;
+            }
+            currentEvent = 'message';
+            currentId = null;
+          } else if (line.trim() === '') {
+            currentEvent = 'message';
+            currentId = null;
+          }
+        }
+      }
+      // Server-side close → reconnect. Don't reset attempt counter — a
+      // server that immediately closes again should escalate backoff
+      // rather than loop at 1s forever (review finding: hot reconnect
+      // storm risk).
+      attempt += 1;
+      if (attempt > MAX_RECONNECTS) {
+        throw new Error(
+          `subscription closed by server too many times (${MAX_RECONNECTS}); giving up`,
+        );
+      }
+      await backoff(attempt, signal);
+      continue;
+    } catch (err) {
+      if (signal.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        return;
+      }
+      attempt += 1;
+      if (attempt > MAX_RECONNECTS) {
+        throw new Error(
+          `subscription lost: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      await backoff(attempt, signal);
+      continue;
+    }
+  }
+}
+
+async function backoff(attempt: number, signal: AbortSignal): Promise<void> {
+  const ms = Math.min(1000 * 2 ** (attempt - 1), 30_000);
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    let onAbort: (() => void) | null = null;
+    const t = setTimeout(() => {
+      if (onAbort) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    onAbort = () => {
+      clearTimeout(t);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    // { once: true } removes after firing, AND we remove from setTimeout
+    // path above — covers both "timer wins" and "abort wins" cases so the
+    // listener doesn't leak per backoff invocation.
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+/**
  * POST a request and consume the response as a Server-Sent Events stream.
  * Calls onEvent for each SSE event frame received.
  * Pass an AbortSignal to cancel mid-stream.

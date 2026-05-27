@@ -28,7 +28,23 @@ export default function OpsCommandConfirmCard({
         result?: { observation?: string };
         confirmation?: { status?: typeof status };
       }>(`/ops-command-confirmations/${encodeURIComponent(confirmation.id)}/execute`, {});
-      if (apiError) throw new Error(apiError.message);
+      if (apiError) {
+        if (
+          apiError.code === 'CONFIRMATION_UNAVAILABLE' ||
+          apiError.code === 'NOT_FOUND' ||
+          (apiError as { status?: number }).status === 404 ||
+          (apiError as { status?: number }).status === 410
+        ) {
+          const message =
+            apiError.message ||
+            'This confirmation is no longer available. Ask Rounds to propose the command again.';
+          setStatus('expired');
+          setError(message);
+          onResolved?.({ ...confirmation, status: 'expired', error: message });
+          return;
+        }
+        throw new Error(apiError.message);
+      }
       const nextStatus = data?.confirmation?.status ?? 'executed';
       setStatus(nextStatus);
       setOutput(data?.result?.observation ?? '');
@@ -48,7 +64,23 @@ export default function OpsCommandConfirmCard({
         `/ops-command-confirmations/${encodeURIComponent(confirmation.id)}/reject`,
         {},
       );
-      if (apiError) throw new Error(apiError.message);
+      if (apiError) {
+        if (
+          apiError.code === 'CONFIRMATION_UNAVAILABLE' ||
+          apiError.code === 'NOT_FOUND' ||
+          (apiError as { status?: number }).status === 404 ||
+          (apiError as { status?: number }).status === 410
+        ) {
+          const message =
+            apiError.message ||
+            'This confirmation is no longer available. Ask Rounds to propose the command again.';
+          setStatus('expired');
+          setError(message);
+          onResolved?.({ ...confirmation, status: 'expired', error: message });
+          return;
+        }
+        throw new Error(apiError.message);
+      }
       setStatus('rejected');
       onResolved?.({ ...confirmation, status: 'rejected' });
     } catch (err) {
@@ -69,6 +101,7 @@ export default function OpsCommandConfirmCard({
     const verb =
       status === 'executed' ? 'Running' :
       status === 'rejected' ? 'Cancelled' :
+      status === 'expired' ? 'Expired' :
       status === 'failed' ? 'Failed' : status;
     return (
       <div className="text-xs text-on-surface-variant">

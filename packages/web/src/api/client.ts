@@ -1,7 +1,7 @@
 export { BASE_URL } from './config.js';
 export { readBrowserCookie, csrfHeaders, authHeaders } from './headers.js';
 export { ApiClient } from './transport.js';
-export { postStream, sse } from './streaming.js';
+export { postStream, sse, subscribeStream } from './streaming.js';
 export { apiClient, api, resourcePermissionsPath } from './rest-api.js';
 export {
   authApi,

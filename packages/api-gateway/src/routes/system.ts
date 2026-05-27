@@ -62,6 +62,10 @@ function inClusterAvailable(): boolean {
   );
 }
 
+function hasStaticKey(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
 function findManagedSlackContactPoint(contactPoints: ContactPoint[]): ContactPoint | undefined {
   return contactPoints.find((cp) =>
     cp.integrations.some((integration) => integration.id === MANAGED_SLACK_INTEGRATION_ID),
@@ -169,24 +173,30 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
       });
       return;
     }
+    const existing = await setupConfig.getLlm({ masked: false });
+    const preservedApiKey =
+      !hasStaticKey(cfg.apiKey) && existing?.provider === cfg.provider
+        ? existing.apiKey ?? null
+        : cfg.apiKey ?? null;
+
     // Providers that authenticate without a static `apiKey`:
     //  - ollama / aws-bedrock: no key concept (Bedrock uses SigV4)
     //  - corporate-gateway: typically authed at the network edge
     //    (mTLS / sidecar) or via a rotating helper command
     // For everyone else, accept either a static key OR an apiKeyHelper.
     const keylessProviders = new Set(['ollama', 'aws-bedrock', 'corporate-gateway']);
-    if (!cfg.apiKey && !cfg.apiKeyHelper && !keylessProviders.has(cfg.provider)) {
+    if (!preservedApiKey && !cfg.apiKeyHelper && !keylessProviders.has(cfg.provider)) {
       res.status(400).json({
         error: {
           code: 'VALIDATION',
-          message: 'apiKey or apiKeyHelper is required for this provider',
+          message: 'API key or key helper is required for this provider',
         },
       });
       return;
     }
     const input: NewInstanceLlmConfig = {
       provider: cfg.provider,
-      apiKey: cfg.apiKey ?? null,
+      apiKey: preservedApiKey,
       model: cfg.model,
       baseUrl: cfg.baseUrl ?? null,
       authType: cfg.authType ?? null,

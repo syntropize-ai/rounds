@@ -20,6 +20,7 @@ function LayoutInner() {
     clearPendingNavigation,
     loadError,
     retryLoadSession,
+    startNewSession,
   } = useGlobalChat();
 
   // Hide the global ChatPanel on Home, the top-level list pages
@@ -39,6 +40,13 @@ function LayoutInner() {
     !chatHiddenPrefix.some(
       (p) => pathname === p || pathname.startsWith(`${p}/`),
     );
+  const chatContextLabel = pathname.startsWith('/dashboards/')
+    ? 'dashboard'
+    : pathname.startsWith('/investigations/')
+      ? 'investigation'
+      : pathname.startsWith('/alerts/')
+        ? 'alert'
+        : undefined;
 
   // Session id no longer lives in the URL. ChatProvider's React state holds
   // currentSessionId and persists across route changes within the tab, so
@@ -125,6 +133,8 @@ function LayoutInner() {
             void sendMessage(msg);
           }}
           onStop={stopGeneration}
+          onNewConversation={startNewSession}
+          emptyContextLabel={chatContextLabel}
           loadError={loadError}
           onRetryLoad={retryLoadSession}
           proposalStatusOverlay={proposalStatusOverlay}

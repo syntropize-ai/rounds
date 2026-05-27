@@ -6,6 +6,7 @@ import { ErrorMessage } from './chat/MessageComponents.js';
 import ChatTranscript from './chat/ChatTranscript.js';
 import type { PendingChangeStatus } from '../types/pending-changes.js';
 import { RoundsLogo } from './RoundsLogo.js';
+import ConfirmDialog from './ConfirmDialog.js';
 
 // Types
 
@@ -14,6 +15,8 @@ interface Props {
   isGenerating: boolean;
   onSendMessage: (content: string) => void;
   onStop?: () => void;
+  onNewConversation?: () => void;
+  emptyContextLabel?: string;
   /**
    * Result of the most recent loadSession call. When set, the panel renders
    * a distinct empty state ("session not found" / "failed to load") instead
@@ -31,11 +34,22 @@ interface Props {
 
 // Main component
 
-export default function ChatPanel({ events, isGenerating, onSendMessage, onStop, loadError = null, onRetryLoad, proposalStatusOverlay }: Props) {
+export default function ChatPanel({
+  events,
+  isGenerating,
+  onSendMessage,
+  onStop,
+  onNewConversation,
+  emptyContextLabel,
+  loadError = null,
+  onRetryLoad,
+  proposalStatusOverlay,
+}: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState('');
   const [unread, setUnread] = useState(0);
   const [chatWidth, setChatWidth] = useState(380);
+  const [confirmNewOpen, setConfirmNewOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevEventCountRef = useRef(events.length);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -105,6 +119,21 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
     }
   };
 
+  const handleNewConversation = useCallback(() => {
+    if (!onNewConversation || isGenerating) return;
+    if (events.length > 0 || loadError) {
+      setConfirmNewOpen(true);
+      return;
+    }
+    onNewConversation();
+  }, [events.length, isGenerating, loadError, onNewConversation]);
+
+  const startNewConversation = useCallback(() => {
+    setConfirmNewOpen(false);
+    setInput('');
+    onNewConversation?.();
+  }, [onNewConversation]);
+
   // Collapsed floating bubble
   if (collapsed) {
     return (
@@ -152,15 +181,33 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setCollapsed(true)}
-          className="text-on-surface-variant hover:text-on-surface transition-colors"
-        >
-          <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2">
+          {onNewConversation && (
+            <button
+              type="button"
+              onClick={handleNewConversation}
+              disabled={isGenerating}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-high hover:text-on-surface disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant transition-colors"
+              title="New conversation"
+              aria-label="New conversation"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 10h10M10 5v10" />
+              </svg>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-high hover:text-on-surface transition-colors"
+            title="Close chat"
+            aria-label="Close chat"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+              <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 hide-scrollbar">
@@ -228,8 +275,12 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
               </svg>
             </div>
             <div>
-              <p className="text-sm text-on-surface">Ask me to build dashboards, investigate issues, or create alerts.</p>
-              <p className="text-xs text-on-surface-variant mt-1">Try: "Create a Kubernetes monitoring dashboard" or "Investigate high error rates"</p>
+              <p className="text-sm text-on-surface">
+                {emptyContextLabel ? `New conversation for this ${emptyContextLabel}` : 'Ask me to build dashboards, investigate issues, or create alerts.'}
+              </p>
+              <p className="text-xs text-on-surface-variant mt-1">
+                {emptyContextLabel ? `Ask about this ${emptyContextLabel}, panels, alerts, or live metrics.` : 'Try: "Create a Kubernetes monitoring dashboard" or "Investigate high error rates"'}
+              </p>
             </div>
           </div>
         )}
@@ -294,6 +345,16 @@ export default function ChatPanel({ events, isGenerating, onSendMessage, onStop,
           </p>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmNewOpen}
+        title="Start a new conversation?"
+        message="This will clear the current chat panel. The existing conversation stays in history."
+        confirmLabel="Start new"
+        cancelLabel="Cancel"
+        danger={false}
+        onConfirm={startNewConversation}
+        onCancel={() => setConfirmNewOpen(false)}
+      />
     </motion.div>
   );
 }

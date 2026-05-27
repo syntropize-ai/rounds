@@ -6,7 +6,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import type { KnowledgeEntry, KnowledgeSource } from '@agentic-obs/common';
-import { btnPrimary, selectCls } from '../connectors/styles.js';
+import { selectCls } from '../connectors/styles.js';
 import KnowledgeEntryForm from './KnowledgeEntryForm.js';
 import KnowledgeEntryRow from './KnowledgeEntryRow.js';
 import {
@@ -90,7 +90,7 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
       setEntries(prev);
       const msg = err instanceof Error ? err.message : 'Failed to update entry';
       setError(/BUNDLED_READONLY/i.test(msg)
-        ? 'Bundled skills are read-only and cannot be edited.'
+        ? 'Bundled knowledge entries are read-only and cannot be edited.'
         : msg);
       throw err;
     }
@@ -106,7 +106,7 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
       setEntries(prev);
       const msg = err instanceof Error ? err.message : 'Failed to delete entry';
       setError(/BUNDLED_READONLY/i.test(msg)
-        ? 'Bundled skills are read-only and cannot be deleted.'
+        ? 'Bundled knowledge entries are read-only and cannot be deleted.'
         : msg);
       throw err;
     }
@@ -114,13 +114,6 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold text-[var(--color-on-surface)]">Knowledge</h2>
-        <p className="text-sm text-[var(--color-on-surface-variant)] mt-1">
-          Skills the agent consults when working in your environment. Bundled skills ship with Rounds and cannot be edited.
-        </p>
-      </div>
-
       {error && (
         <div className="flex items-start justify-between gap-3 p-3 rounded-lg border border-error/40 bg-error/10 text-sm text-error">
           <span>{error}</span>
@@ -158,8 +151,14 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
         <div className="flex-1" />
 
         {canWrite && !showNewForm && (
-          <button type="button" onClick={() => setShowNewForm(true)} className={btnPrimary}>
-            + New skill
+          <button
+            type="button"
+            onClick={() => setShowNewForm(true)}
+            aria-label="Add knowledge entry"
+            title="Add knowledge entry"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--color-outline-variant)] text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] disabled:opacity-50 transition-colors"
+          >
+            <span aria-hidden className="text-xl leading-none">+</span>
           </button>
         )}
       </div>
@@ -167,12 +166,12 @@ export default function KnowledgeTab({ canWrite, api = defaultKnowledgeApi }: Pr
       <div className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-lowest)] overflow-hidden">
         {loading ? (
           <div className="px-4 py-6 text-sm text-[var(--color-on-surface-variant)]">
-            Loading skills…
+            Loading entries…
           </div>
         ) : entries.length === 0 ? (
           <div className="px-4 py-6 text-sm text-[var(--color-on-surface-variant)]">
-            No skills match this filter.
-            {canWrite ? ' Create one with + New skill.' : ''}
+            No entries match this filter.
+            {canWrite ? ' Add a knowledge entry to get started.' : ''}
           </div>
         ) : (
           entries.map((entry) => (

@@ -82,6 +82,16 @@ async function readNotificationsAsDto(service: SetupConfigService): Promise<Noti
   return dto;
 }
 
+async function withSavedLlmSecret<T extends { provider: string; apiKey?: string }>(
+  service: SetupConfigService,
+  cfg: T,
+): Promise<T> {
+  if (typeof cfg.apiKey === 'string' && cfg.apiKey.trim() !== '') return cfg;
+  const saved = await service.getLlm({ masked: false });
+  if (!saved || saved.provider !== cfg.provider || !saved.apiKey) return cfg;
+  return { ...cfg, apiKey: saved.apiKey };
+}
+
 // -- Bootstrap access -----------------------------------------------
 
 export interface SetupRouterDeps {
@@ -295,13 +305,13 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
       });
       return;
     }
-    const result = await llmService.testConnection(cfg);
+    const result = await llmService.testConnection(await withSavedLlmSecret(setupConfig, cfg));
     res.status(result.ok ? 200 : 400).json(result);
   });
 
   // POST /api/setup/llm/models — list available models.
   router.post('/llm/models', requireConfigWrite, async (req: Request, res: Response) => {
-    const cfg = req.body as { provider: string; apiKey?: string; baseUrl?: string };
+    const cfg = req.body as LlmConfigWire;
     if (!cfg?.provider) {
       res.status(400).json({
         error: { code: 'VALIDATION', message: 'provider is required' },
@@ -310,7 +320,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
     }
     let models;
     try {
-      ({ models } = await llmService.fetchModels(cfg));
+      ({ models } = await llmService.fetchModels(await withSavedLlmSecret(setupConfig, cfg)));
     } catch (err) {
       if (err instanceof SetupLlmServiceError) {
         const status =

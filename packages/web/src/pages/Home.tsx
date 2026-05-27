@@ -196,7 +196,7 @@ export default function Home() {
               <div className="inline-flex items-center justify-center mb-5">
                 <RoundsLogo className="w-12 h-12 text-on-surface" size={48} />
               </div>
-              <h1 className="text-[32px] md:text-[42px] font-medium tracking-normal mb-3 leading-tight text-on-surface">
+              <h1 className="text-[26px] md:text-[34px] font-medium tracking-tight mb-3 leading-[1.15] text-on-surface">
                 How can Rounds help?
               </h1>
               <p className="text-on-surface-variant text-sm md:text-base max-w-xl mx-auto leading-relaxed">

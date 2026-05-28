@@ -89,8 +89,30 @@ export function decideLegendLayout(
   requested: 'list' | 'table' | 'hidden',
 ): LegendLayoutDecision {
   const height = layout.height || 260;
-  const availableLegendHeight = Math.max(0, Math.min(120, height - MIN_PLOT_HEIGHT));
-  const statBudget = height > 0 && height < COMPACT_STATS_HEIGHT ? 1 : statCount;
+  const MIN_LEGEND = 24; // 1 chip row
+  const MAX_LEGEND = 96; // ~5 chip rows
+  const legendByPanelPct = Math.floor(height * 0.20);
+
+  const availableLegendHeight = Math.max(
+    0,
+    Math.min(
+      MAX_LEGEND,
+      Math.max(MIN_LEGEND, legendByPanelPct),
+      Math.max(0, height - MIN_PLOT_HEIGHT),
+    ),
+  );
+
+  let statBudget = statCount;
+
+  if (layout.sizeClass === 'narrow') {
+    statBudget = Math.min(statBudget, 1);
+  } else if (layout.sizeClass === 'medium') {
+    statBudget = Math.min(statBudget, 2);
+  }
+
+  if (height > 0 && height < COMPACT_STATS_HEIGHT) {
+    statBudget = Math.min(statBudget, 1);
+  }
 
   if (requested === 'hidden' || seriesCount === 0) {
     return { mode: 'hidden', itemBasis: 0, maxHeight: 0, statBudget: 0 };
@@ -113,14 +135,14 @@ export function decideLegendLayout(
   // before the name even starts; in any panel below ~700 px the name
   // gets squeezed to zero. Table mode aligns the stats into proper
   // columns and lets the name reflow under its own column.
-  if (requested === 'table' || seriesCount > 6 || statBudget >= 2) {
+  if (requested === 'table' || statBudget >= 2) {
     return { mode: 'table', itemBasis: 0, maxHeight: availableLegendHeight, statBudget };
   }
 
   // Wide gets a roomier basis so series-rich panels read as a tidy
   // multi-column grid; medium goes tighter so a single CJK name + one
   // stat fits in one row.
-  const itemBasis = layout.sizeClass === 'wide' ? 220 : 140;
+  const itemBasis = layout.sizeClass === 'wide' ? 180 : 130;
   return { mode: 'list', itemBasis, maxHeight: availableLegendHeight, statBudget };
 }
 

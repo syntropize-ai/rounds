@@ -2,6 +2,7 @@ import type { Connector } from '@agentic-obs/common';
 import { AdapterRegistry } from '@agentic-obs/agent-core';
 import { PrometheusMetricsAdapter, LokiLogsAdapter } from '@agentic-obs/adapters';
 import type { IChangesAdapter } from '@agentic-obs/adapters';
+import { normalizePrometheusBaseUrl } from '../utils/prometheus-url.js';
 
 /**
  * Convert Connector[] to the narrower prompt config shape
@@ -42,7 +43,7 @@ export function resolvePrometheusConnector(connectors: Connector[]): PrometheusC
   const prom = promConnectors.find((c) => c.isDefault) ?? promConnectors[0];
   if (!prom) return undefined;
 
-  return { url: configString(prom, 'url') ?? '', headers: connectorHeaders(prom) };
+  return { url: normalizePrometheusBaseUrl(configString(prom, 'url') ?? ''), headers: connectorHeaders(prom) };
 }
 
 function configString(connector: Connector, key: string): string | undefined {
@@ -88,9 +89,10 @@ export function buildAdapterRegistry(
     const url = configString(connector, 'url') ?? '';
     const headers = connectorHeaders(connector);
     if (connector.type === 'prometheus' || connector.type === 'victoria-metrics') {
+      const base = normalizePrometheusBaseUrl(url);
       registry.register({
-        info: { id: connector.id, name: connector.name, type: connector.type, url, signalType: 'metrics', isDefault: connector.isDefault },
-        metrics: new PrometheusMetricsAdapter(url, headers),
+        info: { id: connector.id, name: connector.name, type: connector.type, url: base, signalType: 'metrics', isDefault: connector.isDefault },
+        metrics: new PrometheusMetricsAdapter(base, headers),
       });
     } else if (connector.type === 'loki') {
       registry.register({

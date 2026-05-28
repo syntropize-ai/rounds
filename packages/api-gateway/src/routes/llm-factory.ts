@@ -80,7 +80,13 @@ export function createLlmProvider(cfg: LlmFactoryConfig): LLMProvider {
   const apiKeyHelper = cfg.apiKeyHelper ?? undefined;
 
   if (cfg.provider === 'corporate-gateway') {
-    return createForCorpGateway(cfg.apiFormat ?? 'anthropic', cfg.baseUrl, apiKey, apiKeyHelper);
+    return createForCorpGateway(
+      cfg.apiFormat ?? 'anthropic',
+      cfg.baseUrl,
+      apiKey,
+      apiKeyHelper,
+      cfg.authType ?? 'bearer',
+    );
   }
 
   switch (cfg.provider) {
@@ -179,6 +185,7 @@ function createForCorpGateway(
   baseUrl: string | null | undefined,
   apiKey: string,
   apiKeyHelper: string | undefined,
+  authType: 'api-key' | 'bearer',
 ): LLMProvider {
   const base = baseUrl || undefined;
   const helperOpt = apiKeyHelper ? { apiKeyHelper } : {};
@@ -199,6 +206,7 @@ function createForCorpGateway(
         ...helperOpt,
         baseUrl: base,
         endpointFlavor: 'bedrock',
+        apiType: authType,
       });
     case 'anthropic':
     default:
@@ -206,6 +214,7 @@ function createForCorpGateway(
         apiKey,
         ...helperOpt,
         baseUrl: base,
+        apiType: authType,
       });
   }
 }

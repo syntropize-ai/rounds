@@ -47,15 +47,24 @@ function resolveConnectorScope(args: Record<string, unknown>): string {
 }
 
 /**
- * Dashboard mutation tools no longer take `dashboardId` as a parameter — the
- * id lives on `ctx.activeDashboardId`, set by `dashboard_create` /
- * `dashboard_clone`. When the active id is missing the handler returns a
- * clear "call dashboard_create first" error and never reaches a side effect,
- * so the gate falls back to wildcard rather than minting a deny sentinel —
- * an unusable id wouldn't tighten the gate, only confuse the failure mode.
+ * Dashboard mutation tools target either the active dashboard (id lives on
+ * `ctx.activeDashboardId`, set by `dashboard_create` / `dashboard_clone` /
+ * page context) or an explicit `args.dashboardId` when the caller passes one
+ * (currently only `dashboard_add_panels` accepts it). Explicit wins over
+ * active. When neither is available the handler returns a clear error and
+ * never reaches a side effect, so the gate falls back to wildcard rather
+ * than minting a deny sentinel — an unusable id wouldn't tighten the gate,
+ * only confuse the failure mode.
  */
-function resolveDashboardScope(ctx: ActionContext): string {
-  const id = ctx.activeDashboardId;
+function resolveDashboardScope(
+  ctx: ActionContext,
+  args?: Record<string, unknown>,
+): string {
+  const explicit =
+    args && typeof args.dashboardId === 'string' && args.dashboardId.trim()
+      ? args.dashboardId.trim()
+      : null;
+  const id = explicit ?? ctx.activeDashboardId;
   return id ? `dashboards:uid:${id}` : 'dashboards:uid:*';
 }
 
@@ -83,7 +92,7 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
       'dashboards:create',
       `folders:uid:${String(args.folderUid ?? '*')}`,
     ),
-  'dashboard_add_panels': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
+  'dashboard_add_panels': (args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx, args)),
   'dashboard_remove_panels': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
   'dashboard_modify_panel': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),
   'dashboard_set_title': (_args, ctx) => ac.eval('dashboards:write', resolveDashboardScope(ctx)),

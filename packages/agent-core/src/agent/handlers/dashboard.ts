@@ -545,10 +545,17 @@ export async function handleDashboardAddPanels(
   ctx: ActionContext,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const dashboardId = ctx.activeDashboardId;
+  const explicitId =
+    typeof args.dashboardId === 'string' && args.dashboardId.trim()
+      ? args.dashboardId.trim()
+      : null;
+
+  const dashboardId = explicitId ?? ctx.activeDashboardId;
   if (!dashboardId) {
-    return 'Error: no active dashboard. Call dashboard_create first.';
+    return 'Error: no active dashboard. Pass dashboardId, or call dashboard_create first.';
   }
+
+  if (explicitId) ctx.activeDashboardId = explicitId;
   const panels = args.panels as Array<Record<string, unknown>> | undefined;
   if (!panels || !Array.isArray(panels) || panels.length === 0) {
     return 'Error: "panels" array is required with at least one panel config.';

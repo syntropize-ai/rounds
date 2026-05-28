@@ -260,7 +260,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     authMiddleware,
     userRateLimiter,
     createOrgContextMiddleware({ orgUsers: authRepos.orgUsers }),
-    createQueryRouter({ setupConfig, ac: accessControl }),
+    createQueryRouter({ setupConfig, ac: accessControl, connectorRepo: repos.connectors }),
   );
 
   // -- W6 business routes ----------------------------------------------
@@ -454,6 +454,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     setupConfig,
     ac: accessControl,
     audit: authSub.audit,
+    connectorRepo: repos.connectors,
   }));
   // PR-C — save inline chart as a dashboard panel (new or append).
   app.use('/api/metrics', userRateLimiter, createMetricsSaveAsDashboardRouter({
@@ -470,6 +471,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     setupConfig,
     ac: accessControl,
     audit: authSub.audit,
+    connectorRepo: repos.connectors,
     ...(deps.runner ? { runner: deps.runner } : {}),
   }));
   // /api/folders is mounted in rbac-routes.ts (T7.1).

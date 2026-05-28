@@ -346,6 +346,52 @@ describe('DELETE /api/connectors/:id/policies/:subjectType/:subjectId/:capabilit
   });
 });
 
+describe('maskForWire — credential redaction', () => {
+  it('strips credential-shaped keys from config in GET /:id', async () => {
+    const repo = new MemoryConnectorRepo();
+    await repo.create({
+      id: 'leaky',
+      orgId: 'org_a',
+      type: 'prometheus' as ConnectorType,
+      name: 'p',
+      config: {
+        url: 'http://prom:9090',
+        apiKey: 'sk-leak-me',
+        password: 'hunter2',
+        bearerToken: 'eyJ-leak',
+        client_secret: 'shhh',
+        privateKey: '-----BEGIN-----',
+        tlsVerify: true,
+      },
+      createdBy: 'u1',
+    });
+    const app = mountRouter(repo);
+    const res = await request(app).get('/api/connectors/leaky');
+    expect(res.status).toBe(200);
+    const cfg = res.body.connector.config as Record<string, unknown>;
+    expect(cfg).toEqual({ url: 'http://prom:9090', tlsVerify: true });
+    expect(JSON.stringify(res.body)).not.toContain('sk-leak-me');
+    expect(JSON.stringify(res.body)).not.toContain('hunter2');
+    expect(JSON.stringify(res.body)).not.toContain('eyJ-leak');
+  });
+
+  it('strips credential-shaped keys from config in GET / list', async () => {
+    const repo = new MemoryConnectorRepo();
+    await repo.create({
+      id: 'leaky2',
+      orgId: 'org_a',
+      type: 'prometheus' as ConnectorType,
+      name: 'p',
+      config: { url: 'http://prom:9090', apiKey: 'sk-leak-me' },
+      createdBy: 'u1',
+    });
+    const app = mountRouter(repo);
+    const res = await request(app).get('/api/connectors');
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain('sk-leak-me');
+  });
+});
+
 describe('GET /api/connectors/:id/policies — query filter', () => {
   async function setupWithMixedPolicies(): Promise<MemoryConnectorRepo> {
     const repo = new MemoryConnectorRepo();

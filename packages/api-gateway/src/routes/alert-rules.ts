@@ -17,6 +17,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { AlertRuleService } from '../services/alert-rule-service.js';
+import type { ConnectorSecretReader } from '../utils/connector-secrets.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 
@@ -42,6 +43,9 @@ export interface AlertRulesRouterDeps {
   reportStore?: IInvestigationReportRepository;
   /** Required for preview/backtest to resolve configured metrics datasources. */
   setupConfig: SetupConfigService;
+  /** Optional secret reader — hydrates token-auth credentials before the
+   * preview adapter call so backtest queries authenticate. */
+  connectorRepo?: ConnectorSecretReader;
   /**
    * RBAC surface. `AccessControlSurface` is used (not the concrete service)
    * because this router is mounted outside the async auth IIFE in server.ts
@@ -66,7 +70,7 @@ export interface AlertRulesRouterDeps {
 export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   const store = deps.alertRuleStore;
   const router = Router();
-  const alertRuleService = new AlertRuleService(store, deps.setupConfig);
+  const alertRuleService = new AlertRuleService(store, deps.setupConfig, deps.connectorRepo);
   const audit = deps.audit;
   const requirePermission = createRequirePermission(deps.ac);
 

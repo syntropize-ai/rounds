@@ -28,12 +28,18 @@ import { authMiddleware } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
+import { normalizePrometheusBaseUrl } from '../utils/prometheus-url.js';
+import { hydrateConnectorSecrets, type ConnectorSecretReader } from '../utils/connector-secrets.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
 
 export interface MetricsQueryRouterDeps {
   setupConfig: SetupConfigService;
   ac: AccessControlSurface;
   audit: AuditWriter;
+  /** Optional secret reader. Hydrates `config.apiKey` from `connector_secrets`
+   * before constructing the Prometheus adapter so token-auth datasources
+   * actually authenticate. */
+  connectorRepo?: ConnectorSecretReader;
   /**
    * Test seam — defaults to constructing a real `PrometheusMetricsAdapter`
    * from the connector's config. Tests pass a stub so they don't need a live
@@ -149,7 +155,7 @@ function configString(connector: Connector, key: string): string | undefined {
 }
 
 function defaultBuildAdapter(connector: Connector) {
-  const baseUrl = configString(connector, 'url') ?? '';
+  const baseUrl = normalizePrometheusBaseUrl(configString(connector, 'url') ?? '');
   const headers: Record<string, string> = {};
   const username = configString(connector, 'username');
   const password = configString(connector, 'password');
@@ -326,7 +332,10 @@ export function createMetricsQueryRouter(deps: MetricsQueryRouterDeps): Router {
 
       const startedAt = Date.now();
       try {
-        const adapter = buildAdapter(ds);
+        const dsForAdapter = deps.connectorRepo
+          ? (await hydrateConnectorSecrets([ds], deps.connectorRepo))[0] ?? ds
+          : ds;
+        const adapter = buildAdapter(dsForAdapter);
         const series = await adapter.rangeQuery(query, rangeOrErr.start, rangeOrErr.end, step);
         const summary = summarizeChart(series, kind);
 

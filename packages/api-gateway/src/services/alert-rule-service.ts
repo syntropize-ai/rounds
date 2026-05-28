@@ -2,6 +2,7 @@ import { type AlertOperator } from '@agentic-obs/common';
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer';
 import { PrometheusMetricsAdapter } from '@agentic-obs/adapters';
 import { resolvePrometheusConnector } from './dashboard-service.js';
+import { hydrateConnectorSecrets, type ConnectorSecretReader } from '../utils/connector-secrets.js';
 import type { SetupConfigService } from './setup-config-service.js';
 import {
   previewAlertCondition,
@@ -21,6 +22,7 @@ export class AlertRuleService {
   constructor(
     _store: IAlertRuleRepository,
     private readonly setupConfig: SetupConfigService,
+    private readonly connectorRepo?: ConnectorSecretReader,
   ) {}
 
   /**
@@ -33,7 +35,10 @@ export class AlertRuleService {
     input: PreviewAlertRuleInput,
     orgId: string,
   ): Promise<PreviewAlertResult> {
-    const connectors = await this.setupConfig.listConnectors({ orgId });
+    const rawConnectors = await this.setupConfig.listConnectors({ orgId });
+    const connectors = this.connectorRepo
+      ? await hydrateConnectorSecrets(rawConnectors, this.connectorRepo)
+      : rawConnectors;
     const prom = resolvePrometheusConnector(connectors);
     if (!prom) {
       return { kind: 'missing_capability', reason: 'no_metrics_datasource' };

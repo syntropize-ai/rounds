@@ -10,9 +10,15 @@
 
 import { request as httpsRequest } from 'node:https';
 import { readFile } from 'node:fs/promises';
+import { parse as parseYaml } from 'yaml';
 import type { Connector } from '@agentic-obs/common';
 import { getConnectorTemplate, type ConnectorType } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/server-utils/logging';
+import { normalizePrometheusBaseUrl } from '../utils/prometheus-url.js';
+import {
+  resolveExecCredential,
+  type KubeconfigExecSpec,
+} from './kubeconfig-exec.js';
 
 const log = createLogger('connector-test');
 
@@ -130,7 +136,8 @@ async function testHttpGet(
 ): Promise<ConnectorTestOutcome> {
   const rawUrl = typeof connector.config['url'] === 'string' ? (connector.config['url'] as string) : '';
   if (!rawUrl) return { ok: false, message: 'connector has no url configured' };
-  const base = rawUrl.replace(/\/+$/, '');
+  const isPromCompat = connector.type === 'prometheus' || connector.type === 'victoria-metrics';
+  const base = isPromCompat ? normalizePrometheusBaseUrl(rawUrl) : rawUrl.replace(/\/+$/, '');
   const target = `${base}${path}`;
 
   const template = getConnectorTemplate(connector.type as ConnectorType);
@@ -145,9 +152,12 @@ async function testHttpGet(
     const res = await fetch(target, { method: 'GET', headers, signal: controller.signal });
     if (res.ok) return { ok: true };
     const body = await safeReadBody(res);
+    const message = isPromCompat
+      ? `Could not run a Prometheus query against this URL (HTTP ${res.status} from ${target}). Check that the URL is the Prometheus API root or proxy root, not a full query path, and that any token has query permission.`
+      : `HTTP ${res.status}`;
     return {
       ok: false,
-      message: `HTTP ${res.status}`,
+      message,
       ...(body ? { detail: body } : {}),
     };
   } catch (err) {
@@ -173,17 +183,41 @@ async function testKubernetesVersion(
   const targetApiServer = apiServer || kubeconfig?.server?.replace(/\/+$/, '') || '';
 
   if (targetApiServer) {
-    const token = kubeconfig?.token ?? (secret ? extractKubeconfigToken(secret) : null);
     const headers: Record<string, string> = { Accept: 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    if (kubeconfig?.clientCertificate && kubeconfig.clientKey) {
+
+    // Resolve auth in priority order: static token → exec plugin → cert/key.
+    let bearer: string | null = kubeconfig?.token
+      ?? (secret ? extractKubeconfigToken(secret) : null);
+    if (!bearer && kubeconfig?.exec) {
+      try {
+        const { token } = await resolveExecCredential(kubeconfig.exec, {
+          connectorId: connector.id,
+        });
+        bearer = token;
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    if (bearer) headers['Authorization'] = `Bearer ${bearer}`;
+
+    // Route to the HTTPS path whenever the kubeconfig demands TLS knobs that
+    // node fetch can't express: insecure-skip-tls-verify, a custom CA, or a
+    // mTLS cert/key pair. Fetch only suffices when none of these are set.
+    const hasClientCertPair = !!(kubeconfig?.clientCertificate && kubeconfig.clientKey);
+    const needsHttpsPath =
+      kubeconfig?.insecureSkipTlsVerify === true ||
+      !!kubeconfig?.certificateAuthority ||
+      hasClientCertPair;
+    if (needsHttpsPath) {
       return runK8sVersionHttpsRequest(
         `${targetApiServer}/version`,
         {
           headers,
-          cert: kubeconfig.clientCertificate,
-          key: kubeconfig.clientKey,
-          ca: kubeconfig.certificateAuthority,
+          ...(hasClientCertPair
+            ? { cert: kubeconfig!.clientCertificate, key: kubeconfig!.clientKey }
+            : {}),
+          ...(kubeconfig?.certificateAuthority ? { ca: kubeconfig.certificateAuthority } : {}),
+          ...(kubeconfig?.insecureSkipTlsVerify === true ? { insecureSkipTlsVerify: true } : {}),
         },
         connector.id,
       );
@@ -207,49 +241,124 @@ async function testKubernetesVersion(
 
 interface ParsedKubeconfig {
   server?: string;
+  insecureSkipTlsVerify?: boolean;
   certificateAuthority?: string;
   clientCertificate?: string;
   clientKey?: string;
   token?: string;
+  exec?: KubeconfigExecSpec;
 }
 
+/**
+ * Parse a kubeconfig YAML (or JSON) string. Honors `current-context` and
+ * resolves the matching `clusters[*].name` and `users[*].name` entries.
+ * Returns null if the input cannot be parsed or contains no recognizable
+ * fields.
+ */
 function parseKubeconfig(input: string): ParsedKubeconfig | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
-  try {
-    const cfg = JSON.parse(trimmed) as {
-      clusters?: Array<{ cluster?: Record<string, unknown> }>;
-      users?: Array<{ user?: Record<string, unknown> }>;
-    };
-    const cluster = cfg.clusters?.[0]?.cluster;
-    const user = cfg.users?.[0]?.user;
-    const out: ParsedKubeconfig = {};
-    if (typeof cluster?.['server'] === 'string') out.server = cluster['server'];
-    if (typeof cluster?.['certificate-authority-data'] === 'string') {
-      out.certificateAuthority = decodeBase64Pem(cluster['certificate-authority-data']);
-    }
-    if (typeof user?.['client-certificate-data'] === 'string') {
-      out.clientCertificate = decodeBase64Pem(user['client-certificate-data']);
-    }
-    if (typeof user?.['client-key-data'] === 'string') {
-      out.clientKey = decodeBase64Pem(user['client-key-data']);
-    }
-    if (typeof user?.['token'] === 'string') out.token = user['token'];
-    return Object.keys(out).length > 0 ? out : null;
-  } catch {
-    const out: ParsedKubeconfig = {};
-    const server = trimmed.match(/^\s*server:\s*([^\s#]+)/m)?.[1];
-    if (server) out.server = server.replace(/^["']|["']$/g, '');
-    const ca = trimmed.match(/^\s*certificate-authority-data:\s*([^\s#]+)/m)?.[1];
-    if (ca) out.certificateAuthority = decodeBase64Pem(ca.replace(/^["']|["']$/g, ''));
-    const cert = trimmed.match(/^\s*client-certificate-data:\s*([^\s#]+)/m)?.[1];
-    if (cert) out.clientCertificate = decodeBase64Pem(cert.replace(/^["']|["']$/g, ''));
-    const key = trimmed.match(/^\s*client-key-data:\s*([^\s#]+)/m)?.[1];
-    if (key) out.clientKey = decodeBase64Pem(key.replace(/^["']|["']$/g, ''));
-    const token = extractKubeconfigToken(trimmed);
-    if (token) out.token = token;
-    return Object.keys(out).length > 0 ? out : null;
+
+  // Raw token (single line, no kubeconfig markers) is a legacy convenience;
+  // upstream callers can pass it as the secret directly. We don't treat it
+  // as a kubeconfig — return null and let the caller fall back to
+  // extractKubeconfigToken.
+  if (!trimmed.includes('\n') && !trimmed.includes('apiVersion') && !trimmed.includes('clusters')) {
+    return null;
   }
+
+  type RawCluster = {
+    server?: unknown;
+    'certificate-authority-data'?: unknown;
+    'insecure-skip-tls-verify'?: unknown;
+  };
+  type RawExec = {
+    command?: unknown;
+    args?: unknown;
+    env?: unknown;
+    apiVersion?: unknown;
+  };
+  type RawUser = {
+    token?: unknown;
+    'client-certificate-data'?: unknown;
+    'client-key-data'?: unknown;
+    exec?: unknown;
+  };
+  type RawConfig = {
+    'current-context'?: unknown;
+    contexts?: Array<{ name?: unknown; context?: { cluster?: unknown; user?: unknown } }>;
+    clusters?: Array<{ name?: unknown; cluster?: RawCluster }>;
+    users?: Array<{ name?: unknown; user?: RawUser }>;
+  };
+
+  let cfg: RawConfig;
+  try {
+    cfg = parseYaml(trimmed) as RawConfig;
+  } catch {
+    return null;
+  }
+  if (!cfg || typeof cfg !== 'object') return null;
+
+  const currentContext = typeof cfg['current-context'] === 'string' ? cfg['current-context'] : null;
+  const contexts = Array.isArray(cfg.contexts) ? cfg.contexts : [];
+  const chosenContext = currentContext
+    ? contexts.find((c) => c?.name === currentContext)
+    : contexts[0];
+  const clusterName = typeof chosenContext?.context?.cluster === 'string'
+    ? chosenContext.context.cluster
+    : null;
+  const userName = typeof chosenContext?.context?.user === 'string'
+    ? chosenContext.context.user
+    : null;
+
+  const clusters = Array.isArray(cfg.clusters) ? cfg.clusters : [];
+  const users = Array.isArray(cfg.users) ? cfg.users : [];
+  const cluster = (clusterName ? clusters.find((c) => c?.name === clusterName) : clusters[0])?.cluster;
+  const user = (userName ? users.find((u) => u?.name === userName) : users[0])?.user;
+
+  const out: ParsedKubeconfig = {};
+  if (typeof cluster?.server === 'string') out.server = cluster.server;
+  if (typeof cluster?.['insecure-skip-tls-verify'] === 'boolean') {
+    out.insecureSkipTlsVerify = cluster['insecure-skip-tls-verify'];
+  }
+  if (typeof cluster?.['certificate-authority-data'] === 'string') {
+    out.certificateAuthority = decodeBase64Pem(cluster['certificate-authority-data']);
+  }
+  if (typeof user?.token === 'string') out.token = user.token;
+  if (typeof user?.['client-certificate-data'] === 'string') {
+    out.clientCertificate = decodeBase64Pem(user['client-certificate-data']);
+  }
+  if (typeof user?.['client-key-data'] === 'string') {
+    out.clientKey = decodeBase64Pem(user['client-key-data']);
+  }
+  const execSpec = parseExecSpec(user?.exec);
+  if (execSpec) out.exec = execSpec;
+
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function parseExecSpec(raw: unknown): KubeconfigExecSpec | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as { command?: unknown; args?: unknown; env?: unknown; apiVersion?: unknown };
+  if (typeof r.command !== 'string' || r.command.length === 0) return null;
+  const out: KubeconfigExecSpec = { command: r.command };
+  if (Array.isArray(r.args)) {
+    out.args = r.args.filter((v): v is string => typeof v === 'string');
+  }
+  if (Array.isArray(r.env)) {
+    const env: Array<{ name: string; value: string }> = [];
+    for (const e of r.env) {
+      if (e && typeof e === 'object') {
+        const obj = e as { name?: unknown; value?: unknown };
+        if (typeof obj.name === 'string' && typeof obj.value === 'string') {
+          env.push({ name: obj.name, value: obj.value });
+        }
+      }
+    }
+    if (env.length > 0) out.env = env;
+  }
+  if (typeof r.apiVersion === 'string') out.apiVersion = r.apiVersion;
+  return out;
 }
 
 function decodeBase64Pem(value: string): string {
@@ -258,7 +367,13 @@ function decodeBase64Pem(value: string): string {
 
 async function runK8sVersionHttpsRequest(
   url: string,
-  opts: { headers: Record<string, string>; ca?: string; cert: string; key: string },
+  opts: {
+    headers: Record<string, string>;
+    ca?: string;
+    cert?: string;
+    key?: string;
+    insecureSkipTlsVerify?: boolean;
+  },
   connectorId: string,
 ): Promise<ConnectorTestOutcome> {
   return new Promise((resolve) => {
@@ -267,9 +382,10 @@ async function runK8sVersionHttpsRequest(
       {
         method: 'GET',
         headers: opts.headers,
-        ca: opts.ca,
-        cert: opts.cert,
-        key: opts.key,
+        ...(opts.ca ? { ca: opts.ca } : {}),
+        ...(opts.cert ? { cert: opts.cert } : {}),
+        ...(opts.key ? { key: opts.key } : {}),
+        ...(opts.insecureSkipTlsVerify ? { rejectUnauthorized: false } : {}),
         timeout: DEFAULT_TIMEOUT_MS,
       },
       (res) => {

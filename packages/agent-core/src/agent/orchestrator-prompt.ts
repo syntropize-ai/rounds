@@ -463,7 +463,7 @@ function getDashboardContextSection(dashboard: Dashboard, timeRange?: { start: s
 
   return `# Current Dashboard Context
 Title: ${dashboard.title}${timeRangeText}
-This dashboard is the active target for dashboard.* tool calls — do not pass a dashboardId parameter.
+This dashboard is the active target for dashboard.* tool calls. Other dashboard.* tools always act on the active dashboard. Only dashboard_add_panels accepts an explicit dashboardId parameter — pass it when the user names a different existing dashboard you resolved via dashboard_list; that call also switches the active target so subsequent dashboard.* calls follow.
 
 ## Panels (${dashboard.panels.length} total)
 ${panelsSummary}

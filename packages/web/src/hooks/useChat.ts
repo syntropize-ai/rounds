@@ -353,6 +353,12 @@ export function useChat(): UseChatResult {
   // no longer cancels on client-disconnect, the local abort alone wouldn't
   // actually stop the agent.
   const runIdRef = useRef<string | null>(null);
+  // True while the POST /chat stream is active. The chat-service emits the
+  // same events on both the in-request stream AND the live bus, so if a
+  // bus subscription is also open during the POST we'd double-render every
+  // event. While this flag is set, the subscription path drops everything
+  // except `idle` (which is harmless control signalling).
+  const postStreamActiveRef = useRef(false);
   // Session id source of truth: the URL (`?chat=<id>`) for deeplinks plus the
   // Recents list on Home for picking a prior conversation. There used to be a
   // `localStorage.chat_session_id` mirror here so a new tab would auto-resume
@@ -414,6 +420,16 @@ export function useChat(): UseChatResult {
           : eventType;
 
       const id = crypto.randomUUID();
+
+      // Terminal `idle` from the live-tail bus — the orchestrator finished
+      // and the session is no longer generating. Always clear the spinner,
+      // even if this is the only terminator we see (e.g. a session reopened
+      // after `done` was already persisted, then the subscription replays
+      // tail events and the next bus signal is `idle`).
+      if (resolvedType === 'idle') {
+        setIsGenerating(false);
+        return;
+      }
 
       switch (resolvedType) {
         // Backend-emitted at the start of every detached agent run (Phase 1).
@@ -683,8 +699,12 @@ export function useChat(): UseChatResult {
               maxSeqRef.current = seq;
             }
           }
-          // Skip control events that aren't real chat events.
-          if (eventType === 'idle') return;
+          // While the POST /chat stream is active, the in-request callback
+          // already delivers every event we care about — the bus mirror
+          // would double-render. Drop everything except `idle`, which is a
+          // useful safety terminator (clears the spinner if `done` is
+          // somehow missed).
+          if (postStreamActiveRef.current && eventType !== 'idle') return;
           handleSSEEvent(eventType, rawData);
         },
         controller.signal,
@@ -727,6 +747,7 @@ export function useChat(): UseChatResult {
       appendEvent({ id: userMsg.id, kind: 'message', message: userMsg });
       setIsGenerating(true);
 
+      postStreamActiveRef.current = true;
       try {
         // Always inject the browser's local timezone so the agent can map
         // any clock time the user mentions ("9:59" off the panel's x-axis)
@@ -764,6 +785,7 @@ export function useChat(): UseChatResult {
           });
         }
       } finally {
+        postStreamActiveRef.current = false;
         setIsGenerating(false);
       }
     },

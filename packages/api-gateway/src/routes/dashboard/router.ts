@@ -17,6 +17,7 @@ import { VariableResolver } from './variable-resolver.js'
 import { ac, ACTIONS, AuditAction, assertWritable, ProvisionedResourceError } from '@agentic-obs/common'
 import type { Dashboard, PanelConfig } from '@agentic-obs/common'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
+import { normalizePrometheusBaseUrl } from '../../utils/prometheus-url.js'
 import type { AuditWriter } from '../../auth/audit-writer.js'
 import { getOrgId } from '../../middleware/workspace-context.js'
 
@@ -491,7 +492,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       let prometheusUrl = ''
       const headers: Record<string, string> = {}
       if (promConnector) {
-        prometheusUrl = typeof promConnector.config.url === 'string' ? promConnector.config.url : ''
+        prometheusUrl = normalizePrometheusBaseUrl(typeof promConnector.config.url === 'string' ? promConnector.config.url : '')
         const username = typeof promConnector.config.username === 'string' ? promConnector.config.username : ''
         const password = typeof promConnector.config.password === 'string' ? promConnector.config.password : ''
         const apiKey = typeof promConnector.config.apiKey === 'string' ? promConnector.config.apiKey : ''

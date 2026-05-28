@@ -9,12 +9,18 @@ import type { Connector } from '@agentic-obs/common'
 import type { AuthenticatedRequest } from '../../middleware/auth.js'
 import { authMiddleware } from '../../middleware/auth.js'
 import { PrometheusHttpClient } from '@agentic-obs/adapters'
+import { normalizePrometheusBaseUrl } from '../../utils/prometheus-url.js'
+import { hydrateConnectorSecrets, type ConnectorSecretReader } from '../../utils/connector-secrets.js'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
 
 export interface QueryRouterDeps {
   setupConfig: SetupConfigService
   ac: AccessControlSurface
+  /** Optional secret reader. When supplied, token-auth connectors with no inline
+   * `config.apiKey` are hydrated from `connector_secrets` before adapter
+   * construction. Omit in tests that don't exercise auth headers. */
+  connectorRepo?: ConnectorSecretReader
 }
 
 // -- Helpers
@@ -47,7 +53,7 @@ function configString(connector: Connector, key: string): string | undefined {
 }
 
 function buildClientConfig(connector: Connector): ConstructorParameters<typeof PrometheusHttpClient>[0] {
-  const cfg: ConstructorParameters<typeof PrometheusHttpClient>[0] = { baseUrl: configString(connector, 'url') ?? '' }
+  const cfg: ConstructorParameters<typeof PrometheusHttpClient>[0] = { baseUrl: normalizePrometheusBaseUrl(configString(connector, 'url') ?? '') }
   const username = configString(connector, 'username')
   const password = configString(connector, 'password')
   const apiKey = configString(connector, 'apiKey')
@@ -133,6 +139,12 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
   const router = Router()
   const { setupConfig } = deps
 
+  async function hydrateOne(connector: Connector): Promise<Connector> {
+    if (!deps.connectorRepo) return connector
+    const [hydrated] = await hydrateConnectorSecrets([connector], deps.connectorRepo)
+    return hydrated ?? connector
+  }
+
   // POST /api/query/range
   router.post('/range', authMiddleware, async (req: Request, res: Response) => {
     const { query, start, end, step = '30s', datasourceId, environment, cluster, variableValues } = req.body as {
@@ -167,7 +179,8 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     const startDate = start ? new Date(start) : new Date(endDate.getTime() - 30 * 60 * 1000)
 
     try {
-      const client = new PrometheusHttpClient(buildClientConfig(ds))
+      const dsHydrated = await hydrateOne(ds)
+      const client = new PrometheusHttpClient(buildClientConfig(dsHydrated))
       const result = await client.rangeQuery(query, startDate, endDate, step)
       res.json(result)
     } catch (err) {
@@ -204,7 +217,8 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsQuery, ds.id))) return
 
     try {
-      const client = new PrometheusHttpClient(buildClientConfig(ds))
+      const dsHydrated = await hydrateOne(ds)
+      const client = new PrometheusHttpClient(buildClientConfig(dsHydrated))
       const result = await client.instantQuery(query, time ? new Date(time) : undefined)
       res.json(result)
     } catch (err) {
@@ -231,8 +245,9 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsRead, ds.id))) return
 
     try {
-      const baseUrl = (configString(ds, 'url') ?? '').replace(/\/$/, '')
-      const headers = buildFetchHeaders(ds)
+      const dsHydrated = await hydrateOne(ds)
+      const baseUrl = normalizePrometheusBaseUrl(configString(dsHydrated, 'url') ?? '')
+      const headers = buildFetchHeaders(dsHydrated)
 
       let url: string
       if (match) {
@@ -285,8 +300,9 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     if (!(await requireDatasourcePermission(deps, req, res, ACTIONS.ConnectorsRead, ds.id))) return
 
     try {
-      const baseUrl = (configString(ds, 'url') ?? '').replace(/\/$/, '')
-      const headers = buildFetchHeaders(ds)
+      const dsHydrated = await hydrateOne(ds)
+      const baseUrl = normalizePrometheusBaseUrl(configString(dsHydrated, 'url') ?? '')
+      const headers = buildFetchHeaders(dsHydrated)
       const params = new URLSearchParams()
       if (metric) params.set('match[]', metric)
       const url = `${baseUrl}/api/v1/labels?${params}`
@@ -361,9 +377,12 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
       resolved.push(ds)
     }
 
+    const resolvedHydrated = deps.connectorRepo
+      ? await hydrateConnectorSecrets(resolved, deps.connectorRepo)
+      : resolved
     const settled = await Promise.allSettled(
       queries.map(async (q, i) => {
-        const ds = resolved[i]!
+        const ds = resolvedHydrated[i]!
         const client = new PrometheusHttpClient(buildClientConfig(ds))
         return q.instant
           ? client.instantQuery(q.expr)

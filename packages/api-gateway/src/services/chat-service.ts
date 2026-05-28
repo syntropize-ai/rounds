@@ -23,6 +23,7 @@ import {
   buildAdapterRegistry,
   toAgentConnectors,
 } from './dashboard-service.js';
+import { hydrateConnectorSecrets } from '../utils/connector-secrets.js';
 import { DuckDuckGoSearchAdapter } from '@agentic-obs/adapters';
 
 // Web-search adapter is configuration-free for the default DuckDuckGo
@@ -288,7 +289,7 @@ function pickAgentTypeFromContext(
 // Event kinds that represent transient signalling (terminator / navigation
 // side-effect) and should NOT be persisted to the event trace. `reply` events
 // are persisted so history replay keeps the same interleaving users saw live.
-const SKIP_PERSIST_KINDS = new Set(['done', 'navigate']);
+const SKIP_PERSIST_KINDS = new Set(['navigate']);
 
 export interface ChatSessionResult {
   sessionId: string;
@@ -444,7 +445,10 @@ export class ChatService {
         if (bus) bus.publish(resolvedSessionId, seq++, event);
         return;
       }
-      if (SKIP_PERSIST_KINDS.has(event.type)) return;
+      if (SKIP_PERSIST_KINDS.has(event.type)) {
+        if (bus) bus.publish(resolvedSessionId, seq++, event);
+        return;
+      }
       const eventSeq = seq++;
       const record = {
         id: randomUUID(),
@@ -496,8 +500,15 @@ export class ChatService {
       : undefined;
     const gateway = createLlmGateway(llm, undefined, auditSink);
     const model = llm.model;
+    // Resolve token-auth ciphertext into `config.apiKey` for adapter
+     // construction. The hydrated copy is local to the adapter registry; the
+     // original `connectors` (used below for `toAgentConnectors` → prompt and
+     // for `connectorToOpsConfig`) stays credential-free.
+    const hydratedConnectors = this.deps.connectorRepo
+      ? await hydrateConnectorSecrets(connectors, this.deps.connectorRepo)
+      : connectors;
     const adapters = buildAdapterRegistry(
-      connectors,
+      hydratedConnectors,
       [],
     );
 
@@ -767,12 +778,57 @@ export class ChatService {
       }
     }
 
+    // Emit terminal `done` here so it lands in the persisted event trace
+    // AND on the live bus exactly once per turn. The route no longer fires
+    // a fallback `done` after handleMessage — this is the single source.
+    wrappedSendEvent({
+      type: 'done',
+      messageId: assistantMessageId,
+      sessionId: resolvedSessionId,
+      ...(navigate ? { navigate } : {}),
+    } as DashboardSseEvent);
+
     return {
       sessionId: resolvedSessionId,
       replyContent,
       assistantMessageId,
       navigate,
     };
+    } catch (err) {
+      // Publish a terminal `error` to the persisted event trace + live bus so
+      // tabs tailing via /events/stream don't get stuck on the spinner. The
+      // POST-stream tab receives its own `event: error` from the route's
+      // catch, so we deliberately skip the in-request sendEvent here.
+      const errorEvent = {
+        type: 'error',
+        sessionId: resolvedSessionId,
+        message: err instanceof Error ? err.message : String(err),
+      } as DashboardSseEvent;
+      const eventSeq = seq++;
+      if (eventStore) {
+        const record = {
+          id: randomUUID(),
+          sessionId: resolvedSessionId,
+          seq: eventSeq,
+          kind: errorEvent.type,
+          payload: errorEvent as unknown as Record<string, unknown>,
+          timestamp: new Date().toISOString(),
+        };
+        persistChain = persistChain.then(async () => {
+          try {
+            await eventStore.append(record);
+            if (bus) bus.publish(resolvedSessionId, eventSeq, errorEvent);
+          } catch (persistErr) {
+            log.warn(
+              { err: persistErr, sessionId: resolvedSessionId, seq: eventSeq },
+              'failed to persist terminal error event',
+            );
+          }
+        });
+      } else if (bus) {
+        bus.publish(resolvedSessionId, eventSeq, errorEvent);
+      }
+      throw err;
     } finally {
       // Drain in-flight persist+publish on BOTH success and error paths.
       // Bounded by the serialization invariant above — this awaits all

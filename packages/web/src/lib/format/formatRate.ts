@@ -23,7 +23,32 @@ export function formatRate(
 ): FormattedValue {
   if (!isFiniteNumber(value)) return { text: NO_VALUE };
   const d = clampDecimals(decimals, 2);
-  return { text: value.toFixed(d), suffix: ` ${unit}/s` };
+  const suffix = ` ${unit}/s`;
+  const sign = value < 0 ? '-' : '';
+  const abs = Math.abs(value);
+
+  if (abs < 1000) {
+    return { text: `${sign}${abs.toFixed(d)}`, suffix };
+  }
+
+  const units: Array<[number, string]> = [
+    [1e3, 'K'],
+    [1e6, 'M'],
+    [1e9, 'B'],
+    [1e12, 'T'],
+  ];
+
+  let chosen = units[0]!;
+  for (const u of units) {
+    if (abs >= u[0]) chosen = u;
+  }
+
+  const [scale, siSuffix] = chosen;
+
+  return {
+    text: `${sign}${(abs / scale).toFixed(d)}${siSuffix}`,
+    suffix,
+  };
 }
 
 /**

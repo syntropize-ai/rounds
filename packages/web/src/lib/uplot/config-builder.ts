@@ -204,8 +204,12 @@ export class UPlotConfigBuilder {
    * disables the fill so single-line charts read as clean line drawings.
    */
   setFillOpacity(alpha: number): this {
-    if (typeof alpha === 'number' && Number.isFinite(alpha) && alpha >= 0 && alpha <= 1) {
-      this.fillOpacity = alpha;
+    if (typeof alpha === 'number' && Number.isFinite(alpha) && alpha >= 0) {
+      // Accept both 0–1 (legacy) and 0–100 (percent — used by the
+      // TimeSeriesViz auto-fill heuristic which expresses opacity as
+      // a percentage). Values > 1 are normalized into the 0–1 range
+      // that `withAlpha` expects.
+      this.fillOpacity = alpha > 1 ? Math.min(1, alpha / 100) : alpha;
     }
     return this;
   }
@@ -378,6 +382,8 @@ export class UPlotConfigBuilder {
         const fmt = new Intl.DateTimeFormat(undefined, opts);
         return splits.map((ms) => fmt.format(new Date(ms)));
       }) as unknown as uPlot.Axis.Values,
+      size: 22,
+      gap: 2,
     };
 
     const yFormatter = getFormatter(unit);
@@ -415,34 +421,29 @@ export class UPlotConfigBuilder {
       },
     };
 
-    // T-203 — log scale auto-suggest. If the non-zero value range spans
-    // >3 orders of magnitude (max/min > 1000), uPlot's linear y-axis crushes
-    // the small band against the baseline. Switch to log (`distr: 3`) so
-    // both bands remain readable. An explicit `yMin`/`yMax` from the caller
-    // is treated as a strong "I want linear" signal — log scale rejects
-    // negative/zero bounds and the user clearly thought about the range.
-    let useLogScale = false;
-    if (this.yScaleMode === 'log') {
-      useLogScale = true;
-    } else if (
-      this.yScaleMode === 'auto' &&
-      this.yMin === undefined &&
-      this.yMax === undefined
-    ) {
-      let lo = Number.POSITIVE_INFINITY;
-      let hi = Number.NEGATIVE_INFINITY;
-      let nonzeroCount = 0;
-      for (const series of aligned) {
-        for (const v of series) {
-          if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) continue;
-          nonzeroCount += 1;
-          if (v < lo) lo = v;
-          if (v > hi) hi = v;
+    // Log scale is only enabled when the caller explicitly sets
+    // `yScale: 'log'`. Auto-promotion based on data range was removed —
+    // Grafana keeps linear by default and the auto-switch surprised users.
+    const useLogScale = this.yScaleMode === 'log';
+
+    if (useLogScale) {
+      yAxis.splits = ((_u: uPlot, _axisIdx: number, scaleMin: number, scaleMax: number) => {
+        if (!Number.isFinite(scaleMin) || !Number.isFinite(scaleMax) || scaleMin <= 0) {
+          return [scaleMin, scaleMax].filter(
+            (v) => Number.isFinite(v) && v > 0,
+          );
         }
-      }
-      if (nonzeroCount >= 2 && lo > 0 && hi / lo > 1000) {
-        useLogScale = true;
-      }
+
+        const lo = Math.floor(Math.log10(scaleMin));
+        const hi = Math.ceil(Math.log10(scaleMax));
+        const out: number[] = [];
+
+        for (let p = lo; p <= hi; p++) {
+          out.push(Math.pow(10, p));
+        }
+
+        return out;
+      }) as unknown as uPlot.Axis.Splits;
     }
 
     // 6) Scales. y honors field.config.min/max from the first numeric field.

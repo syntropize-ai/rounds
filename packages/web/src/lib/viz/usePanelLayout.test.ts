@@ -45,11 +45,11 @@ describe('decideLegendLayout — narrow', () => {
 });
 
 describe('decideLegendLayout — medium', () => {
-  it('returns list mode with basis 140 for single series × single stat', () => {
+  it('returns list mode with basis 130 for single series × single stat', () => {
     const layout = makeLayout({ width: 400, sizeClass: 'medium' });
     const d = decideLegendLayout(layout, 1, 1, 'list');
     expect(d.mode).toBe('list');
-    expect(d.itemBasis).toBe(140);
+    expect(d.itemBasis).toBe(130);
   });
 
   it('reduces stat budget on short panels before switching to table', () => {
@@ -59,30 +59,32 @@ describe('decideLegendLayout — medium', () => {
     expect(d.statBudget).toBe(1);
   });
 
-  it('upgrades to table on multi-stat regardless of series count', () => {
-    // Regression: previous trigger required `series >= 2 && stat >= 2`,
-    // so single-series + 3-stat (default) ran in list mode and the
-    // ~400px of stats squeezed the name to ellipsis. Threshold now
-    // also fires on `stat >= 2` alone.
+  it('caps statBudget at 2 on medium and upgrades to table when requested stats exceed cap', () => {
+    // Medium panels cap statBudget at 2 (Grafana-density alignment); with
+    // `>= 2` stats the layout switches to table so the per-row numerics
+    // line up cleanly instead of squeezing the series name to ellipsis.
     const layout = makeLayout({ width: 400, sizeClass: 'medium' });
     const d = decideLegendLayout(layout, 1, 3, 'list');
     expect(d.mode).toBe('table');
-    expect(d.statBudget).toBe(3);
+    expect(d.statBudget).toBe(2);
   });
 
-  it('upgrades to table when more than 6 series', () => {
+  it('stays in list mode for high series counts when statBudget is 1', () => {
+    // The legacy `seriesCount > 6 → table` shortcut was removed: at one
+    // stat per series the chip grid scrolls inside the legend container
+    // (capped at MAX_LEGEND), keeping the chart breathing room.
     const layout = makeLayout({ width: 400, sizeClass: 'medium' });
     const d = decideLegendLayout(layout, 8, 1, 'list');
-    expect(d.mode).toBe('table');
+    expect(d.mode).toBe('list');
   });
 });
 
 describe('decideLegendLayout — wide', () => {
-  it('returns list mode with basis 220', () => {
+  it('returns list mode with basis 180', () => {
     const layout = makeLayout({ width: 800, sizeClass: 'wide' });
     const d = decideLegendLayout(layout, 1, 1, 'list');
     expect(d.mode).toBe('list');
-    expect(d.itemBasis).toBe(220);
+    expect(d.itemBasis).toBe(180);
   });
 
   it('honors requested=table even on wide with few series', () => {

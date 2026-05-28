@@ -735,11 +735,21 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
                 colorMode: { type: 'string', enum: ['value', 'background', 'none'] },
                 graphMode: { type: 'string', enum: ['none', 'area'] },
                 lineWidth: { type: 'number' },
-                legendStats: { type: 'array', items: { type: 'string', enum: ['last', 'mean', 'max', 'min'] } },
+                legendStats: {
+                  type: 'array',
+                  items: { type: 'string', enum: ['last', 'mean', 'max', 'min'] },
+                  description:
+                    'Optional. Omit (or set []) to use the dense default of just the most recent value per series - matches Grafana density and keeps the chart from being squeezed by a stat table. Only set explicitly (e.g. ["mean","max","last"]) when the user asks to see multiple aggregates side by side. The render layer will trim multi-stat configs on narrow/short panels automatically.',
+                },
                 legendPlacement: { type: 'string', enum: ['bottom', 'right'] },
                 colorScale: { type: 'string', enum: ['linear', 'sqrt', 'log'] },
                 showPoints: { type: 'string', enum: ['auto', 'never'] },
-                yScale: { type: 'string', enum: ['linear', 'log'] },
+                yScale: {
+                  type: 'string',
+                  enum: ['linear', 'log'],
+                  description:
+                    'yScale controls the y-axis scale. Default linear. Use `log` when the query spans more than ~1000x dynamic range and linear would compress the smaller values into a flat line — typical triggers: `histogram_quantile(*, 0.99)` / `0.999` latency tails, single panel showing p50 + p99 + p999 together, or error/retry counters across many orders of magnitude. Keep `linear` for CPU%, memory bytes, QPS, ratios, and other bounded or single-order-of-magnitude quantities.',
+                },
                 collapseEmptyBuckets: { type: 'boolean' },
                 barGaugeMax: { type: 'number' },
                 barGaugeMode: { type: 'string', enum: ['gradient', 'lcd'] },

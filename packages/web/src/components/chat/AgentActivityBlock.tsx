@@ -218,7 +218,10 @@ export default function AgentActivityBlock({
 
   // Summary for collapsed state — phase-grouped (steps), so 5 metrics_query
   // events still summarize as one "Querying metrics" phase rather than 5.
-  const doneCount = steps.filter((s) => s.done).length;
+  // Count by steps.length rather than done-only: some activity (e.g. an
+  // ops command confirmation block) shows up as a step without a paired
+  // tool_call/tool_result, so done-only undercounts to "0 steps" despite
+  // visible activity.
   const failCount = steps.filter((s) => s.result && !s.result.success).length;
   const lastActive = [...steps].reverse().find((s) => !s.done);
 
@@ -234,7 +237,7 @@ export default function AgentActivityBlock({
         : 'Working'
     : onlyThinking
       ? 'Thinking'
-      : `${doneCount} step${doneCount === 1 ? '' : 's'}${failCount > 0 ? ` (${failCount} failed)` : ''}`;
+      : `${steps.length} step${steps.length === 1 ? '' : 's'}${failCount > 0 ? ` (${failCount} failed)` : ''}`;
 
   return (
     <div className="my-2">

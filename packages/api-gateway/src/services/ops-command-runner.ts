@@ -21,6 +21,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { parse as parseYaml } from 'yaml';
 import { createLogger } from '@agentic-obs/server-utils/logging';
 import { ClusterShellExecutionAdapter, ShellExecutionAdapter } from '@agentic-obs/adapters';
 import type {
@@ -123,6 +124,42 @@ export interface OpsRunResult {
   success?: boolean;
   confirmationRequired?: boolean;
   confirmation?: OpsCommandConfirmation;
+}
+
+/**
+ * Env var name that gates the kubeconfig `user.exec` credential plugin path.
+ * Mirrors `EXEC_ENABLED_ENV` in kubeconfig-exec.ts — duplicated here to keep
+ * this gate-check independent of that module's import surface.
+ */
+const KUBECONFIG_EXEC_ENV = 'KUBECONFIG_EXEC_PLUGIN';
+
+/**
+ * Refuse to hand a kubeconfig with `user.exec` to kubectl unless the api-gateway
+ * operator has explicitly opted into the exec plugin. We don't strip the field —
+ * mutating user credentials silently could break their intent and would hide
+ * the misconfiguration. Reject loudly so the operator sees it.
+ */
+function assertNoUnauthorizedExec(kubeconfigYaml: string): void {
+  if (process.env[KUBECONFIG_EXEC_ENV] === '1') return;
+  let cfg: unknown;
+  try {
+    cfg = parseYaml(kubeconfigYaml);
+  } catch {
+    return; // Malformed YAML — let kubectl produce the user-facing error.
+  }
+  if (!cfg || typeof cfg !== 'object') return;
+  const users = (cfg as { users?: unknown }).users;
+  if (!Array.isArray(users)) return;
+  for (const entry of users) {
+    if (entry && typeof entry === 'object') {
+      const user = (entry as { user?: unknown }).user;
+      if (user && typeof user === 'object' && 'exec' in user && (user as { exec?: unknown }).exec) {
+        throw new Error(
+          'Kubeconfig with user.exec auth requires KUBECONFIG_EXEC_PLUGIN=1 on the api-gateway.',
+        );
+      }
+    }
+  }
 }
 
 const PENDING_CONFIRMATIONS = new Map<string, OpsCommandConfirmation>();
@@ -608,6 +645,15 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
   }
 
   private async resolveKubeconfig(connector: Connector): Promise<string> {
+    const yaml = await this.loadKubeconfigYaml(connector);
+    // Gate-bypass defense: if the kubeconfig contains user.exec, the
+    // operator must have explicitly enabled the plugin. We never run kubectl
+    // with an exec-bearing kubeconfig unless the host env opts in.
+    assertNoUnauthorizedExec(yaml);
+    return yaml;
+  }
+
+  private async loadKubeconfigYaml(connector: Connector): Promise<string> {
     const inline = connector.config['kubeconfig'];
     if (typeof inline === 'string' && inline) return inline;
     const secretRef = connector.config['secretRef'];

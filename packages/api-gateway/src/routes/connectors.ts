@@ -93,11 +93,25 @@ function connectorScope(id = '*'): string {
   return id === '*' ? 'connectors:*' : `connectors:uid:${id}`;
 }
 
+// Credential-shaped keys that must never appear in wire responses. The
+// `connector_secrets` table is the only legitimate home for these; inline
+// values in `config` are a legacy/misuse pattern and would leak via
+// GET /connectors otherwise. Match case-insensitively against the full key
+// name and any segment of a camelCase / snake_case identifier.
+const REDACT_KEY_TOKENS = ['apikey', 'password', 'token', 'secret', 'credential', 'privatekey'];
+
+function isCredentialKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[_-]/g, '');
+  return REDACT_KEY_TOKENS.some((tok) => normalized.includes(tok));
+}
+
 function maskForWire(connector: Connector): Connector {
-  return {
-    ...connector,
-    config: { ...connector.config },
-  };
+  const config: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(connector.config)) {
+    if (isCredentialKey(key)) continue;
+    config[key] = value;
+  }
+  return { ...connector, config };
 }
 
 function readStatus(value: unknown): ConnectorStatus | undefined {

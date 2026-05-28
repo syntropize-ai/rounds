@@ -209,7 +209,6 @@ async function handleChatStream(
   }, 30_000);
 
   let agentError: Error | null = null;
-  let result: Awaited<ReturnType<ChatService['handleMessage']>> | undefined;
   try {
     const service = new ChatService(deps);
     // Race the agent's awaited handleMessage against the abort signal so
@@ -269,7 +268,7 @@ async function handleChatStream(
         { once: true },
       );
     });
-    result = await Promise.race([agentPromise, abortPromise]);
+    await Promise.race([agentPromise, abortPromise]);
   } catch (err) {
     agentError = err instanceof Error ? err : new Error(String(err));
   }
@@ -312,14 +311,12 @@ async function handleChatStream(
           );
         }
       }
-    } else if (result && !closed) {
-      sendSseEvent(res, {
-        type: 'done',
-        messageId: result.assistantMessageId,
-        sessionId: result.sessionId,
-        ...(result.navigate ? { navigate: result.navigate } : {}),
-      } as DashboardSseEvent & { sessionId: string });
     }
+    // No route-level `done` emission — chat-service.handleMessage emits
+    // the terminal `done` exactly once via wrappedSendEvent before
+    // returning, so it lands on both the in-request stream AND the
+    // persisted event trace / live bus. Duplicating it here would write
+    // a second `done` to the HTTP response.
   } finally {
     clearInterval(heartbeat);
     // CRITICAL: set closed BEFORE res.end() so any sendEvent callback

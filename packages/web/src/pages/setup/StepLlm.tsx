@@ -195,6 +195,26 @@ export function StepLlm({
           </div>
         )}
 
+        {config.provider === 'corporate-gateway' && (
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">Auth Type</label>
+            <select
+              value={config.authType ?? 'bearer'}
+              onChange={(e) => {
+                onChange({ authType: e.target.value as LlmConfig['authType'] });
+                setTestResult(null);
+              }}
+              className="w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)]"
+            >
+              <option value="bearer">Bearer Token (Authorization header)</option>
+              <option value="api-key">API Key (x-api-key header)</option>
+            </select>
+            <p className="text-xs text-[var(--color-on-surface-variant)] mt-1">
+              How the gateway expects the credential. Most enterprise gateways (LiteLLM, Kong, Apigee, Okta-fronted) use Bearer.
+            </p>
+          </div>
+        )}
+
         {provider.needsKey && (
           <div>
             <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">API Key (optional if upstream auth is used)</label>

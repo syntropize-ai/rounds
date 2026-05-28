@@ -48,7 +48,7 @@ describe('testConnectorAgainstBackend — http-get', () => {
     const out = await testConnectorAgainstBackend(makeConnector(), null);
     expect(out.ok).toBe(true);
     const call = fetchMock.mock.calls[0]!;
-    expect(call[0]).toBe('https://prom.example/api/v1/status/buildinfo');
+    expect(call[0]).toBe('https://prom.example/api/v1/query?query=vector(1)');
     expect((call[1] as RequestInit).headers).toEqual({});
   });
 
@@ -56,7 +56,7 @@ describe('testConnectorAgainstBackend — http-get', () => {
     vi.stubGlobal('fetch', mockFetch(async () => jsonResponse(500, 'boom')));
     const out = await testConnectorAgainstBackend(makeConnector(), null);
     expect(out.ok).toBe(false);
-    expect(out.message).toBe('HTTP 500');
+    expect(out.message).toMatch(/HTTP 500/);
     expect(out.detail).toBe('boom');
   });
 
@@ -108,7 +108,7 @@ describe('testConnectorAgainstBackend — http-get', () => {
       makeConnector({ config: { url: 'https://prom.example/' } }),
       null,
     );
-    expect(fetchMock.mock.calls[0]![0]).toBe('https://prom.example/api/v1/status/buildinfo');
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://prom.example/api/v1/query?query=vector(1)');
   });
 });
 

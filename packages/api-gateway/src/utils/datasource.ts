@@ -1,4 +1,5 @@
 import { ensureSafeUrl } from './url-validator.js';
+import { normalizePrometheusBaseUrl } from './prometheus-url.js';
 
 /**
  * Shape required for a connectivity probe. Intentionally narrower than
@@ -31,9 +32,11 @@ export async function testDatasourceConnection(
     let testUrl: string;
     switch (ds.type) {
       case 'prometheus':
-      case 'victoria-metrics':
-        testUrl = `${ds.url.replace(/\/$/, '')}/api/v1/status/buildinfo`;
+      case 'victoria-metrics': {
+        const base = normalizePrometheusBaseUrl(ds.url);
+        testUrl = `${base}/api/v1/query?query=${encodeURIComponent('vector(1)')}`;
         break;
+      }
       case 'loki':
         testUrl = `${ds.url.replace(/\/$/, '')}/ready`;
         break;

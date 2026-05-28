@@ -171,7 +171,7 @@ export const PROMETHEUS_TEMPLATE: ConnectorTemplate = {
       'http://kube-prometheus-stack-prometheus.monitoring.svc:9090',
     ],
   },
-  verify: { kind: 'http-get', path: '/api/v1/status/buildinfo' },
+  verify: { kind: 'http-get', path: '/api/v1/query?query=vector(1)' },
 };
 
 export const VICTORIA_METRICS_TEMPLATE: ConnectorTemplate = {
@@ -180,7 +180,7 @@ export const VICTORIA_METRICS_TEMPLATE: ConnectorTemplate = {
   capabilities: ['metrics.discover', 'metrics.query', 'metrics.validate'],
   configSchema: httpUrlSchema,
   credential: 'token',
-  verify: { kind: 'http-get', path: '/api/v1/status/buildinfo' },
+  verify: { kind: 'http-get', path: '/api/v1/query?query=vector(1)' },
 };
 
 export const LOKI_TEMPLATE: ConnectorTemplate = {

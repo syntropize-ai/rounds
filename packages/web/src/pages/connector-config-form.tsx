@@ -40,7 +40,7 @@ const URI_PLACEHOLDERS: Partial<Record<ConnectorType, Partial<Record<string, str
   kubernetes: {
     apiServer: 'https://kubernetes.default.svc — leave blank to use in-cluster',
   },
-  prometheus: { url: 'http://prometheus.monitoring.svc:9090' },
+  prometheus: { url: 'http://prometheus.monitoring.svc:9090 or Grafana/AMP proxy URL' },
   loki: { url: 'http://loki.monitoring.svc:3100' },
   'victoria-metrics': { url: 'http://victoria-metrics.monitoring.svc:8428' },
   elasticsearch: { url: 'http://elasticsearch.monitoring.svc:9200' },
@@ -58,6 +58,17 @@ function placeholderFor(
   if (prop.description) return prop.description;
   if (prop.format === 'uri') return URI_PLACEHOLDERS[type]?.[key] ?? '';
   return '';
+}
+
+// Persistent helper text shown under a field (placeholders disappear on focus).
+const FIELD_HELP: Partial<Record<ConnectorType, Partial<Record<string, string>>>> = {
+  prometheus: {
+    url: 'API root or proxy URL that forwards /api/v1/query. Works with self-hosted Prometheus, AMP, and Grafana datasource proxies.',
+  },
+};
+
+function helpFor(type: ConnectorType, key: string): string | null {
+  return FIELD_HELP[type]?.[key] ?? null;
 }
 
 // Schema-driven default values. Used on type switch — keys that have a
@@ -175,6 +186,7 @@ export function ConnectorConfigFields({
         const inputType = prop.format === 'uri' ? 'url' : 'text';
         const v = config[key];
         const value = typeof v === 'string' ? v : '';
+        const help = helpFor(type, key);
         return (
           <div key={key}>
             <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">
@@ -190,6 +202,9 @@ export function ConnectorConfigFields({
               required={required}
               aria-label={label}
             />
+            {help && (
+              <p className="text-xs text-[var(--color-on-surface-variant)] mt-1">{help}</p>
+            )}
           </div>
         );
       })}

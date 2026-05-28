@@ -688,7 +688,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'dashboard_add_panels',
       description:
-        'Add one or more panels to the active dashboard. Call dashboard_create or dashboard_open first; this tool implicitly targets that dashboard. The model constructs panel configs directly (title, visualization, queries, unit, ...). Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.\n\n' +
+        'Add one or more panels to a dashboard. By default targets the active dashboard (set by dashboard_create / dashboard_clone / current page context). To target a different existing dashboard, pass `dashboardId` — call `dashboard_list` first to resolve the id by name before doing so. The model constructs panel configs directly (title, visualization, queries, unit, ...). Panel sizing and layout are auto-applied. Every query must carry an explicit datasourceId — there is NO inheritance from the dashboard primary. For a single-source dashboard, set every query to the dashboard primary id. For cross-source compare panels, set per query (one source per query). The handler rejects panels with any missing datasourceId.\n\n' +
         'PRE-FLIGHT: if the dashboard targets a NAMED system (Redis, Kafka, Postgres, nginx, Istio, ...) call kb_recommend FIRST, then kb_get any relevant result and use that body as the canonical metric/layout source. Call web_search only after KB returns no relevant entry. Carve-out: skip KB only when the exact metric names and layout you are about to use are already quoted in the current conversation.\n\n' +
         'Skipping the pre-flight is the dominant failure mode: training-data priors invent plausible-looking names → metrics_validate rejects → re-plan → wasted turns. KB lookups are cheap and bundled entries are the source of truth for common stacks.\n\n' +
         'Validate every non-trivial query through metrics_validate before this call. The handler rejects unvalidated queries. If the user asks for several distinct dashboard areas, create and populate one focused dashboard at a time instead of combining them into one oversized dashboard.\n\n' +
@@ -696,6 +696,11 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
+          dashboardId: {
+            type: 'string',
+            description:
+              'Optional target dashboard id. Use this when the user names an existing dashboard found via dashboard_list and the current page context is not that dashboard. Passing this also makes the named dashboard the active target for subsequent dashboard.* tool calls in this turn.',
+          },
           panels: {
             type: 'array',
             description: 'Panel configs. datasourceId is REQUIRED per query. unit is optional; use only known metric unit metadata or omit it.',

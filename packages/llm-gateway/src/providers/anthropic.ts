@@ -216,6 +216,7 @@ export class AnthropicProvider implements LLMProvider {
   private readonly cacheControl: boolean;
   private readonly apiVersion: string;
   private readonly endpointFlavor: AnthropicEndpointFlavor;
+  private readonly apiType: 'api-key' | 'bearer';
 
   constructor(private readonly config: AnthropicConfig) {
     this.resolveKey = buildApiKeyResolver({
@@ -226,6 +227,16 @@ export class AnthropicProvider implements LLMProvider {
     this.cacheControl = config.cacheControl ?? false;
     this.apiVersion = config.apiVersion ?? DEFAULT_API_VERSION;
     this.endpointFlavor = config.endpointFlavor ?? 'native';
+    this.apiType = config.apiType ?? 'api-key';
+  }
+
+  private applyAuthHeader(headers: Record<string, string>, apiKey: string): void {
+    if (!apiKey) return;
+    if (this.apiType === 'bearer') {
+      headers.Authorization = `Bearer ${apiKey}`;
+      return;
+    }
+    headers['x-api-key'] = apiKey;
   }
 
   async complete(messages: CompletionMessage[], options: LLMOptions): Promise<LLMResponse> {
@@ -329,9 +340,7 @@ export class AnthropicProvider implements LLMProvider {
       'Content-Type': 'application/json',
       'anthropic-version': this.apiVersion,
     };
-    if (apiKey) {
-      headers['x-api-key'] = apiKey;
-    }
+    this.applyAuthHeader(headers, apiKey);
 
     const fetchInit = {
       method: 'POST',
@@ -413,7 +422,7 @@ export class AnthropicProvider implements LLMProvider {
     try {
       const apiKey = await this.resolveKey();
       const headers: Record<string, string> = { 'anthropic-version': this.apiVersion };
-      if (apiKey) headers['x-api-key'] = apiKey;
+      this.applyAuthHeader(headers, apiKey);
       response = await fetch(`${this.baseUrl}/v1/models`, { headers });
     } catch (err) {
       const kind = classifyProviderHttpError({ cause: err });

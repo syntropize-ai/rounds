@@ -31,6 +31,7 @@ import {
   buildAdapterRegistry,
   toAgentConnectors,
 } from '../services/dashboard-service.js';
+import { hydrateConnectorSecrets } from '../utils/connector-secrets.js';
 import { toAlertRuleStore } from '../services/chat-service.js';
 import { KubectlOpsCommandRunner, connectorToOpsConfig } from '../services/ops-command-runner.js';
 import type { Persistence } from './persistence.js';
@@ -92,8 +93,15 @@ export function buildBackgroundOrchestratorFactory(
     const llmAuditRepo = deps.persistence.repos.llmAudit;
     const auditSink = llmAuditRepo ? createDbAuditSink(llmAuditRepo) : undefined;
     const gateway = createLlmGateway(llm, undefined, auditSink);
-    const adapters = buildAdapterRegistry(
+    // Hydrate token-auth ciphertext into `config.apiKey` for adapter
+    // construction. Original `connectors` (used for `toAgentConnectors`
+    // prompt feed below) stays credential-free.
+    const hydratedConnectors = await hydrateConnectorSecrets(
       connectors,
+      deps.persistence.repos.connectors,
+    );
+    const adapters = buildAdapterRegistry(
+      hydratedConnectors,
       [],
     );
     const opsConnectors = connectors

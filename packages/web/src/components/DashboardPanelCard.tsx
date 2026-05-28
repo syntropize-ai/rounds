@@ -3,6 +3,7 @@ import { resolvePanelDisplayUnit } from '@agentic-obs/common';
 import { apiClient } from '../api/client.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import { useMeasure } from '../hooks/useMeasure.js';
+import { useDatasourceLookup, type InstanceDatasource } from '../hooks/useDatasourceLookup.js';
 import TimeSeriesViz from './viz/TimeSeriesViz.js';
 import StatViz from './viz/StatViz.js';
 import GaugeViz from './viz/GaugeViz.js';
@@ -181,6 +182,71 @@ interface Props {
   /** Fired when the user box-zooms on a time-series panel; value is a
    *  resolveTimeRange-compatible `"ISO|ISO"` absolute range string. */
   onTimeRangeChange?: (range: string) => void;
+  /** Render the datasource chip in the panel header. Set by the parent
+   *  Dashboard when the dashboard touches >1 distinct datasource — at
+   *  which point "am I looking at prod or staging?" is a real question.
+   *  On single-datasource dashboards the chip would just be clutter. */
+  showDatasourceChip?: boolean;
+}
+
+// -- Datasource chip ------------------------------------------------------
+
+function DatabaseGlyph({ className = 'w-3 h-3' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
+      <ellipse cx="10" cy="4.5" rx="6.5" ry="2.5" />
+      <path d="M3.5 4.5v5c0 1.38 2.91 2.5 6.5 2.5s6.5-1.12 6.5-2.5v-5" />
+      <path d="M3.5 9.5v5c0 1.38 2.91 2.5 6.5 2.5s6.5-1.12 6.5-2.5v-5" />
+    </svg>
+  );
+}
+
+/**
+ * Self-contained chip — pulls the datasource lookup itself so single-DS
+ * dashboards (which don't render the chip at all) never trigger the
+ * `/api/connectors` fetch or the per-panel rerender when it resolves.
+ */
+function DatasourceChip({
+  datasourceIds,
+  compact,
+}: {
+  datasourceIds: string[];
+  compact: boolean;
+}) {
+  const datasourceLookup = useDatasourceLookup();
+  if (datasourceIds.length === 0) return null;
+  const count = datasourceIds.length;
+  const ds: InstanceDatasource | null =
+    count === 1 ? datasourceLookup.get(datasourceIds[0]!) ?? null : null;
+  const isOverride = !!ds && !ds.isDefault;
+  const baseCls = 'inline-flex items-center gap-1 shrink-0 rounded-full border px-1.5 py-[1px] text-[10px] uppercase tracking-wide transition-colors';
+  const colorCls = count > 1
+    ? 'text-[var(--color-primary)] border-[var(--color-outline-variant)] bg-[var(--color-surface-high)]'
+    : 'text-[var(--color-on-surface-variant)] border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] hover:text-[var(--color-on-surface)]';
+  if (count > 1) {
+    const title = `${count} datasources across this panel's queries`;
+    return (
+      <button type="button" className={`${baseCls} ${colorCls}`} title={title} aria-label={title}>
+        <DatabaseGlyph />
+        {!compact && <span>{count} sources</span>}
+      </button>
+    );
+  }
+  const label = ds?.name ?? '…';
+  const title = ds ? `${ds.name}\n${ds.url ?? ''}\n${ds.type}` : 'Loading datasource…';
+  return (
+    <button type="button" className={`${baseCls} ${colorCls}`} title={title} aria-label={title}>
+      <DatabaseGlyph />
+      {!compact && <span className="normal-case font-medium tracking-normal max-w-[120px] truncate">{label}</span>}
+      {isOverride && (
+        <span
+          className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)]"
+          title="Overrides the default for this type"
+          aria-hidden
+        />
+      )}
+    </button>
+  );
 }
 
 /** Substitute `${name}` / `$name` placeholders from `values`. Returns the
@@ -208,6 +274,7 @@ export default function DashboardPanelCard({
   timeRange = '1h',
   variableValues,
   onTimeRangeChange,
+  showDatasourceChip = false,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [multiRangeData, setMultiRangeData] = useState<QueryResult[]>([]);
@@ -846,9 +913,19 @@ export default function DashboardPanelCard({
     }
   }
 
-  // Used by the panel header layout below; the previous datasource chip
-  // was removed (visible via edit-mode inspect instead).
-  const [headerRef] = useMeasure<HTMLDivElement>();
+  // Datasource chip — only shown when the parent dashboard touches >1
+  // distinct datasource (showDatasourceChip prop). The chip component
+  // does its own /api/connectors lookup, so single-DS dashboards skip
+  // the fetch entirely.
+  const datasourceIds = useMemo(
+    () => Array.from(new Set(effectiveQueries.map((q) => q.datasourceId).filter(Boolean) as string[])),
+    [effectiveQueries],
+  );
+
+  // Track header width so the chip collapses to its glyph on small panels
+  // instead of pushing the title to ellipsis.
+  const [headerRef, headerSize] = useMeasure<HTMLDivElement>();
+  const compactChip = headerSize.width > 0 && headerSize.width < 280;
 
   const isStat = panel.visualization === 'stat' || panel.visualization === 'gauge';
 
@@ -866,6 +943,7 @@ export default function DashboardPanelCard({
             <div className="w-2 h-4 bg-primary rounded-full shrink-0" />
             <span className="text-sm font-bold text-on-surface font-[Manrope] truncate">{panel.title}</span>
             {panel.description && <InfoIcon description={panel.description} />}
+            {showDatasourceChip && <DatasourceChip datasourceIds={datasourceIds} compact={compactChip} />}
           </div>
           <div className={`flex items-center gap-0.5 shrink-0 transition-opacity duration-150 ${editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
             {onEdit && <button type="button" onClick={onEdit} className="p-0.5 rounded hover:bg-surface-highest text-on-surface-variant hover:text-on-surface" title="Edit"><svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-8.5 8.5L5 15l.086-2.914 8.5-8.5zM4 16h12v1H4z" /></svg></button>}
@@ -891,6 +969,7 @@ export default function DashboardPanelCard({
           {loading && <Spinner />}
           <span className="text-sm font-bold text-on-surface font-[Manrope] truncate">{panel.title}</span>
           {panel.description && <InfoIcon description={panel.description} />}
+          {showDatasourceChip && <DatasourceChip datasourceIds={datasourceIds} compact={compactChip} />}
         </div>
 
         <div className={`flex items-center gap-1 shrink-0 transition-opacity duration-150 ${editMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>

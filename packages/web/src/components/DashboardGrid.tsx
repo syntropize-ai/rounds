@@ -151,6 +151,7 @@ function SectionGrid({
   onDeletePanel,
   onLayoutChange,
   onTimeRangeChange,
+  showDatasourceChip,
 }: {
   section: Section;
   width: number;
@@ -161,6 +162,7 @@ function SectionGrid({
   onDeletePanel?: (id: string) => void;
   onLayoutChange?: Props['onLayoutChange'];
   onTimeRangeChange?: Props['onTimeRangeChange'];
+  showDatasourceChip: boolean;
 }) {
   const layout = useMemo(() => compactLayout(section.panels, !!editMode), [section.panels, editMode]);
   const isMobileScreen = useIsMobileScreen(600);
@@ -233,6 +235,7 @@ function SectionGrid({
             onEdit={() => onEditPanel?.(panel.id)}
             onDelete={() => onDeletePanel?.(panel.id)}
             onTimeRangeChange={onTimeRangeChange}
+            showDatasourceChip={showDatasourceChip}
           />
         </div>
       ))}
@@ -290,6 +293,21 @@ export default function DashboardGrid({
 
   const sections = useMemo(() => groupBySection(panels), [panels]);
   const hasSections = sections.length > 1 || (sections.length === 1 && sections[0]!.id !== '__default__');
+
+  // Only show the datasource chip in panel headers when this dashboard
+  // mixes multiple distinct datasources. On a single-DS dashboard the
+  // chip would be clutter; on a multi-DS dashboard it's a real safety
+  // signal ("am I looking at prod or staging?").
+  const showDatasourceChip = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of panels) {
+      for (const q of p.queries ?? []) {
+        if (q.datasourceId) ids.add(q.datasourceId);
+        if (ids.size > 1) return true;
+      }
+    }
+    return false;
+  }, [panels]);
 
   const toggleSection = useCallback((sectionId: string) => {
     setCollapsedSections((prev) => {
@@ -360,6 +378,7 @@ export default function DashboardGrid({
                 onDeletePanel={onDeletePanel}
                 onLayoutChange={onLayoutChange}
                 onTimeRangeChange={onTimeRangeChange}
+                showDatasourceChip={showDatasourceChip}
               />
             )}
           </div>

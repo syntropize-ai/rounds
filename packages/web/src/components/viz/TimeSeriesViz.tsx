@@ -27,7 +27,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import type uPlot from 'uplot';
 
 import { publishCursor, subscribeCursor } from '../../lib/viz-sync/cursor-sync.js';
@@ -277,7 +277,15 @@ function buildViz(props: TimeSeriesVizProps): BuildResult {
   if (unit !== undefined) builder.setUnit(unit);
   if (thresholds !== undefined) builder.setThresholds(thresholds);
   if (lineWidth !== undefined) builder.setLineWidth(lineWidth);
-  if (fillOpacity !== undefined) builder.setFillOpacity(fillOpacity);
+  const effectiveFillOpacity =
+    fillOpacity !== undefined
+      ? fillOpacity
+      : stacking !== 'none'
+        ? 80
+        : series.length <= 4
+          ? 15
+          : 0;
+  builder.setFillOpacity(effectiveFillOpacity);
   if (showPoints !== undefined) builder.setShowPoints(showPoints);
   if (yScale !== undefined) builder.setYScale(yScale);
 
@@ -355,16 +363,12 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Stable id used to filter our own publishes from the cross-panel cursor bus.
   const sourceId = useId();
-  // Tracks whether the user's pointer is physically over THIS chart. The
-  // tooltip card renders only when true — the synced crosshair line still
-  // appears on every panel via uPlot's sync hub, but the tooltip belongs
-  // to the panel the user is actually looking at.
-  const [isPointerInside, setIsPointerInside] = useState(false);
   // True whenever the uPlot crosshair should be visible on this panel —
   // either because our own pointer is inside the plot area (hasOwnCursor)
   // or because a sibling panel is publishing a synced cursor
-  // (hasSyncedCursor). We cannot rely on `isPointerInside` alone: it tracks
-  // the outer container (title / legend / axes all count as "inside") but
+  // (hasSyncedCursor). The tooltip-render gate uses `hasOwnCursor` directly
+  // so it only appears on the panel the user is actually looking at.
+  // The outer container (title / legend / axes all count as "inside") but
   // uPlot's own crosshair only has meaningful state while the pointer is
   // actually over the plot. And `plot.setCursor({left:-10, top:-10})` does
   // NOT remove the crosshair DOM — the lines freeze at their last position
@@ -488,21 +492,24 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
         return;
       }
       setHasOwnCursor(isLocal);
-      // uPlot's cursor coords are relative to its `over` element (the inner
-      // plot area, after axes). Tooltip lives in the TimeSeriesViz container,
-      // so translate by the over element's offset within the container — else
-      // the tooltip's flip math against `containerRef.clientWidth` is off by
-      // the y-axis gutter and the tooltip drifts left of the crosshair.
-      const containerEl = containerRef.current;
+      // uPlot's cursor coords are relative to its `over` element. The tooltip
+      // is portaled to document.body with position: fixed, so translate to
+      // viewport-relative coordinates here.
       let absLeft = cLeft;
       let absTop = cTop;
-      if (over && containerEl) {
+      if (over) {
         const overRect = over.getBoundingClientRect();
-        const containerRect = containerEl.getBoundingClientRect();
-        absLeft = overRect.left - containerRect.left + cLeft;
-        absTop = overRect.top - containerRect.top + cTop;
+        absLeft = overRect.left + cLeft;
+        absTop = overRect.top + cTop;
       }
-      scheduleTooltip({ idx, left: absLeft, top: absTop, visible: true });
+      // Publish only when OUR mouse is really in the plot — peer sync echoes
+      // are skipped via the `applyingExternalRef` gate. The tooltip itself
+      // should only follow local cursor moves, not synced cursors; otherwise
+      // moving the mouse onto an adjacent panel briefly flashes this panel's
+      // tooltip before the local pointerleave fires.
+      if (!applyingExternalRef.current && isLocal) {
+        scheduleTooltip({ idx, left: absLeft, top: absTop, visible: true });
+      }
       // Publish to canvas-rendered viz (heatmap) — but only when the cursor
       // change came from THIS chart's user interaction, not from a bus event
       // we just applied. The flag is the loop-breaker: external apply →
@@ -670,29 +677,14 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   // prompt now sets `legendStats` per panel intent; when omitted, we default
   // to a sensible set so the legend never collapses to a bare refId.
   const requestedLegendStats: LegendStat[] =
-    legendStats && legendStats.length > 0 ? legendStats : ['mean', 'max', 'last'];
+    legendStats && legendStats.length > 0 ? legendStats : ['last'];
 
-  // T-201 — adaptive legend mode by series count AND stat width.
-  //  - <= 6 series with ≤1 stat per row → list (compact, single line per item)
-  //  - multi-stat × multi-series → table (list mode would cram each row with
-  //    "name Mean: x Max: y Last: z" and either wrap awkwardly or overflow,
-  //    truncating the right edge — table aligns stats into proper columns)
-  //  - > 6 series → table for the same overflow reason
-  //  - > 20 series → table AND only the top-N by `last` value, with "+N more"
-  //    expander. Otherwise a 100-series legend dominates the panel
-  const TOP_N = 15;
-  const overflow = Math.max(0, metas.length - TOP_N);
-  const [legendExpanded, setLegendExpanded] = useState(false);
-  const tooManySeries = metas.length > TOP_N && !legendExpanded;
-  const visibleMetas = tooManySeries
-    ? [...metas]
-        .map((m, idx) => ({ m, idx }))
-        // Rank by `last` desc with NaN sinking; preserves stable index for the
-        // hidden-state lookup below.
-        .sort((a, b) => (b.m.last ?? -Infinity) - (a.m.last ?? -Infinity))
-        .slice(0, TOP_N)
-        .map(({ m }) => m)
-    : metas;
+  // Render every series, sorted by `last` desc so the visually dominant
+  // ones land at the top. The legend container is scroll-capped by the
+  // layout decision so long legends don't squeeze the chart.
+  const visibleMetas = [...metas].sort(
+    (a, b) => (b.last ?? -Infinity) - (a.last ?? -Infinity),
+  );
   // Single source of truth for sizing. `usePanelLayout` owns the
   // ResizeObserver and projects width/height to a size class; the
   // `decideLegendLayout` pure function maps that + series shape to a
@@ -721,8 +713,6 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
         !hasOwnCursor && !hasSyncedCursor ? 'ts-no-cursor' : ''
       }`}
       style={{ position: 'relative' }}
-      onMouseEnter={() => setIsPointerInside(true)}
-      onMouseLeave={() => setIsPointerInside(false)}
     >
       <div className="min-h-0 flex-1" style={{ position: 'relative' }}>
         <UPlotChart
@@ -741,7 +731,7 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
         )}
       </div>
 
-      {isPointerInside && tooltip.visible && tooltip.idx >= 0 && tooltip.idx < xs.length && (
+      {hasOwnCursor && tooltip.visible && tooltip.idx >= 0 && tooltip.idx < xs.length && (
         <TooltipLayer
           tooltip={tooltip}
           xs={xs}
@@ -754,26 +744,14 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
       )}
 
       {showLegend && (
-        <>
-          <LegendLayer
-            metas={visibleMetas}
-            hidden={hidden}
-            onToggle={toggleSeries}
-            decision={legendDecision}
-            unit={unit}
-            stats={effectiveLegendStats}
-          />
-          {overflow > 0 && (
-            <button
-              type="button"
-              onClick={() => setLegendExpanded((v) => !v)}
-              className="self-start text-[11px] text-on-surface-variant hover:text-on-surface px-2 py-1"
-              style={{ fontFamily: 'inherit' }}
-            >
-              {legendExpanded ? `Show top ${TOP_N}` : `…+${overflow} more`}
-            </button>
-          )}
-        </>
+        <LegendLayer
+          metas={visibleMetas}
+          hidden={hidden}
+          onToggle={toggleSeries}
+          decision={legendDecision}
+          unit={unit}
+          stats={effectiveLegendStats}
+        />
       )}
     </div>
   );
@@ -895,6 +873,10 @@ interface TooltipLayerProps {
   maxWidth: number;
 }
 
+const TOOLTIP_HEADER_PX = 36;
+const TOOLTIP_ROW_PX = 22;
+const LOOKBACK_SAMPLES = 10;
+
 function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth }: TooltipLayerProps): JSX.Element {
   const ts = xs[tooltip.idx];
   const timeLabel =
@@ -906,28 +888,51 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
         }).format(new Date(ts))
       : '';
 
-  // Keep the tooltip inside the chart content box. The parent dashboard panel
-  // clips overflow below the header, so the old "flip upward with translateY"
-  // could push tall multi-series tooltips under that clipping edge.
+  // Tooltip is rendered into a portal at document.body with position: fixed,
+  // so `tooltip.left/top` are viewport-relative coords coming from setCursor.
+  const viewportW = typeof window !== 'undefined' ? window.innerWidth : 0;
+  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 0;
   const containerW = containerRef.current?.clientWidth ?? 0;
-  const containerH = containerRef.current?.clientHeight ?? 0;
   const visibleSeriesCount = metas.filter((m) => !hidden[m.displayName]).length;
-  const TOOLTIP_H_ESTIMATE = 36 + visibleSeriesCount * 22;
+  const tooltipHeight = TOOLTIP_HEADER_PX + visibleSeriesCount * TOOLTIP_ROW_PX;
   const tooltipWidth = Math.min(maxWidth, Math.max(200, Math.floor(containerW * 0.55)));
   const clamp = (value: number, min: number, max: number) =>
     Math.max(min, Math.min(value, Math.max(min, max)));
-  const left = containerW > 0
-    ? clamp(tooltip.left + TOOLTIP_OFFSET, 4, containerW - tooltipWidth - 4)
-    : tooltip.left + TOOLTIP_OFFSET;
-  const top = containerH > 0
-    ? clamp(tooltip.top + TOOLTIP_OFFSET, 4, containerH - TOOLTIP_H_ESTIMATE - 4)
-    : tooltip.top + TOOLTIP_OFFSET;
 
-  return (
+  // Horizontal: flip to the left side when the right side would overflow the
+  // viewport. Tooltip is allowed to cross the panel's own left/right edges,
+  // matching Grafana's behavior.
+  let left = tooltip.left + TOOLTIP_OFFSET;
+  if (viewportW > 0 && left + tooltipWidth > viewportW - 4) {
+    left = tooltip.left - tooltipWidth - TOOLTIP_OFFSET;
+  }
+  if (viewportW > 0) {
+    left = clamp(left, 4, Math.max(4, viewportW - tooltipWidth - 4));
+  }
+
+  // Vertical: only flip upward if the flipped position stays inside the
+  // current panel — otherwise let the tooltip extend toward the viewport
+  // edge. Avoids the tooltip jumping onto an adjacent panel above/below.
+  const containerRect = containerRef.current?.getBoundingClientRect();
+  const containerTop = containerRect?.top ?? 0;
+  const containerBottom = containerRect?.bottom ?? viewportH;
+
+  let top = tooltip.top + TOOLTIP_OFFSET;
+  const wouldOverflowBelow = top + tooltipHeight > containerBottom - 4;
+  const flipFitsInPanel =
+    tooltip.top - tooltipHeight - TOOLTIP_OFFSET >= containerTop - 4;
+  if (wouldOverflowBelow && flipFitsInPanel) {
+    top = tooltip.top - tooltipHeight - TOOLTIP_OFFSET;
+  }
+  if (viewportH > 0) {
+    top = clamp(top, 4, Math.max(4, viewportH - tooltipHeight - 4));
+  }
+
+  const tooltipNode = (
     <div
       className="ts-tooltip"
       style={{
-        position: 'absolute',
+        position: 'fixed',
         left,
         top,
         pointerEvents: 'none',
@@ -961,8 +966,19 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
         </div>
         {metas.map((meta) => {
           if (hidden[meta.displayName]) return null;
-          const raw = meta.values[tooltip.idx];
-          const v = raw ?? null;
+          // Look back up to LOOKBACK_SAMPLES samples to find the nearest
+          // non-null value. topk()/instant-switch queries leave gaps; the
+          // pre-lookback tooltip showed dashes at every gap. Hide the row
+          // entirely if nothing was found in range.
+          let v: number | null = null;
+          for (let i = 0; i <= LOOKBACK_SAMPLES && tooltip.idx - i >= 0; i++) {
+            const candidate = meta.values[tooltip.idx - i];
+            if (candidate != null) {
+              v = candidate;
+              break;
+            }
+          }
+          if (v === null) return null;
           return (
             <div
               key={meta.displayName}
@@ -1010,6 +1026,12 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
       </div>
     </div>
   );
+
+  // Portal into document.body so position: fixed coords are unaffected by
+  // ancestor transforms / overflow: hidden on the dashboard panel.
+  return typeof document !== 'undefined'
+    ? createPortal(tooltipNode, document.body)
+    : tooltipNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -1044,8 +1066,14 @@ const MONO_FONT = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monosp
  * decision owns the legend budget from measured panel height so the chart
  * keeps a readable plot area on short panels and dense legends scroll.
  */
+
+// Above this series count the legend almost certainly overflows the
+// height cap and scrolls; we render a leading "N series" badge so the
+// user notices total cardinality without expanding the legend.
+const LIST_COUNT_BADGE_THRESHOLD = 12;
+
 const LEGEND_CONTAINER_STYLE: CSSProperties = {
-  marginTop: 8,
+  marginTop: 2,
   overflowY: 'auto',
   flexShrink: 0,
   // Match the chart's left/right gutter so the legend doesn't visually
@@ -1260,10 +1288,16 @@ function LegendLayer({
   }
 
   // mode === 'list' (medium / wide). itemBasis comes from layout
-  // decision: 140 on medium, 220 on wide. minWidth: 0 lets ellipsis
+  // decision: 130 on medium, 180 on wide. minWidth: 0 lets ellipsis
   // kick in when the name genuinely doesn't fit; this is fine in list
   // mode because there's enough horizontal room. Stacked mode catches
   // the CJK truncation case before we get here.
+  //
+  // When `metas.length >= LIST_COUNT_BADGE_THRESHOLD` the legend almost
+  // certainly overflows the height cap and scrolls. Render a leading
+  // "N series" badge so the user notices the total cardinality (and
+  // the "I forgot a topk()" smell) without expanding the legend.
+  const showCountBadge = metas.length >= LIST_COUNT_BADGE_THRESHOLD;
   return (
     <div
       style={{
@@ -1271,11 +1305,28 @@ function LegendLayer({
         maxHeight,
         display: 'flex',
         flexWrap: 'wrap',
-        gap: '4px 12px',
-        fontSize: 12,
+        gap: '2px 10px',
+        fontSize: 11,
         color: 'var(--color-on-surface)',
       }}
     >
+      {showCountBadge && (
+        <span
+          aria-label={`${metas.length} series total`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '1px 6px',
+            borderRadius: 4,
+            background: 'var(--color-surface-variant)',
+            color: 'var(--color-on-surface-variant)',
+            fontVariantNumeric: 'tabular-nums',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {metas.length} series
+        </span>
+      )}
       {metas.map((meta) => {
         const isHidden = !!hidden[meta.displayName];
         return (
@@ -1289,8 +1340,8 @@ function LegendLayer({
               maxWidth: '100%',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '2px 4px',
+              gap: 6,
+              padding: '1px 3px',
               background: 'transparent',
               border: 'none',
               cursor: 'pointer',

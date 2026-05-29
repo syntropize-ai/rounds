@@ -94,6 +94,7 @@ export { handleRemediationPlanCreate, handleRemediationPlanCreateRescue } from '
 export { handleKbSearch } from './kb-search.js';
 export { handleKbGet } from './kb-get.js';
 export { handleKbRecommend } from './kb-recommend.js';
+export { handleLoadTaskContext } from './load-task-context.js';
 
 export {
   handleConnectorList,

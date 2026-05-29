@@ -64,6 +64,7 @@ import {
   handleKbSearch,
   handleKbGet,
   handleKbRecommend,
+  handleLoadTaskContext,
   handleGithubListRepos,
   handleGithubListPrs,
   handleGithubGetPr,
@@ -274,6 +275,7 @@ async function dispatchAction(
     // without round-tripping through the dispatcher. Listed here as a
     // no-op fallback so an out-of-loop caller doesn't see it as unknown.
     case 'tool_search': return null;
+    case 'load_task_context': return handleLoadTaskContext(ctx, args);
     default: return `Unknown action "${action}" - skipping.`;
   }
 }

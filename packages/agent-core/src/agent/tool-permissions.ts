@@ -320,6 +320,9 @@ export const UNGATED_TOOLS: ReadonlySet<string> = new Set([
   'navigate',
   'ask_user',
   'tool_search',
+  // Returns a slice of the agent's own system-prompt guidance; no backend
+  // resource is touched, so it's ungated like tool_search.
+  'load_task_context',
   'llm.complete',
   'verifier.run',
   // Discovery is always allowed — the caller needs to see what's configured

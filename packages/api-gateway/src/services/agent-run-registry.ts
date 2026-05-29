@@ -18,6 +18,7 @@
  * resume across restarts. Documented v1 limitation.
  */
 import { randomUUID } from 'node:crypto';
+import { setMaxListeners } from 'node:events';
 import { createLogger } from '@agentic-obs/server-utils/logging';
 
 const log = createLogger('agent-run-registry');
@@ -100,6 +101,12 @@ export class AgentRunRegistry {
       status: 'running',
       controller: new AbortController(),
     };
+    // One run's signal is forwarded to every concurrent operation (each LLM
+    // request, each tool fetch, the chat-route once-listener). fetch() briefly
+    // attaches/detaches an internal abort listener per call, which trips Node's
+    // default cap of 10 and logs MaxListenersExceededWarning. No real leak —
+    // raise the cap on this signal so the warning doesn't fire under load.
+    setMaxListeners(50, record.controller.signal);
     this.runs.set(runId, record);
     this.activeBySession.set(args.sessionId, runId);
     return record;

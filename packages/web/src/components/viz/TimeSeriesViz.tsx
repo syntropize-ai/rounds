@@ -47,7 +47,7 @@ import {
   type NullMode,
   type StackingMode,
 } from '../../lib/uplot/index.js';
-import { getSeriesColor, getSeriesColorByKey, VIZ_TOKENS } from '../../lib/theme/index.js';
+import { getSeriesColor, VIZ_TOKENS } from '../../lib/theme/index.js';
 import {
   decideLegendLayout,
   usePanelLayout,
@@ -159,12 +159,6 @@ function defaultDisplayName(input: SeriesInput, index: number): string {
   return `series ${index + 1}`;
 }
 
-function stableKey(labels: Record<string, string>, fallback: string): string {
-  const keys = Object.keys(labels).sort();
-  if (keys.length === 0) return fallback;
-  return keys.map((k) => `${k}=${labels[k]}`).join(',');
-}
-
 // ---------------------------------------------------------------------------
 // Series metadata captured at build time. Kept parallel to `frames` so we can
 // look up colors + stats from the React side (uPlot's options tree has them
@@ -230,17 +224,25 @@ function buildViz(props: TimeSeriesVizProps): BuildResult {
 
   const frames: DataFrame[] = [];
   const metas: SeriesMeta[] = [];
+  // Raw, pre-stacking points per series. The chart draws stacked data, but
+  // stats/tooltip must read each series' own value — under stacking the
+  // post-build `data` array carries cumulative totals (each series sits at the
+  // height of the ones below it), so reading stats back out of it reports the
+  // wrong number for every series above the dominant one.
+  const rawSeries: Array<{ timestamps: number[]; values: Array<number | null> }> = [];
 
   series.forEach((s, i) => {
     const displayName = defaultDisplayName(s, i);
-    const key = stableKey(s.labels, displayName);
-    const color =
-      Object.keys(s.labels).length > 0 ? getSeriesColorByKey(key) : getSeriesColor(i);
+    // Color by series order (Grafana classic-palette default): collision-free
+    // for the first 8 series, then cycles. Hashing the label set into 8 slots
+    // collided ~79% of the time at 5 series.
+    const color = getSeriesColor(i);
 
     const timestamps = s.points.map((p) => p.ts);
     const values = s.points.map((p) =>
       typeof p.value === 'number' && !Number.isNaN(p.value) ? p.value : (null as unknown as number),
     );
+    rawSeries.push({ timestamps, values });
 
     const frame = createTimeSeriesFrame({
       name: displayName,
@@ -277,32 +279,43 @@ function buildViz(props: TimeSeriesVizProps): BuildResult {
   if (unit !== undefined) builder.setUnit(unit);
   if (thresholds !== undefined) builder.setThresholds(thresholds);
   if (lineWidth !== undefined) builder.setLineWidth(lineWidth);
-  const effectiveFillOpacity =
-    fillOpacity !== undefined
-      ? fillOpacity
-      : stacking !== 'none'
-        ? 80
-        : series.length <= 4
-          ? 15
-          : 0;
+  // Grafana defaults: unstacked panels render as plain lines (no fill);
+  // stacked panels get a visible band so the composition reads. An explicit
+  // panel `fillOpacity` always wins.
+  const effectiveFillOpacity = fillOpacity ?? (stacking !== 'none' ? 80 : 0);
   builder.setFillOpacity(effectiveFillOpacity);
   if (showPoints !== undefined) builder.setShowPoints(showPoints);
   if (yScale !== undefined) builder.setYScale(yScale);
 
   const { options, data } = builder.build();
 
-  // `data` is [xs, ...seriesValues]. Pull the aligned series arrays back out
-  // so the React side can compute last/min/max/mean against the same vectors
-  // uPlot is drawing. This keeps the legend numbers honest under stacking
-  // (they reflect the stacked totals, which is what the user sees).
+  // `data[0]` is the union x-axis — identical with or without stacking. Project
+  // each series' RAW (pre-stacking) points onto it for stats/tooltip, so the
+  // reported numbers are each series' own value, not its stacked total. The
+  // chart still draws the stacked `data`.
   const rawData = data as unknown as ReadonlyArray<ReadonlyArray<number | null>>;
   const xs = (rawData[0] ?? []) as ReadonlyArray<number>;
   for (let i = 0; i < metas.length; i += 1) {
-    const aligned = (rawData[i + 1] ?? []) as ReadonlyArray<number | null>;
-    const values = aligned.slice();
     const meta = metas[i]!;
-    meta.values = values;
-    Object.assign(meta, computeStats(values));
+    const raw = rawSeries[i];
+    const byTs = new Map<number, number | null>();
+    if (raw) {
+      for (let j = 0; j < raw.timestamps.length; j += 1) {
+        const t = raw.timestamps[j];
+        if (t === undefined) continue;
+        byTs.set(t, raw.values[j] ?? null);
+      }
+    }
+
+    const aligned: Array<number | null> = new Array(xs.length);
+    for (let j = 0; j < xs.length; j += 1) {
+      const t = xs[j] as number;
+      const v = byTs.get(t);
+      aligned[j] = v === undefined ? null : v;
+    }
+
+    meta.values = aligned;
+    Object.assign(meta, computeStats(aligned));
   }
 
   return { frames, metas, xs: xs.slice(), options, data };
@@ -875,7 +888,6 @@ interface TooltipLayerProps {
 
 const TOOLTIP_HEADER_PX = 36;
 const TOOLTIP_ROW_PX = 22;
-const LOOKBACK_SAMPLES = 10;
 
 function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth }: TooltipLayerProps): JSX.Element {
   const ts = xs[tooltip.idx];
@@ -966,18 +978,13 @@ function TooltipLayer({ tooltip, xs, metas, hidden, unit, containerRef, maxWidth
         </div>
         {metas.map((meta) => {
           if (hidden[meta.displayName]) return null;
-          // Look back up to LOOKBACK_SAMPLES samples to find the nearest
-          // non-null value. topk()/instant-switch queries leave gaps; the
-          // pre-lookback tooltip showed dashes at every gap. Hide the row
-          // entirely if nothing was found in range.
-          let v: number | null = null;
-          for (let i = 0; i <= LOOKBACK_SAMPLES && tooltip.idx - i >= 0; i++) {
-            const candidate = meta.values[tooltip.idx - i];
-            if (candidate != null) {
-              v = candidate;
-              break;
-            }
-          }
+          // Read the value at the cursor index ONLY. A lookback scan made
+          // gapped series show a stale neighbor's value at the gap, so two
+          // series with a hole at the cursor looked identical. If the value
+          // here isn't a finite number, omit the row.
+          const rawAtCursor = meta.values[tooltip.idx];
+          const v =
+            typeof rawAtCursor === 'number' && Number.isFinite(rawAtCursor) ? rawAtCursor : null;
           if (v === null) return null;
           return (
             <div

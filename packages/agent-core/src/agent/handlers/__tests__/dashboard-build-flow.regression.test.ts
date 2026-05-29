@@ -119,7 +119,7 @@ describe('regression: dashboard build flow (connectors -> discover -> validate -
       sourceId: 'prom',
       query: expr,
     });
-    expect(validate).toMatch(/Valid query/);
+    expect(validate).toMatch(/\d+ series/);
     expect(ctx.dashboardBuildEvidence.validatedQueries.has(expr)).toBe(true);
 
     // 4) Create dashboard — sets activeDashboardId and marks it freshly created.

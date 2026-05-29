@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { formatValueForDisplay } from '../../lib/format/index.js';
-import { getSeriesColorByKey } from '../../lib/theme/index.js';
+import { getSeriesColor } from '../../lib/theme/index.js';
 
 /**
  * A single wedge in the pie. `color` is optional — when omitted the component
@@ -100,7 +100,7 @@ function buildSlices(items: PieItem[], maxSlices: number): {
     otherSum > 0 ? [...head, { label: OTHER_LABEL, value: otherSum }] : head;
 
   let cursor = 0;
-  const slices: Slice[] = working.map((item) => {
+  const slices: Slice[] = working.map((item, idx) => {
     const frac = item.value / total;
     const startAngle = cursor;
     const endAngle = cursor + frac * 360;
@@ -109,7 +109,7 @@ function buildSlices(items: PieItem[], maxSlices: number): {
       item.color ??
       (item.label === OTHER_LABEL
         ? OTHER_COLOR
-        : getSeriesColorByKey(item.label));
+        : getSeriesColor(idx));
     return {
       label: item.label,
       value: item.value,

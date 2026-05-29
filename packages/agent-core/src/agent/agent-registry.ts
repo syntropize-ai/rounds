@@ -80,6 +80,8 @@ agentRegistry.register({
     'setting_get', 'setting_set',
     // Lazy tool loading — fetches deferred schemas on demand
     'tool_search',
+    // On-demand task-context module loading — splits the system prompt
+    'load_task_context',
     // Clarifying question — terminal tool handled inside ReActLoop
     'ask_user',
   ],

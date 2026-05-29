@@ -202,7 +202,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'metrics_validate',
       description:
-        'Test whether a query is syntactically valid and executes through both instant and dashboard range-query paths. Use as the validation gate before dashboard_add_panels — catches bad PromQL before it lands in a panel.',
+        'Runs the query and reports the actual result shape (series count, labels present, sample values, and a flag when a by() grouping collapsed) so you can judge whether it returns what you intended — a query that merely runs is not necessarily correct. Use as the gate before dashboard_add_panels.',
       input_schema: {
         type: 'object',
         properties: {
@@ -1191,6 +1191,26 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
         },
         required: ['query'],
+      },
+    },
+  },
+
+  'load_task_context': {
+    category: 'always-on',
+    schema: {
+      name: 'load_task_context',
+      description:
+        'Load the detailed playbook for the task shape you are about to work on. The base prompt is intentionally small; the worked examples, query patterns, panel-correctness rules, and knowledge-base protocol for each task live here and are returned as the observation.\n\nCall this ONCE, right after you have identified the task shape from the decision flow and before doing the heavy work. Modes:\n- "dashboard_build" — building or editing a dashboard / its panels.\n- "investigate" — "why is X high/slow/broken", incident diagnosis, writing an investigation report.\n- "alert_author" — creating or editing an alert rule.\n- "ad_hoc_explore" — "show me / what is / how is" a metric value (renders an inline chart), or a numeric breakdown.\n- "ops_command" — mutating cluster state (scale / delete / install / apply).\n\nDo NOT call it for trivial conversational answers ("what does rate() do?") or for opening/listing existing resources — the base prompt already covers those. Do NOT call it more than once for the same task unless the shape genuinely changes mid-conversation.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mode: {
+            type: 'string',
+            enum: ['dashboard_build', 'investigate', 'alert_author', 'ad_hoc_explore', 'ops_command'],
+            description: 'The task shape whose playbook to load.',
+          },
+        },
+        required: ['mode'],
       },
     },
   },

@@ -470,12 +470,29 @@ export class UPlotConfigBuilder {
     // consumed by uPlot opts (visualization layer will wire it via bands).
     void this.thresholds;
 
+    // Stacking bands. The step-3 accumulation makes the first data series the
+    // bottom of the stack; each subsequent series should fill DOWN to the one
+    // below it rather than to the zero baseline. Without bands, uPlot fills
+    // every series from its line to baseline — and since cumulative totals are
+    // nearly equal when one series dominates, the translucent fills overlap
+    // from 0→total and blend into one muddy color. A band [high, low] clips
+    // the high series' fill to the low series, giving distinct per-series bands
+    // whose thickness equals the real value. uPlot series indices are 1-based
+    // (series[0] is x), so series k fills down to series k-1.
+    const stackBands: uPlot.Band[] =
+      this.stacking !== 'none' && fillOpacity > 0
+        ? this.series.slice(1).map((_, i) => ({
+            series: [i + 2, i + 1] as [number, number],
+          }))
+        : [];
+
     const options: uPlot.Options = {
       width: 600, // overridden by UPlotChart via ResizeObserver
       height: this.height,
       series: uplotSeries,
       axes: [xAxis, yAxis],
       scales,
+      bands: stackBands,
       legend: { show: legendShow },
       // Cursor marker config: at the crosshair, draw one filled circle per
       // series at twice the resting-point size, coloured the same as the

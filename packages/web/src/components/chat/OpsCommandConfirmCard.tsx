@@ -14,7 +14,16 @@ export default function OpsCommandConfirmCard({
   const [error, setError] = useState(confirmation.error ?? '');
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (confirmation.status && confirmation.status !== status) {
+    // Only adopt the prop when it's a RESOLVED (non-pending) status. The
+    // parent overlay-merge is async, so right after an optimistic
+    // setStatus('executed') the prop can still read 'pending' for a render;
+    // without this guard the effect would downgrade the optimistic status
+    // back to pending and the card looks frozen.
+    if (
+      confirmation.status &&
+      confirmation.status !== 'pending' &&
+      confirmation.status !== status
+    ) {
       setStatus(confirmation.status);
       setOutput(confirmation.output ?? '');
       setError(confirmation.error ?? '');
@@ -41,6 +50,20 @@ export default function OpsCommandConfirmCard({
           setStatus('expired');
           setError(message);
           onResolved?.({ ...confirmation, status: 'expired', error: message });
+          return;
+        }
+        // 409 = the command already ran (or was already rejected) on a prior
+        // click. It's resolved, not failed — reflect the real terminal status
+        // instead of throwing a scary "failed".
+        if (
+          apiError.code === 'CONFLICT' ||
+          (apiError as { status?: number }).status === 409
+        ) {
+          const resolvedStatus = /reject/i.test(apiError.message ?? '')
+            ? 'rejected'
+            : 'executed';
+          setStatus(resolvedStatus);
+          onResolved?.({ ...confirmation, status: resolvedStatus });
           return;
         }
         throw new Error(apiError.message);

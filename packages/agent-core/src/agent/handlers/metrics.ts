@@ -286,6 +286,88 @@ export async function handleMetricsDiscover(
   }
 }
 
+// ---------------------------------------------------------------------------
+// metrics_validate — evidence-based. A query that merely parses is not
+// necessarily correct: a collapsed `by (...)` grouping, a ratio that should be
+// 0..1 but reads 12, or a cardinality blow-up all "run" fine. Rather than
+// returning a bare valid/invalid verdict, we run the query and report the
+// actual result shape (series count, labels, sample values, collapse flag) and
+// let the model judge it against its own intent.
+// ---------------------------------------------------------------------------
+
+interface RangeSeries {
+  metric: Record<string, string>;
+  values: Array<[number, string]>;
+}
+
+/** Compact human-readable number — `1.2k`, `3.4M`, `0.5`, `12` — for sample magnitudes. */
+function fmtNum(n: number): string {
+  if (!Number.isFinite(n)) return 'NaN';
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  if (abs === 0) return '0';
+  if (abs >= 1) return n.toFixed(2).replace(/\.00$/, '');
+  return n.toPrecision(2);
+}
+
+/**
+ * Describe a range-query result so the model can judge it against intent.
+ * Reports series count, the union of label keys present, per-series
+ * last/min/max (capped at 8 rows), and a factual collapse flag when a label
+ * named in a `by (...)` clause is absent from the result.
+ */
+function describeRangeResult(expr: string, series: RangeSeries[]): string {
+  if (series.length === 0) {
+    return [
+      '0 series — the query ran but returned nothing.',
+      'Common causes: a label filter that matches no series, a time window with no samples, or a metric not scraped yet (pre-deployment).',
+      'Read this against what you intended — if you expected data here, the selector or grouping is likely wrong.',
+    ].join(' ');
+  }
+
+  const labelKeys = [
+    ...new Set(series.flatMap((s) => Object.keys(s.metric).filter((k) => k !== '__name__'))),
+  ];
+
+  const byLabels = [
+    ...new Set(
+      [...expr.matchAll(/\bby\s*\(([^)]*)\)/gi)]
+        .flatMap((m) => (m[1] ?? '').split(','))
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    ),
+  ];
+  const missingByLabels = byLabels.filter((l) => !labelKeys.includes(l));
+
+  const rows = series.slice(0, 8).map((s) => {
+    const labelStr = Object.entries(s.metric)
+      .filter(([k]) => k !== '__name__')
+      .map(([k, v]) => `${k}="${v}"`)
+      .join(', ');
+    const name = labelStr || s.metric.__name__ || 'series';
+    const nums = s.values.map(([, v]) => Number(v)).filter((n) => Number.isFinite(n));
+    if (nums.length === 0) return `- ${name}: (no numeric samples)`;
+    const last = nums[nums.length - 1]!;
+    return `- ${name}: last=${fmtNum(last)} min=${fmtNum(Math.min(...nums))} max=${fmtNum(Math.max(...nums))}`;
+  });
+  const moreRows = series.length > 8 ? `\n- ... and ${series.length - 8} more series` : '';
+
+  const lines: string[] = [];
+  if (missingByLabels.length > 0) {
+    const labelWord = missingByLabels.length > 1 ? 'those labels are' : 'that label is';
+    lines.push(
+      `⚠️ Grouped by ${missingByLabels.map((l) => `\`${l}\``).join(', ')}, but ${labelWord} not on the result — the grouping collapsed. Labels actually present: ${labelKeys.length ? labelKeys.join(', ') : '(none)'}.`,
+    );
+  }
+  lines.push(`${series.length} series. Labels present: ${labelKeys.length ? labelKeys.join(', ') : '(none)'}.`);
+  lines.push(rows.join('\n') + moreRows);
+  lines.push(
+    'Read this against what you intended — series count, the labels you grouped/legend-formatted on, and whether the magnitudes/units make sense. A query that merely runs is not necessarily correct.',
+  );
+  return lines.join('\n');
+}
+
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsValidate(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
@@ -296,23 +378,34 @@ export async function handleMetricsValidate(ctx: ActionContext, args: Record<str
   if (!expr) return 'Error: "query" is required.';
   ctx.sendEvent({ type: 'tool_call', tool: 'metrics_validate', args: { sourceId, query: expr }, displayText: `Validating: ${expr.slice(0, 60)}` });
   try {
+    // testQuery catches genuine parse/exec errors. A query that fails here
+    // never ran, so there's no result shape to report.
     const result = await adapter.testQuery(expr);
     if (!result.ok) {
-      const summary = `Invalid query: ${result.error ?? 'unknown error'}`;
+      const summary = `Query failed to run: ${result.error ?? 'unknown error'}`;
       ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary });
       return summary;
     }
 
     const end = new Date();
     const start = new Date(end.getTime() - 5 * 60_000);
-    await adapter.rangeQuery(expr, start, end, '60s');
+    const series = (await adapter.rangeQuery(expr, start, end, '60s')) as RangeSeries[];
 
-    const summary = `Valid query: ${expr}`;
+    // Record into evidence so the dashboard_add_panels "must validate first"
+    // gate keeps working — the gate keys on the expression, not the verdict.
     ctx.dashboardBuildEvidence.validatedQueries.add(expr);
-    ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary });
-    return summary;
+
+    const labelKeys = [
+      ...new Set(series.flatMap((s) => Object.keys(s.metric).filter((k) => k !== '__name__'))),
+    ];
+    ctx.sendEvent({
+      type: 'tool_result',
+      tool: 'metrics_validate',
+      summary: `${series.length} series; labels: ${labelKeys.length ? labelKeys.join(', ') : '(none)'}`,
+    });
+    return describeRangeResult(expr, series);
   } catch (err) {
-    const msg = `Invalid query: ${err instanceof Error ? err.message : String(err)}`;
+    const msg = `Query failed to run: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary: msg });
     return msg;
   }

@@ -210,30 +210,68 @@ describe('metrics handlers', () => {
   });
 
   describe('handleMetricsValidate', () => {
-    it('marks the tool_result as success: false when the query is invalid', async () => {
+    it('reports a run failure when the query does not parse/execute', async () => {
       const adapter = makeAdapter({
         testQuery: vi.fn().mockResolvedValue({ ok: false, error: 'parse error' }),
       });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
       const observation = await handleMetricsValidate(ctx, { sourceId: 'prom', query: 'bogus(' });
-      expect(observation).toContain('Invalid query');
+      expect(observation).toContain('Query failed to run');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'tool_result', tool: 'metrics_validate' }),
       );
     });
 
-    it('fails validation when the dashboard range query path rejects the expression', async () => {
+    it('reports a run failure when the dashboard range query path rejects the expression', async () => {
       const adapter = makeAdapter({
         testQuery: vi.fn().mockResolvedValue({ ok: true }),
         rangeQuery: vi.fn().mockRejectedValue(new Error('Prometheus returned HTTP 422 for range query')),
       });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
       const observation = await handleMetricsValidate(ctx, { sourceId: 'prom', query: 'bad_range_query' });
-      expect(observation).toContain('Invalid query');
+      expect(observation).toContain('Query failed to run');
       expect(observation).toContain('Prometheus returned HTTP 422 for range query');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'tool_result', tool: 'metrics_validate' }),
       );
+    });
+
+    it('returns the actual result shape (series count, labels, sample values) for a runnable query', async () => {
+      const adapter = makeAdapter({
+        testQuery: vi.fn().mockResolvedValue({ ok: true }),
+        rangeQuery: vi.fn().mockResolvedValue([
+          { metric: { pod: 'web-0' }, values: [[1, '0.1'], [2, '0.4']] },
+          { metric: { pod: 'web-1' }, values: [[1, '0.2'], [2, '0.5']] },
+        ]),
+      });
+      const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
+      const expr = 'sum by (pod) (rate(cpu_seconds_total[5m]))';
+      const observation = await handleMetricsValidate(ctx, { sourceId: 'prom', query: expr });
+      expect(observation).toContain('2 series');
+      expect(observation).toContain('pod');
+      expect(observation).toContain('0.5');
+      // The evidence gate must still record the validated expression.
+      expect(ctx.dashboardBuildEvidence.validatedQueries.has(expr)).toBe(true);
+    });
+
+    it('surfaces a collapse warning when a by() label is absent from the result', async () => {
+      const adapter = makeAdapter({
+        testQuery: vi.fn().mockResolvedValue({ ok: true }),
+        // Grouped by kubernetes_pod_name, but the result carries only `pod` —
+        // the grouping collapsed to a single series.
+        rangeQuery: vi.fn().mockResolvedValue([
+          { metric: { pod: 'web-0' }, values: [[1, '12'], [2, '12']] },
+        ]),
+      });
+      const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
+      const observation = await handleMetricsValidate(ctx, {
+        sourceId: 'prom',
+        query: 'sum by (kubernetes_pod_name) (rate(cpu[5m]))',
+      });
+      expect(observation).toContain('the grouping collapsed');
+      expect(observation).toContain('kubernetes_pod_name');
+      // The label that's actually present is `pod`, not the missing one.
+      expect(observation).toContain('Labels actually present: pod');
     });
   });
 });

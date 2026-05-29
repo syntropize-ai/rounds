@@ -67,6 +67,7 @@ export {
   handleKbSearch,
   handleKbGet,
   handleKbRecommend,
+  handleLoadTaskContext,
   handleGithubListRepos,
   handleGithubListPrs,
   handleGithubGetPr,

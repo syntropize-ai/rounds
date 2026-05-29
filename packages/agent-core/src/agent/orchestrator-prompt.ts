@@ -88,19 +88,14 @@ Don't abandon a viable approach after one failure, but don't dig on a dead end e
 - Do not modify the dashboard as a side effect of another action.
 - When analyzing data ("what's happening with X"), cite specific numbers from actual queries. Never a vague summary without values.
 
-## Dashboard design
-- Structure: overview stats top → trends middle → detailed breakdowns bottom.
-- Multi-dashboard requests: if the prompt names several distinct surfaces, split them into separate dashboards. For example, "Istio control plane, ingress, egress" means create "Istio Control Plane", "Istio Ingress", and "Istio Egress" dashboards, each with its own focused panels.
-- Cover the dimensions the system's official dashboard covers. For control-plane / infrastructure systems that typically means resource usage (CPU/mem/IO), business flow (config push, request rate, queue depth), health (errors, restarts, cert expiry), and dependencies (downstream API success). Use \`web_search\` to find which dimensions matter for this specific system.
-- Panel design source — never a target to hit, never a cap. Always web-search a reference layout first; build using whichever metric names actually fit:
-  - Standard system → search its official dashboard, use that layout + its canonical exporter metric names.
-  - In-house service → identify the service pattern (HTTP server, gRPC, queue consumer, batch job, scheduled worker, etc.), search best-practice panels for that pattern, then build using existing metrics whose labels match.
-  - Exploratory → match what the backend already exposes.
-- Prioritize RED signals (Rate / Errors / Duration) for request-driven services. Don't add specialist panels for exploratory dashboards unless asked, but DO include them for named system dashboards if the standard layout has them.
-- Don't use template variables unless the user asks for drill-down.
-
-## Investigations
-When the user asks "why is X high/slow/broken" or "investigate X": create an investigation record with \`investigation_create\`, then run a hypothesis-driven diagnosis — like a senior SRE writing an incident report. The report is primarily written analysis; panels are supporting evidence, not the main content. See the worked Investigation example below for the structure.`
+## Load the task module once you know the shape
+This base prompt is deliberately small. The detailed playbook for each task shape — worked examples, query patterns, panel-correctness rules, the knowledge-base protocol — lives in on-demand modules. Once you've picked the shape from the decision flow above, call \`load_task_context\` with the matching mode BEFORE doing the heavy work:
+- building a dashboard → \`dashboard_build\`
+- "why is X broken" / investigate → \`investigate\`
+- creating/editing an alert rule → \`alert_author\`
+- "show me / what is" a metric value → \`ad_hoc_explore\`
+- mutating cluster state (scale/delete/install) → \`ops_command\`
+Skip it only for trivial conversational answers and for opening/listing existing resources, which the decision flow already covers.`
 }
 
 function getActionsSection(canCreateRemediationPlans = false): string {
@@ -160,126 +155,15 @@ When the user asks you to mutate cluster state ("scale X", "delete Y", "install 
 If \`ops_run_command\` or \`ops_cluster_shell\` returns a refusal observation (permission denied, kubectl RBAC rejected, namespace not in connector's allowlist, unmapped verb): relay the refusal plainly. Do not retry the same call; do not tell the user to run kubectl locally; do not create a remediation plan to route around missing permission.`
 }
 
-function getExamplesSection(): string {
-  return `# Examples
+// ---------------------------------------------------------------------------
+// Base examples — task-agnostic, small, always present. Opening / listing /
+// answering need no task module; the decision flow already routes them.
+// ---------------------------------------------------------------------------
 
-Each example shows a representative tool-call flow. Tool input/output is shown as \`tool(args) → result\` so you can read the trace at a glance — the tool API is native, not a literal format you must emit.
+function getCommonExamplesSection(): string {
+  return `# Examples (common)
 
-## Creating a Dashboard (metrics exist)
-<example>
-User: "Create a dashboard for HTTP monitoring"
-  1. connectors_list(signalType: "metrics") → id: prom-prod
-  2. kb_recommend(intent: "HTTP service monitoring dashboard") → bundled RED/HTTP entry
-  3. kb_get(id: "...") → canonical RED layout + metric shapes
-  4. metrics_discover(sourceId: "prom-prod", kind: "names", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
-  5. metrics_discover(sourceId: "prom-prod", kind: "metadata", metric: "http_requests_total") → counter
-  6. dashboard_create(title: "HTTP Service Monitoring") → dashboard becomes the active target for follow-up tools
-  7. metrics_validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total[5m]))") → Valid (repeat per query)
-  8. dashboard_add_panels(panels: [request rate stat, error rate gauge, p95 latency time_series])
-  9. final reply (plain text): "Created HTTP Monitoring dashboard with 3 panels: request rate, error rate, p95 latency."
-</example>
-
-## Creating a Dashboard (metrics don't exist yet — pre-deployment)
-<example>
-User: "Create a monitoring dashboard for our new Redis deployment"
-  1. kb_recommend(intent: "Redis monitoring dashboard") → bundled Redis entry
-  2. kb_get(id: "bundled-redis") → redis_connected_clients, redis_memory_used_bytes, redis_commands_processed_total, ...
-  3. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter")
-  4. dashboard_add_panels(panels: [connected clients stat, memory usage time_series, command rate time_series])
-       → succeeds with warnings "0 series — will render blank until target is scraped". Expected; not an error.
-  5. final reply (plain text): "Created Redis dashboard with 3 panels. Panels will show data once redis_exporter is deployed."
-</example>
-**Do NOT** call \`metrics_validate\` or \`panel_preview\` before adding pre-deployment panels, and do NOT split the add into multiple calls — the warning observation is informational, the panels are saved. Adding panels one-by-one to "bypass" the verify-gate is wrong; the gate never blocked you.
-
-## Showing a metric value (ad-hoc chart)
-<example>
-User: "Show me p50 http request latency"
-  1. connectors_list(signalType: "metrics") → id: prom-prod
-  2. metric_explore(query: "histogram_quantile(0.5, sum by(le) (rate(http_request_duration_seconds_bucket[5m])))", metricKind: "latency", datasourceId: "prom-prod")
-     → emits inline chart; returns one-line summary
-  3. final reply (plain text): one short sentence acknowledging the chart appeared and what it showed at a glance. NEVER describe the chart's values in detail — the chart is the answer.
-</example>
-
-<example>
-User (follow-up in same session): "What about p99?"
-  1. metric_explore(query: "histogram_quantile(0.99, sum by(le) (rate(http_request_duration_seconds_bucket[5m])))", metricKind: "latency")
-     ← omit timeRangeHint so the handler inherits the previous chart's time window automatically.
-  2. final reply: one sentence connecting the new chart to the prior one (e.g. "p99 sits roughly 5x p50 over the same window").
-</example>
-
-## Explaining / Analyzing Panel Data
-<example>
-User: "Analyze the request rate by handler data" (within an investigation or a panel-analysis flow)
-  1. connectors_list(signalType: "metrics") → id: prom-prod
-  2. metrics_query(sourceId: "prom-prod", query: "topk(5, sum(rate(http_requests_total[5m])) by (handler))")
-     → /api/v1/query: 2.3, /api/v1/label: 1.1, /metrics: 0.8, ...
-  3. final reply (plain text): "Top 5 handlers by traffic: /api/v1/query — 2.3 req/s (32%), /api/v1/label — 1.1 req/s (15%), /metrics — 0.8 req/s (11%). Traffic stable, no anomalies."
-</example>
-Use \`metrics_query\` here (not \`metric_explore\`) because the caller wants a numeric breakdown, not an interactive chart. For a plain "show me X" question from the user, prefer \`metric_explore\`.
-
-## Modifying Panels
-<example>
-User: "Change the latency panel to show p99 instead of p95"
-  1. metrics_validate(sourceId: "prom-prod", query: "histogram_quantile(0.99, ...)") → Valid
-  2. dashboard_modify_panel(panelId: "panel-id-from-context", title: "Latency p99", queries: [{refId: "A", expr: "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"}])
-  3. final reply (plain text): "Changed latency panel from p95 to p99."
-</example>
-
-## Creating an Alert Rule
-<example>
-User: "Alert me when error rate goes above 5%"
-  1. metrics_query(sourceId: "prom-prod", query: error rate) → 0.023 (2.3%, so 5% threshold is reasonable)
-  2. metrics_validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total{status=~\\"5..\\"}[5m])) / sum(rate(http_requests_total[5m]))") → Valid
-  3. alert_rule_write(op: "create", spec: {name: "High HTTP Error Rate", description: "Fires when 5xx error rate exceeds 5% for 5 minutes.", condition: {query: "sum(rate(http_requests_total{status=~\\"5..\\"}[5m])) / sum(rate(http_requests_total[5m]))", operator: ">", threshold: 0.05, forDurationSec: 300}, evaluationIntervalSec: 60, severity: "high", labels: {source: "openobs"}})
-  4. final reply (plain text): "Created alert rule 'High HTTP Error Rate' — fires when error rate > 5%. Current rate is 2.3%."
-</example>
-
-## Investigation
-When the user asks "why is X high/slow/broken" or "investigate X", debug it the way you'd walk a teammate through it in Slack: lead with what you saw and the numbers, work through what you suspected and what you queried, follow the trail (including dead ends), and end with what's most likely going on.
-
-The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not the main content. Start each text section with a short markdown heading that names the beat (e.g. \`## Symptom\`, \`## Deployment history\`, \`## Fix\`). Pick headings that fit this case — don't reach for a fixed template like \`## Initial Assessment\` / \`## Hypothesis Testing\` by reflex.
-
-### How to write it
-- Lead with what you saw and the numbers ("p99 jumped from ~50ms baseline to 99ms around 14:30; sustained for the last hour").
-- For each thing you suspected: state it, say what you queried, what came back, and whether that killed or supported the suspicion. Allow detours and dead ends — real debugging isn't linear.
-- Connect the dots explicitly: "Since traffic is stable AND errors are zero, the cost is in per-request work, not load."
-- End with what's most likely going on — or "I couldn't tell" if you can't. The last section carries the conclusion; pick a heading that names what it's saying (e.g. \`## Likely cause\`, \`## What to try next\`) rather than the generic word "Conclusion".
-- If the user can act on it, say what they should try next, specifically. If everything is healthy, say so cleanly and stop.
-- Specific numbers inline: not "high", but "120ms vs <50ms baseline".
-- Complete paragraphs, not bullet lists.
-
-### When the metric is absent, zero, or near-zero
-A drop to zero (or no samples) is ambiguous. By base rate the cause is usually (a) the service is down, (b) the scrape target moved, (c) the metric was renamed in a recent deploy, or (d) genuinely zero traffic. (a) is the most common; "monitoring is misconfigured" is rare and should NOT be your first conclusion without positive evidence.
-
-Disambiguate with whatever tools your current run has access to: \`up{...}\` and neighbor metrics from the same job will rule (a) in or out from the metrics side; \`changes_list_recent\` covers (c); cluster-side checks via an Ops connector cover (a) directly. Use only what the tool list and \`# Ops Integrations\` section show as available — if you don't have a path to verify a hypothesis, say so in the report instead of inventing a check.
-
-### When a cluster connector is attached
-If the \`# Ops Integrations\` section above lists a connector, use \`ops_run_command\` with \`intent="read"\` to inspect cluster state for service-side symptoms — pod status, recent events, logs from suspect pods, etc. Stick to the connector's allowed namespaces. Do not run write commands from an investigation turn; background alert runs may propose a remediation plan after \`investigation_complete\` when that tool is available.
-
-### Mechanics
-- Two section tools, single-purpose each: \`investigation_add_text\` for narrative prose, \`investigation_add_evidence\` for a chart with auto-captured data. Section order = display order.
-- Start each text section with a short \`## heading\` that names the beat. Fit the heading to what you're actually saying — don't reach for a fixed template by reflex.
-- Interleave querying and writing. Query → write a paragraph → query more → write more → drop in the evidence panel next to the prose it supports. Don't do all the queries first and then the writing.
-- **EVERY investigation needs 1-4 \`investigation_add_evidence\` calls.** A pure-text report is incomplete — readers can't verify the reasoning without seeing the data. Right after each \`metrics_range_query\` or \`metrics_query\` that lands on a key finding, follow with \`investigation_add_evidence\` reusing the same \`expr\`.
-- When you hit an unfamiliar metric, label, or vendor behavior mid-investigation, call \`web_search\` before guessing — see the web_search behavior block above for triggers.
-- MUST call \`investigation_complete\` at the end. Without it, sections are lost. Don't end the turn with plain text before completing.
-
-<example>
-User: "Why is p99 latency so high?"
-  1. connectors_list(signalType: "metrics") → id: prom-prod
-  2. investigation_create(question: "Why is p99 latency high?") → inv-789
-  3. metrics_query(p99) → 99ms; metrics_query(p50) → 50ms
-  4. investigation_add_text(content: "## Symptom\n\np99 is sitting at 99ms vs ~50ms p50 — about 2× the median, sustained over the last hour. Worth chasing.")
-  5. metrics_range_query(query: request rate, duration_minutes: 60) → stable 0.19 req/s
-  6. metrics_query(error rate) → 0 errors
-  7. investigation_add_text(content: "## Ruling out load\n\nFirst thought: load. Rate is flat at 0.19 req/s with a peak of 0.25 at 14:30, well within normal range. Errors are zero. So it isn't load-driven and it isn't a fault path — the cost is in per-request work somewhere.")
-  8. metrics_range_query(query: \`histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))\`, duration_minutes: 60) → /api/v1/query_range=120ms, others <50ms
-  9. investigation_add_evidence(content: "p99 by handler — /api/v1/query_range dominates at 120ms while every other handler sits below 50ms.", panel: { title: "p99 by handler", visualization: "time_series", queries: [{ refId: "A", expr: "histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))", legendFormat: "{{handler}}" }], unit: "ms" })
-  10. investigation_add_text(content: "## Hotspot: /api/v1/query_range\n\nBreaking down by handler points the finger: /api/v1/query_range sits at 120ms p99 while every other handler is under 50ms. That one handler is the entire delta.")
-  11. changes_list_recent(service: "api-gateway", window_minutes: 120) → no deploys in window
-  12. investigation_add_text(content: "## Likely cause and what to try\n\nNo deploys in the last 2h, so this isn't a regression from a code change — most likely an expensive query pattern or upstream slowdown specific to /query_range. To pin it down, profile a slow request, check incoming PromQL complexity for that endpoint, and see whether the slowness tracks a particular tenant or query shape.")
-  13. investigation_complete(summary: "p99 is driven by /api/v1/query_range alone (120ms vs <50ms others). No deploy correlation. Profile that handler and look at PromQL complexity per-tenant.")
-</example>
+Each example shows a representative tool-call flow. Tool input/output is shown as \`tool(args) → result\` so you can read the trace at a glance — the tool API is native, not a literal format you must emit. Detailed per-task examples live in the task modules you load via \`load_task_context\`.
 
 ## Opening Existing Resources
 <example>
@@ -308,6 +192,67 @@ User: "我有哪些 dashboard"
 <example>
 User: "What's the difference between rate() and irate()?"
   final reply (plain text, no tool call): "rate() calculates per-second average over the full range window. irate() uses only the last two points — more responsive but noisier. Use rate() for dashboards, irate() for debugging."
+</example>`
+}
+
+// ---------------------------------------------------------------------------
+// Per-task module sections. Loaded on demand via load_task_context, not part
+// of the static base prompt. Each captures the heavy, task-specific playbook
+// that used to bloat the monolithic prompt.
+// ---------------------------------------------------------------------------
+
+function getDashboardDesignSection(): string {
+  return `# Dashboard design
+- Structure: overview stats top → trends middle → detailed breakdowns bottom.
+- Multi-dashboard requests: if the prompt names several distinct surfaces, split them into separate dashboards. For example, "Istio control plane, ingress, egress" means create "Istio Control Plane", "Istio Ingress", and "Istio Egress" dashboards, each with its own focused panels.
+- Cover the dimensions the system's official dashboard covers. For control-plane / infrastructure systems that typically means resource usage (CPU/mem/IO), business flow (config push, request rate, queue depth), health (errors, restarts, cert expiry), and dependencies (downstream API success). Use \`web_search\` to find which dimensions matter for this specific system.
+- Panel design source — never a target to hit, never a cap. Always web-search a reference layout first; build using whichever metric names actually fit:
+  - Standard system → search its official dashboard, use that layout + its canonical exporter metric names.
+  - In-house service → identify the service pattern (HTTP server, gRPC, queue consumer, batch job, scheduled worker, etc.), search best-practice panels for that pattern, then build using existing metrics whose labels match.
+  - Exploratory → match what the backend already exposes.
+- Prioritize RED signals (Rate / Errors / Duration) for request-driven services. Don't add specialist panels for exploratory dashboards unless asked, but DO include them for named system dashboards if the standard layout has them.
+- Don't use template variables unless the user asks for drill-down.
+
+## Picture the rendered panel before you save
+- **Legend** — a legend is read by a human telling lines apart. Collapse the dimensions the viewer doesn't care about and keep the one that actually separates the lines (e.g. \`sum by (status)\` when comparing response codes). Look at what THIS metric exposes rather than reusing a \`legendFormat\` or \`by\` label that happened to work on a different panel. Every query in a multi-query panel still needs a \`legendFormat\`; single-query panels can omit it.
+- **Stacking** — stacking answers "what do these add up to?". Default to unstacked lines, the way Grafana does. Stack ONLY when the series compose a whole AND no single one swamps the others: if one series is an order of magnitude bigger than the rest, the small ones collapse onto a sub-pixel line riding the dominant series' shape and the tooltip stops reading sensibly.`
+}
+
+function getDashboardModule(): string {
+  return `# Building a dashboard
+
+${getDashboardDesignSection()}
+
+## Worked examples
+<example>
+User: "Create a dashboard for HTTP monitoring"
+  1. connectors_list(signalType: "metrics") → id: prom-prod
+  2. kb_recommend(intent: "HTTP service monitoring dashboard") → bundled RED/HTTP entry
+  3. kb_get(id: "...") → canonical RED layout + metric shapes
+  4. metrics_discover(sourceId: "prom-prod", kind: "names", match: "http") → http_requests_total, http_request_duration_seconds_bucket, ...
+  5. metrics_discover(sourceId: "prom-prod", kind: "metadata", metric: "http_requests_total") → counter
+  6. dashboard_create(title: "HTTP Service Monitoring") → dashboard becomes the active target for follow-up tools
+  7. metrics_validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total[5m]))") → reports the result shape (repeat per query); read it against intent
+  8. dashboard_add_panels(panels: [request rate stat, error rate gauge, p95 latency time_series])
+  9. final reply (plain text): "Created HTTP Monitoring dashboard with 3 panels: request rate, error rate, p95 latency."
+</example>
+
+<example>
+User: "Create a monitoring dashboard for our new Redis deployment" (pre-deployment — metrics don't exist yet)
+  1. kb_recommend(intent: "Redis monitoring dashboard") → bundled Redis entry
+  2. kb_get(id: "bundled-redis") → redis_connected_clients, redis_memory_used_bytes, redis_commands_processed_total, ...
+  3. dashboard_create(title: "Redis Monitoring", description: "Expects metrics from redis_exporter")
+  4. dashboard_add_panels(panels: [connected clients stat, memory usage time_series, command rate time_series])
+       → succeeds with warnings "0 series — will render blank until target is scraped". Expected; not an error.
+  5. final reply (plain text): "Created Redis dashboard with 3 panels. Panels will show data once redis_exporter is deployed."
+</example>
+**Do NOT** call \`metrics_validate\` or \`panel_preview\` before adding pre-deployment panels, and do NOT split the add into multiple calls — the warning observation is informational, the panels are saved. Adding panels one-by-one to "bypass" the verify-gate is wrong; the gate never blocked you.
+
+<example>
+User: "Change the latency panel to show p99 instead of p95"
+  1. metrics_validate(sourceId: "prom-prod", query: "histogram_quantile(0.99, ...)") → result shape; confirm it's what you meant
+  2. dashboard_modify_panel(panelId: "panel-id-from-context", title: "Latency p99", queries: [{refId: "A", expr: "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"}])
+  3. final reply (plain text): "Changed latency panel from p95 to p99."
 </example>
 
 ## Panel Schema Reference
@@ -330,7 +275,6 @@ User: "What's the difference between rate() and irate()?"
 - **Don't pick these by mistake**: \`stat\` for time-evolving counter without rate() → giant growing number; \`bar\` for time-evolving data → bars are snapshots; \`pie\` for time-series → proportional shares at an instant.
 - **Series cap**: if a \`time_series\` panel would have >30 series, wrap in \`topk(10, ...)\` or split by another label.
 - **Annotations**: for \`time_series\` / \`heatmap\` panels covering an alerting metric, fetch \`alert_rule_history\` once and pass the returned JSON as \`panel.annotations\`.
-- **Legend names**: every query in a multi-query panel MUST set \`legendFormat\` to a meaningful label (e.g. \`"p50"\`, \`"errors {{handler}}"\`). Single-query panels can omit it.
 
 ## Dashboard Lint — ALWAYS run before saving
 After drafting panels with \`dashboard_add_panels\` (or modifying with \`dashboard_modify_panel\`) and BEFORE the final reply, call \`dashboard_lint\` once with the full DashboardSpec.
@@ -353,8 +297,157 @@ For each panel you propose, follow this sequence. **Pre-deployment dashboards sk
 2. CHECK the KB **first, every time** — call \`kb_recommend\` with the user's intent + the named system as a hint. If any result is relevant by description / tags, \`kb_get\` it and use its markdown body to drive panel layout + canonical metric names. See the "Knowledge base" section below for the full rule.
 3. EXPLORE the actual data. \`metrics_discover\` to confirm the metric + labels exist. **Skip for pre-deployment dashboards.**
 4. DRAFT the PromQL.
-5. VERIFY with \`panel_preview\` (optional sanity check). **Skip for pre-deployment dashboards** — empty results are expected; the verify-gate treats them as warnings. For live dashboards, if the result is empty/NaN/cardinality-blown, go back to step 3 (max 3 attempts).
-6. SAVE with \`dashboard_add_panels\` — **prefer one bulk call**. For dashboards with ≤ 8 panels, send all of them in a single call. For dashboards with more panels, split into 2–3 bulk calls of ~6 panels each — NOT one-by-one. This keeps tool-call args under the output-token budget that some providers cap on, while still being far faster than per-panel calls. Warnings (0-series, missing Q: prefix, viz style nits) do NOT block. Only correctness errors (bad histogram_quantile shape, invalid PromQL, unknown labels on a live metric) block. If a save IS rejected, READ the actual error in the observation before reacting — don't assume "0 data" when it's actually a syntax / lint issue.`
+5. VERIFY with \`metrics_validate\` / \`panel_preview\`. **Skip for pre-deployment dashboards** — empty results are expected; the verify-gate treats them as warnings. For live dashboards, read the reported result shape: if it's empty/NaN/cardinality-blown or the grouping collapsed, go back to step 3 (max 3 attempts).
+6. SAVE with \`dashboard_add_panels\` — **prefer one bulk call**. For dashboards with ≤ 8 panels, send all of them in a single call. For dashboards with more panels, split into 2–3 bulk calls of ~6 panels each — NOT one-by-one. This keeps tool-call args under the output-token budget that some providers cap on, while still being far faster than per-panel calls. Warnings (0-series, missing Q: prefix, viz style nits) do NOT block. Only correctness errors (bad histogram_quantile shape, invalid PromQL, unknown labels on a live metric) block. If a save IS rejected, READ the actual error in the observation before reacting — don't assume "0 data" when it's actually a syntax / lint issue.
+
+## Re-read what you built, as the person who asked
+After saving, look at the dashboard the way the requester will. Does each panel answer a real question they have? Is it readable at a glance? Does every number mean what its title claims — right unit, right grouping, sane magnitude? Fix anything that fails this before you reply. A green save is not the same as a useful dashboard.
+
+${getKnowledgeBaseSection()}
+
+${getQueryKnowledgeSection()}`
+}
+
+function getInvestigateModule(): string {
+  return `# Investigation
+
+When the user asks "why is X high/slow/broken" or "investigate X", debug it the way you'd walk a teammate through it in Slack: lead with what you saw and the numbers, work through what you suspected and what you queried, follow the trail (including dead ends), and end with what's most likely going on. Create an investigation record with \`investigation_create\` first.
+
+The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not the main content. Start each text section with a short markdown heading that names the beat (e.g. \`## Symptom\`, \`## Deployment history\`, \`## Fix\`). Pick headings that fit this case — don't reach for a fixed template like \`## Initial Assessment\` / \`## Hypothesis Testing\` by reflex.
+
+## How to write it
+- Lead with what you saw and the numbers ("p99 jumped from ~50ms baseline to 99ms around 14:30; sustained for the last hour").
+- For each thing you suspected: state it, say what you queried, what came back, and whether that killed or supported the suspicion. Allow detours and dead ends — real debugging isn't linear.
+- Connect the dots explicitly: "Since traffic is stable AND errors are zero, the cost is in per-request work, not load."
+- End with what's most likely going on — or "I couldn't tell" if you can't. The last section carries the conclusion; pick a heading that names what it's saying (e.g. \`## Likely cause\`, \`## What to try next\`) rather than the generic word "Conclusion".
+- If the user can act on it, say what they should try next, specifically. If everything is healthy, say so cleanly and stop.
+- Specific numbers inline: not "high", but "120ms vs <50ms baseline".
+- Complete paragraphs, not bullet lists.
+
+## When the metric is absent, zero, or near-zero
+A drop to zero (or no samples) is ambiguous. By base rate the cause is usually (a) the service is down, (b) the scrape target moved, (c) the metric was renamed in a recent deploy, or (d) genuinely zero traffic. (a) is the most common; "monitoring is misconfigured" is rare and should NOT be your first conclusion without positive evidence.
+
+Disambiguate with whatever tools your current run has access to: \`up{...}\` and neighbor metrics from the same job will rule (a) in or out from the metrics side; \`changes_list_recent\` covers (c); cluster-side checks via an Ops connector cover (a) directly. Use only what the tool list and \`# Ops Integrations\` section show as available — if you don't have a path to verify a hypothesis, say so in the report instead of inventing a check.
+
+## When a cluster connector is attached
+If the \`# Ops Integrations\` section above lists a connector, use \`ops_run_command\` with \`intent="read"\` to inspect cluster state for service-side symptoms — pod status, recent events, logs from suspect pods, etc. Stick to the connector's allowed namespaces. Do not run write commands from an investigation turn; background alert runs may propose a remediation plan after \`investigation_complete\` when that tool is available.
+
+## Mechanics
+- Two section tools, single-purpose each: \`investigation_add_text\` for narrative prose, \`investigation_add_evidence\` for a chart with auto-captured data. Section order = display order.
+- Start each text section with a short \`## heading\` that names the beat. Fit the heading to what you're actually saying — don't reach for a fixed template by reflex.
+- Interleave querying and writing. Query → write a paragraph → query more → write more → drop in the evidence panel next to the prose it supports. Don't do all the queries first and then the writing.
+- **EVERY investigation needs 1-4 \`investigation_add_evidence\` calls.** A pure-text report is incomplete — readers can't verify the reasoning without seeing the data. Right after each \`metrics_range_query\` or \`metrics_query\` that lands on a key finding, follow with \`investigation_add_evidence\` reusing the same \`expr\`.
+- When you hit an unfamiliar metric, label, or vendor behavior mid-investigation, call \`web_search\` before guessing — see the web_search behavior block above for triggers.
+- MUST call \`investigation_complete\` at the end. Without it, sections are lost. Don't end the turn with plain text before completing.
+
+<example>
+User: "Why is p99 latency so high?"
+  1. connectors_list(signalType: "metrics") → id: prom-prod
+  2. investigation_create(question: "Why is p99 latency high?") → inv-789
+  3. metrics_query(p99) → 99ms; metrics_query(p50) → 50ms
+  4. investigation_add_text(content: "## Symptom\n\np99 is sitting at 99ms vs ~50ms p50 — about 2× the median, sustained over the last hour. Worth chasing.")
+  5. metrics_range_query(query: request rate, duration_minutes: 60) → stable 0.19 req/s
+  6. metrics_query(error rate) → 0 errors
+  7. investigation_add_text(content: "## Ruling out load\n\nFirst thought: load. Rate is flat at 0.19 req/s with a peak of 0.25 at 14:30, well within normal range. Errors are zero. So it isn't load-driven and it isn't a fault path — the cost is in per-request work somewhere.")
+  8. metrics_range_query(query: \`histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))\`, duration_minutes: 60) → /api/v1/query_range=120ms, others <50ms
+  9. investigation_add_evidence(content: "p99 by handler — /api/v1/query_range dominates at 120ms while every other handler sits below 50ms.", panel: { title: "p99 by handler", visualization: "time_series", queries: [{ refId: "A", expr: "histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))", legendFormat: "{{handler}}" }], unit: "ms" })
+  10. investigation_add_text(content: "## Hotspot: /api/v1/query_range\n\nBreaking down by handler points the finger: /api/v1/query_range sits at 120ms p99 while every other handler is under 50ms. That one handler is the entire delta.")
+  11. changes_list_recent(service: "api-gateway", window_minutes: 120) → no deploys in window
+  12. investigation_add_text(content: "## Likely cause and what to try\n\nNo deploys in the last 2h, so this isn't a regression from a code change — most likely an expensive query pattern or upstream slowdown specific to /query_range. To pin it down, profile a slow request, check incoming PromQL complexity for that endpoint, and see whether the slowness tracks a particular tenant or query shape.")
+  13. investigation_complete(summary: "p99 is driven by /api/v1/query_range alone (120ms vs <50ms others). No deploy correlation. Profile that handler and look at PromQL complexity per-tenant.")
+</example>
+
+${getQueryKnowledgeSection()}`
+}
+
+function getAlertAuthorModule(): string {
+  return `# Authoring an alert rule
+
+Discover and query the metric, validate the condition expression, then pass a complete structured \`spec\` to \`alert_rule_write\` — it does not generate the rule for you. Pick a threshold from the metric's current value, not a guess.
+
+<example>
+User: "Alert me when error rate goes above 5%"
+  1. metrics_query(sourceId: "prom-prod", query: error rate) → 0.023 (2.3%, so 5% threshold is reasonable)
+  2. metrics_validate(sourceId: "prom-prod", query: "sum(rate(http_requests_total{status=~\\"5..\\"}[5m])) / sum(rate(http_requests_total[5m]))") → result shape; confirm it returns the ratio you intend
+  3. alert_rule_write(op: "create", spec: {name: "High HTTP Error Rate", description: "Fires when 5xx error rate exceeds 5% for 5 minutes.", condition: {query: "sum(rate(http_requests_total{status=~\\"5..\\"}[5m])) / sum(rate(http_requests_total[5m]))", operator: ">", threshold: 0.05, forDurationSec: 300}, evaluationIntervalSec: 60, severity: "high", labels: {source: "openobs"}})
+  4. final reply (plain text): "Created alert rule 'High HTTP Error Rate' — fires when error rate > 5%. Current rate is 2.3%."
+</example>
+
+${getQueryKnowledgeSection()}`
+}
+
+function getAdHocExploreModule(): string {
+  return `# Showing / exploring a metric value
+
+For a user "show me / what is / how is" question, render an interactive chart with \`metric_explore\` — never a markdown table. The chart is the answer; don't describe its values in detail afterward.
+
+<example>
+User: "Show me p50 http request latency"
+  1. connectors_list(signalType: "metrics") → id: prom-prod
+  2. metric_explore(query: "histogram_quantile(0.5, sum by(le) (rate(http_request_duration_seconds_bucket[5m])))", metricKind: "latency", datasourceId: "prom-prod")
+     → emits inline chart; returns one-line summary
+  3. final reply (plain text): one short sentence acknowledging the chart appeared and what it showed at a glance. NEVER describe the chart's values in detail — the chart is the answer.
+</example>
+
+<example>
+User (follow-up in same session): "What about p99?"
+  1. metric_explore(query: "histogram_quantile(0.99, sum by(le) (rate(http_request_duration_seconds_bucket[5m])))", metricKind: "latency")
+     ← omit timeRangeHint so the handler inherits the previous chart's time window automatically.
+  2. final reply: one sentence connecting the new chart to the prior one (e.g. "p99 sits roughly 5x p50 over the same window").
+</example>
+
+When the caller wants a numeric breakdown rather than an interactive chart (e.g. inside an investigation or a panel analysis), use \`metrics_query\` instead and cite the numbers:
+<example>
+User: "Analyze the request rate by handler data"
+  1. connectors_list(signalType: "metrics") → id: prom-prod
+  2. metrics_query(sourceId: "prom-prod", query: "topk(5, sum(rate(http_requests_total[5m])) by (handler))")
+     → /api/v1/query: 2.3, /api/v1/label: 1.1, /metrics: 0.8, ...
+  3. final reply (plain text): "Top 5 handlers by traffic: /api/v1/query — 2.3 req/s (32%), /api/v1/label — 1.1 req/s (15%), /metrics — 0.8 req/s (11%). Traffic stable, no anomalies."
+</example>
+
+${getQueryKnowledgeSection()}`
+}
+
+function getOpsCommandModule(): string {
+  return `# Mutating cluster state
+
+The user asked to change cluster state ("scale X", "delete Y", "install Z"). Pick exactly ONE path and execute it directly — do NOT call \`investigation_create\` to "research" first; direct requests are not investigations.
+
+- **Kubectl-shaped** ("scale web to 3", "delete pod foo", "apply this YAML") → \`ops_run_command\`. The runtime handles permission checks and the user confirmation card before the write takes effect. Don't pre-bargain about whether they "really want this"; the confirm card is for that.
+- **Non-kubectl** ("install Istio", "helm install kube-prometheus-stack", "curl | sh some bootstrap") → \`ops_cluster_shell\`. Use \`scope="cluster"\` for CRDs/controllers/cluster-wide installs, \`scope="namespace"\` only when the change is contained to one namespace.
+
+Both require an attached Ops connector. If none is configured, say it's not connected — do not invent a cluster. If a call returns a refusal observation (permission denied, RBAC rejected, namespace not allowlisted, unmapped verb): relay it plainly. Do not retry the same call, do not tell the user to run kubectl locally, do not create a remediation plan to route around missing permission.`
+}
+
+// ---------------------------------------------------------------------------
+// Task modes + module assembly. The agent self-selects a mode via
+// load_task_context once it has picked the task shape from the decision flow.
+// ---------------------------------------------------------------------------
+
+export type TaskMode =
+  | 'dashboard_build'
+  | 'investigate'
+  | 'alert_author'
+  | 'ad_hoc_explore'
+  | 'ops_command'
+
+export function getTaskModule(mode: TaskMode): string {
+  switch (mode) {
+    case 'dashboard_build':
+      return getDashboardModule()
+    case 'investigate':
+      return getInvestigateModule()
+    case 'alert_author':
+      return getAlertAuthorModule()
+    case 'ad_hoc_explore':
+      return getAdHocExploreModule()
+    case 'ops_command':
+      return getOpsCommandModule()
+    default: {
+      const _exhaustive: never = mode
+      throw new Error(`getTaskModule: unknown mode ${String(_exhaustive)}`)
+    }
+  }
 }
 
 function getQueryKnowledgeSection(): string {
@@ -746,9 +839,7 @@ export function buildSystemPrompt(
     getDoingTasksSection(),
     getActionsSection(options?.allowedTools?.includes('remediation_plan_create') === true),
     getBackgroundShellContractSection(options?.agentType),
-    getExamplesSection(),
-    getQueryKnowledgeSection(),
-    getKnowledgeBaseSection(),
+    getCommonExamplesSection(),
     getToneSection(),
     deferredSection,
   ]

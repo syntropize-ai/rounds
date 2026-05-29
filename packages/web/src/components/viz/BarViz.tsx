@@ -18,7 +18,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatValueForDisplay } from '../../lib/format/index.js';
 import {
   VIZ_TOKENS,
-  getSeriesColorByKey,
+  getSeriesColor,
   resolveThresholdColor,
   type Threshold,
 } from '../../lib/theme/index.js';
@@ -105,12 +105,12 @@ function prepareItems(
   const cap = Math.max(0, maxItems);
   const clipped = sorted.slice(0, cap);
   const overflowCount = Math.max(0, sorted.length - cap);
-  const prepared = clipped.map((it) => ({
+  const prepared = clipped.map((it, idx) => ({
     ...it,
     displayLabel: truncate(it.label, LABEL_CHAR_BUDGET),
     fill:
       it.color ??
-      resolveThresholdColor(it.value, thresholds, getSeriesColorByKey(it.label)),
+      resolveThresholdColor(it.value, thresholds, getSeriesColor(idx)),
   }));
   return { prepared, overflowCount };
 }

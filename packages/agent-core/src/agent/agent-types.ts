@@ -55,6 +55,8 @@ export type AgentToolName =
   | 'verifier.run'
   // Lazy tool loading (fetches deferred-tool schemas on demand)
   | 'tool_search'
+  // Observation pager handled inside ReActLoop
+  | 'read_observation'
   // On-demand task-context module loading (splits the system prompt)
   | 'load_task_context'
   // Clarifying question — terminal tool handled inside ReActLoop

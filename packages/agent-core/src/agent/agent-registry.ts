@@ -80,6 +80,8 @@ agentRegistry.register({
     'setting_get', 'setting_set',
     // Lazy tool loading — fetches deferred schemas on demand
     'tool_search',
+    // Observation pager — lets the agent read full text for truncated results
+    'read_observation',
     // On-demand task-context module loading — splits the system prompt
     'load_task_context',
     // Clarifying question — terminal tool handled inside ReActLoop

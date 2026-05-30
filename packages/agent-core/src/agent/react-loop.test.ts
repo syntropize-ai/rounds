@@ -5,6 +5,7 @@ import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
 const ALLOWED_TOOLS = [
   'ask_user',
   'tool_search',
+  'read_observation',
   'dashboard_modify_panel',
   'metrics_query',
   'ops_run_command',
@@ -295,5 +296,83 @@ describe('ReActLoop', () => {
     const secondToolNames = (gateway.complete.mock.calls[1]![1].tools as Array<{ name: string }>)
       .map((t) => t.name)
     expect(secondToolNames).toContain('metrics_query')
+  })
+
+  it('renders over-budget observations as head and tail with a read_observation pager', () => {
+    const loop = new ReActLoop({
+      gateway: {} as any,
+      model: 'test-model',
+      sendEvent: vi.fn(),
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+    })
+
+    const longResult = `HEAD-${'a'.repeat(30_500)}-TAIL`
+    const messages = loop.buildMessages('system', 'user', [{
+      action: 'ops_run_command',
+      args: { command: 'kubectl describe pod api' },
+      result: longResult,
+      toolUseId: 'call_1',
+      batchId: 0,
+    }])
+
+    const last = messages[messages.length - 1]!.content as Array<{ content?: string }>
+    const text = last[0]!.content!
+    expect(text).toContain('HEAD-')
+    expect(text).toContain('-TAIL')
+    expect(text).toMatch(/read_observation\{ref:"obs_1", offset:\d+\}/)
+    expect(text).toMatch(/of \d+ chars total/)
+  })
+
+  it('read_observation returns a hidden middle slice from a truncated observation', async () => {
+    const sendEvent = vi.fn()
+    const hiddenMarker = 'MIDDLE_MARKER_ONLY_IN_HIDDEN_SLICE'
+    const longResult = `HEAD-${'a'.repeat(21_100)}${hiddenMarker}${'b'.repeat(9_500)}-TAIL`
+    const gateway = {
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_1',
+              name: 'ops_run_command',
+              input: { command: 'kubectl get events -A' },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_2',
+              name: 'read_observation',
+              input: { ref: 'obs_1', offset: 21_000, length: 500 },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: 'Found the hidden marker.',
+          toolCalls: [],
+        }),
+    } as any
+    const executeAction = vi.fn().mockResolvedValue(longResult)
+
+    const loop = new ReActLoop({
+      gateway,
+      model: 'test-model',
+      sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+    })
+
+    const result = await loop.runLoop('system', 'find marker', executeAction)
+
+    expect(result).toBe('Found the hidden marker.')
+    const thirdMessages = gateway.complete.mock.calls[2]![0]
+    const serialized = JSON.stringify(thirdMessages)
+    expect(serialized).toContain(hiddenMarker)
+    expect(executeAction).toHaveBeenCalledTimes(1)
   })
 })

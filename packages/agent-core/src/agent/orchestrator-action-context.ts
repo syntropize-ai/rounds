@@ -91,7 +91,8 @@ export interface OrchestratorActionRuntime {
     resourceId: string,
   ): void;
   investigationSections: Map<string, InvestigationReportSection[]>;
-  investigationProvenance: Map<string, Provenance & { startedAt?: number }>;
+  investigationProvenance: Map<string, Provenance & { startedAt?: number; verifierBounces?: number }>;
+  runVerifier?: ActionContext['runVerifier'];
   /**
    * Mutable holder for the session's active investigation id. The agent
    * owns the underlying state; the ctx exposes a getter/setter that reads
@@ -145,6 +146,7 @@ export function buildActionContext(
     pushConversationAction: runtime.pushConversationAction,
     setNavigateTo: runtime.setNavigateTo,
     recordCreatedResource: runtime.recordCreatedResource,
+    runVerifier: runtime.runVerifier,
     investigationSections: runtime.investigationSections,
     investigationProvenance: runtime.investigationProvenance,
     get activeInvestigationId() { return invRef.current; },

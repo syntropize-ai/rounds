@@ -29,6 +29,13 @@ import { makeFakeActionContext } from './_test-helpers.js';
 import { AdapterRegistry } from '../../adapters/registry.js';
 import type { IMetricsAdapter } from '../../adapters/metrics-adapter.js';
 
+const COMPLETE_ARGS = {
+  summary: 'CPU saturation drove request latency for the api workload.',
+  rootCause: 'The api pods were CPU throttled because the deployed CPU limit was too low for current traffic.',
+  verifiedBy: 'CPU throttling rose with latency while request rate stayed stable, which is inconsistent with load growth alone.',
+  ruledOut: 'Traffic surge was ruled out by flat request rate; deploy timing was checked against recent changes.',
+};
+
 function investigationStore(workspaceId = 'test-org') {
   const investigation: Investigation = {
     id: 'inv_1',
@@ -71,7 +78,7 @@ describe('investigation handlers', () => {
     });
     // ctx.activeInvestigationId defaults to null
 
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    const result = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
 
     expect(result).toContain('no active investigation');
     expect(store.findById).not.toHaveBeenCalled();
@@ -88,7 +95,7 @@ describe('investigation handlers', () => {
       activeInvestigationId: 'inv_1',
     });
 
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    const result = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
 
     expect(result).toContain('was not found');
     expect(reportStore.save).not.toHaveBeenCalled();
@@ -105,7 +112,7 @@ describe('investigation handlers', () => {
       activeInvestigationId: 'inv_1',
     });
 
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    const result = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
 
     expect(result).toContain('report saved');
     expect(reportStore.save).toHaveBeenCalledOnce();
@@ -310,7 +317,7 @@ describe('investigation handlers', () => {
     expect(ctxFields.errorClass).toBe('Error');
 
     // Investigation still completes — capture failure is non-fatal.
-    const finishResult = await handleInvestigationComplete(ctx, { summary: 'done' });
+    const finishResult = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
     expect(finishResult).toContain('report saved');
     expect(reportStore.save).toHaveBeenCalledOnce();
   });
@@ -349,7 +356,7 @@ describe('investigation handlers', () => {
     });
 
     warnSpy.mockClear();
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    const result = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
 
     // Report saved regardless of status-update outcome.
     expect(result).toContain('report saved');
@@ -402,7 +409,7 @@ describe('investigation handlers', () => {
       type: 'text',
       content: 'Spike [m1].',
     });
-    await handleInvestigationComplete(ctx, { summary: 'CPU saturation' });
+    await handleInvestigationComplete(ctx, COMPLETE_ARGS);
 
     expect(reportStore.save).toHaveBeenCalledOnce();
     const saved = (reportStore.save.mock.calls[0] ?? [])[0];
@@ -419,5 +426,71 @@ describe('investigation handlers', () => {
     expect(saved.provenance.startedAt).toBeUndefined();
     // Provenance map is cleaned up after persistence.
     expect(ctx.investigationProvenance.has('inv_p2')).toBe(false);
+  });
+
+  it('bounces completion when verifier refutes the proposed root cause', async () => {
+    const store = investigationStore();
+    const reportStore = { save: vi.fn() };
+    const runVerifier = vi.fn().mockResolvedValue({
+      verdict: 'REFUTED',
+      reason: 'Peer pod on the same node is healthy, so the node-level cause has wrong scope.',
+    });
+    const ctx = makeFakeActionContext({
+      investigationStore: store,
+      investigationReportStore: reportStore,
+      activeInvestigationId: 'inv_1',
+      runVerifier,
+    });
+    ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' });
+
+    const result = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
+
+    expect(result).toContain('independent verifier refuted');
+    expect(runVerifier).toHaveBeenCalledOnce();
+    expect(reportStore.save).not.toHaveBeenCalled();
+    expect(ctx.activeInvestigationId).toBe('inv_1');
+    expect(ctx.investigationProvenance.get('inv_1')?.verifierBounces).toBe(1);
+  });
+
+  it('completes with an unresolved verification section after verifier bounce budget is exhausted', async () => {
+    const store = investigationStore();
+    const reportStore = { save: vi.fn() };
+    const runVerifier = vi.fn().mockResolvedValue({
+      verdict: 'REFUTED',
+      reason: 'The stated cause is a symptom of an unhealthy sidecar.',
+    });
+    const ctx = makeFakeActionContext({
+      investigationStore: store,
+      investigationReportStore: reportStore,
+      activeInvestigationId: 'inv_1',
+      runVerifier,
+    });
+    ctx.investigationProvenance.set('inv_1', { runId: 'inv_1', verifierBounces: 2 });
+
+    const result = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
+
+    expect(result).toContain('report saved');
+    const saved = (reportStore.save.mock.calls[0] ?? [])[0];
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('## Unresolved verification'))).toBe(true);
+    expect(saved.provenance.verifierBounces).toBeUndefined();
+  });
+
+  it('completes normally when verifier holds the proposed root cause', async () => {
+    const store = investigationStore();
+    const reportStore = { save: vi.fn() };
+    const runVerifier = vi.fn().mockResolvedValue({ verdict: 'HOLDS', reason: 'Checked a peer.' });
+    const ctx = makeFakeActionContext({
+      investigationStore: store,
+      investigationReportStore: reportStore,
+      activeInvestigationId: 'inv_1',
+      runVerifier,
+    });
+    ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' });
+
+    const result = await handleInvestigationComplete(ctx, COMPLETE_ARGS);
+
+    expect(result).toContain('report saved');
+    expect(runVerifier).toHaveBeenCalledOnce();
+    expect(reportStore.save).toHaveBeenCalledOnce();
   });
 });

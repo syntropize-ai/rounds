@@ -36,6 +36,7 @@ import type { GithubToolRunner } from '../agent-types.js';
 import type { IAccessControlService } from '../types-permissions.js';
 import type { IPanelEventRepository } from '../panel-event-recorder.js';
 import type { IPendingChangeRepository } from '@agentic-obs/data-layer';
+import type { ProposedConclusion, Verdict } from '../verifier-prompt.js';
 
 /** Shared context passed to every action handler. */
 export interface ActionContext {
@@ -172,6 +173,8 @@ export interface ActionContext {
     resourceId: string,
   ): void;
 
+  runVerifier?: (conclusion: ProposedConclusion) => Promise<{ verdict: Verdict; reason: string }>;
+
   /**
    * Per-session accumulator for investigation report sections. Lives on the
    * orchestrator instance (one map per session) — previously a module-level
@@ -188,7 +191,7 @@ export interface ActionContext {
    * it needs cost. Optional shape mirrors `Provenance` so the UI degrades when
    * fields are missing.
    */
-  investigationProvenance: Map<string, Provenance & { startedAt?: number }>;
+  investigationProvenance: Map<string, Provenance & { startedAt?: number; verifierBounces?: number }>;
   /**
    * Active investigation id for this session. Set by `investigation_create`,
    * cleared by `investigation_complete`. `add_section` and `complete` read

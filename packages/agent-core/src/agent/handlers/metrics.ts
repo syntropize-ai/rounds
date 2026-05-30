@@ -9,6 +9,10 @@ function unknownMetricsSource(sourceId: string): string {
   return `Error: unknown metrics connector '${sourceId}'. Call connectors_list to see available sources.`;
 }
 
+function moreSeriesHint(count: number): string {
+  return `\n... and ${count} more series - aggregate the query (sum/avg by a label) if you need the whole series back`;
+}
+
 // TODO: migrate to withToolEventBoundary
 export async function handleMetricsQuery(ctx: ActionContext, args: Record<string, unknown>): Promise<string> {
   const sourceId = String(args.sourceId ?? '');
@@ -28,10 +32,10 @@ export async function handleMetricsQuery(ctx: ActionContext, args: Record<string
     const results = await adapter.instantQuery(expr, time);
     const summary = results.length === 0
       ? 'Query returned no data.'
-      : results.slice(0, 20).map((s) => {
+      : results.slice(0, 200).map((s) => {
           const labelStr = Object.entries(s.labels).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}="${v}"`).join(', ');
           return `${labelStr || s.labels.__name__ || 'series'}: ${s.value}`;
-        }).join('\n') + (results.length > 20 ? `\n... and ${results.length - 20} more series` : '');
+        }).join('\n') + (results.length > 200 ? moreSeriesHint(results.length - 200) : '');
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: `${results.length} series returned` });
     return summary;
   } catch (err) {
@@ -68,11 +72,11 @@ export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<s
     const results = await adapter.rangeQuery(expr, start, end, step);
     const summary = results.length === 0
       ? 'Range query returned no data.'
-      : results.slice(0, 10).map((r) => {
+      : results.slice(0, 100).map((r) => {
           const labelStr = Object.entries(r.metric).filter(([k]) => k !== '__name__').map(([k, v]) => `${k}="${v}"`).join(', ');
           const lastVal = r.values.length > 0 ? r.values[r.values.length - 1]![1] : 'N/A';
           return `${labelStr || r.metric.__name__ || 'series'}: ${r.values.length} points, latest=${lastVal}`;
-        }).join('\n') + (results.length > 10 ? `\n... and ${results.length - 10} more series` : '');
+        }).join('\n') + (results.length > 100 ? moreSeriesHint(results.length - 100) : '');
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: `${results.length} series returned` });
     return summary;
   } catch (err) {
@@ -113,14 +117,14 @@ async function discoverLabelValues(adapter: MetricsAdapter, label: string): Prom
   const values = await adapter.listLabelValues(label);
   return values.length === 0
     ? `No values found for label "${label}".`
-    : values.slice(0, 50).join(', ') + (values.length > 50 ? ` ... and ${values.length - 50} more` : '');
+    : values.slice(0, 100).join(', ') + (values.length > 100 ? ` ... and ${values.length - 100} more values - refine the label selector if you need all values` : '');
 }
 
 async function discoverSeries(adapter: MetricsAdapter, patterns: string[]): Promise<string> {
   const series = await adapter.findSeries(patterns);
   return series.length === 0
     ? 'No series matched.'
-    : series.slice(0, 50).join('\n') + (series.length > 50 ? `\n... and ${series.length - 50} more` : '');
+    : series.slice(0, 200).join('\n') + (series.length > 200 ? moreSeriesHint(series.length - 200) : '');
 }
 
 async function discoverMetadata(adapter: MetricsAdapter, metrics: string[] | undefined): Promise<string> {
@@ -128,11 +132,11 @@ async function discoverMetadata(adapter: MetricsAdapter, metrics: string[] | und
   const entries = Object.entries(metadata);
   return entries.length === 0
     ? 'No metadata available.'
-    : entries.slice(0, 30).map(([name, m]) => {
+    : entries.slice(0, 150).map(([name, m]) => {
         const fields = [m.type, m.unit ? `unit=${m.unit}` : ''].filter(Boolean).join(', ');
         return `${name} (${fields}): ${m.help}`;
       }).join('\n')
-      + (entries.length > 30 ? `\n... and ${entries.length - 30} more` : '');
+      + (entries.length > 150 ? `\n... and ${entries.length - 150} more metric names - refine the filter if you need all names` : '');
 }
 
 async function discoverNames(adapter: MetricsAdapter, filter: string | undefined): Promise<string> {

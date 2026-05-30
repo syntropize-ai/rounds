@@ -5,7 +5,7 @@ import type { ActionContext } from './_context.js';
 // concrete adapter through `ctx.adapters.logs(sourceId)`.
 // ---------------------------------------------------------------------------
 
-const LOGS_QUERY_MAX_CHARS = 2000;
+const LOGS_QUERY_MAX_CHARS = 16000;
 
 function unknownLogsSource(sourceId: string): string {
   return `Error: unknown logs connector '${sourceId}'. Call connectors_list to see available sources.`;

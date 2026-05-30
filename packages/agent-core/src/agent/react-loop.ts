@@ -38,8 +38,20 @@ const MAX_ITERATIONS = 200
 const TOKEN_BUDGET_TOKENS = Math.floor(CONTEXT_WINDOW * 0.95)
 /** Keep the last N observations in full; older ones are summarized to save context. */
 const OBSERVATION_KEEP_RECENT = 6
+const OBSERVATION_OLDER_PREVIEW_CHARS = 120
+const OBSERVATION_HEAD_FRACTION = 0.7
+
+function clampEnvInt(name: string, dflt: number, max: number): number {
+  const raw = process.env[name]
+  if (raw) {
+    const n = parseInt(raw, 10)
+    if (Number.isFinite(n) && n > 0) return Math.min(n, max)
+  }
+  return dflt
+}
+
 /** Truncate individual observation text to this many characters. */
-const OBSERVATION_MAX_CHARS = 2000
+const OBSERVATION_MAX_CHARS = clampEnvInt('ROUNDS_OBSERVATION_MAX_CHARS', 30_000, 150_000)
 
 /**
  * Default effort for extended thinking. Medium gives Claude/o1/Gemini-2.5
@@ -77,6 +89,24 @@ const TERMINAL_ACTIONS = new Set(['ask_user'])
  * without going through the per-tool dispatcher.
  */
 const TOOL_SEARCH_ACTION = 'tool_search'
+const READ_OBSERVATION_ACTION = 'read_observation'
+
+function renderObservationSlice(text: string, ref: string, budget: number, older: boolean): string {
+  if (older && text.length <= OBSERVATION_OLDER_PREVIEW_CHARS) {
+    return `[Earlier ${ref}]\n${text}`
+  }
+  if (text.length <= budget) return text
+
+  const head = Math.max(0, Math.floor(budget * OBSERVATION_HEAD_FRACTION))
+  const tail = Math.max(0, budget - head)
+  const hidden = Math.max(0, text.length - head - tail)
+  const pager = older
+    ? `read_observation{ref:"${ref}"} for the full text`
+    : `read_observation{ref:"${ref}", offset:${head}} to page the hidden middle`
+  const prefix = older ? `[Earlier ${ref} - head+tail of ${text.length}]\n` : ''
+  const notice = `\n... [${hidden} chars hidden of ${text.length} chars total; ${pager}. If you need the hidden part, prefer re-running this SCOPED (-n <ns> / grep / --tail / -o jsonpath) so the result fits.] ...\n`
+  return `${prefix}${text.slice(0, head)}${notice}${tail > 0 ? text.slice(text.length - tail) : ''}`
+}
 
 /**
  * Classify gateway HTTP failures so the loop can bail out with a user-facing
@@ -297,8 +327,9 @@ export class ReActLoop {
       // LLM stops emitting terminal actions on its own. Estimated, not exact,
       // so leave headroom (TOKEN_BUDGET_TOKENS < CONTEXT_WINDOW).
       const estimatedTokens = estimateMessagesTokens(messages)
-      if (estimatedTokens > TOKEN_BUDGET_TOKENS) {
-        log.warn({ step: i, estimatedTokens, budget: TOKEN_BUDGET_TOKENS }, 'token budget exhausted — ending loop')
+      const tokenBudget = this.deps.maxTokenBudget ?? TOKEN_BUDGET_TOKENS
+      if (estimatedTokens > tokenBudget) {
+        log.warn({ step: i, estimatedTokens, budget: tokenBudget }, 'token budget exhausted — ending loop')
         const reply = `I've worked through ${i} step${i === 1 ? '' : 's'} on this task, but the conversation has grown past the context budget. Here's a summary of where I am so far — ask me a focused follow-up if you need more detail.`
         this.deps.sendEvent({ type: 'reply', content: reply })
         return reply
@@ -524,6 +555,26 @@ export class ReActLoop {
             success: !result.error,
           })
           observationText = result.observation
+        } else if (action === READ_OBSERVATION_ACTION) {
+          const ref = typeof args.ref === 'string' ? args.ref : ''
+          const match = ref.match(/^obs_(\d+)$/)
+          const index = match ? Number(match[1]) - 1 : -1
+          const offsetRaw = typeof args.offset === 'number' ? args.offset : Number(args.offset ?? 0)
+          const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0
+          const lengthRaw = typeof args.length === 'number' ? args.length : Number(args.length ?? OBSERVATION_MAX_CHARS)
+          const length = Number.isFinite(lengthRaw) && lengthRaw > 0
+            ? Math.min(Math.floor(lengthRaw), OBSERVATION_MAX_CHARS)
+            : OBSERVATION_MAX_CHARS
+          const source = observations[index]
+          observationText = source
+            ? `[${ref} chars ${offset}-${Math.min(source.result.length, offset + length)} of ${source.result.length}]\n${source.result.slice(offset, offset + length)}`
+            : `Error: unknown observation ref "${ref}". Available refs: ${observations.map((_, idx) => `obs_${idx + 1}`).join(', ') || '(none)'}.`
+          this.deps.sendEvent({
+            type: 'tool_result',
+            tool: READ_OBSERVATION_ACTION,
+            summary: source ? `Read ${ref}` : observationText,
+            success: Boolean(source),
+          })
         } else {
           observationText = await executeAction(step)
         }
@@ -625,6 +676,7 @@ export class ReActLoop {
 
     let observationIndex = 0
     for (const batch of batches) {
+      const batchStartIndex = observationIndex
       const isOlder = observationIndex + batch.length <= cutoff
       observationIndex += batch.length
 
@@ -651,13 +703,15 @@ export class ReActLoop {
 
       // User turn: one tool_result block per call, paired by tool_use_id.
       const userBlocks: ContentBlock[] = []
-      for (const obs of batch) {
+      for (let obsInBatch = 0; obsInBatch < batch.length; obsInBatch++) {
+        const obs = batch[obsInBatch]!
         const id = obs.toolUseId ?? `replay_${observationIndex - batch.length + userBlocks.length + 1}_${obs.action}`
         let resultText = obs.result
+        const ref = `obs_${batchStartIndex + obsInBatch + 1}`
         if (isOlder) {
-          resultText = `[Earlier] ${obs.result.slice(0, 120)}${obs.result.length > 120 ? '...' : ''}`
+          resultText = renderObservationSlice(obs.result, ref, OBSERVATION_OLDER_PREVIEW_CHARS, true)
         } else if (resultText.length > OBSERVATION_MAX_CHARS) {
-          resultText = resultText.slice(0, OBSERVATION_MAX_CHARS) + `\n... (truncated, ${resultText.length} chars total)`
+          resultText = renderObservationSlice(resultText, ref, OBSERVATION_MAX_CHARS, false)
         }
         userBlocks.push({
           type: 'tool_result',

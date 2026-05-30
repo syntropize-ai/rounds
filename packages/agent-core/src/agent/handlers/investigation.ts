@@ -13,6 +13,8 @@ import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { panelSize } from '../layout-engine.js';
 
 const log = createLogger('investigation-provenance');
+const RIGOR_MIN_CHARS = 24;
+const MAX_VERIFIER_BOUNCES = 2;
 
 /**
  * Match inline evidence citations like `[m1]`, `[l2]`, `[k3]`, `[c1]` —
@@ -28,6 +30,37 @@ const KIND_BY_PREFIX: Record<string, Citation['kind']> = {
   k: 'k8s',
   c: 'change',
 };
+
+function normalizeForCompare(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function checkInvestigationRigor(
+  summary: string,
+  rootCause: string,
+  verifiedBy: string,
+  ruledOut: string,
+): string | null {
+  const fields = [
+    ['rootCause', rootCause],
+    ['verifiedBy', verifiedBy],
+    ['ruledOut', ruledOut],
+  ] as const;
+  const short = fields
+    .filter(([, value]) => value.trim().length < RIGOR_MIN_CHARS)
+    .map(([name]) => name);
+  if (short.length > 0) {
+    return `Investigation not completed - ${short.join(', ')} must be specific. Provide the mechanism, discriminating evidence, and alternatives ruled out before completing.`;
+  }
+  const normalizedSummary = normalizeForCompare(summary);
+  if (
+    normalizeForCompare(rootCause) === normalizedSummary ||
+    normalizeForCompare(verifiedBy) === normalizedSummary
+  ) {
+    return 'Investigation not completed - rootCause and verifiedBy must not just restate the summary. Name the causal mechanism and the evidence that would have been different if it were wrong.';
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Investigation lifecycle
@@ -362,6 +395,12 @@ export async function handleInvestigationComplete(
   }
   const summary = String(args.summary ?? '');
   if (!summary) return 'Error: "summary" is required.';
+  const rootCause = String(args.rootCause ?? '');
+  if (!rootCause) return 'Error: "rootCause" is required.';
+  const verifiedBy = String(args.verifiedBy ?? '');
+  if (!verifiedBy) return 'Error: "verifiedBy" is required.';
+  const ruledOut = String(args.ruledOut ?? '');
+  if (!ruledOut) return 'Error: "ruledOut" is required.';
 
   return withToolEventBoundary(
     ctx.sendEvent,
@@ -381,7 +420,65 @@ export async function handleInvestigationComplete(
         return `Error: investigation "${investigationId}" was not found.`;
       }
 
+      const rigorFailure = checkInvestigationRigor(summary, rootCause, verifiedBy, ruledOut);
+      if (rigorFailure) return rigorFailure;
+
+      const provForGate = ctx.investigationProvenance.get(investigationId);
+      let unresolvedRefutation: string | null = null;
+      if (ctx.runVerifier && provForGate) {
+        const { verdict, reason } = await ctx.runVerifier({
+          summary,
+          rootCause,
+          verifiedBy,
+          ruledOut,
+        });
+        if (verdict === 'REFUTED') {
+          const bounces = provForGate.verifierBounces ?? 0;
+          if (bounces < MAX_VERIFIER_BOUNCES) {
+            provForGate.verifierBounces = bounces + 1;
+            log.warn(
+              { investigationId, bounces: provForGate.verifierBounces },
+              'investigation_complete refuted by verifier',
+            );
+            return [
+              'Investigation not completed - an independent verifier refuted your root cause.',
+              reason,
+              'Address it: either revise rootCause to the deeper/correct cause, or run the observation that resolves it, then call investigation_complete again.',
+            ].filter(Boolean).join('\n\n');
+          }
+          unresolvedRefutation = reason;
+          log.warn(
+            { investigationId, bounces },
+            'verifier budget exhausted; completing with unresolved caveat',
+          );
+        }
+      }
+
       const sections = ctx.investigationSections.get(investigationId) ?? [];
+      sections.push({
+        type: 'text',
+        content: [
+          '## Root cause check',
+          '',
+          `**Root cause:** ${rootCause}`,
+          '',
+          `**Verified by:** ${verifiedBy}`,
+          '',
+          `**Ruled out:** ${ruledOut}`,
+        ].join('\n'),
+      });
+      if (unresolvedRefutation) {
+        sections.push({
+          type: 'text',
+          content: [
+            '## Unresolved verification',
+            '',
+            'The independent verifier still refuted this root-cause claim after the retry budget was exhausted. Treat the conclusion as provisional until this contradiction is resolved.',
+            '',
+            unresolvedRefutation,
+          ].join('\n'),
+        });
+      }
 
       // Finalise provenance: copy out a clean Provenance (drop `startedAt`
       // bookkeeping field) and compute end-to-end latency. Cost is left
@@ -389,7 +486,7 @@ export async function handleInvestigationComplete(
       const provState = ctx.investigationProvenance.get(investigationId);
       let finalProvenance: Provenance | undefined;
       if (provState) {
-        const { startedAt, ...rest } = provState;
+        const { startedAt, verifierBounces, ...rest } = provState;
         finalProvenance = {
           ...rest,
           ...(startedAt ? { latencyMs: Date.now() - startedAt } : {}),

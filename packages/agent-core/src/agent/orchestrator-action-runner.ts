@@ -275,6 +275,9 @@ async function dispatchAction(
     // without round-tripping through the dispatcher. Listed here as a
     // no-op fallback so an out-of-loop caller doesn't see it as unknown.
     case 'tool_search': return null;
+    // Intercepted by ReActLoop before dispatch; fallback keeps the catalog
+    // total for tests / out-of-loop callers.
+    case 'read_observation': return null;
     case 'load_task_context': return handleLoadTaskContext(ctx, args);
     default: return `Unknown action "${action}" - skipping.`;
   }

@@ -309,6 +309,8 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
  *   - `tool_search` is a meta-tool that resolves deferred-tool schemas in
  *     the loop without touching any backend; the per-tool gate still runs
  *     when the model invokes a deferred tool.
+ *   - `read_observation` reads only the loop's in-memory observation log; the
+ *     original backend call already passed its own gate.
  *   - `llm.complete` is an internal call from specialized agents that don't
  *     hit a user-visible resource; handlers that use it still enforce their
  *     own scoped checks.
@@ -320,6 +322,7 @@ export const UNGATED_TOOLS: ReadonlySet<string> = new Set([
   'navigate',
   'ask_user',
   'tool_search',
+  'read_observation',
   // Returns a slice of the agent's own system-prompt guidance; no backend
   // resource is touched, so it's ungated like tool_search.
   'load_task_context',

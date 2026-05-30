@@ -109,6 +109,23 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  'read_observation': {
+    category: 'always-on',
+    schema: {
+      name: 'read_observation',
+      description:
+        'Read a full or paged slice of a previous tool observation when the loop showed a truncated head+tail preview. Use the ref shown in the truncation notice, e.g. obs_1. Prefer re-running a scoped query/command when that will produce a smaller, more relevant result.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string', description: 'Observation ref from the truncation notice, e.g. obs_1.' },
+          offset: { type: 'number', description: 'Character offset to start reading from. Omit for the beginning.' },
+          length: { type: 'number', description: 'Maximum characters to return. Omit for the default page size.' },
+        },
+        required: ['ref'],
+      },
+    },
+  },
 
   // -------------------------------------------------------------------------
   // Metrics primitives (read-only, source-agnostic). Every call requires sourceId.
@@ -1022,14 +1039,17 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       description:
         'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session.\n\n' +
         'MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n\n' +
-        'The summary you pass here is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
+        'Pass the executive summary plus the proposed root cause, the discriminating evidence that verifies it, and the plausible alternatives ruled out. An independent verifier re-checks these after completion.\n\n' +
         'Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.',
       input_schema: {
         type: 'object',
         properties: {
           summary: { type: 'string', description: 'One-paragraph executive summary of the conclusion' },
+          rootCause: { type: 'string', description: 'The causal mechanism one level below the symptom; keep chasing until the cause is changeable (config/spec/deploy/code) rather than just another symptom.' },
+          verifiedBy: { type: 'string', description: 'Discriminating evidence: observations consistent with this cause and inconsistent with plausible alternatives. A fault merely existing is not proof it caused the incident.' },
+          ruledOut: { type: 'string', description: 'Plausible competing causes and the observation that kills each one.' },
         },
-        required: ['summary'],
+        required: ['summary', 'rootCause', 'verifiedBy', 'ruledOut'],
       },
     },
   },

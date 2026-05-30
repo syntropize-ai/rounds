@@ -46,6 +46,12 @@ import { buildSystemPrompt } from './orchestrator-prompt.js'
 import { buildActionContext } from './orchestrator-action-context.js'
 import { ToolAuditReporter } from './orchestrator-audit-reporter.js'
 import { PermissionWrappedActionRunner } from './orchestrator-action-runner.js'
+import {
+  VERIFIER_SYSTEM_PROMPT,
+  buildVerifierUserMessage,
+  parseVerdict,
+} from './verifier-prompt.js'
+import type { ProposedConclusion, Verdict } from './verifier-prompt.js'
 
 export interface OrchestratorDeps {
   gateway: LLMGateway
@@ -149,6 +155,17 @@ export interface OrchestratorDeps {
 }
 
 const log = createLogger('orchestrator')
+const VERIFIER_TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
+  'tool_search',
+  'read_observation',
+  'metrics_query',
+  'metrics_range_query',
+  'metrics_discover',
+  'ops_run_command',
+  'changes_list_recent',
+  'kb_search',
+  'connectors_list',
+])
 
 export class OrchestratorAgent {
   static readonly definition = agentRegistry.get('orchestrator')!;
@@ -178,7 +195,7 @@ export class OrchestratorAgent {
    */
   private readonly investigationSections = new Map<string, InvestigationReportSection[]>()
   /** Per-investigation provenance accumulator (Task 10). See ActionContext docs. */
-  private readonly investigationProvenance = new Map<string, Provenance & { startedAt?: number }>()
+  private readonly investigationProvenance = new Map<string, Provenance & { startedAt?: number; verifierBounces?: number }>()
   /**
    * Active investigation id for this session. Implicit context for
    * investigation_add_section / investigation_complete so the LLM doesn't
@@ -252,6 +269,43 @@ export class OrchestratorAgent {
       timestamp: new Date().toISOString(),
       ...(metadata ? { metadata } : {}),
     };
+  }
+
+  private async runVerifier(conclusion: ProposedConclusion): Promise<{ verdict: Verdict; reason: string }> {
+    try {
+      const verifierTools = this.agentDef.allowedTools.filter((t) =>
+        VERIFIER_TOOL_ALLOWLIST.has(t),
+      )
+      const verifierLoop = new ReActLoop({
+        gateway: this.deps.gateway,
+        model: this.deps.model,
+        sendEvent: this.deps.sendEvent,
+        identity: this.deps.identity,
+        accessControl: this.deps.accessControl,
+        allowedTools: verifierTools,
+        maxTokenBudget: 40_000,
+      })
+      const reply = await verifierLoop.runLoop(
+        VERIFIER_SYSTEM_PROMPT,
+        buildVerifierUserMessage(conclusion),
+        (step) => this.executeAction(step, ''),
+      )
+      const parsed = parseVerdict(reply)
+      this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', {
+        tool: 'investigation_verifier',
+        verdict: parsed.verdict,
+      }))
+      return parsed
+    } catch (err) {
+      log.warn(
+        {
+          error: err instanceof Error ? err.message : String(err),
+          sessionId: this.sessionId,
+        },
+        'investigation verifier failed; failing open (HOLDS)',
+      )
+      return { verdict: 'HOLDS', reason: '' }
+    }
   }
 
   consumeConversationActions(): DashboardAction[] {
@@ -397,6 +451,7 @@ export class OrchestratorAgent {
       activeDashboardIdRef: this.activeDashboardIdRef,
       freshlyCreatedDashboards: this.freshlyCreatedDashboards,
       dashboardBuildEvidence: this.dashboardBuildEvidence,
+      runVerifier: (conclusion) => this.runVerifier(conclusion),
     })
     return this.actionRunner.execute(step, ctx)
   }

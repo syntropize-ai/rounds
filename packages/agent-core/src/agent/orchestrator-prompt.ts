@@ -315,6 +315,13 @@ When the user asks "why is X high/slow/broken" or "investigate X", debug it the 
 
 The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not the main content. Start each text section with a short markdown heading that names the beat (e.g. \`## Symptom\`, \`## Deployment history\`, \`## Fix\`). Pick headings that fit this case — don't reach for a fixed template like \`## Initial Assessment\` / \`## Hypothesis Testing\` by reflex.
 
+## How to dig - drive from symptom to cause
+A symptom (a metric spike, an error code, a "rejected" log) is the EFFECT, never the cause. Don't write up the first plausible story - work it:
+- **Localize, then compare a failure to a success.** Split the symptom by its own dimensions (\`by (source_workload, response_code)\`, by target / port / route / deployment variant) to pin the exact who>target>path that fails. A near-identical case that SUCCEEDS is your best lead - the delta between pass and fail is the cause (same caller passes on :443 but is rejected on :4242 -> it's the missing client cert, not the app).
+- **Read both sides, with the source that answers the question.** The side that logged the error usually isn't where the cause lives - check the caller, the callee, and what sits between (sidecar, Service/Endpoints, DNS). Pick the source for THIS question: metrics = what/where; logs (both sides) = why - the actual error lines; cluster state (\`ops_run_command\` intent="read", reads only, stay in allowed namespaces) = live config/topology - pod status, restarts, \`lastState\`, Service/Endpoints/ports, policies; deploys & code (\`changes_list_recent\`, GitHub diff) = what changed. Reach for what the question needs - don't fire every connector by reflex - and use only what's connected; name a gap rather than guess.
+- **Ask "why" until it's something you can change.** A status is mid-chain: "rejected", "exit 137", "CrashLoop", "DNS timeout" each have a reason one line further in output you already pulled - get it. A code is not a cause (137 is OOMKilled OR a readiness/postStart kill -> read \`lastState.reason\`). Stop only at a concrete changeable thing: a config key+value, a policy, a port, a deploy to roll back.
+- **Don't collapse causes.** One error code across several targets/paths may be several problems - attribute each to its own evidence; don't pin everything on the first dramatic finding.
+
 ## How to write it
 - Lead with what you saw and the numbers ("p99 jumped from ~50ms baseline to 99ms around 14:30; sustained for the last hour").
 - For each thing you suspected: state it, say what you queried, what came back, and whether that killed or supported the suspicion. Allow detours and dead ends — real debugging isn't linear.

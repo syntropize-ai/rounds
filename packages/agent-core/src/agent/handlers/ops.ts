@@ -56,6 +56,7 @@ export async function handleOpsRunCommand(
         onConfirmationRequired: (confirmation: unknown) => {
           emitOpsConfirmation(ctx, confirmation, connectorId, command, 'medium');
         },
+        onResolved: (resolution) => emitOpsResolution(ctx, resolution),
       });
 
       return formatOpsCommandResult(result);
@@ -117,11 +118,29 @@ export async function handleOpsClusterShell(
         onConfirmationRequired: (confirmation: unknown) => {
           emitOpsConfirmation(ctx, confirmation, connectorId, script, 'high');
         },
+        onResolved: (resolution) => emitOpsResolution(ctx, resolution),
       });
 
       return formatOpsCommandResult(result);
     },
   );
+}
+
+// Emitted once a shown confirmation settles. Persisted (not in the chat
+// service's skip set) and broadcast to the session, so the card flips to its
+// resolved state — showing the executed command + output — in every open view
+// and after a reload, instead of stalling on the pending/expired state.
+function emitOpsResolution(
+  ctx: ActionContext,
+  resolution: { id: string; status: 'executed' | 'rejected' | 'expired' | 'failed'; output?: string },
+): void {
+  if (!resolution.id) return;
+  ctx.sendEvent({
+    type: 'ops_command_confirmation_resolved',
+    id: resolution.id,
+    status: resolution.status,
+    ...(resolution.output != null ? { output: resolution.output } : {}),
+  });
 }
 
 function emitOpsConfirmation(

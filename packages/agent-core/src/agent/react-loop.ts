@@ -38,8 +38,24 @@ const MAX_ITERATIONS = 200
 const TOKEN_BUDGET_TOKENS = Math.floor(CONTEXT_WINDOW * 0.95)
 /** Keep the last N observations in full; older ones are summarized to save context. */
 const OBSERVATION_KEEP_RECENT = 6
-/** Truncate individual observation text to this many characters. */
+/** Truncate individual observation text to this many characters (default). */
 const OBSERVATION_MAX_CHARS = 2000
+/**
+ * Verbose read tools whose payloads carry the decisive content past the default
+ * cap — `kubectl describe`/`logs`/`events`, log queries, range queries. The old
+ * flat 2000 (~15 lines) chopped kubectl output before the Events/log lines the
+ * model (and the auditor) actually need. We raise the cap for THESE tools only,
+ * rather than globally, so every other observation stays cheap.
+ */
+const VERBOSE_OBSERVATION_MAX_CHARS = 30000
+const VERBOSE_OBSERVATION_TOOLS: ReadonlySet<string> = new Set([
+  'ops_run_command',
+  'ops_cluster_shell',
+  'logs_query',
+])
+function observationMaxChars(action: string): number {
+  return VERBOSE_OBSERVATION_TOOLS.has(action) ? VERBOSE_OBSERVATION_MAX_CHARS : OBSERVATION_MAX_CHARS
+}
 
 /**
  * Default effort for extended thinking. Medium gives Claude/o1/Gemini-2.5
@@ -654,10 +670,11 @@ export class ReActLoop {
       for (const obs of batch) {
         const id = obs.toolUseId ?? `replay_${observationIndex - batch.length + userBlocks.length + 1}_${obs.action}`
         let resultText = obs.result
+        const maxChars = observationMaxChars(obs.action)
         if (isOlder) {
           resultText = `[Earlier] ${obs.result.slice(0, 120)}${obs.result.length > 120 ? '...' : ''}`
-        } else if (resultText.length > OBSERVATION_MAX_CHARS) {
-          resultText = resultText.slice(0, OBSERVATION_MAX_CHARS) + `\n... (truncated, ${resultText.length} chars total)`
+        } else if (resultText.length > maxChars) {
+          resultText = resultText.slice(0, maxChars) + `\n... (truncated, ${resultText.length} chars total)`
         }
         userBlocks.push({
           type: 'tool_result',

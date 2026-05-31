@@ -29,6 +29,7 @@ export interface AgentRunner {
     message: string,
     dashboardId?: string,
     signal?: AbortSignal,
+    opts?: { reopenInvestigationId?: string },
   ): Promise<string>;
   consumeConversationActions(): ReturnType<OrchestratorAgent['consumeConversationActions']>;
   consumeNavigate(): string | undefined;

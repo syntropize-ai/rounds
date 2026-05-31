@@ -525,6 +525,11 @@ export class ChatService {
       ? new KubectlOpsCommandRunner({
           connectors: this.deps.connectorRepo,
           orgId: identity.orgId,
+          // Auto-approve read-shaped commands in interactive chat too, matching
+          // background runs. The bypass still respects explicit ask/block
+          // policy and only fires for read-safe shapes — writes / critical /
+          // explicitly-gated capabilities continue to raise a confirmation.
+          readOnlyAgentBypass: true,
           ...(this.deps.auditWriter ? { audit: this.deps.auditWriter } : {}),
         })
       : undefined;
@@ -710,6 +715,10 @@ export class ChatService {
     // If the user is viewing a specific dashboard, scope the agent to it
     const dashboardId =
       pageContext?.kind === 'dashboard' ? pageContext.id : undefined;
+    // If the follow-up is inside an existing investigation, let the agent
+    // reopen it and update the same report instead of starting a new one.
+    const reopenInvestigationId =
+      pageContext?.kind === 'investigation' ? pageContext.id : undefined;
 
     log.info(
       {
@@ -723,6 +732,7 @@ export class ChatService {
       message,
       dashboardId,
       signal,
+      reopenInvestigationId ? { reopenInvestigationId } : undefined,
     );
     const assistantActions = orchestrator.consumeConversationActions();
     const navigate = orchestrator.consumeNavigate();

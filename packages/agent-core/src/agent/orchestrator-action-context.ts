@@ -91,7 +91,10 @@ export interface OrchestratorActionRuntime {
     resourceId: string,
   ): void;
   investigationSections: Map<string, InvestigationReportSection[]>;
-  investigationProvenance: Map<string, Provenance & { startedAt?: number }>;
+  investigationProvenance: Map<string, Provenance & { startedAt?: number; auditorRounds?: number; reportId?: string }>;
+  /** Spawns the read-only investigation auditor. Omitted on the auditor's own
+   *  action ctx so the auditor can never recursively re-trigger itself. */
+  runAuditor?: ActionContext['runAuditor'];
   /**
    * Mutable holder for the session's active investigation id. The agent
    * owns the underlying state; the ctx exposes a getter/setter that reads
@@ -147,6 +150,7 @@ export function buildActionContext(
     recordCreatedResource: runtime.recordCreatedResource,
     investigationSections: runtime.investigationSections,
     investigationProvenance: runtime.investigationProvenance,
+    runAuditor: runtime.runAuditor,
     get activeInvestigationId() { return invRef.current; },
     set activeInvestigationId(v: string | null) { invRef.current = v; },
     get activeDashboardId() { return dashRef.current; },

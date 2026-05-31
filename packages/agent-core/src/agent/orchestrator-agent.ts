@@ -44,6 +44,8 @@ import {
 } from './orchestrator-alert-helpers.js'
 import { buildSystemPrompt } from './orchestrator-prompt.js'
 import { buildActionContext } from './orchestrator-action-context.js'
+import { AUDITOR_SYSTEM_PROMPT, buildAuditorUserMessage, parseVerdict } from './auditor-prompt.js'
+import type { AuditVerdict } from './auditor-prompt.js'
 import { ToolAuditReporter } from './orchestrator-audit-reporter.js'
 import { PermissionWrappedActionRunner } from './orchestrator-action-runner.js'
 
@@ -177,8 +179,10 @@ export class OrchestratorAgent {
    * sections into each other when investigation ids collide.
    */
   private readonly investigationSections = new Map<string, InvestigationReportSection[]>()
-  /** Per-investigation provenance accumulator (Task 10). See ActionContext docs. */
-  private readonly investigationProvenance = new Map<string, Provenance & { startedAt?: number }>()
+  /** Per-investigation provenance accumulator (Task 10). See ActionContext docs.
+   *  `auditorRounds` rides along here (seeded by investigation_create, survives
+   *  the audit↔resume bounce) and is stripped before the report row is saved. */
+  private readonly investigationProvenance = new Map<string, Provenance & { startedAt?: number; auditorRounds?: number; reportId?: string }>()
   /**
    * Active investigation id for this session. Implicit context for
    * investigation_add_section / investigation_complete so the LLM doesn't
@@ -285,7 +289,12 @@ export class OrchestratorAgent {
    * abort instead of running expensive LLM calls to completion against a
    * closed socket.
    */
-  async handleMessage(message: string, dashboardId?: string, signal?: AbortSignal): Promise<string> {
+  async handleMessage(
+    message: string,
+    dashboardId?: string,
+    signal?: AbortSignal,
+    opts?: { reopenInvestigationId?: string },
+  ): Promise<string> {
     this.emitAgentEvent(this.makeAgentEvent('agent.started', { dashboardId, message }));
     this.pendingConversationActions = []
     this.pendingNavigateTo = undefined
@@ -347,6 +356,15 @@ export class OrchestratorAgent {
       return finalReply
     }
 
+    // Reopen path: a follow-up that landed inside an existing investigation
+    // rehydrates that investigation's report so the loop CONTINUES it (updates
+    // the same on-screen report) instead of starting a new one. Skipped when
+    // an investigation is already active in this session.
+    let reopenedSectionCount: number | null = null
+    if (opts?.reopenInvestigationId && this.activeInvestigationIdRef.current === null) {
+      reopenedSectionCount = await this.reopenInvestigation(opts.reopenInvestigationId)
+    }
+
     const hasMetrics = this.deps.adapters.list({ signalType: 'metrics' }).length > 0
     const systemPrompt = buildSystemPrompt(dashboard ?? null, history, alertRules, activeAlertRule, this.deps.allConnectors ?? [], {
       hasPrometheus: hasMetrics,
@@ -357,10 +375,13 @@ export class OrchestratorAgent {
       allowedTools: this.agentDef.allowedTools,
       agentType: this.agentDef.type,
     })
+    const finalSystemPrompt = reopenedSectionCount !== null
+      ? `${systemPrompt}\n\n${buildReopenAddendum(reopenedSectionCount)}`
+      : systemPrompt
 
     try {
       const result = await this.reactLoop.runLoop(
-        systemPrompt,
+        finalSystemPrompt,
         message,
         (step) => this.executeAction(step, message),
         signal,
@@ -380,7 +401,44 @@ export class OrchestratorAgent {
     }
   }
 
-  private async executeAction(step: ReActStep, _userMessage = ''): Promise<string | null> {
+  /**
+   * Rehydrate a completed (or in-flight) investigation so the loop can keep
+   * digging and UPDATE the same report. Seeds the section + provenance
+   * accumulators from the latest persisted report and re-activates the id.
+   * Returns the rehydrated section count, or null when there's nothing to
+   * reopen (no read surface, not owned by this workspace, or no prior report —
+   * in which case the follow-up just behaves as a fresh request).
+   */
+  private async reopenInvestigation(investigationId: string): Promise<number | null> {
+    const store = this.deps.investigationReportStore
+    if (!store.findByDashboard) return null
+    // Ownership gate: never rehydrate a report the caller doesn't own.
+    if (this.deps.investigationStore?.findById) {
+      const inv = await this.deps.investigationStore.findById(investigationId)
+      if (!inv || inv.workspaceId !== this.deps.identity.orgId) return null
+    }
+    const reports = await store.findByDashboard(investigationId)
+    const latest = reports[reports.length - 1]
+    if (!latest) return null
+    // Reuse the report's id (reportId) so investigation_complete upserts THIS
+    // row in place rather than inserting a duplicate. startedAt is reset — the
+    // continuation's latency is measured from now.
+    this.investigationSections.set(investigationId, [...latest.sections])
+    this.investigationProvenance.set(investigationId, {
+      ...(latest.provenance ?? {}),
+      startedAt: Date.now(),
+      reportId: latest.id,
+    })
+    this.activeInvestigationIdRef.current = investigationId
+    log.info({ investigationId, sections: latest.sections.length, sessionId: this.sessionId }, 'reopened investigation for follow-up')
+    return latest.sections.length
+  }
+
+  private async executeAction(
+    step: ReActStep,
+    _userMessage = '',
+    opts?: { auditor?: boolean },
+  ): Promise<string | null> {
     const ctx = buildActionContext(this.deps, {
       sessionId: this.sessionId,
       actionExecutor: this.actionExecutor,
@@ -397,7 +455,89 @@ export class OrchestratorAgent {
       activeDashboardIdRef: this.activeDashboardIdRef,
       freshlyCreatedDashboards: this.freshlyCreatedDashboards,
       dashboardBuildEvidence: this.dashboardBuildEvidence,
+      // The auditor's own tool calls must NOT see `runAuditor` — it can never
+      // re-trigger the audit gate (defence in depth on top of the read-only
+      // allowlist, which already excludes investigation_complete).
+      runAuditor: opts?.auditor ? undefined : (input) => this.runAuditor(input),
     })
     return this.actionRunner.execute(step, ctx)
   }
+
+  /**
+   * Spawn an independent, read-only auditor over a draft investigation report.
+   * Same ReActLoop, a launch prompt that judges ONE thing — "could the user fix
+   * the problem from this report alone?" — and a tool surface narrowed to the
+   * read-only allowlist. Fails open (ACTIONABLE) on any throw so an auditor
+   * outage can never block a completed investigation. See `auditor-prompt.ts`.
+   */
+  private async runAuditor(
+    input: { question: string; report: string },
+  ): Promise<{ verdict: AuditVerdict; gap: string }> {
+    try {
+      const auditorTools = this.agentDef.allowedTools.filter((t) => AUDITOR_TOOL_ALLOWLIST.has(t))
+      // The auditor is an internal judge — its terminal "VERDICT: ..." text is
+      // parsed by us, not shown to the user. Drop `reply` events so the verdict
+      // prose never surfaces as a chat message; tool activity still flows
+      // through the original sink for transparency.
+      const auditorSendEvent = (event: DashboardSseEvent) => {
+        if (event.type === 'reply') return
+        this.deps.sendEvent(event)
+      }
+      const auditorLoop = new ReActLoop({
+        gateway: this.deps.gateway,
+        model: this.deps.model,
+        sendEvent: auditorSendEvent,
+        identity: this.deps.identity,
+        accessControl: this.deps.accessControl,
+        allowedTools: auditorTools,
+        maxTokenBudget: 40_000,
+      })
+      const reply = await auditorLoop.runLoop(
+        AUDITOR_SYSTEM_PROMPT,
+        buildAuditorUserMessage(input),
+        (step) => this.executeAction(step, '', { auditor: true }),
+      )
+      const parsed = parseVerdict(reply)
+      this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', {
+        tool: 'investigation_auditor',
+        verdict: parsed.verdict,
+      }))
+      return parsed
+    } catch (err) {
+      log.warn({
+        error: err instanceof Error ? err.message : String(err),
+        sessionId: this.sessionId,
+      }, 'investigation auditor failed; failing open (ACTIONABLE)')
+      return { verdict: 'ACTIONABLE', gap: '' }
+    }
+  }
 }
+
+/**
+ * Read-only tool surface the auditor may use to confirm/break a load-bearing
+ * claim. INCLUSION list — anything not named here is dropped, so a newly-added
+ * write tool is excluded by default. MUST NOT contain any `investigation_*` or
+ * mutating tool: the auditor returns a verdict, it never finalises or mutates.
+ * `tool_search` is required so the auditor can load the deferred metric tools.
+ */
+/**
+ * Appended to the system prompt when a follow-up reopens an existing
+ * investigation. Stops the model from spinning up a NEW investigation and
+ * tells it the prior report is already loaded and will be updated in place.
+ */
+function buildReopenAddendum(sectionCount: number): string {
+  return `# Continuing an existing investigation
+This follow-up is on an investigation that already has a saved report (${sectionCount} section${sectionCount === 1 ? '' : 's'} already loaded into your working set, and it is already the active investigation). Do NOT call \`investigation_create\` — that would start a separate investigation. Build on what's there: pick up the trail (especially any "## Unresolved" gap), add NEW \`investigation_add_text\` / \`investigation_add_evidence\` sections for what you find, and call \`investigation_complete\` to UPDATE the same report. Don't restate sections that already exist.`
+}
+
+const AUDITOR_TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
+  'tool_search',
+  'metrics_query',
+  'metrics_range_query',
+  'metrics_discover',
+  'logs_query',
+  'ops_run_command',
+  'changes_list_recent',
+  'kb_search',
+  'connectors_list',
+])

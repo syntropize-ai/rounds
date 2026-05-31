@@ -83,6 +83,36 @@ describe('handleOpsRunCommand', () => {
       identity: ctx.identity,
       sessionId: 'session-1',
       onConfirmationRequired: expect.any(Function),
+      onResolved: expect.any(Function),
+    });
+  });
+
+  it('emits a persisted ops_command_confirmation_resolved event when a confirmation settles', async () => {
+    // The runner invokes onResolved once the (shown) confirmation is approved
+    // and the command has run, handing back the captured output.
+    type RunCommandParams = Parameters<NonNullable<ActionContext['opsCommandRunner']>['runCommand']>[0];
+    const runCommand = vi.fn(async (params: RunCommandParams) => {
+      params.onResolved?.({ id: 'conf_1', status: 'executed', output: 'PID 1 root productpage' });
+      return { observation: 'PID 1 root productpage' };
+    });
+    const sendEvent = vi.fn();
+    const ctx = makeCtx({
+      sendEvent,
+      opsConnectors: [{ id: 'kube-prod', name: 'Production' }],
+      opsCommandRunner: { runCommand },
+    });
+
+    await handleOpsRunCommand(ctx, {
+      connectorId: 'kube-prod',
+      command: 'kubectl exec productpage -- ps aux',
+      intent: 'read',
+    });
+
+    expect(sendEvent).toHaveBeenCalledWith({
+      type: 'ops_command_confirmation_resolved',
+      id: 'conf_1',
+      status: 'executed',
+      output: 'PID 1 root productpage',
     });
   });
 });

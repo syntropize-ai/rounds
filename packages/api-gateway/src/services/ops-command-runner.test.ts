@@ -588,3 +588,38 @@ describe('resolveOpsCommandConfirmation — approver attribution', () => {
   });
   void id;
 });
+
+describe('runCommand — onResolved resolution callback', () => {
+  it('fires onResolved with the settled status when a shown confirmation is rejected', async () => {
+    const runner = new KubectlOpsCommandRunner({
+      connectors: fakeConnectorRepo({
+        connectors: [
+          mkConnector({ id: 'kube-prod', config: { kubeconfig: 'apiVersion: v1\nkind: Config' } }),
+        ],
+        secrets: new Map(),
+      }),
+      orgId: 'org_a',
+    });
+    const resolutions: Array<{ id: string; status: string; output?: string }> = [];
+    const pending = runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux', // forces confirmation
+      intent: 'read',
+      identity: {
+        userId: 'agent-sa',
+        orgId: 'org_a',
+        orgRole: 'Editor' as const,
+        isServerAdmin: false,
+        authenticatedBy: 'api_key' as const,
+      },
+      sessionId: 's1',
+      onConfirmationRequired: (c) => resolveOpsCommandConfirmation(c.id, 'rejected'),
+      onResolved: (r) => resolutions.push(r),
+    });
+    const r = await pending;
+
+    expect(r.success).toBe(false);
+    expect(resolutions).toHaveLength(1);
+    expect(resolutions[0]?.status).toBe('rejected');
+  });
+});

@@ -50,6 +50,18 @@ export interface IConversationStore {
 
 export interface IInvestigationReportStore {
   save(report: import('@agentic-obs/common').SavedInvestigationReport): void
+  /**
+   * Reports for an investigation (the investigation id is stored in the
+   * report's `dashboardId` field — see handlers/investigation.ts). Optional:
+   * when absent, the orchestrator cannot rehydrate a prior report and a
+   * follow-up simply starts fresh instead of reopening. The full data-layer
+   * repository implements this; minimal/in-memory stores may not.
+   */
+  findByDashboard?(
+    dashboardId: string,
+  ):
+    | import('@agentic-obs/common').SavedInvestigationReport[]
+    | Promise<import('@agentic-obs/common').SavedInvestigationReport[]>
 }
 
 export interface IInvestigationStore {
@@ -134,6 +146,10 @@ export interface OpsCommandRunner {
     sessionId: string
     confirmed?: boolean
     onConfirmationRequired?: (confirmation: unknown) => void
+    /** Fired once a shown confirmation is settled (executed / rejected /
+     *  expired / failed), carrying the command output on success. Lets the
+     *  handler persist a resolution event so the card survives reload. */
+    onResolved?: (resolution: OpsConfirmationResolution) => void
   }): unknown | Promise<unknown>
   runClusterShell?(params: {
     connectorId: string
@@ -145,7 +161,14 @@ export interface OpsCommandRunner {
     sessionId: string
     confirmed?: boolean
     onConfirmationRequired?: (confirmation: unknown) => void
+    onResolved?: (resolution: OpsConfirmationResolution) => void
   }): unknown | Promise<unknown>
+}
+
+export interface OpsConfirmationResolution {
+  id: string
+  status: 'executed' | 'rejected' | 'expired' | 'failed'
+  output?: string
 }
 
 export type RemediationPlanStepKind = 'ops.run_command' | string

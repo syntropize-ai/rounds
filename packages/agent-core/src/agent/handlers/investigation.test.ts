@@ -420,4 +420,96 @@ describe('investigation handlers', () => {
     // Provenance map is cleaned up after persistence.
     expect(ctx.investigationProvenance.has('inv_p2')).toBe(false);
   });
+
+  describe('independent audit gate', () => {
+    it('NEEDS_MORE bounces the investigator without saving', async () => {
+      const store = investigationStore();
+      const reportStore = { save: vi.fn() };
+      const runAuditor = vi.fn().mockResolvedValue({ verdict: 'NEEDS_MORE', gap: 'find which EnvoyFilter.' });
+      const ctx = makeFakeActionContext({
+        investigationStore: store,
+        investigationReportStore: reportStore,
+        activeInvestigationId: 'inv_1',
+        runAuditor,
+      });
+      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+
+      const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+
+      expect(runAuditor).toHaveBeenCalledOnce();
+      expect(result).toContain('NOT completed');
+      expect(result).toContain('find which EnvoyFilter.');
+      // Not persisted; active id retained so the loop resumes.
+      expect(reportStore.save).not.toHaveBeenCalled();
+      expect(ctx.activeInvestigationId).toBe('inv_1');
+      expect(ctx.investigationProvenance.get('inv_1')?.auditorRounds).toBe(1);
+    });
+
+    it('ships with an ## Unresolved section once the round budget is exhausted', async () => {
+      const store = investigationStore();
+      const reportStore = { save: vi.fn() };
+      const runAuditor = vi.fn().mockResolvedValue({ verdict: 'NEEDS_MORE', gap: 'still a guess.' });
+      const ctx = makeFakeActionContext({
+        investigationStore: store,
+        investigationReportStore: reportStore,
+        activeInvestigationId: 'inv_1',
+        runAuditor,
+      });
+      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+
+      // r1 + r2 bounce, r3 ships flagged (MAX_AUDIT_ROUNDS = 2).
+      const r1 = await handleInvestigationComplete(ctx, { summary: 'done' });
+      const r2 = await handleInvestigationComplete(ctx, { summary: 'done' });
+      const r3 = await handleInvestigationComplete(ctx, { summary: 'done' });
+
+      expect(r1).toContain('NOT completed');
+      expect(r2).toContain('NOT completed');
+      expect(r3).toContain('report saved');
+      expect(reportStore.save).toHaveBeenCalledOnce();
+      const saved = (reportStore.save.mock.calls[0] ?? [])[0];
+      const unresolved = saved.sections.find((s: { content: string }) => s.content.startsWith('## Unresolved'));
+      expect(unresolved?.content).toContain('still a guess.');
+      // auditorRounds is bookkeeping — it must not leak into the saved row.
+      expect(saved.provenance?.auditorRounds).toBeUndefined();
+    });
+
+    it('reuses the prior report id (update-in-place) when reopened', async () => {
+      const store = investigationStore();
+      const reportStore = { save: vi.fn() };
+      const ctx = makeFakeActionContext({
+        investigationStore: store,
+        investigationReportStore: reportStore,
+        activeInvestigationId: 'inv_1',
+      });
+      // Reopen seeds provenance with the existing report's id.
+      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1', reportId: 'report_existing' } as never);
+
+      await handleInvestigationComplete(ctx, { summary: 'refined' });
+
+      const saved = (reportStore.save.mock.calls[0] ?? [])[0];
+      expect(saved.id).toBe('report_existing');
+      // reportId is bookkeeping — it must not leak into the saved provenance row.
+      expect(saved.provenance?.reportId).toBeUndefined();
+    });
+
+    it('ACTIONABLE saves normally', async () => {
+      const store = investigationStore();
+      const reportStore = { save: vi.fn() };
+      const runAuditor = vi.fn().mockResolvedValue({ verdict: 'ACTIONABLE', gap: '' });
+      const ctx = makeFakeActionContext({
+        investigationStore: store,
+        investigationReportStore: reportStore,
+        activeInvestigationId: 'inv_1',
+        runAuditor,
+      });
+      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+
+      const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+
+      expect(runAuditor).toHaveBeenCalledOnce();
+      expect(result).toContain('report saved');
+      expect(reportStore.save).toHaveBeenCalledOnce();
+      expect(ctx.activeInvestigationId).toBeNull();
+    });
+  });
 });

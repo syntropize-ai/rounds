@@ -29,6 +29,13 @@ const KIND_BY_PREFIX: Record<string, Citation['kind']> = {
   c: 'change',
 };
 
+/**
+ * Bounds the audit↔resume loop: a `NEEDS_MORE` verdict bounces the investigator
+ * back to keep digging, but only this many times. On exhaustion the report
+ * ships with an `## Unresolved` caveat (honest-flagged beats blocked-forever).
+ */
+const MAX_AUDIT_ROUNDS = 2;
+
 // ---------------------------------------------------------------------------
 // Investigation lifecycle
 // ---------------------------------------------------------------------------
@@ -383,13 +390,51 @@ export async function handleInvestigationComplete(
 
       const sections = ctx.investigationSections.get(investigationId) ?? [];
 
+      // --- Independent audit gate ---
+      // Before persisting, an independent read-only auditor judges whether the
+      // user could fix the problem from this report ALONE. NEEDS_MORE bounces
+      // the investigator back to keep digging (the loop resumes — see below).
+      // Skipped (fail-open) when `runAuditor` is unwired (tests) or provenance
+      // is absent.
+      const provForAudit = ctx.investigationProvenance.get(investigationId);
+      let unresolvedGap: string | null = null;
+      if (ctx.runAuditor && provForAudit) {
+        const reportText = [summary, ...sections.map((s) => s.content)].join('\n\n');
+        const { verdict, gap } = await ctx.runAuditor({ question: investigation.intent, report: reportText });
+        if (verdict === 'NEEDS_MORE') {
+          const rounds = provForAudit.auditorRounds ?? 0;
+          if (rounds < MAX_AUDIT_ROUNDS) {
+            provForAudit.auditorRounds = rounds + 1;
+            log.warn({ investigationId, round: rounds + 1 }, 'investigation_complete sent back by auditor');
+            // Returning a guidance string WITHOUT persisting or clearing the
+            // active id is the resume: the ReActLoop feeds this back as the
+            // next observation and the investigator re-completes when ready.
+            return `Investigation NOT completed - an independent auditor judged the report not yet directly actionable. ${gap} `
+              + 'Keep going: close that gap so the user could fix the problem from the report alone, then call investigation_complete again.';
+          }
+          unresolvedGap = gap; // budget exhausted -> ship, flagged
+          log.warn({ investigationId }, 'auditor budget exhausted; completing with unresolved caveat');
+        }
+      }
+
+      if (unresolvedGap) {
+        sections.push({
+          type: 'text',
+          content: `## Unresolved\n\nCompleted with a gap an independent auditor flagged: ${unresolvedGap}. Treat the conclusion as provisional until this is addressed.`,
+        });
+      }
+
       // Finalise provenance: copy out a clean Provenance (drop `startedAt`
       // bookkeeping field) and compute end-to-end latency. Cost is left
       // undefined — UI will fall back to "—" or fetch from llm_audit.
       const provState = ctx.investigationProvenance.get(investigationId);
       let finalProvenance: Provenance | undefined;
       if (provState) {
-        const { startedAt, ...rest } = provState;
+        // Drop bookkeeping-only fields (`startedAt`, `auditorRounds`,
+        // `reportId`) so they never leak into the persisted provenance row.
+        const { startedAt, auditorRounds, reportId, ...rest } = provState;
+        void auditorRounds;
+        void reportId;
         finalProvenance = {
           ...rest,
           ...(startedAt ? { latencyMs: Date.now() - startedAt } : {}),
@@ -408,9 +453,11 @@ export async function handleInvestigationComplete(
         }
       }
 
-      // Save the report
+      // Save the report. When this investigation was reopened, reuse the prior
+      // report's id so the store upserts the SAME row in place; otherwise a
+      // fresh id inserts a new report.
       await ctx.investigationReportStore.save({
-        id: randomUUID(),
+        id: provState?.reportId ?? randomUUID(),
         dashboardId: investigationId,
         goal: summary,
         summary,

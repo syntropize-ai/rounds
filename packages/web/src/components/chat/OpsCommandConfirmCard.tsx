@@ -122,25 +122,38 @@ export default function OpsCommandConfirmCard({
       status === 'rejected' ? '✕' :
       status === 'failed' ? '!' : '·';
     const verb =
-      status === 'executed' ? 'Running' :
+      status === 'executed' ? 'Ran' :
       status === 'rejected' ? 'Cancelled' :
       status === 'expired' ? 'Expired' :
       status === 'failed' ? 'Failed' : status;
+    // Show the command itself as the label (Claude-Code style) — the connector
+    // id is an opaque UUID and tells the user nothing. Full command + output
+    // reveal on expand.
+    const label = confirmation.command || `ops command on ${confirmation.connectorId}`;
     return (
       <div className="text-xs text-on-surface-variant">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="inline-flex items-center gap-2 hover:text-on-surface"
+          className="flex items-center gap-2 hover:text-on-surface max-w-full text-left"
+          title={confirmation.command}
         >
-          <span>{glyph}</span>
-          <span>{verb} ops command on {confirmation.connectorId}</span>
-          <span className="opacity-60">{expanded ? '▾' : '▸'}</span>
+          <span className="shrink-0">{glyph}</span>
+          <span className="shrink-0 opacity-70">{verb}</span>
+          <span className="font-mono truncate">{label}</span>
+          <span className="shrink-0 opacity-60">{expanded ? '▾' : '▸'}</span>
         </button>
         {expanded && (
-          <pre className="mt-2 font-mono whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2">
-            {confirmation.command}
-          </pre>
+          <>
+            <pre className="mt-2 font-mono whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2">
+              {confirmation.command}
+            </pre>
+            {output && (
+              <pre className="mt-1 font-mono whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2 max-h-64 overflow-auto opacity-90">
+                {output}
+              </pre>
+            )}
+          </>
         )}
         {error && (
           <pre className="mt-2 font-mono whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2 text-error">

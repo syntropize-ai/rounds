@@ -62,9 +62,11 @@ export interface KubectlOpsCommandRunnerDeps {
    */
   resolveUserTeams?: (identity: Identity) => Promise<readonly string[]>;
   /**
-   * Background investigation agents have no human at the keyboard to click a
-   * confirmation card. When true, this runner bypasses the confirmation gate
-   * for read-shaped commands (per `isAgentReadSafeCommand`) — covering
+   * Auto-approve read-shaped commands. Set by background investigation runs
+   * (no human at the keyboard to click a confirmation card) AND by interactive
+   * chat (a prompt on every read is pure friction). When true, this runner
+   * bypasses the confirmation gate for read-shaped commands (per
+   * `isAgentReadSafeCommand`) — covering
    * non-kubectl probes (`curl`, `jq`) and `kubectl exec ... -- <read-cmd>`
    * which the policy classifier flags as `runtime.exec`/'ask' by default.
    *
@@ -371,6 +373,7 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     sessionId: string;
     confirmed?: boolean;
     onConfirmationRequired?: (confirmation: OpsCommandConfirmation) => void;
+    onResolved?: (resolution: { id: string; status: 'executed' | 'rejected' | 'expired' | 'failed'; output?: string }) => void;
   }): Promise<OpsRunResult> {
     const connector = await this.deps.connectors.get(params.connectorId, {
       orgId: this.deps.orgId,
@@ -446,10 +449,11 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     let needsConfirmation =
       !params.confirmed && (policyWantsConfirm || riskWantsConfirm);
 
-    // Background investigation bypass: no human at the keyboard, so a
-    // confirmation card would block the run indefinitely. Only applies when
-    // (a) caller opted in, (b) command shape is read-safe, (c) operator has
-    // not set an explicit policy (explicit ask/block always wins).
+    // Read-only auto-approve: a confirmation card on a read-shaped command is
+    // pure friction (background runs have no human to click it; interactive
+    // chat reads don't warrant a prompt). Only applies when (a) caller opted
+    // in, (b) command shape is read-safe, (c) operator has not set an explicit
+    // policy (explicit ask/block always wins).
     if (
       needsConfirmation &&
       this.deps.readOnlyAgentBypass &&
@@ -463,7 +467,7 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
           capability,
           commandHead: command.slice(0, 120),
         },
-        'background investigation bypass: read-shaped command auto-approved',
+        'read-only bypass: read-shaped command auto-approved',
       );
     }
 
@@ -471,6 +475,9 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     let approvedByUserId: string | undefined;
     const bypassed = !needsConfirmation && (policyWantsConfirm || riskWantsConfirm);
 
+    // Set when a confirmation card was actually shown — gates the resolution
+    // event so auto-approved/bypassed reads (no card) don't emit one.
+    let shownConfirmationId: string | undefined;
     if (needsConfirmation) {
       const confirmation = createConfirmation({
         orgId: this.deps.orgId,
@@ -479,9 +486,11 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
         connectorId: params.connectorId,
         command,
       });
+      shownConfirmationId = confirmation.id;
       params.onConfirmationRequired?.(confirmation);
       const decision = await waitForConfirmationDecision(confirmation);
       if (decision !== 'executed') {
+        params.onResolved?.({ id: confirmation.id, status: decision === 'pending' ? 'failed' : decision });
         return { observation: `User did not approve "${command}" (${decision}).`, success: false };
       }
       // Re-read so we see fields the `/execute` endpoint stamped onto the
@@ -512,6 +521,14 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     // observation and decides for itself; the runner is a passthrough.
     const result = await adapter.execute(action);
     const observation = typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
+
+    // If a confirmation card was shown, settle it with the command output so
+    // the card persists as "executed" (and survives reload) instead of stalling
+    // on the pending/expired state. Output capped for the card; the full blob
+    // still flows through the agent's tool_result step.
+    if (shownConfirmationId) {
+      params.onResolved?.({ id: shownConfirmationId, status: 'executed', output: observation.slice(0, 4000) });
+    }
 
     // Audit emission. "Who approved = who executed" — when a human approved,
     // they own the action; otherwise the agent SA does (with bypassed=true
@@ -553,6 +570,7 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     sessionId: string;
     confirmed?: boolean;
     onConfirmationRequired?: (confirmation: OpsCommandConfirmation) => void;
+    onResolved?: (resolution: { id: string; status: 'executed' | 'rejected' | 'expired' | 'failed'; output?: string }) => void;
   }): Promise<OpsRunResult> {
     const connector = await this.deps.connectors.get(params.connectorId, {
       orgId: this.deps.orgId,
@@ -603,6 +621,8 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
       };
     }
 
+    // Set when a confirmation card was shown — gates the resolution event.
+    let shownConfirmationId: string | undefined;
     if (!params.confirmed) {
       const confirmation = createClusterShellConfirmation({
         orgId: this.deps.orgId,
@@ -615,8 +635,10 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
         ...(params.image ? { image: params.image } : {}),
       });
       params.onConfirmationRequired?.(confirmation);
+      shownConfirmationId = confirmation.id;
       const decision = await waitForConfirmationDecision(confirmation);
       if (decision !== 'executed') {
+        params.onResolved?.({ id: confirmation.id, status: decision === 'pending' ? 'failed' : decision });
         return { observation: `User did not approve cluster shell script on "${params.connectorId}" (${decision}).`, success: false };
       }
     }
@@ -639,9 +661,16 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
         { connectorId: connector.id, error: result.error },
         'ops_cluster_shell: cluster shell execution failed',
       );
+      if (shownConfirmationId) {
+        params.onResolved?.({ id: shownConfirmationId, status: 'failed', output: result.error ?? undefined });
+      }
       return { observation: result.error ?? 'cluster shell execution failed with no error message.', success: false };
     }
-    return { observation: typeof result.output === 'string' ? result.output : JSON.stringify(result.output), success: true };
+    const observation = typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
+    if (shownConfirmationId) {
+      params.onResolved?.({ id: shownConfirmationId, status: 'executed', output: observation.slice(0, 4000) });
+    }
+    return { observation, success: true };
   }
 
   private async resolveKubeconfig(connector: Connector): Promise<string> {

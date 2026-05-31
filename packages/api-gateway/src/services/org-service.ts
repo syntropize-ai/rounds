@@ -131,6 +131,7 @@ const ORG_SCOPED_TABLES = [
   'alert_silences',
   'chat_sessions',
   'chat_messages',
+  'chat_message_queue',
   'chat_session_events',
   'approvals',
 ] as const;

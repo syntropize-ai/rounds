@@ -84,6 +84,8 @@ export default function Home() {
     events,
     isGenerating,
     sendMessage,
+    updateQueuedMessage,
+    deleteQueuedMessage,
     stopGeneration,
   } = globalChat;
 
@@ -105,10 +107,10 @@ export default function Home() {
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || isGenerating) return;
+    if (!trimmed) return;
     void sendMessage(trimmed);
     setInput('');
-  }, [input, isGenerating, sendMessage]);
+  }, [input, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -131,8 +133,7 @@ export default function Home() {
           onKeyDown={handleKeyDown}
           placeholder="Ask anything about your systems..."
           rows={1}
-          disabled={isGenerating}
-          className="w-full bg-surface-container border border-outline focus:border-on-surface/30 py-4 pl-5 pr-16 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-[border-color,box-shadow,background-color] disabled:opacity-50 rounded-[26px] shadow-[0_18px_60px_rgba(15,18,22,0.10),0_1px_2px_rgba(15,18,22,0.08)] focus:shadow-[0_22px_70px_rgba(15,18,22,0.14),0_1px_2px_rgba(15,18,22,0.08)]"
+          className="w-full bg-surface-container border border-outline focus:border-on-surface/30 py-4 pl-5 pr-28 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-[border-color,box-shadow,background-color] rounded-[26px] shadow-[0_18px_60px_rgba(15,18,22,0.10),0_1px_2px_rgba(15,18,22,0.08)] focus:shadow-[0_22px_70px_rgba(15,18,22,0.14),0_1px_2px_rgba(15,18,22,0.08)]"
           style={{ minHeight: '58px', maxHeight: '220px' }}
           onInput={(e) => {
             const el = e.target as HTMLTextAreaElement;
@@ -140,7 +141,7 @@ export default function Home() {
             el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
           }}
         />
-        {isGenerating ? (
+        {isGenerating && !input.trim() ? (
           <button
             type="button"
             onClick={stopGeneration}
@@ -174,6 +175,19 @@ export default function Home() {
           </svg>
         </button>
         )}
+        {isGenerating && input.trim() ? (
+          <button
+            type="button"
+            onClick={stopGeneration}
+            className="absolute right-14 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-high hover:bg-surface-highest text-on-surface flex items-center justify-center transition-colors"
+            title="Stop"
+            aria-label="Stop"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="1.5" />
+            </svg>
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -256,6 +270,8 @@ export default function Home() {
             events={events}
             isGenerating={isGenerating}
             onSendMessage={sendMessage}
+            onUpdateQueuedMessage={updateQueuedMessage}
+            onDeleteQueuedMessage={deleteQueuedMessage}
           />
           <div ref={bottomRef} />
         </div>

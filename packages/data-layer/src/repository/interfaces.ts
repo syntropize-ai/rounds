@@ -27,6 +27,7 @@ import type {
   ChatSessionContextRelation,
   ChatSessionContextResourceType,
   ChatMessage,
+  Identity,
 } from '@agentic-obs/common';
 import type { ExplanationResult } from '@agentic-obs/common';
 import type { FeedEvent, Case, ApprovalRecord } from './types.js';
@@ -472,6 +473,53 @@ export interface IChatMessageRepository {
   deleteBySession(sessionId: string): MaybeAsync<void>;
 }
 
+// — ChatMessageQueue
+
+export type ChatQueuedMessageStatus =
+  | 'queued'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled';
+
+export interface ChatQueuedMessage {
+  id: string;
+  sessionId: string;
+  orgId: string;
+  ownerUserId: string;
+  content: string;
+  pageContext: Record<string, unknown> | null;
+  identity: Identity;
+  status: ChatQueuedMessageStatus;
+  position: number;
+  runId: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface IChatMessageQueueRepository {
+  enqueue(input: {
+    id?: string;
+    sessionId: string;
+    orgId: string;
+    ownerUserId: string;
+    content: string;
+    pageContext?: Record<string, unknown> | null;
+    identity: Identity;
+    createdAt?: string;
+  }): MaybeAsync<ChatQueuedMessage>;
+  claimNext(sessionId: string): MaybeAsync<ChatQueuedMessage | null>;
+  markRunning(id: string, runId: string, startedAt?: string): MaybeAsync<ChatQueuedMessage | null>;
+  updateQueuedContent(id: string, content: string): MaybeAsync<ChatQueuedMessage | null>;
+  deleteQueued(id: string): MaybeAsync<ChatQueuedMessage | null>;
+  markSucceeded(id: string, completedAt?: string): MaybeAsync<ChatQueuedMessage | null>;
+  markFailed(id: string, errorMessage: string, completedAt?: string): MaybeAsync<ChatQueuedMessage | null>;
+  cancelQueuedBySession(sessionId: string, completedAt?: string): MaybeAsync<number>;
+  listBySession(sessionId: string): MaybeAsync<ChatQueuedMessage[]>;
+}
+
 // — ChatSessionEvent (persisted SSE step trace)
 
 export interface ChatSessionEventRecord {
@@ -485,6 +533,9 @@ export interface ChatSessionEventRecord {
 
 export interface IChatSessionEventRepository {
   append(event: ChatSessionEventRecord): MaybeAsync<void>;
+  appendNext(
+    event: Omit<ChatSessionEventRecord, 'seq'>,
+  ): MaybeAsync<ChatSessionEventRecord>;
   listBySession(sessionId: string): MaybeAsync<ChatSessionEventRecord[]>;
   nextSeq(sessionId: string): MaybeAsync<number>;
   deleteBySession(sessionId: string): MaybeAsync<void>;

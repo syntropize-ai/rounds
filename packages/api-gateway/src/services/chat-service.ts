@@ -40,6 +40,7 @@ import type {
   IChatSessionRepository,
   IChatSessionContextRepository,
   IChatMessageRepository,
+  IChatMessageQueueRepository,
   IChatSessionEventRepository,
   IApprovalRequestRepository,
   IConnectorRepository,
@@ -210,6 +211,7 @@ export interface ChatServiceDeps {
   investigationStore?: IGatewayInvestigationStore;
   chatSessionStore?: IChatSessionRepository;
   chatMessageStore?: IChatMessageRepository;
+  chatMessageQueueStore?: IChatMessageQueueRepository;
   chatEventStore?: IChatSessionEventRepository;
   chatSessionContextStore?: IChatSessionContextRepository;
   approvalStore?: IApprovalRequestRepository;
@@ -433,7 +435,7 @@ export class ChatService {
     // gap is visible rather than silent.
     const eventStore = this.deps.chatEventStore;
     const bus = this.deps.sessionEventBus;
-    let seq = eventStore ? await eventStore.nextSeq(resolvedSessionId) : 0;
+    let syntheticSeq = 0;
     let persistChain: Promise<void> = Promise.resolve();
     const wrappedSendEvent = (event: DashboardSseEvent) => {
       sendEvent(event);
@@ -442,18 +444,16 @@ export class ChatService {
         // Stamp a synthetic seq (still monotonic per session within this
         // process) so subscribers can order events; dedup is a no-op
         // since there's no replay source.
-        if (bus) bus.publish(resolvedSessionId, seq++, event);
+        if (bus) bus.publish(resolvedSessionId, syntheticSeq++, event);
         return;
       }
       if (SKIP_PERSIST_KINDS.has(event.type)) {
-        if (bus) bus.publish(resolvedSessionId, seq++, event);
+        if (bus) bus.publish(resolvedSessionId, syntheticSeq++, event);
         return;
       }
-      const eventSeq = seq++;
       const record = {
         id: randomUUID(),
         sessionId: resolvedSessionId,
-        seq: eventSeq,
         kind: event.type,
         payload: event as unknown as Record<string, unknown>,
         timestamp: new Date().toISOString(),
@@ -462,26 +462,15 @@ export class ChatService {
       // itself never rejects (catch swallows) so a single bad event
       // doesn't poison subsequent ones.
       persistChain = persistChain.then(() =>
-        Promise.resolve(eventStore.append(record))
-          .then(() => {
-            if (bus) bus.publish(resolvedSessionId, eventSeq, event);
+        Promise.resolve(eventStore.appendNext(record))
+          .then((saved) => {
+            if (bus) bus.publish(resolvedSessionId, saved.seq, event);
           })
           .catch((err) => {
             log.warn(
-              { err, sessionId: resolvedSessionId, kind: event.type, seq: eventSeq },
-              'failed to persist chat event; publishing gap placeholder so subscribers see the loss',
+              { err, sessionId: resolvedSessionId, kind: event.type },
+              'failed to persist chat event',
             );
-            // Surface the gap explicitly so a tailing subscriber doesn't
-            // think the seq number was simply skipped. Live subscribers
-            // see the placeholder; DB readers will see a real gap
-            // (acceptable — the persistence failure is itself logged).
-            if (bus) {
-              const placeholder = {
-                type: 'event_gap',
-                seq: eventSeq,
-              } as unknown as DashboardSseEvent;
-              bus.publish(resolvedSessionId, eventSeq, placeholder);
-            }
           }),
       );
     };
@@ -814,29 +803,27 @@ export class ChatService {
         sessionId: resolvedSessionId,
         message: err instanceof Error ? err.message : String(err),
       } as DashboardSseEvent;
-      const eventSeq = seq++;
       if (eventStore) {
         const record = {
           id: randomUUID(),
           sessionId: resolvedSessionId,
-          seq: eventSeq,
           kind: errorEvent.type,
           payload: errorEvent as unknown as Record<string, unknown>,
           timestamp: new Date().toISOString(),
         };
         persistChain = persistChain.then(async () => {
           try {
-            await eventStore.append(record);
-            if (bus) bus.publish(resolvedSessionId, eventSeq, errorEvent);
+            const saved = await eventStore.appendNext(record);
+            if (bus) bus.publish(resolvedSessionId, saved.seq, errorEvent);
           } catch (persistErr) {
             log.warn(
-              { err: persistErr, sessionId: resolvedSessionId, seq: eventSeq },
+              { err: persistErr, sessionId: resolvedSessionId },
               'failed to persist terminal error event',
             );
           }
         });
       } else if (bus) {
-        bus.publish(resolvedSessionId, eventSeq, errorEvent);
+        bus.publish(resolvedSessionId, syntheticSeq++, errorEvent);
       }
       throw err;
     } finally {

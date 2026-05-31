@@ -36,6 +36,7 @@ export type ChatEventKind =
   | 'pending_change_resolved'
   | 'ops_command_confirmation_required'
   | 'ops_command_confirmation_resolved'
+  | 'message_queued'
   | 'investigation_report'
   | 'ask_user'
   | 'ds_choice'
@@ -246,6 +247,13 @@ export interface ChatEvent {
     status?: 'pending' | 'executed' | 'rejected' | 'expired' | 'failed';
     output?: string;
     error?: string;
+  };
+  queuedMessage?: {
+    id: string;
+    sessionId: string;
+    position?: number;
+    content: string;
+    status?: 'queued' | 'started' | 'deleted';
   };
   // For investigation report
   investigationReport?: InvestigationReport;

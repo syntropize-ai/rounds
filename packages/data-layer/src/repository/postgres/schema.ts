@@ -286,6 +286,30 @@ export const chatMessages = pgTable(
   (t) => [index('pg_repo_chat_messages_session_idx').on(t.sessionId)],
 );
 
+export const chatMessageQueue = pgTable(
+  'chat_message_queue',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    orgId: text('org_id').notNull(),
+    ownerUserId: text('owner_user_id').notNull(),
+    content: text('content').notNull(),
+    pageContext: jsonb('page_context'),
+    identity: jsonb('identity').notNull(),
+    status: text('status').notNull(),
+    position: integer('position').notNull(),
+    runId: text('run_id'),
+    errorMessage: text('error_message'),
+    createdAt: text('created_at').notNull(),
+    startedAt: text('started_at'),
+    completedAt: text('completed_at'),
+  },
+  (t) => [
+    index('pg_repo_chat_message_queue_session_idx').on(t.sessionId, t.position),
+    index('pg_repo_chat_message_queue_status_idx').on(t.status),
+  ],
+);
+
 export const chatSessionEvents = pgTable(
   'chat_session_events',
   {
@@ -299,6 +323,6 @@ export const chatSessionEvents = pgTable(
   (t) => [
     index('pg_repo_chat_session_events_session_idx').on(t.sessionId),
     index('pg_repo_chat_session_events_seq_idx').on(t.sessionId, t.seq),
+    uniqueIndex('pg_repo_chat_session_events_session_seq_unique_idx').on(t.sessionId, t.seq),
   ],
 );
-

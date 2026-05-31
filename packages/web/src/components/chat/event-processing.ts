@@ -51,6 +51,7 @@ export function groupEvents(
       evt.kind === 'ask_user' ||
       evt.kind === 'ds_choice' ||
       evt.kind === 'inline_chart' ||
+      evt.kind === 'message_queued' ||
       evt.kind === 'pending_change_created' ||
       evt.kind === 'ops_command_confirmation_required'
     ) {

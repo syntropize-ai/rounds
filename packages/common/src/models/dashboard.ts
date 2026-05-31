@@ -271,6 +271,30 @@ export type DashboardSseEvent =
   | { type: 'investigation_report'; report: InvestigationReport }
   | { type: 'verification_report'; report: { status: string; targetKind: string; summary: string; issues: Array<{ code: string; severity: string; message: string; artifactKind: string; artifactId?: string }>; checksRun: string[] } }
   | { type: 'agent_event'; event: { type: string; agentType: string; timestamp: string; metadata?: Record<string, unknown> } }
+  | {
+      type: 'message_queued';
+      queueItemId: string;
+      sessionId: string;
+      position: number;
+      content: string;
+    }
+  | {
+      type: 'queued_message_started';
+      queueItemId: string;
+      sessionId: string;
+      runId: string;
+    }
+  | {
+      type: 'message_queue_updated';
+      queueItemId: string;
+      sessionId: string;
+      content: string;
+    }
+  | {
+      type: 'message_queue_deleted';
+      queueItemId: string;
+      sessionId: string;
+    }
   | { type: 'approval_required'; tool: string; args: Record<string, unknown>; displayText: string }
   | {
       type: 'ops_command_confirmation_required';

@@ -27,8 +27,151 @@ import type { SessionEventBus, SessionBusEvent } from '../services/session-event
 
 const log = createLogger('chat-router');
 
+type ChatPageContext = {
+  kind: string;
+  id?: string;
+  timeRange?: string;
+  clientTimezone?: string;
+};
+
+const pumpingSessions = new Set<string>();
+
 function sendSseEvent(res: Response, event: DashboardSseEvent): void {
   res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+}
+
+async function publishSessionEvent(
+  deps: ChatServiceDeps,
+  sessionEventBus: SessionEventBus | undefined,
+  sessionId: string,
+  event: DashboardSseEvent,
+): Promise<void> {
+  if (deps.chatEventStore) {
+    const saved = await deps.chatEventStore.appendNext({
+      id: randomUUID(),
+      sessionId,
+      kind: event.type,
+      payload: event as unknown as Record<string, unknown>,
+      timestamp: new Date().toISOString(),
+    });
+    sessionEventBus?.publish(sessionId, saved.seq, event);
+    return;
+  }
+  sessionEventBus?.publish(sessionId, 0, event);
+}
+
+async function enqueueChatMessage(
+  deps: ChatServiceDeps,
+  sessionEventBus: SessionEventBus | undefined,
+  args: {
+    sessionId: string;
+    message: string;
+    pageContext?: ChatPageContext;
+    identity: NonNullable<AuthenticatedRequest['auth']>;
+  },
+): Promise<{ queueItemId: string; position: number; content: string }> {
+  if (!deps.chatMessageQueueStore) {
+    throw new Error('chat message queue store not configured');
+  }
+  const queued = await deps.chatMessageQueueStore.enqueue({
+    sessionId: args.sessionId,
+    orgId: args.identity.orgId,
+    ownerUserId: args.identity.userId,
+    content: args.message,
+    pageContext: args.pageContext ?? null,
+    identity: args.identity,
+  });
+  await publishSessionEvent(deps, sessionEventBus, args.sessionId, {
+    type: 'message_queued',
+    queueItemId: queued.id,
+    sessionId: args.sessionId,
+    position: queued.position,
+    content: queued.content,
+  });
+  return { queueItemId: queued.id, position: queued.position, content: queued.content };
+}
+
+function respondQueued(
+  res: Response,
+  payload: { queueItemId: string; sessionId: string; position: number; content: string },
+): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  sendSseEvent(res, {
+    type: 'message_queued',
+    queueItemId: payload.queueItemId,
+    sessionId: payload.sessionId,
+    position: payload.position,
+    content: payload.content,
+  });
+  res.end();
+}
+
+function pumpSessionQueue(
+  deps: ChatServiceDeps,
+  runRegistry: AgentRunRegistry | undefined,
+  sessionEventBus: SessionEventBus | undefined,
+  sessionId: string,
+): void {
+  if (!deps.chatMessageQueueStore || !runRegistry || pumpingSessions.has(sessionId)) return;
+  pumpingSessions.add(sessionId);
+  void (async () => {
+    try {
+      while (!runRegistry.activeRunFor(sessionId)) {
+        const item = await deps.chatMessageQueueStore!.claimNext(sessionId);
+        if (!item) return;
+        const run = runRegistry.start({
+          sessionId,
+          orgId: item.orgId,
+          ownerUserId: item.ownerUserId,
+        });
+        await deps.chatMessageQueueStore!.markRunning(item.id, run.runId);
+        await publishSessionEvent(deps, sessionEventBus, sessionId, {
+          type: 'queued_message_started',
+          queueItemId: item.id,
+          sessionId,
+          runId: run.runId,
+        });
+        const service = new ChatService(deps);
+        let finalStatus: 'succeeded' | 'failed' | 'aborted' = 'succeeded';
+        let errorMessage: string | undefined;
+        try {
+          await service.handleMessage(
+            item.content,
+            sessionId,
+            () => undefined,
+            item.identity,
+            item.pageContext as ChatPageContext | undefined,
+            run.controller.signal,
+          );
+          await deps.chatMessageQueueStore!.markSucceeded(item.id);
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          finalStatus = error.name === 'AbortError' ? 'aborted' : 'failed';
+          errorMessage = error.message;
+          await deps.chatMessageQueueStore!.markFailed(item.id, error.message);
+          log.warn({ err, sessionId, queueItemId: item.id }, 'queued chat message failed');
+        } finally {
+          runRegistry.markComplete(run.runId, finalStatus, {
+            ...(errorMessage ? { errorMessage } : {}),
+          });
+          runRegistry.releaseSession(run.runId);
+        }
+      }
+    } finally {
+      pumpingSessions.delete(sessionId);
+      if (!runRegistry.activeRunFor(sessionId)) {
+        const queued = await deps.chatMessageQueueStore!.listBySession(sessionId);
+        if (queued.some((item) => item.status === 'queued')) {
+          pumpSessionQueue(deps, runRegistry, sessionEventBus, sessionId);
+        }
+      }
+    }
+  })();
 }
 
 async function ensureSessionInOrg(
@@ -63,9 +206,10 @@ async function handleChatStream(
   res: Response,
   message: string,
   sessionId: string | undefined,
-  pageContext: { kind: string; id?: string; timeRange?: string } | undefined,
+  pageContext: ChatPageContext | undefined,
   deps: ChatServiceDeps,
   runRegistry: AgentRunRegistry | undefined,
+  sessionEventBus: SessionEventBus | undefined,
 ): Promise<void> {
   // req.auth is guaranteed by authMiddleware above — if it's missing, the
   // middleware already short-circuited with 401 and we would not be here.
@@ -94,6 +238,16 @@ async function handleChatStream(
   if (runRegistry) {
     const existing = runRegistry.activeRunFor(resolvedSessionId);
     if (existing) {
+      if (deps.chatMessageQueueStore) {
+        const queued = await enqueueChatMessage(deps, sessionEventBus, {
+          sessionId: resolvedSessionId,
+          message,
+          pageContext,
+          identity: req.auth,
+        });
+        respondQueued(res, { ...queued, sessionId: resolvedSessionId });
+        return;
+      }
       // Genuine "still actively running, no cancel pending" → 409 fast so
       // the client knows the session is in use. But if the controller's
       // already aborted (a cancel just landed, the agent hasn't unwound
@@ -134,6 +288,21 @@ async function handleChatStream(
         });
         return;
       }
+    }
+  }
+
+  if (deps.chatMessageQueueStore && sessionId) {
+    const queuedItems = await deps.chatMessageQueueStore.listBySession(resolvedSessionId);
+    if (queuedItems.some((item) => item.status === 'queued')) {
+      const queued = await enqueueChatMessage(deps, sessionEventBus, {
+        sessionId: resolvedSessionId,
+        message,
+        pageContext,
+        identity: req.auth,
+      });
+      respondQueued(res, { ...queued, sessionId: resolvedSessionId });
+      pumpSessionQueue(deps, runRegistry, sessionEventBus, resolvedSessionId);
+      return;
     }
   }
 
@@ -255,6 +424,7 @@ async function handleChatStream(
       // `.finally` survives both success and rejection.
       agentPromise.catch(() => undefined).finally(() => {
         runRegistry.releaseSession(runId);
+        pumpSessionQueue(deps, runRegistry, sessionEventBus, resolvedSessionId);
       });
     }
     const abortPromise = new Promise<never>((_, reject) => {
@@ -368,7 +538,7 @@ export function createChatRouter(
         const body = req.body as {
           message?: string;
           sessionId?: string;
-          pageContext?: { kind: string; id?: string; timeRange?: string };
+          pageContext?: ChatPageContext;
         };
         if (typeof body.message !== 'string' || body.message.trim() === '') {
           res.status(400).json({
@@ -399,7 +569,7 @@ export function createChatRouter(
           return;
         }
 
-        await handleChatStream(req, res, message, sessionId, pageContext, deps, runRegistry);
+        await handleChatStream(req, res, message, sessionId, pageContext, deps, runRegistry, sessionEventBus);
       } catch (err) {
         next(err);
       }
@@ -534,6 +704,106 @@ export function createChatRouter(
             : Promise.resolve([]),
         ]);
         res.json({ sessionId, messages, events });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.patch(
+    '/sessions/:id/queue/:queueItemId',
+    requirePermission(() => ac.eval(ACTIONS.ChatUse)),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const auth = (req as AuthenticatedRequest).auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        if (!deps.chatMessageQueueStore) {
+          res.status(501).json({ error: { code: 'NOT_IMPLEMENTED', message: 'chat queue not configured' } });
+          return;
+        }
+        const sessionId = req.params['id'] ?? '';
+        const queueItemId = req.params['queueItemId'] ?? '';
+        const content = typeof req.body?.content === 'string' ? req.body.content.trim() : '';
+        if (!sessionId || !queueItemId || !content) {
+          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'session id, queue item id, and content are required' } });
+          return;
+        }
+        const ownerScope = { orgId: auth.orgId, ownerUserId: auth.userId };
+        if (!(await ensureSessionInOrg(deps, sessionId, ownerScope))) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'session not found' } });
+          return;
+        }
+        const existing = (await deps.chatMessageQueueStore.listBySession(sessionId)).find(
+          (item) => item.id === queueItemId && item.status === 'queued',
+        );
+        if (!existing || existing.orgId !== auth.orgId || existing.ownerUserId !== auth.userId) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'queued message not found' } });
+          return;
+        }
+        const updated = await deps.chatMessageQueueStore.updateQueuedContent(queueItemId, content);
+        if (!updated) {
+          res.status(409).json({ error: { code: 'CONFLICT', message: 'queued message already started' } });
+          return;
+        }
+        await publishSessionEvent(deps, sessionEventBus, sessionId, {
+          type: 'message_queue_updated',
+          queueItemId,
+          sessionId,
+          content: updated.content,
+        });
+        res.json({ queuedMessage: updated });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete(
+    '/sessions/:id/queue/:queueItemId',
+    requirePermission(() => ac.eval(ACTIONS.ChatUse)),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const auth = (req as AuthenticatedRequest).auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        if (!deps.chatMessageQueueStore) {
+          res.status(501).json({ error: { code: 'NOT_IMPLEMENTED', message: 'chat queue not configured' } });
+          return;
+        }
+        const sessionId = req.params['id'] ?? '';
+        const queueItemId = req.params['queueItemId'] ?? '';
+        if (!sessionId || !queueItemId) {
+          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'session id and queue item id are required' } });
+          return;
+        }
+        const ownerScope = { orgId: auth.orgId, ownerUserId: auth.userId };
+        if (!(await ensureSessionInOrg(deps, sessionId, ownerScope))) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'session not found' } });
+          return;
+        }
+        const existing = (await deps.chatMessageQueueStore.listBySession(sessionId)).find(
+          (item) => item.id === queueItemId && item.status === 'queued',
+        );
+        if (!existing || existing.orgId !== auth.orgId || existing.ownerUserId !== auth.userId) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'queued message not found' } });
+          return;
+        }
+        const deleted = await deps.chatMessageQueueStore.deleteQueued(queueItemId);
+        if (!deleted) {
+          res.status(409).json({ error: { code: 'CONFLICT', message: 'queued message already started' } });
+          return;
+        }
+        await publishSessionEvent(deps, sessionEventBus, sessionId, {
+          type: 'message_queue_deleted',
+          queueItemId,
+          sessionId,
+        });
+        res.status(204).end();
       } catch (err) {
         next(err);
       }

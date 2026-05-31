@@ -622,6 +622,26 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 
 CREATE INDEX IF NOT EXISTS ix_chat_messages_org_id ON chat_messages(org_id);
 
+CREATE TABLE IF NOT EXISTS chat_message_queue (
+  id             TEXT PRIMARY KEY,
+  session_id     TEXT NOT NULL,
+  org_id         TEXT NOT NULL,
+  owner_user_id  TEXT NOT NULL,
+  content        TEXT NOT NULL,
+  page_context   TEXT,
+  identity       TEXT NOT NULL,
+  status         TEXT NOT NULL,
+  position       INTEGER NOT NULL,
+  run_id         TEXT,
+  error_message  TEXT,
+  created_at     TEXT NOT NULL,
+  started_at     TEXT,
+  completed_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS chat_message_queue_session_idx ON chat_message_queue(session_id, position);
+CREATE INDEX IF NOT EXISTS chat_message_queue_status_idx ON chat_message_queue(status);
+
 CREATE TABLE IF NOT EXISTS chat_session_events (
   id         TEXT PRIMARY KEY,
   org_id     TEXT NOT NULL DEFAULT 'org_main',
@@ -634,6 +654,7 @@ CREATE TABLE IF NOT EXISTS chat_session_events (
 
 CREATE INDEX IF NOT EXISTS chat_session_events_session_idx ON chat_session_events(session_id);
 CREATE INDEX IF NOT EXISTS chat_session_events_seq_idx     ON chat_session_events(session_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS chat_session_events_session_seq_unique_idx ON chat_session_events(session_id, seq);
 CREATE INDEX IF NOT EXISTS ix_chat_session_events_org_id   ON chat_session_events(org_id);
 
 CREATE TABLE IF NOT EXISTS asset_versions (

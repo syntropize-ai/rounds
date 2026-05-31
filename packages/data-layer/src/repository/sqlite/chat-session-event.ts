@@ -33,6 +33,28 @@ export class SqliteChatSessionEventRepository implements IChatSessionEventReposi
     });
   }
 
+  async appendNext(
+    event: Omit<ChatSessionEventRecord, 'seq'>,
+  ): Promise<ChatSessionEventRecord> {
+    return this.db.withTransaction(async (tx) => {
+      const db = tx as unknown as SqliteClient;
+      const [seqRow] = await db
+        .select({ maxSeq: max(chatSessionEvents.seq) })
+        .from(chatSessionEvents)
+        .where(eq(chatSessionEvents.sessionId, event.sessionId));
+      const record = { ...event, seq: (seqRow?.maxSeq ?? 0) + 1 };
+      await db.insert(chatSessionEvents).values({
+        id: record.id,
+        sessionId: record.sessionId,
+        seq: record.seq,
+        kind: record.kind,
+        payload: record.payload as Record<string, unknown>,
+        timestamp: record.timestamp,
+      });
+      return record;
+    });
+  }
+
   async listBySession(sessionId: string): Promise<ChatSessionEventRecord[]> {
     const rows = await this.db
       .select()

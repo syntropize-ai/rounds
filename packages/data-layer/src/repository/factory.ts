@@ -15,6 +15,7 @@ import type {
   IChatSessionRepository,
   IChatSessionContextRepository,
   IChatMessageRepository,
+  IChatMessageQueueRepository,
   IChatSessionEventRepository,
   IKnowledgeRepository,
   IPendingChangeRepository,
@@ -51,6 +52,7 @@ import { SqlitePostMortemRepository } from './sqlite/post-mortem.js';
 import { SqliteChatSessionRepository } from './sqlite/chat-session.js';
 import { SqliteChatSessionContextRepository } from './sqlite/chat-session-context.js';
 import { SqliteChatMessageRepository } from './sqlite/chat-message.js';
+import { SqliteChatMessageQueueRepository } from './sqlite/chat-message-queue.js';
 import { SqliteChatSessionEventRepository } from './sqlite/chat-session-event.js';
 import { InstanceConfigRepository } from './sqlite/instance-config.js';
 import { NotificationChannelRepository } from './sqlite/notification-channel.js';
@@ -70,6 +72,7 @@ import { PostgresPostMortemRepository } from './postgres/post-mortem.js';
 import { PostgresChatSessionRepository } from './postgres/chat-session.js';
 import { PostgresChatSessionContextRepository } from './postgres/chat-session-context.js';
 import { PostgresChatMessageRepository } from './postgres/chat-message.js';
+import { PostgresChatMessageQueueRepository } from './postgres/chat-message-queue.js';
 import { PostgresChatSessionEventRepository } from './postgres/chat-session-event.js';
 import { PostgresInstanceConfigRepository } from './postgres/instance-config.js';
 import { PostgresNotificationChannelRepository } from './postgres/notification-channel.js';
@@ -116,6 +119,7 @@ export interface RepositoryBundle {
   chatSessions: IChatSessionRepository;
   chatSessionContexts: IChatSessionContextRepository;
   chatMessages: IChatMessageRepository;
+  chatMessageQueue: IChatMessageQueueRepository;
   chatSessionEvents: IChatSessionEventRepository;
   // W2 / T2.2 — instance-scoped config (replaces setup-config.json).
   instanceConfig: IInstanceConfigRepository;
@@ -147,6 +151,7 @@ export function createSqliteRepositories(db: SqliteClient): RepositoryBundle {
     chatSessions: new SqliteChatSessionRepository(db),
     chatSessionContexts: new SqliteChatSessionContextRepository(db),
     chatMessages: new SqliteChatMessageRepository(db),
+    chatMessageQueue: new SqliteChatMessageQueueRepository(db),
     chatSessionEvents: new SqliteChatSessionEventRepository(db),
     instanceConfig: new InstanceConfigRepository(db),
     connectors: new SqliteConnectorRepository(db),
@@ -179,6 +184,7 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     chatSessions: new PostgresChatSessionRepository(db),
     chatSessionContexts: new PostgresChatSessionContextRepository(db),
     chatMessages: new PostgresChatMessageRepository(db),
+    chatMessageQueue: new PostgresChatMessageQueueRepository(db),
     chatSessionEvents: new PostgresChatSessionEventRepository(db),
     instanceConfig: new PostgresInstanceConfigRepository(queryClient),
     connectors: new PostgresConnectorRepository(queryClient),
@@ -192,4 +198,3 @@ export function createPostgresRepositories(db: DbClient): RepositoryBundle {
     pendingChanges: new PostgresPendingChangeRepository(db),
   };
 }
-

@@ -571,6 +571,30 @@ export const chatMessages = sqliteTable(
   ],
 );
 
+export const chatMessageQueue = sqliteTable(
+  'chat_message_queue',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    orgId: text('org_id').notNull(),
+    ownerUserId: text('owner_user_id').notNull(),
+    content: text('content').notNull(),
+    pageContext: text('page_context', { mode: 'json' }),
+    identity: text('identity', { mode: 'json' }).notNull(),
+    status: text('status').notNull(),
+    position: integer('position').notNull(),
+    runId: text('run_id'),
+    errorMessage: text('error_message'),
+    createdAt: text('created_at').notNull(),
+    startedAt: text('started_at'),
+    completedAt: text('completed_at'),
+  },
+  (t) => [
+    index('chat_message_queue_session_idx').on(t.sessionId, t.position),
+    index('chat_message_queue_status_idx').on(t.status),
+  ],
+);
+
 // — chat session events (SSE step trace: thinking, tool_call, tool_result,
 //   panel_added, etc.). Persisted so the chat panel can replay the full
 //   conversation (messages + agent activity) after a page refresh.
@@ -588,6 +612,6 @@ export const chatSessionEvents = sqliteTable(
   (t) => [
     index('chat_session_events_session_idx').on(t.sessionId),
     index('chat_session_events_seq_idx').on(t.sessionId, t.seq),
+    uniqueIndex('chat_session_events_session_seq_unique_idx').on(t.sessionId, t.seq),
   ],
 );
-

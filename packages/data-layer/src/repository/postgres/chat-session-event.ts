@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, max } from 'drizzle-orm';
+import { and, asc, desc, eq, max, sql } from 'drizzle-orm';
 import { chatSessionEvents } from '../../db/schema.js';
 import type {
   ChatSessionEventRecord,
@@ -29,6 +29,33 @@ export class PostgresChatSessionEventRepository implements IChatSessionEventRepo
       kind: event.kind,
       payload: event.payload as Record<string, unknown>,
       timestamp: event.timestamp,
+    });
+  }
+
+  async appendNext(
+    event: Omit<ChatSessionEventRecord, 'seq'>,
+  ): Promise<ChatSessionEventRecord> {
+    return this.db.withTransaction(async (tx: any) => {
+      await tx.run(sql`SELECT pg_advisory_xact_lock(hashtext(${event.sessionId}))`);
+      const seqRows = await tx.all(sql`
+        SELECT COALESCE(MAX(seq), 0)::int AS max_seq
+        FROM chat_session_events
+        WHERE session_id = ${event.sessionId}
+      `) as Array<{ max_seq: number | null }>;
+      const [seqRow] = seqRows;
+      const record = { ...event, seq: Number(seqRow?.max_seq ?? 0) + 1 };
+      await tx.run(sql`
+        INSERT INTO chat_session_events (id, session_id, seq, kind, payload, timestamp)
+        VALUES (
+          ${record.id},
+          ${record.sessionId},
+          ${record.seq},
+          ${record.kind},
+          ${JSON.stringify(record.payload)}::jsonb,
+          ${record.timestamp}
+        )
+      `);
+      return record;
     });
   }
 

@@ -15,6 +15,8 @@ function LayoutInner() {
     events,
     isGenerating,
     sendMessage,
+    updateQueuedMessage,
+    deleteQueuedMessage,
     stopGeneration,
     pendingNavigation,
     clearPendingNavigation,
@@ -132,6 +134,8 @@ function LayoutInner() {
           onSendMessage={(msg) => {
             void sendMessage(msg);
           }}
+          onUpdateQueuedMessage={updateQueuedMessage}
+          onDeleteQueuedMessage={deleteQueuedMessage}
           onStop={stopGeneration}
           onNewConversation={startNewSession}
           emptyContextLabel={chatContextLabel}

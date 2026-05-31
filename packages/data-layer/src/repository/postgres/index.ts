@@ -16,6 +16,7 @@ export { PostgresVersionRepository } from './version.js';
 export { PostgresChatSessionRepository } from './chat-session.js';
 export { PostgresChatSessionContextRepository } from './chat-session-context.js';
 export { PostgresChatMessageRepository } from './chat-message.js';
+export { PostgresChatMessageQueueRepository } from './chat-message-queue.js';
 export { PostgresChatSessionEventRepository } from './chat-session-event.js';
 export { PostgresInstanceConfigRepository } from './instance-config.js';
 export { PostgresNotificationChannelRepository } from './notification-channel.js';

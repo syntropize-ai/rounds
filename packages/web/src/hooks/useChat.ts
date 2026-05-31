@@ -23,6 +23,8 @@ export interface UseChatResult {
   events: ChatEvent[];
   isGenerating: boolean;
   sendMessage: (content: string) => Promise<void>;
+  updateQueuedMessage: (queueItemId: string, content: string) => Promise<void>;
+  deleteQueuedMessage: (queueItemId: string) => Promise<void>;
   stopGeneration: () => void;
   /** Set by the backend when the agent creates a resource and emits a navigate SSE event. */
   pendingNavigation: string | null;
@@ -215,6 +217,50 @@ export function payloadToChatEvent(
         },
       };
     }
+    case 'message_queued': {
+      const queueItemId = typeof payload.queueItemId === 'string' ? payload.queueItemId : '';
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
+      const content = typeof payload.content === 'string' ? payload.content : '';
+      if (!queueItemId || !sessionId || !content) return null;
+      return {
+        id: queueItemId,
+        kind: 'message_queued',
+        queuedMessage: {
+          id: queueItemId,
+          sessionId,
+          position: typeof payload.position === 'number' ? payload.position : undefined,
+          content,
+          status: 'queued',
+        },
+      };
+    }
+    case 'message_queue_updated': {
+      const queueItemId = typeof payload.queueItemId === 'string' ? payload.queueItemId : '';
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
+      const content = typeof payload.content === 'string' ? payload.content : '';
+      if (!queueItemId || !sessionId || !content) return null;
+      return {
+        id: queueItemId,
+        kind: 'message_queued',
+        queuedMessage: { id: queueItemId, sessionId, content, status: 'queued' },
+      };
+    }
+    case 'message_queue_deleted':
+    case 'queued_message_started': {
+      const queueItemId = typeof payload.queueItemId === 'string' ? payload.queueItemId : '';
+      const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
+      if (!queueItemId || !sessionId) return null;
+      return {
+        id: queueItemId,
+        kind: 'message_queued',
+        queuedMessage: {
+          id: queueItemId,
+          sessionId,
+          content: '',
+          status: kind === 'message_queue_deleted' ? 'deleted' : 'started',
+        },
+      };
+    }
     case 'ops_command_confirmation_required':
       return {
         id,
@@ -276,7 +322,7 @@ export function rebuildChatEventsFromSession(
 
   type Entry =
     | { kind: 'msg'; ts: string; message: ChatMessage }
-    | { kind: 'evt'; ts: string; seq: number; evt: ChatEvent };
+    | { kind: 'evt'; ts: string; seq: number; rawKind: string; evt: ChatEvent };
 
   const entries: Entry[] = [];
   for (const msg of messages) {
@@ -290,6 +336,7 @@ export function rebuildChatEventsFromSession(
         kind: 'evt',
         ts: raw.timestamp,
         seq: raw.seq,
+        rawKind: raw.kind,
         evt,
       });
     }
@@ -301,11 +348,34 @@ export function rebuildChatEventsFromSession(
     return aSeq - bSeq;
   });
 
-  return entries.map((entry) =>
-    entry.kind === 'msg'
-      ? { id: entry.message.id, kind: 'message', message: entry.message }
-      : entry.evt,
-  );
+  const rebuilt: ChatEvent[] = [];
+  for (const entry of entries) {
+    if (entry.kind === 'msg') {
+      rebuilt.push({ id: entry.message.id, kind: 'message', message: entry.message });
+      continue;
+    }
+    if (entry.rawKind === 'message_queue_updated' && entry.evt.queuedMessage) {
+      const idx = rebuilt.findIndex(
+        (evt) => evt.kind === 'message_queued' && evt.queuedMessage?.id === entry.evt.queuedMessage?.id,
+      );
+      if (idx >= 0) rebuilt[idx] = entry.evt;
+      continue;
+    }
+    if (entry.rawKind === 'message_queue_deleted' || entry.rawKind === 'queued_message_started') {
+      const id = entry.evt.queuedMessage?.id;
+      if (id) {
+        for (let i = rebuilt.length - 1; i >= 0; i -= 1) {
+          if (rebuilt[i]?.kind === 'message_queued' && rebuilt[i]?.queuedMessage?.id === id) {
+            rebuilt.splice(i, 1);
+            break;
+          }
+        }
+      }
+      continue;
+    }
+    rebuilt.push(entry.evt);
+  }
+  return rebuilt;
 }
 
 // withChatQuery used to append `?chat=<id>` to agent-emitted navigation paths
@@ -358,7 +428,7 @@ export function useChat(): UseChatResult {
   // bus subscription is also open during the POST we'd double-render every
   // event. While this flag is set, the subscription path drops everything
   // except `idle` (which is harmless control signalling).
-  const postStreamActiveRef = useRef(false);
+  const postStreamActiveCountRef = useRef(0);
   // Session id source of truth: the URL (`?chat=<id>`) for deeplinks plus the
   // Recents list on Home for picking a prior conversation. There used to be a
   // `localStorage.chat_session_id` mirror here so a new tab would auto-resume
@@ -399,6 +469,24 @@ export function useChat(): UseChatResult {
       next[idx] = evt;
       return next;
     });
+  }, []);
+
+  const upsertQueuedMessage = useCallback((evt: ChatEvent) => {
+    const id = evt.queuedMessage?.id;
+    if (!id) return;
+    setEvents((prev) => {
+      const idx = prev.findIndex((e) => e.kind === 'message_queued' && e.queuedMessage?.id === id);
+      if (idx === -1) return [...prev, evt];
+      const next = prev.slice();
+      next[idx] = evt;
+      return next;
+    });
+  }, []);
+
+  const removeQueuedMessage = useCallback((queueItemId: string) => {
+    setEvents((prev) =>
+      prev.filter((e) => !(e.kind === 'message_queued' && e.queuedMessage?.id === queueItemId)),
+    );
   }, []);
 
   const clearPendingNavigation = useCallback(() => {
@@ -447,6 +535,65 @@ export function useChat(): UseChatResult {
             sessionIdRef.current = sid;
             setCurrentSessionId(sid);
           }
+          setIsGenerating(true);
+          break;
+        }
+
+        case 'message_queued': {
+          const sid = parsed['sessionId'];
+          if (typeof sid === 'string' && !sessionIdRef.current) {
+            sessionIdRef.current = sid;
+            setCurrentSessionId(sid);
+          }
+          const queueItemId = typeof parsed.queueItemId === 'string' ? parsed.queueItemId : '';
+          const content = typeof parsed.content === 'string' ? parsed.content : '';
+          if (queueItemId && typeof sid === 'string' && content) {
+            upsertQueuedMessage({
+              id: queueItemId,
+              kind: 'message_queued',
+              queuedMessage: {
+                id: queueItemId,
+                sessionId: sid,
+                position: typeof parsed.position === 'number' ? parsed.position : undefined,
+                content,
+                status: 'queued',
+              },
+            });
+          }
+          break;
+        }
+
+        case 'message_queue_updated': {
+          const queueItemId = typeof parsed.queueItemId === 'string' ? parsed.queueItemId : '';
+          const sid = typeof parsed.sessionId === 'string' ? parsed.sessionId : sessionIdRef.current;
+          const content = typeof parsed.content === 'string' ? parsed.content : '';
+          if (queueItemId && sid && content) {
+            upsertQueuedMessage({
+              id: queueItemId,
+              kind: 'message_queued',
+              queuedMessage: { id: queueItemId, sessionId: sid, content, status: 'queued' },
+            });
+          }
+          break;
+        }
+
+        case 'message_queue_deleted': {
+          const queueItemId = typeof parsed.queueItemId === 'string' ? parsed.queueItemId : '';
+          if (queueItemId) removeQueuedMessage(queueItemId);
+          break;
+        }
+
+        case 'queued_message_started': {
+          const rid = parsed['runId'];
+          const sid = parsed['sessionId'];
+          if (typeof rid === 'string') runIdRef.current = rid;
+          if (typeof sid === 'string' && !sessionIdRef.current) {
+            sessionIdRef.current = sid;
+            setCurrentSessionId(sid);
+          }
+          const queueItemId = typeof parsed.queueItemId === 'string' ? parsed.queueItemId : '';
+          if (queueItemId) removeQueuedMessage(queueItemId);
+          setIsGenerating(true);
           break;
         }
 
@@ -665,7 +812,7 @@ export function useChat(): UseChatResult {
           break;
       }
     },
-    [appendEvent, upsertInlineChart],
+    [appendEvent, removeQueuedMessage, upsertInlineChart, upsertQueuedMessage],
   );
 
   /**
@@ -704,7 +851,7 @@ export function useChat(): UseChatResult {
           // would double-render. Drop everything except `idle`, which is a
           // useful safety terminator (clears the spinner if `done` is
           // somehow missed).
-          if (postStreamActiveRef.current && eventType !== 'idle') return;
+          if (postStreamActiveCountRef.current > 0 && eventType !== 'idle') return;
           handleSSEEvent(eventType, rawData);
         },
         controller.signal,
@@ -719,23 +866,16 @@ export function useChat(): UseChatResult {
 
   const sendMessage = useCallback(
     async (content: string) => {
-      if (!content.trim() || isGenerating) return;
+      if (!content.trim()) return;
 
-      // Cancel-by-sessionId for the prior run (if any). Works whether or
-      // not we ever received `run_started` for that turn — server looks
-      // up activeRunFor(sessionId). Backend's POST /chat handler waits
-      // briefly for the cancelled run to release before starting the
-      // new one, closing the markComplete→releaseSession gap window.
-      const sid = sessionIdRef.current;
-      if (sid) {
-        void apiClient
-          .post(`/chat/sessions/${encodeURIComponent(sid)}/cancel-active`, {})
-          .catch(() => undefined);
+      const wasGenerating = isGenerating;
+      const controller = new AbortController();
+      if (!wasGenerating) {
+        abortRef.current?.abort();
+        abortRef.current = controller;
+        // Fresh run — backend's `run_started` SSE event will repopulate.
+        runIdRef.current = null;
       }
-      abortRef.current?.abort();
-      abortRef.current = new AbortController();
-      // Fresh run — backend's `run_started` SSE event will repopulate.
-      runIdRef.current = null;
 
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
@@ -743,11 +883,13 @@ export function useChat(): UseChatResult {
         content,
         timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, userMsg]);
-      appendEvent({ id: userMsg.id, kind: 'message', message: userMsg });
+      if (!wasGenerating) {
+        setMessages((prev) => [...prev, userMsg]);
+        appendEvent({ id: userMsg.id, kind: 'message', message: userMsg });
+      }
       setIsGenerating(true);
 
-      postStreamActiveRef.current = true;
+      postStreamActiveCountRef.current += 1;
       try {
         // Always inject the browser's local timezone so the agent can map
         // any clock time the user mentions ("9:59" off the panel's x-axis)
@@ -765,7 +907,7 @@ export function useChat(): UseChatResult {
             pageContext: ctxWithTz,
           },
           handleSSEEvent,
-          abortRef.current.signal,
+          controller.signal,
         );
         // A successful round-trip means the session is reachable — drop any
         // stale loadError banner so it doesn't linger after a transient blip.
@@ -785,11 +927,40 @@ export function useChat(): UseChatResult {
           });
         }
       } finally {
-        postStreamActiveRef.current = false;
-        setIsGenerating(false);
+        postStreamActiveCountRef.current = Math.max(0, postStreamActiveCountRef.current - 1);
+        if (!wasGenerating) {
+          abortRef.current = null;
+          setIsGenerating(false);
+        }
       }
     },
     [isGenerating, handleSSEEvent, appendEvent],
+  );
+
+  const updateQueuedMessage = useCallback(
+    async (queueItemId: string, content: string) => {
+      const sid = sessionIdRef.current;
+      const trimmed = content.trim();
+      if (!sid || !queueItemId || !trimmed) return;
+      const res = await apiClient.patch<unknown>(
+        `/chat/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(queueItemId)}`,
+        { content: trimmed },
+      );
+      if (res.error) throw new Error(res.error.message ?? 'Failed to update queued message');
+    },
+    [],
+  );
+
+  const deleteQueuedMessage = useCallback(
+    async (queueItemId: string) => {
+      const sid = sessionIdRef.current;
+      if (!sid || !queueItemId) return;
+      const res = await apiClient.delete<unknown>(
+        `/chat/sessions/${encodeURIComponent(sid)}/queue/${encodeURIComponent(queueItemId)}`,
+      );
+      if (res.error) throw new Error(res.error.message ?? 'Failed to delete queued message');
+    },
+    [],
   );
 
   const setPageContext = useCallback((ctx: PageContext | null) => {
@@ -862,6 +1033,18 @@ export function useChat(): UseChatResult {
       },
     });
   }, [appendEvent]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !isGenerating) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-queue-editing="true"]')) return;
+      event.preventDefault();
+      stopGeneration();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isGenerating, stopGeneration]);
 
   const startNewSession = useCallback(() => {
     loadTokenRef.current += 1;
@@ -1031,6 +1214,8 @@ export function useChat(): UseChatResult {
       events,
       isGenerating,
       sendMessage,
+      updateQueuedMessage,
+      deleteQueuedMessage,
       stopGeneration,
       pendingNavigation,
       clearPendingNavigation,
@@ -1046,6 +1231,8 @@ export function useChat(): UseChatResult {
       events,
       isGenerating,
       sendMessage,
+      updateQueuedMessage,
+      deleteQueuedMessage,
       stopGeneration,
       pendingNavigation,
       clearPendingNavigation,

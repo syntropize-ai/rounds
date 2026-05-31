@@ -14,6 +14,8 @@ interface Props {
   events: ChatEvent[];
   isGenerating: boolean;
   onSendMessage: (content: string) => void;
+  onUpdateQueuedMessage?: (queueItemId: string, content: string) => Promise<void>;
+  onDeleteQueuedMessage?: (queueItemId: string) => Promise<void>;
   onStop?: () => void;
   onNewConversation?: () => void;
   emptyContextLabel?: string;
@@ -38,6 +40,8 @@ export default function ChatPanel({
   events,
   isGenerating,
   onSendMessage,
+  onUpdateQueuedMessage,
+  onDeleteQueuedMessage,
   onStop,
   onNewConversation,
   emptyContextLabel,
@@ -107,10 +111,10 @@ export default function ChatPanel({
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || isGenerating) return;
+    if (!trimmed) return;
     onSendMessage(trimmed);
     setInput('');
-  }, [input, isGenerating, onSendMessage]);
+  }, [input, onSendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -289,6 +293,8 @@ export default function ChatPanel({
           events={events}
           isGenerating={isGenerating}
           onSendMessage={onSendMessage}
+          onUpdateQueuedMessage={onUpdateQueuedMessage}
+          onDeleteQueuedMessage={onDeleteQueuedMessage}
           proposalStatusOverlay={proposalStatusOverlay}
         />
 
@@ -303,8 +309,7 @@ export default function ChatPanel({
             onKeyDown={handleKeyDown}
             placeholder="Ask anything..."
             rows={1}
-            disabled={isGenerating}
-            className="w-full bg-surface-container border border-outline-variant focus:border-primary py-3.5 pl-4 pr-14 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-colors disabled:opacity-50"
+            className="w-full bg-surface-container border border-outline-variant focus:border-primary py-3.5 pl-4 pr-24 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-colors"
             style={{ minHeight: '52px', maxHeight: '120px' }}
             onInput={(e) => {
               const el = e.target as HTMLTextAreaElement;
@@ -312,7 +317,7 @@ export default function ChatPanel({
               el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
             }}
           />
-          {isGenerating && onStop ? (
+          {isGenerating && onStop && !input.trim() ? (
             <button
               type="button"
               onClick={onStop}
@@ -338,6 +343,19 @@ export default function ChatPanel({
               </svg>
             </button>
           )}
+          {isGenerating && onStop && input.trim() ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="absolute right-12 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
+              title="Stop"
+              aria-label="Stop"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <rect x="5" y="5" width="10" height="10" rx="1" />
+              </svg>
+            </button>
+          ) : null}
         </div>
         {!isGenerating && (
           <p className="text-[10px] text-center text-on-surface-variant/50">

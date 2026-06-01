@@ -15,6 +15,7 @@ export {
   handleDashboardList,
   handleDashboardClone,
   handleDashboardAddPanels,
+  handleDashboardRearrange,
   handleDashboardRemovePanels,
   handleDashboardModifyPanel,
   handleDashboardSetTitle,

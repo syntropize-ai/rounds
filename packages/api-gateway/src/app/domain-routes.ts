@@ -281,6 +281,11 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     users: authRepos.users,
     teams: rbacRepos.teams,
   });
+  // Singletons that wire the detached-run architecture: chat events flow
+  // through this bus AND get persisted. Pending-change resolution events must
+  // publish on the same bus as chat so live subscribers see the card flip.
+  const sessionEventBus = new SessionEventBus();
+  const agentRunRegistry = new AgentRunRegistry();
 
   app.use('/api/investigations', createInvestigationRouter({
     store: repos.investigations,
@@ -359,6 +364,8 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     dashboards: repos.dashboards,
     accessControl,
     panelEvents: repos.panelEvents,
+    chatSessionEvents: repos.chatSessionEvents,
+    sessionEventBus,
   }));
   // Background expiry sweep — once an hour, mark pending rows past their
   // expires_at as 'expired'. Wrapped in try/catch so a transient db blip
@@ -394,14 +401,6 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     authMiddleware,
     createAdminPanelEventsRouter({ panelEvents: repos.panelEvents }),
   );
-  // Singletons that wire the detached-run architecture: chat events flow
-  // through this bus AND get persisted; the registry tracks runs so a
-  // client can disconnect without killing the agent. Both must be the same
-  // instance across ChatService and the chat router for the live-tail
-  // subscribe-then-replay handoff to work.
-  const sessionEventBus = new SessionEventBus();
-  const agentRunRegistry = new AgentRunRegistry();
-
   app.use('/api/chat', createChatRouter({
     dashboardStore: repos.dashboards,
     investigationReportStore: repos.investigationReports,

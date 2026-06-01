@@ -11,12 +11,14 @@ import express from 'express';
 import request from 'supertest';
 import type { Dashboard, PanelConfig } from '@agentic-obs/common';
 import type {
+  IChatSessionEventRepository,
   IPendingChangeRepository,
   IGatewayDashboardStore,
   PendingChange,
 } from '@agentic-obs/data-layer';
 import { createPendingChangesRouter } from './pending-changes.js';
 import { setAuthMiddleware } from '../middleware/auth.js';
+import { SessionEventBus } from '../services/session-event-bus.js';
 
 // The router calls `router.use(authMiddleware)`; the singleton is normally
 // bound in app boot. For unit tests we install a passthrough so the inline
@@ -46,6 +48,8 @@ function makeApp(deps: {
   repo: IPendingChangeRepository;
   dashboards: IGatewayDashboardStore;
   allow?: boolean;
+  chatSessionEvents?: IChatSessionEventRepository;
+  sessionEventBus?: SessionEventBus;
 }) {
   const app = express();
   app.use(express.json());
@@ -56,6 +60,8 @@ function makeApp(deps: {
     accessControl: {
       evaluate: vi.fn(async () => deps.allow ?? true),
     } as unknown as Parameters<typeof createPendingChangesRouter>[0]['accessControl'],
+    chatSessionEvents: deps.chatSessionEvents,
+    sessionEventBus: deps.sessionEventBus,
   });
   app.use('/api', router);
   return app;
@@ -183,6 +189,56 @@ describe('pending-changes router', () => {
       expect.objectContaining({ id: 'p-1', title: 'new' }),
     ]);
     expect(repo.resolve).toHaveBeenCalledWith('org_main', 'pc-1', 'accepted', 'user_1');
+  });
+
+  it('POST accept persists and publishes pending_change_resolved for agent proposals', async () => {
+    const row = mockPending({ proposedBy: 'agent:sess-42' });
+    const dash = mockDashboard();
+    const repo = {
+      getById: vi.fn(async () => row),
+      resolve: vi.fn(async () => ({ ...row, status: 'accepted', resolvedBy: 'user_1' })),
+    } as unknown as IPendingChangeRepository;
+    const chatSessionEvents = {
+      appendNext: vi.fn(async (event) => ({ ...event, seq: 7 })),
+    } as unknown as IChatSessionEventRepository;
+    const sessionEventBus = new SessionEventBus();
+    const published: unknown[] = [];
+    sessionEventBus.subscribe('sess-42', (event) => published.push(event));
+    const app = makeApp({
+      repo,
+      dashboards: {
+        findById: vi.fn(async () => dash),
+        updatePanels: vi.fn(async (_id: string, panels: PanelConfig[]) => ({ ...dash, panels })),
+      } as unknown as IGatewayDashboardStore,
+      chatSessionEvents,
+      sessionEventBus,
+    });
+
+    const res = await request(app).post('/api/dashboards/d-1/pending-changes/pc-1/accept').send({});
+
+    expect(res.status).toBe(200);
+    expect(chatSessionEvents.appendNext).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'sess-42',
+      kind: 'pending_change_resolved',
+      payload: {
+        type: 'pending_change_resolved',
+        id: 'pc-1',
+        dashboardId: 'd-1',
+        status: 'accepted',
+      },
+    }));
+    expect(published).toEqual([
+      {
+        sessionId: 'sess-42',
+        seq: 7,
+        event: {
+          type: 'pending_change_resolved',
+          id: 'pc-1',
+          dashboardId: 'd-1',
+          status: 'accepted',
+        },
+      },
+    ]);
   });
 
   it('POST accept rejects a proposal that would corrupt required panel fields', async () => {

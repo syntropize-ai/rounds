@@ -283,6 +283,7 @@ export type DashboardSseEvent =
       queueItemId: string;
       sessionId: string;
       runId: string;
+      content?: string;
     }
   | {
       type: 'message_queue_updated';

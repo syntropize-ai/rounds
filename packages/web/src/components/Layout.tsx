@@ -13,6 +13,7 @@ function LayoutInner() {
   const location = useLocation();
   const {
     events,
+    queuedMessages,
     isGenerating,
     sendMessage,
     updateQueuedMessage,
@@ -130,6 +131,7 @@ function LayoutInner() {
       {showChat && (
         <ChatPanel
           events={events}
+          queuedMessages={queuedMessages}
           isGenerating={isGenerating}
           onSendMessage={(msg) => {
             void sendMessage(msg);

@@ -201,6 +201,7 @@ export class OrchestratorAgent {
     metricDiscoveryCount: 0,
     validatedQueries: new Set<string>(),
   }
+  private investigationDirtyThisTurn = false
   readonly sessionId: string
 
   constructor(private deps: OrchestratorDeps, sessionId?: string) {
@@ -237,6 +238,7 @@ export class OrchestratorAgent {
       allowedTools: this.agentDef.allowedTools,
       maxTokenBudget: deps.maxTokenBudget,
       conversationSummary: deps.conversationSummary,
+      onBeforeTerminate: (finalText) => this.onBeforeTerminate(finalText),
     })
 
     log.info(`[Orchestrator] init: agentType=${type}, metricsSources=${metricsSources.length}`)
@@ -299,6 +301,7 @@ export class OrchestratorAgent {
     this.pendingConversationActions = []
     this.pendingNavigateTo = undefined
     this.pendingCreatedResources = []
+    this.investigationDirtyThisTurn = false
 
     // Resolve dashboard context (optional in session mode)
     const dashboard = dashboardId
@@ -460,7 +463,16 @@ export class OrchestratorAgent {
       // allowlist, which already excludes investigation_complete).
       runAuditor: opts?.auditor ? undefined : (input) => this.runAuditor(input),
     })
-    return this.actionRunner.execute(step, ctx)
+    const result = await this.actionRunner.execute(step, ctx)
+    if (!opts?.auditor && result !== null && INVESTIGATION_DIRTY_ACTIONS.has(step.action)) {
+      this.investigationDirtyThisTurn = true
+    }
+    return result
+  }
+
+  private onBeforeTerminate(_finalText: string): string | null {
+    if (!this.investigationDirtyThisTurn || !this.activeInvestigationIdRef.current) return null
+    return 'You created or updated an investigation but have not called investigation_complete. That conclusion is not recorded or audited yet. Add the remaining findings and call investigation_complete to submit the report for review, or keep investigating if the user could not independently act on the report yet. This turn must end through investigation_complete, not plain text.'
   }
 
   /**
@@ -540,4 +552,10 @@ const AUDITOR_TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
   'changes_list_recent',
   'kb_search',
   'connectors_list',
+])
+
+const INVESTIGATION_DIRTY_ACTIONS: ReadonlySet<string> = new Set([
+  'investigation_create',
+  'investigation_add_text',
+  'investigation_add_evidence',
 ])

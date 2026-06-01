@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { slideIn } from '../animations.js';
 import type { ChatEvent } from '../hooks/useDashboardChat.js';
+import type { QueuedChatMessage } from '../hooks/useChat.js';
 import { ErrorMessage } from './chat/MessageComponents.js';
 import ChatTranscript from './chat/ChatTranscript.js';
 import type { PendingChangeStatus } from '../types/pending-changes.js';
@@ -12,6 +13,7 @@ import ConfirmDialog from './ConfirmDialog.js';
 
 interface Props {
   events: ChatEvent[];
+  queuedMessages?: QueuedChatMessage[];
   isGenerating: boolean;
   onSendMessage: (content: string) => void;
   onUpdateQueuedMessage?: (queueItemId: string, content: string) => Promise<void>;
@@ -38,6 +40,7 @@ interface Props {
 
 export default function ChatPanel({
   events,
+  queuedMessages = [],
   isGenerating,
   onSendMessage,
   onUpdateQueuedMessage,
@@ -293,8 +296,6 @@ export default function ChatPanel({
           events={events}
           isGenerating={isGenerating}
           onSendMessage={onSendMessage}
-          onUpdateQueuedMessage={onUpdateQueuedMessage}
-          onDeleteQueuedMessage={onDeleteQueuedMessage}
           proposalStatusOverlay={proposalStatusOverlay}
         />
 
@@ -302,6 +303,13 @@ export default function ChatPanel({
       </div>
 
       <div className="shrink-0 px-4 py-4 bg-surface-lowest border-t border-outline-variant space-y-4">
+        {queuedMessages.length > 0 && (
+          <QueuedMessageStack
+            queuedMessages={queuedMessages}
+            onUpdate={onUpdateQueuedMessage}
+            onDelete={onDeleteQueuedMessage}
+          />
+        )}
         <div className="relative">
           <textarea
             value={input}
@@ -310,7 +318,12 @@ export default function ChatPanel({
             placeholder="Ask anything..."
             rows={1}
             className="w-full bg-surface-container border border-outline-variant focus:border-primary py-3.5 pl-4 pr-24 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-colors"
-            style={{ minHeight: '52px', maxHeight: '120px' }}
+            style={{
+              minHeight: '52px',
+              maxHeight: '120px',
+              borderTopLeftRadius: queuedMessages.length > 0 ? 0 : undefined,
+              borderTopRightRadius: queuedMessages.length > 0 ? 0 : undefined,
+            }}
             onInput={(e) => {
               const el = e.target as HTMLTextAreaElement;
               el.style.height = 'auto';
@@ -374,5 +387,126 @@ export default function ChatPanel({
         onCancel={() => setConfirmNewOpen(false)}
       />
     </motion.div>
+  );
+}
+
+export function QueuedMessageStack({
+  queuedMessages,
+  onUpdate,
+  onDelete,
+}: {
+  queuedMessages: QueuedChatMessage[];
+  onUpdate?: (queueItemId: string, content: string) => Promise<void>;
+  onDelete?: (queueItemId: string) => Promise<void>;
+}) {
+  return (
+    <div className="-mb-2 overflow-hidden rounded-t-xl border border-b-0 border-outline-variant/70 bg-surface-container/70 shadow-sm">
+      <div className="max-h-36 divide-y divide-outline-variant/60 overflow-y-auto">
+        {queuedMessages.map((queuedMessage) => (
+          <QueuedMessageCard
+            key={queuedMessage.id}
+            queuedMessage={queuedMessage}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function QueuedMessageCard({
+  queuedMessage,
+  onUpdate,
+  onDelete,
+}: {
+  queuedMessage: QueuedChatMessage;
+  onUpdate?: (queueItemId: string, content: string) => Promise<void>;
+  onDelete?: (queueItemId: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(queuedMessage.content);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(queuedMessage.content);
+  }, [editing, queuedMessage.content]);
+
+  const save = async () => {
+    const next = draft.trim();
+    if (!next || next === queuedMessage.content) {
+      setEditing(false);
+      setDraft(queuedMessage.content);
+      return;
+    }
+    setBusy(true);
+    try {
+      await onUpdate?.(queuedMessage.id, next);
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await onDelete?.(queuedMessage.id);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="group px-3 py-2 text-sm text-on-surface hover:bg-surface-high/70">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 text-on-surface-variant" aria-hidden="true">
+          ↳
+        </span>
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <textarea
+              data-queue-editing="true"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void save();
+                }
+              }}
+              className="min-h-[44px] w-full resize-none rounded-md border border-outline-variant bg-surface-lowest px-2 py-1.5 text-sm outline-none focus:border-primary"
+            />
+          ) : (
+            <p className="truncate text-on-surface-variant">{queuedMessage.content}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1 text-xs text-on-surface-variant opacity-80 group-hover:opacity-100">
+          {editing ? (
+            <>
+              <button type="button" onClick={() => void save()} disabled={busy} className="rounded px-1.5 py-0.5 hover:bg-surface-highest hover:text-on-surface disabled:opacity-50">
+                Save
+              </button>
+              <button type="button" onClick={() => { setEditing(false); setDraft(queuedMessage.content); }} disabled={busy} className="rounded px-1.5 py-0.5 hover:bg-surface-highest hover:text-on-surface disabled:opacity-50">
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => setEditing(true)} disabled={busy || !onUpdate} className="rounded px-1.5 py-0.5 hover:bg-surface-highest hover:text-on-surface disabled:opacity-50">
+                Steer
+              </button>
+              <button type="button" onClick={() => void remove()} disabled={busy || !onDelete} className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-surface-highest hover:text-error disabled:opacity-50" title="Delete queued message" aria-label="Delete queued message">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M7 5V4a1 1 0 011-1h4a1 1 0 011 1v1" />
+                  <path d="M4 5h12" />
+                  <path d="M6 5l1 12h6l1-12" />
+                </svg>
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

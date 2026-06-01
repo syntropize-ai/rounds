@@ -14,8 +14,6 @@ interface ChatTranscriptProps {
   events: ChatEvent[];
   isGenerating: boolean;
   onSendMessage: (content: string) => void;
-  onUpdateQueuedMessage?: (queueItemId: string, content: string) => Promise<void>;
-  onDeleteQueuedMessage?: (queueItemId: string) => Promise<void>;
   proposalStatusOverlay?: Map<string, PendingChangeStatus>;
 }
 
@@ -23,8 +21,6 @@ export default function ChatTranscript({
   events,
   isGenerating,
   onSendMessage,
-  onUpdateQueuedMessage,
-  onDeleteQueuedMessage,
   proposalStatusOverlay,
 }: ChatTranscriptProps) {
   const [opsStatusOverlay, setOpsStatusOverlay] = useState(
@@ -66,8 +62,6 @@ export default function ChatTranscript({
         return renderMessageBlock(
           block.event,
           onSendMessage,
-          onUpdateQueuedMessage,
-          onDeleteQueuedMessage,
           proposalStatusOverlay,
           onOpsConfirmationResolved,
         );
@@ -79,8 +73,6 @@ export default function ChatTranscript({
 function renderMessageBlock(
   evt: ChatEvent,
   onSendMessage: (content: string) => void,
-  onUpdateQueuedMessage?: (queueItemId: string, content: string) => Promise<void>,
-  onDeleteQueuedMessage?: (queueItemId: string) => Promise<void>,
   proposalStatusOverlay?: Map<string, PendingChangeStatus>,
   onOpsConfirmationResolved?: (confirmation: NonNullable<ChatEvent['opsConfirmation']>) => void,
 ) {
@@ -114,17 +106,6 @@ function renderMessageBlock(
         pivotSuggestions={c.pivotSuggestions}
         warnings={c.warnings}
         onSendMessage={onSendMessage}
-      />
-    );
-  }
-
-  if (evt.kind === 'message_queued' && evt.queuedMessage) {
-    return (
-      <QueuedMessage
-        key={evt.id}
-        queuedMessage={evt.queuedMessage}
-        onUpdate={onUpdateQueuedMessage}
-        onDelete={onDeleteQueuedMessage}
       />
     );
   }
@@ -178,90 +159,4 @@ function renderMessageBlock(
   }
 
   return null;
-}
-
-function QueuedMessage({
-  queuedMessage,
-  onUpdate,
-  onDelete,
-}: {
-  queuedMessage: NonNullable<ChatEvent['queuedMessage']>;
-  onUpdate?: (queueItemId: string, content: string) => Promise<void>;
-  onDelete?: (queueItemId: string) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(queuedMessage.content);
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    const next = draft.trim();
-    if (!next || next === queuedMessage.content) {
-      setEditing(false);
-      setDraft(queuedMessage.content);
-      return;
-    }
-    setBusy(true);
-    try {
-      await onUpdate?.(queuedMessage.id, next);
-      setEditing(false);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async () => {
-    setBusy(true);
-    try {
-      await onDelete?.(queuedMessage.id);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex justify-end mb-3">
-      <div className="max-w-[85%] rounded-lg border border-outline-variant bg-surface-container px-3 py-2 text-sm text-on-surface">
-        <div className="mb-1 flex items-center justify-between gap-3 text-[10px] uppercase tracking-wide text-on-surface-variant">
-          <span>Queued</span>
-          <div className="flex items-center gap-2 normal-case tracking-normal">
-            {editing ? (
-              <>
-                <button type="button" onClick={() => void save()} disabled={busy} className="hover:text-on-surface disabled:opacity-50">
-                  Save
-                </button>
-                <button type="button" onClick={() => { setEditing(false); setDraft(queuedMessage.content); }} disabled={busy} className="hover:text-on-surface disabled:opacity-50">
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" onClick={() => setEditing(true)} disabled={busy || !onUpdate} className="hover:text-on-surface disabled:opacity-50">
-                  Edit
-                </button>
-                <button type="button" onClick={() => void remove()} disabled={busy || !onDelete} className="hover:text-error disabled:opacity-50">
-                  Delete
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        {editing ? (
-          <textarea
-            data-queue-editing="true"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault();
-                void save();
-              }
-            }}
-            className="min-h-[72px] w-full resize-none rounded-md border border-outline-variant bg-surface-lowest px-2 py-1.5 text-sm outline-none focus:border-primary"
-          />
-        ) : (
-          <p className="whitespace-pre-wrap">{queuedMessage.content}</p>
-        )}
-      </div>
-    </div>
-  );
 }

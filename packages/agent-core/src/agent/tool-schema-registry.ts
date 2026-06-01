@@ -801,6 +801,25 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  'dashboard_rearrange': {
+    category: 'always-on',
+    schema: {
+      name: 'dashboard_rearrange',
+      description:
+        'Reorder the active dashboard panels in place. Use this for layout/rearrangement requests instead of removing and re-adding panels, because remove+add destroys panel ids and queries. Pass panelIds in the desired display order after checking the Dashboard State for current ids; any panels you omit keep their current relative order and are placed after the listed panels.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          panelIds: {
+            type: 'array',
+            description: 'Panel ids in desired display order. Omitted existing panels keep relative order after these.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['panelIds'],
+      },
+    },
+  },
   'dashboard_set_title': {
     category: 'always-on',
     schema: {

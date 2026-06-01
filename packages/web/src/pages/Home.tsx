@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { fadeIn } from '../animations.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
 import ChatTranscript from '../components/chat/ChatTranscript.js';
+import { QueuedMessageStack } from '../components/ChatPanel.js';
 import { RoundsLogo } from '../components/RoundsLogo.js';
 
 // Types
@@ -82,6 +83,7 @@ export default function Home() {
   const globalChat = useGlobalChat();
   const {
     events,
+    queuedMessages,
     isGenerating,
     sendMessage,
     updateQueuedMessage,
@@ -125,7 +127,14 @@ export default function Home() {
 
   // Reusable input component (used in both modes)
   const inputArea = (
-    <div className="relative group">
+    <div className="relative group space-y-3">
+      {queuedMessages.length > 0 && (
+        <QueuedMessageStack
+          queuedMessages={queuedMessages}
+          onUpdate={updateQueuedMessage}
+          onDelete={deleteQueuedMessage}
+        />
+      )}
       <div className="relative">
         <textarea
           value={input}
@@ -134,7 +143,12 @@ export default function Home() {
           placeholder="Ask anything about your systems..."
           rows={1}
           className="w-full bg-surface-container border border-outline focus:border-on-surface/30 py-4 pl-5 pr-28 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-[border-color,box-shadow,background-color] rounded-[26px] shadow-[0_18px_60px_rgba(15,18,22,0.10),0_1px_2px_rgba(15,18,22,0.08)] focus:shadow-[0_22px_70px_rgba(15,18,22,0.14),0_1px_2px_rgba(15,18,22,0.08)]"
-          style={{ minHeight: '58px', maxHeight: '220px' }}
+          style={{
+            minHeight: '58px',
+            maxHeight: '220px',
+            borderTopLeftRadius: queuedMessages.length > 0 ? 0 : 26,
+            borderTopRightRadius: queuedMessages.length > 0 ? 0 : 26,
+          }}
           onInput={(e) => {
             const el = e.target as HTMLTextAreaElement;
             el.style.height = 'auto';
@@ -270,8 +284,6 @@ export default function Home() {
             events={events}
             isGenerating={isGenerating}
             onSendMessage={sendMessage}
-            onUpdateQueuedMessage={updateQueuedMessage}
-            onDeleteQueuedMessage={deleteQueuedMessage}
           />
           <div ref={bottomRef} />
         </div>

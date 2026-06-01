@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   rebuildChatEventsFromSession,
+  shouldProcessSubscriptionEventDuringPost,
   type PersistedChatSessionEvent,
 } from './useChat.js';
 import type { ChatMessage } from './useDashboardChat.js';
@@ -99,5 +100,65 @@ describe('rebuildChatEventsFromSession', () => {
     const rebuilt = rebuildChatEventsFromSession(messages, []);
 
     expect(rebuilt.map((evt) => evt.message?.content)).toEqual(['hello', 'hi']);
+  });
+
+  it('replays only queued messages that have not started or been deleted', () => {
+    const persistedEvents: PersistedChatSessionEvent[] = [
+      {
+        id: 'q1',
+        seq: 0,
+        kind: 'message_queued',
+        payload: {
+          type: 'message_queued',
+          queueItemId: 'q1',
+          sessionId: 's1',
+          position: 1,
+          content: 'first',
+        },
+        timestamp: '2026-05-12T01:00:00.000Z',
+      },
+      {
+        id: 'q2',
+        seq: 1,
+        kind: 'message_queued',
+        payload: {
+          type: 'message_queued',
+          queueItemId: 'q2',
+          sessionId: 's1',
+          position: 2,
+          content: 'second',
+        },
+        timestamp: '2026-05-12T01:00:01.000Z',
+      },
+      {
+        id: 'q1-started',
+        seq: 2,
+        kind: 'queued_message_started',
+        payload: {
+          type: 'queued_message_started',
+          queueItemId: 'q1',
+          sessionId: 's1',
+          runId: 'run-1',
+          content: 'first',
+        },
+        timestamp: '2026-05-12T01:00:02.000Z',
+      },
+    ];
+
+    const rebuilt = rebuildChatEventsFromSession([], persistedEvents);
+
+    expect(rebuilt.map((evt) => evt.queuedMessage?.id).filter(Boolean)).toEqual(['q2']);
+    expect(rebuilt.map((evt) => evt.message?.content).filter(Boolean)).toEqual(['first']);
+  });
+});
+
+describe('shouldProcessSubscriptionEventDuringPost', () => {
+  it('keeps queue drain events while suppressing mirrored active-run events', () => {
+    expect(shouldProcessSubscriptionEventDuringPost('reply', false)).toBe(false);
+    expect(shouldProcessSubscriptionEventDuringPost('done', false)).toBe(false);
+    expect(shouldProcessSubscriptionEventDuringPost('queued_message_started', false)).toBe(true);
+    expect(shouldProcessSubscriptionEventDuringPost('message_queue_deleted', false)).toBe(true);
+    expect(shouldProcessSubscriptionEventDuringPost('reply', true)).toBe(true);
+    expect(shouldProcessSubscriptionEventDuringPost('done', true)).toBe(true);
   });
 });

@@ -86,15 +86,7 @@ describe('tool-schema-registry', () => {
     for (const def of agentRegistry.getAll()) {
       for (const tool of def.allowedTools) referenced.add(tool);
     }
-    const orphans = Object.keys(TOOL_PERMS).filter((name) => {
-      if (referenced.has(name)) return false;
-      // dashboard_rearrange has a TOOL_PERMS entry but is intentionally not
-      // in any agent allowedTools (no handler exists yet — see comment in
-      // agent-registry.ts). Skip it explicitly so the invariant doesn't
-      // flag a known carve-out.
-      if (name === 'dashboard_rearrange') return false;
-      return true;
-    });
+    const orphans = Object.keys(TOOL_PERMS).filter((name) => !referenced.has(name));
     expect(orphans).toEqual([]);
   });
 

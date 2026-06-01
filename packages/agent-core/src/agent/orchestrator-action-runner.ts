@@ -16,6 +16,7 @@ import {
   handleInvestigationComplete,
   handleAlertRuleWrite,
   handleDashboardAddPanels,
+  handleDashboardRearrange,
   handleDashboardSetTitle,
   handleDashboardRemovePanels,
   handleDashboardModifyPanel,
@@ -197,6 +198,7 @@ async function dispatchAction(
     case 'dashboard_clone': return handleDashboardClone(ctx, args);
     // Dashboard mutation primitives (dashboardId comes from args)
     case 'dashboard_add_panels': return handleDashboardAddPanels(ctx, args);
+    case 'dashboard_rearrange': return handleDashboardRearrange(ctx, args);
     case 'dashboard_set_title': return handleDashboardSetTitle(ctx, args);
     case 'dashboard_remove_panels': return handleDashboardRemovePanels(ctx, args);
     case 'dashboard_modify_panel': return handleDashboardModifyPanel(ctx, args);

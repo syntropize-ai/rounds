@@ -9,6 +9,7 @@ export const DATASOURCE_URL_PLACEHOLDER: Record<string, string> = {
   prometheus: 'http://localhost:9090',
   'victoria-metrics': 'http://localhost:8428',
   loki: 'http://localhost:3100',
+  humio: 'https://cloud.us.humio.com',
   tempo: 'http://localhost:3200',
   jaeger: 'http://localhost:16686',
   elasticsearch: 'http://localhost:9200',

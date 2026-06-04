@@ -91,6 +91,58 @@ describe('ReActLoop', () => {
     })
   })
 
+  it('can reject a plain-text termination and continue the loop', async () => {
+    const sendEvent = vi.fn()
+    const gateway = {
+      complete: vi.fn()
+        .mockResolvedValueOnce({
+          content: 'I found the root cause.',
+          toolCalls: [],
+        })
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_1',
+              name: 'metrics_query',
+              input: { sourceId: 'prom', expr: 'up' },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: 'Now it is complete.',
+          toolCalls: [],
+        }),
+    } as any
+
+    const executeAction = vi.fn().mockResolvedValue('query ok')
+    const onBeforeTerminate = vi.fn()
+      .mockReturnValueOnce('Call investigation_complete before ending.')
+      .mockReturnValueOnce(null)
+
+    const loop = new ReActLoop({
+      gateway,
+      model: 'test-model',
+      sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+      onBeforeTerminate,
+    })
+
+    const result = await loop.runLoop('system prompt', 'why is x broken?', executeAction)
+
+    expect(result).toBe('Now it is complete.')
+    expect(executeAction).toHaveBeenCalledTimes(1)
+    expect(onBeforeTerminate).toHaveBeenCalledTimes(2)
+    expect(gateway.complete).toHaveBeenCalledTimes(3)
+    const secondCallMessages = gateway.complete.mock.calls[1]![0]
+    expect(secondCallMessages).toEqual(expect.arrayContaining([
+      { role: 'assistant', content: 'I found the root cause.' },
+      { role: 'user', content: 'Call investigation_complete before ending.' },
+    ]))
+  })
+
   it('lets the model compose a follow-up reply after a confirmed ops write finishes', async () => {
     const sendEvent = vi.fn()
     const observation = 'istioctl install -y\n✔ Istio core installed\n✔ Istiod installed\n✔ Ingress gateways installed\nInstallation complete'

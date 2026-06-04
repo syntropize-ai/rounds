@@ -38,6 +38,7 @@ const MAX_ITERATIONS = 200
 const TOKEN_BUDGET_TOKENS = Math.floor(CONTEXT_WINDOW * 0.95)
 /** Keep the last N observations in full; older ones are summarized to save context. */
 const OBSERVATION_KEEP_RECENT = 6
+const MAX_TERMINATION_REMINDERS = 2
 /** Truncate individual observation text to this many characters (default). */
 const OBSERVATION_MAX_CHARS = 2000
 /**
@@ -161,9 +162,12 @@ function classifyLlmError(message: string): { kind: 'fatal'; userMessage: string
 }
 
 export interface ReActObservation {
+  kind?: 'tool' | 'termination_reminder'
   action: string
   args: Record<string, unknown>
   result: string
+  finalText?: string
+  reminderText?: string
   /**
    * The original tool_use id from the provider (Anthropic toolu_*, OpenAI
    * call_*). Required so the next turn's tool_result block can be paired
@@ -214,6 +218,11 @@ export interface ReActDeps {
   maxTokenBudget?: number
   /** LLM-generated summary of earlier conversation turns (from context compaction) */
   conversationSummary?: string
+  /**
+   * Called when the model attempts to end the turn with plain text. Return a
+   * reminder string to keep the loop running, or null to allow termination.
+   */
+  onBeforeTerminate?: (finalText: string) => string | null
 }
 
 export class ReActLoop {
@@ -304,6 +313,7 @@ export class ReActLoop {
     let lastDraftReply: string | undefined
     let lastObservation: string | null = null
     let batchCounter = 0
+    let terminationReminderCount = 0
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       checkAborted()
@@ -369,6 +379,25 @@ export class ReActLoop {
           //     the prompt or schema is misconfigured rather than seeing a
           //     silent "" return.
           if (preToolProse) {
+            const reminder = this.deps.onBeforeTerminate?.(preToolProse) ?? null
+            if (reminder) {
+              if (terminationReminderCount >= MAX_TERMINATION_REMINDERS) {
+                log.warn({ step: i }, 'termination reminder limit reached')
+                this.deps.sendEvent({ type: 'reply', content: reminder })
+                return reminder
+              }
+              terminationReminderCount += 1
+              observations.push({
+                kind: 'termination_reminder',
+                action: '__termination_reminder__',
+                args: {},
+                result: reminder,
+                finalText: preToolProse,
+                reminderText: reminder,
+                batchId: batchCounter++,
+              })
+              continue
+            }
             this.deps.sendEvent({ type: 'reply', content: preToolProse })
             return preToolProse
           }
@@ -641,6 +670,12 @@ export class ReActLoop {
 
     let observationIndex = 0
     for (const batch of batches) {
+      if (batch[0]?.kind === 'termination_reminder') {
+        const obs = batch[0]
+        messages.push({ role: 'assistant', content: obs.finalText ?? '' })
+        messages.push({ role: 'user', content: obs.reminderText ?? obs.result })
+        continue
+      }
       const isOlder = observationIndex + batch.length <= cutoff
       observationIndex += batch.length
 

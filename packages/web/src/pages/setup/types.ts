@@ -47,6 +47,7 @@ export interface ConnectorEntry {
   name: string;
   url: string;
   apiKey: string;
+  repository?: string;
 }
 
 /**

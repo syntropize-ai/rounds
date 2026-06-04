@@ -135,6 +135,7 @@ function pumpSessionQueue(
           queueItemId: item.id,
           sessionId,
           runId: run.runId,
+          content: item.content,
         });
         const service = new ChatService(deps);
         let finalStatus: 'succeeded' | 'failed' | 'aborted' = 'succeeded';
@@ -610,6 +611,46 @@ export function createChatRouter(
     },
   );
 
+  // DELETE /chat/sessions/:id — remove an idle owned chat session from history.
+  router.delete(
+    '/sessions/:id',
+    requirePermission(() => ac.eval(ACTIONS.ChatUse)),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        if (!deps.chatSessionStore) {
+          res.status(501).json({ error: { code: 'NOT_IMPLEMENTED', message: 'chat sessions not configured' } });
+          return;
+        }
+        const auth = (req as AuthenticatedRequest).auth;
+        if (!auth) {
+          res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
+          return;
+        }
+        const sessionId = req.params['id'] ?? '';
+        if (!sessionId) {
+          res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'session id required' } });
+          return;
+        }
+        const active = runRegistry?.activeRunFor(sessionId);
+        if (active?.status === 'running') {
+          res.status(409).json({
+            error: { code: 'RUN_ACTIVE', message: 'Cannot delete a conversation while it is running.' },
+          });
+          return;
+        }
+        const scope = { orgId: auth.orgId, ownerUserId: auth.userId };
+        const deleted = await deps.chatSessionStore.delete(sessionId, scope);
+        if (!deleted) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Chat session not found' } });
+          return;
+        }
+        res.status(204).end();
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   // GET /chat/sessions/by-context?resourceType=dashboard&resourceId=X&limit=1
   // Used when opening a dashboard / investigation / alert page — returns the
   // most-recent owned chat session whose chat_session_contexts row matches,
@@ -695,15 +736,27 @@ export function createChatRouter(
           return;
         }
 
-        const [messages, events] = await Promise.all([
+        const [messages, events, queuedMessages] = await Promise.all([
           deps.chatMessageStore
             ? deps.chatMessageStore.getMessages(sessionId)
             : Promise.resolve([]),
           deps.chatEventStore
             ? deps.chatEventStore.listBySession(sessionId)
             : Promise.resolve([]),
+          deps.chatMessageQueueStore
+            ? deps.chatMessageQueueStore.listBySession(sessionId)
+            : Promise.resolve([]),
         ]);
-        res.json({ sessionId, messages, events });
+        const pendingQueuedMessages = queuedMessages.filter((item) => item.status === 'queued');
+        res.json({
+          sessionId,
+          messages,
+          events,
+          queuedMessages: pendingQueuedMessages,
+        });
+        if (pendingQueuedMessages.length > 0) {
+          pumpSessionQueue(deps, runRegistry, sessionEventBus, sessionId);
+        }
       } catch (err) {
         next(err);
       }
@@ -979,6 +1032,7 @@ export function createChatRouter(
           // 204 (rather than 404) on "nothing to cancel" so the client can
           // call this defensively without distinguishing "no run" from
           // "already finished" — both mean "you don't need to wait".
+          pumpSessionQueue(deps, runRegistry, sessionEventBus, sessionId);
           res.status(204).end();
           return;
         }

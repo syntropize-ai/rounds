@@ -617,35 +617,6 @@ export async function handleDashboardAddPanels(
   }
 
   try {
-    // Pre-existing dashboards: route each new panel through pendingChanges
-    // so the user accepts before it appears. Freshly-created dashboards in
-    // this session apply directly (the bulk-add UX during creation would
-    // otherwise stall until the user clicked accept on every panel).
-    //
-    // The pendingChanges-wired check preserves backward-compat for callers
-    // that don't run the persisted-proposal pipeline (legacy tests, pure
-    // in-memory deployments). When the repo isn't wired add_panels keeps
-    // its pre-Task-AI-1 apply-directly behavior.
-    if (ctx.pendingChanges && !isFreshlyCreated(ctx, dashboardId)) {
-      const proposalIds: string[] = [];
-      for (const p of panelsForWrite) {
-        const summary = `Add panel "${String(p.title ?? 'Panel')}"`;
-        const rowId = await persistPendingChange(ctx, {
-          dashboardId,
-          panelId: null,
-          changeKind: 'add_panel',
-          beforeJson: null,
-          afterJson: p,
-          summary,
-        });
-        if (rowId) proposalIds.push(rowId);
-      }
-      const observationText = proposalIds.length > 0
-        ? `Proposed ${proposalIds.length} new panel(s) (${proposalIds.join(', ')}). Pending user approval.`
-        : `Proposed ${panelsForWrite.length} new panel(s); pending user review.`;
-      ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText });
-      return observationText;
-    }
     return await runAddPanels(ctx, dashboardId, panelsForWrite);
   } catch (err) {
     // Critical: a throw partway through panel generation would otherwise
@@ -777,6 +748,57 @@ async function runAddPanels(
     ctx.sendEvent({ type: 'panel_added', panel } as never);
   }
   ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard_add_panels', summary: observationText }));
+  return observationText;
+}
+
+export async function handleDashboardRearrange(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const dashboardId = ctx.activeDashboardId;
+  if (!dashboardId) return 'Error: no active dashboard. Call dashboard_create first.';
+
+  const rawPanelIds = Array.isArray(args.panelIds)
+    ? args.panelIds.map((id) => String(id).trim()).filter(Boolean)
+    : [];
+  const panelIds = [...new Set(rawPanelIds)];
+  if (panelIds.length === 0) return 'Error: "panelIds" array is required with at least one panel id.';
+
+  const dashboard = await ctx.store.findById(dashboardId);
+  if (!dashboard) return `Error: dashboard ${dashboardId} not found.`;
+
+  const existingIds = new Set(dashboard.panels.map((p) => p.id));
+  const unknown = panelIds.filter((id) => !existingIds.has(id));
+  if (unknown.length > 0) {
+    return `Error: panel id(s) not on this dashboard: ${unknown.join(', ')}`;
+  }
+
+  const requested = new Set(panelIds);
+  const orderedPanels = [
+    ...panelIds.map((id) => dashboard.panels.find((p) => p.id === id)!),
+    ...dashboard.panels.filter((p) => !requested.has(p.id)),
+  ];
+  const laidOut = applyLayout(orderedPanels as PanelConfig[]);
+  const layout = laidOut.map((p) => ({
+    panelId: p.id,
+    row: p.row,
+    col: p.col,
+    width: p.width,
+    height: p.height,
+  }));
+
+  ctx.sendEvent({
+    type: 'tool_call',
+    tool: 'dashboard_rearrange',
+    args: { panelIds },
+    displayText: `Rearranging ${panelIds.length} panel(s)`,
+  });
+
+  await ctx.actionExecutor.execute(dashboardId, [{ type: 'rearrange', layout }]);
+
+  const observationText = `Rearranged ${layout.length} panel(s).`;
+  ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_rearrange', summary: observationText });
+  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard_rearrange', summary: observationText }));
   return observationText;
 }
 

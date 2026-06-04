@@ -93,6 +93,7 @@ const DEFAULT_CAPABILITIES: Record<string, string[]> = {
   prometheus: ['metrics.discover', 'metrics.query', 'metrics.validate'],
   'victoria-metrics': ['metrics.discover', 'metrics.query', 'metrics.validate'],
   loki: ['logs.query', 'logs.stream'],
+  humio: ['logs.query', 'logs.stream'],
   elasticsearch: ['logs.query'],
   clickhouse: ['logs.query'],
   tempo: ['traces.query'],

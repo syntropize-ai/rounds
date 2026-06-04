@@ -302,6 +302,7 @@ export default function Navigation() {
   // at it. Mirrors the limit/refresh pattern Home.tsx uses.
   const globalChat = useGlobalChat();
   const [sessions, setSessions] = useState<RecentSession[]>([]);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const refreshSessions = useCallback(() => {
     void apiClient
       .get<{ sessions: RecentSession[] }>('/chat/sessions?limit=20')
@@ -342,6 +343,28 @@ export default function Navigation() {
     globalChat.startNewSession();
     if (location.pathname !== '/') navigate('/');
   }, [globalChat, navigate, location.pathname]);
+
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      if (deletingSessionId) return;
+      setDeletingSessionId(sessionId);
+      const wasActive = sessionId === activeSessionId;
+      if (wasActive) {
+        globalChat.startNewSession();
+        if (location.pathname !== '/') navigate('/');
+      }
+      const res = await apiClient.delete<unknown>(
+        `/chat/sessions/${encodeURIComponent(sessionId)}`,
+      );
+      setDeletingSessionId(null);
+      if (res.error) {
+        refreshSessions();
+        return;
+      }
+      setSessions((prev) => prev.filter((session) => session.id !== sessionId));
+    },
+    [activeSessionId, deletingSessionId, globalChat, location.pathname, navigate, refreshSessions],
+  );
 
   // Pending-plan badge for the Action Center entry. Polled every 30s
   // (per the UX brief) so operators see remediation work waiting on them
@@ -490,12 +513,12 @@ export default function Navigation() {
                 {sessions.map((s) => {
                   const active = s.id === activeSessionId;
                   return (
-                    <li key={s.id}>
+                    <li key={s.id} className="group relative">
                       <button
                         type="button"
                         onClick={() => openSession(s.id)}
                         title={s.title?.trim() || 'Untitled conversation'}
-                        className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                        className={`w-full text-left rounded-lg py-2 pl-3 pr-9 transition-colors ${
                           active
                             ? 'bg-primary/10 text-on-surface'
                             : 'text-on-surface-variant hover:bg-surface-high/60 hover:text-on-surface'
@@ -507,6 +530,21 @@ export default function Navigation() {
                         <div className="text-[10px] text-on-surface-variant/80">
                           {relativeTime(s.updatedAt ?? s.createdAt)}
                         </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteSession(s.id);
+                        }}
+                        disabled={deletingSessionId === s.id}
+                        className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-on-surface-variant opacity-0 transition hover:bg-surface-high hover:text-error focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-error/30 disabled:cursor-not-allowed disabled:opacity-40 group-hover:opacity-100"
+                        title="Delete conversation"
+                        aria-label="Delete conversation"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M7 5V4a2 2 0 012-2h2a2 2 0 012 2v1m-7 0h8m-9 0h10m-9 3v7m4-7v7m4-7v7M5 5l1 13h8l1-13" />
+                        </svg>
                       </button>
                     </li>
                   );

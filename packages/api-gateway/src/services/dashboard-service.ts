@@ -1,6 +1,6 @@
 import type { Connector } from '@agentic-obs/common';
 import { AdapterRegistry } from '@agentic-obs/agent-core';
-import { PrometheusMetricsAdapter, LokiLogsAdapter } from '@agentic-obs/adapters';
+import { PrometheusMetricsAdapter, LokiLogsAdapter, HumioLogsAdapter, normalizeHumioBaseUrl } from '@agentic-obs/adapters';
 import type { IChangesAdapter } from '@agentic-obs/adapters';
 import { normalizePrometheusBaseUrl } from '../utils/prometheus-url.js';
 
@@ -98,6 +98,12 @@ export function buildAdapterRegistry(
       registry.register({
         info: { id: connector.id, name: connector.name, type: connector.type, url, signalType: 'logs', isDefault: connector.isDefault },
         logs: new LokiLogsAdapter(url, headers),
+      });
+    } else if (connector.type === 'humio') {
+      const repository = configString(connector, 'repository') ?? '';
+      registry.register({
+        info: { id: connector.id, name: connector.name, type: connector.type, url: normalizeHumioBaseUrl(url), signalType: 'logs', isDefault: connector.isDefault },
+        logs: new HumioLogsAdapter(url, repository, headers),
       });
     }
     // elasticsearch / clickhouse / tempo / jaeger / otel: adapters not yet implemented

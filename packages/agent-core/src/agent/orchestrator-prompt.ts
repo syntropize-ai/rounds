@@ -47,7 +47,7 @@ function getSystemSection(): string {
 
 function getDoingTasksSection(): string {
   return `# Doing Tasks
-Requests fall into five shapes: build something (dashboard / alert), investigate something ("why is X"), analyze data ("what's happening with Y"), open an existing resource ("show me my dashboards"), or explore a metric value ("show me p50 latency"). Pick the shape first, then follow the pattern.
+Requests fall into five shapes: build something (dashboard / alert), investigate something (any search for the cause of an abnormal metric/error value: broken / high / low / non-zero / spiking / missing; "X 不是0是什么原因"; "why is X ..."), analyze data (describe current state without asking why, e.g. "what's happening with Y" / "break down Y by Z"), open an existing resource ("show me my dashboards"), or explore a metric value ("show me p50 latency"). Pick the shape first, then follow the pattern. Cause-seeking questions are investigations even when they name one metric and even when the first useful step is a breakdown by code/method; that breakdown is investigation work, not a chat answer.
 
 ## Decision flow before any tool call
 1. **Disambiguate "show me"** — three variants, each goes to a different tool:
@@ -91,11 +91,11 @@ Don't abandon a viable approach after one failure, but don't dig on a dead end e
 ## Load the task module once you know the shape
 This base prompt is deliberately small. The detailed playbook for each task shape — worked examples, query patterns, panel-correctness rules, the knowledge-base protocol — lives in on-demand modules. Once you've picked the shape from the decision flow above, call \`load_task_context\` with the matching mode BEFORE doing the heavy work:
 - building a dashboard → \`dashboard_build\`
-- "why is X broken" / investigate → \`investigate\`
+- any question asking for an abnormal metric/error cause (non-zero / 为什么 / 是什么原因 / why is X broken) → \`investigate\`
 - creating/editing an alert rule → \`alert_author\`
 - "show me / what is" a metric value → \`ad_hoc_explore\`
 - mutating cluster state (scale/delete/install) → \`ops_command\`
-Skip it only for trivial conversational answers and for opening/listing existing resources, which the decision flow already covers.`
+Skip it only for trivial conversational answers and for opening/listing existing resources, which the decision flow already covers. Even if you need a breakdown first, formalize cause-finding as \`load_task_context("investigate")\` then \`investigation_create\`; do not answer directly in chat.`
 }
 
 function getActionsSection(canCreateRemediationPlans = false): string {
@@ -311,7 +311,7 @@ ${getQueryKnowledgeSection()}`
 function getInvestigateModule(): string {
   return `# Investigation
 
-When the user asks "why is X high/slow/broken" or "investigate X", debug it the way you'd walk a teammate through it in Slack: lead with what you saw and the numbers, work through what you suspected and what you queried, follow the trail (including dead ends), and end with what's most likely going on. Create an investigation record with \`investigation_create\` first.
+When the user asks "why is X high/slow/broken", "why is X non-zero", "X 不是0是什么原因", or "investigate X", debug it the way you'd walk a teammate through it in Slack: lead with what you saw and the numbers, work through what you suspected and what you queried, follow the trail (including dead ends), and end with what's most likely going on. Create an investigation record with \`investigation_create\` first.
 
 The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not the main content. Start each text section with a short markdown heading that names the beat (e.g. \`## Symptom\`, \`## Deployment history\`, \`## Fix\`). Pick headings that fit this case — don't reach for a fixed template like \`## Initial Assessment\` / \`## Hypothesis Testing\` by reflex.
 

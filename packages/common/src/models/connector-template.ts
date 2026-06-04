@@ -4,6 +4,7 @@ export type ConnectorType =
   | 'prometheus'
   | 'victoria-metrics'
   | 'loki'
+  | 'humio'
   | 'elasticsearch'
   | 'clickhouse'
   | 'tempo'
@@ -53,6 +54,9 @@ export type VerifyStrategy =
     }
   | {
       kind: 'github-api';
+    }
+  | {
+      kind: 'humio-query';
     }
   | {
       kind: 'none';
@@ -192,6 +196,24 @@ export const LOKI_TEMPLATE: ConnectorTemplate = {
   verify: { kind: 'http-get', path: '/ready' },
 };
 
+export const HUMIO_TEMPLATE: ConnectorTemplate = {
+  type: 'humio',
+  category: ['observability'],
+  capabilities: ['logs.query', 'logs.stream'],
+  configSchema: {
+    type: 'object',
+    required: ['url', 'repository'],
+    properties: {
+      url: { type: 'string', format: 'uri' },
+      repository: { type: 'string' },
+      tlsVerify: { type: 'boolean', default: true },
+    },
+    additionalProperties: false,
+  },
+  credential: 'token',
+  verify: { kind: 'humio-query' },
+};
+
 export const ELASTICSEARCH_TEMPLATE: ConnectorTemplate = {
   type: 'elasticsearch',
   category: ['observability'],
@@ -300,6 +322,7 @@ export const CONNECTOR_TEMPLATES: readonly ConnectorTemplate[] = [
   PROMETHEUS_TEMPLATE,
   VICTORIA_METRICS_TEMPLATE,
   LOKI_TEMPLATE,
+  HUMIO_TEMPLATE,
   ELASTICSEARCH_TEMPLATE,
   CLICKHOUSE_TEMPLATE,
   TEMPO_TEMPLATE,

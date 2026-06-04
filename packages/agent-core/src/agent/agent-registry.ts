@@ -32,10 +32,7 @@ agentRegistry.register({
     // Dashboard lifecycle + mutation primitives
     'dashboard_create', 'dashboard_list', 'dashboard_clone',
     'dashboard_add_panels', 'dashboard_remove_panels', 'dashboard_modify_panel',
-    // NOTE: 'dashboard_rearrange' was listed here historically but no handler
-    // exists in orchestrator-action-handlers.ts (only the action-executor
-    // applies a 'rearrange' action internally for layout). Until a real
-    // handler lands, keep it out of the LLM-facing tool surface.
+    'dashboard_rearrange',
     'dashboard_add_variable', 'dashboard_set_title',
     // Dashboard lint — pluggable rule engine, read-only
     'dashboard_lint',

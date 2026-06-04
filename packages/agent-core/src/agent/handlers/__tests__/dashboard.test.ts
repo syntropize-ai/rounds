@@ -4,6 +4,7 @@ import {
   handleDashboardClone,
   handleDashboardSetTitle,
   handleDashboardAddPanels,
+  handleDashboardRearrange,
   handleDashboardRemovePanels,
   handleDashboardModifyPanel,
   handleDashboardAddVariable,
@@ -169,6 +170,22 @@ describe('dashboard handlers', () => {
       expect(observation).toContain('Added 1 panel(s): Request rate');
     });
 
+    it('adds panels directly on an existing dashboard even when pendingChanges is wired', async () => {
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd-existing',
+        pendingChanges: { insert: vi.fn() } as never,
+      });
+
+      const observation = await handleDashboardAddPanels(ctx, {
+        panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
+      });
+
+      expect(ctx.actionExecutor.execute).toHaveBeenCalledWith('d-existing', [
+        expect.objectContaining({ type: 'add_panels' }),
+      ]);
+      expect(observation).toContain('Added 1 panel(s): p1');
+    });
+
     it('treats KB consultation as dashboard research evidence', async () => {
       const expr = 'sum(rate(istio_requests_total[5m]))';
       const ctx = makeFakeActionContext({
@@ -288,6 +305,60 @@ describe('dashboard handlers', () => {
         .find((e) => e.type === 'error');
       expect(errorEvent).toBeDefined();
       expect(errorEvent!.message).toMatch(/db unavailable/);
+    });
+  });
+
+  describe('handleDashboardRearrange', () => {
+    it('rearranges panels by requested order without remove/add', async () => {
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd1',
+        store: {
+          findById: vi.fn().mockResolvedValue({
+            id: 'd1',
+            panels: [
+              { id: 'a', title: 'A', visualization: 'time_series', queries: [], row: 0, col: 0, width: 6, height: 3 },
+              { id: 'b', title: 'B', visualization: 'time_series', queries: [], row: 0, col: 6, width: 6, height: 3 },
+              { id: 'c', title: 'C', visualization: 'time_series', queries: [], row: 3, col: 0, width: 6, height: 3 },
+            ],
+          }),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+        } as never,
+      });
+
+      const observation = await handleDashboardRearrange(ctx, { panelIds: ['b', 'a'] });
+
+      expect(observation).toBe('Rearranged 3 panel(s).');
+      const action = vi.mocked(ctx.actionExecutor.execute).mock.calls[0]![1][0] as {
+        type: string;
+        layout: Array<{ panelId: string; row: number; col: number; width: number; height: number }>;
+      };
+      expect(action.type).toBe('rearrange');
+      expect(action.layout.map((p) => p.panelId)).toEqual(['b', 'a', 'c']);
+      expect(action.layout.every((p) =>
+        ['row', 'col', 'width', 'height'].every((k) => typeof p[k as keyof typeof p] === 'number'),
+      )).toBe(true);
+    });
+
+    it('rejects unknown panel ids', async () => {
+      const ctx = makeFakeActionContext({
+        activeDashboardId: 'd1',
+        store: {
+          findById: vi.fn().mockResolvedValue({
+            id: 'd1',
+            panels: [{ id: 'a', title: 'A', visualization: 'time_series', queries: [], row: 0, col: 0, width: 6, height: 3 }],
+          }),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+        } as never,
+      });
+
+      const observation = await handleDashboardRearrange(ctx, { panelIds: ['missing'] });
+
+      expect(observation).toMatch(/not on this dashboard: missing/);
+      expect(ctx.actionExecutor.execute).not.toHaveBeenCalled();
     });
   });
 

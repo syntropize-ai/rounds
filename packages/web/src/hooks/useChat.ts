@@ -21,6 +21,7 @@ export interface PageContext {
 export interface UseChatResult {
   messages: ChatMessage[];
   events: ChatEvent[];
+  queuedMessages: QueuedChatMessage[];
   isGenerating: boolean;
   sendMessage: (content: string) => Promise<void>;
   updateQueuedMessage: (queueItemId: string, content: string) => Promise<void>;
@@ -48,6 +49,12 @@ export interface UseChatResult {
   loadError: 'not-found' | 'network' | null;
   /** Retry the most recent loadSession call (only meaningful when `loadError === 'network'`). */
   retryLoadSession: () => void;
+}
+
+export type QueuedChatMessage = NonNullable<ChatEvent['queuedMessage']>;
+
+function queueSort(a: QueuedChatMessage, b: QueuedChatMessage): number {
+  return (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER);
 }
 
 /**
@@ -249,6 +256,7 @@ export function payloadToChatEvent(
     case 'queued_message_started': {
       const queueItemId = typeof payload.queueItemId === 'string' ? payload.queueItemId : '';
       const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
+      const content = typeof payload.content === 'string' ? payload.content : '';
       if (!queueItemId || !sessionId) return null;
       return {
         id: queueItemId,
@@ -256,7 +264,7 @@ export function payloadToChatEvent(
         queuedMessage: {
           id: queueItemId,
           sessionId,
-          content: '',
+          content,
           status: kind === 'message_queue_deleted' ? 'deleted' : 'started',
         },
       };
@@ -371,11 +379,37 @@ export function rebuildChatEventsFromSession(
           }
         }
       }
+      if (entry.rawKind === 'queued_message_started' && id && entry.evt.queuedMessage?.content) {
+        rebuilt.push({
+          id,
+          kind: 'message',
+          message: {
+            id,
+            role: 'user',
+            content: entry.evt.queuedMessage.content,
+            timestamp: entry.ts,
+          },
+        });
+      }
       continue;
     }
     rebuilt.push(entry.evt);
   }
   return rebuilt;
+}
+
+export function shouldProcessSubscriptionEventDuringPost(
+  resolvedType: string,
+  backgroundQueueRunActive: boolean,
+): boolean {
+  return (
+    resolvedType === 'idle' ||
+    resolvedType === 'message_queued' ||
+    resolvedType === 'message_queue_updated' ||
+    resolvedType === 'message_queue_deleted' ||
+    resolvedType === 'queued_message_started' ||
+    backgroundQueueRunActive
+  );
 }
 
 // withChatQuery used to append `?chat=<id>` to agent-emitted navigation paths
@@ -391,6 +425,7 @@ export function rebuildChatEventsFromSession(
 export function useChat(): UseChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [events, setEvents] = useState<ChatEvent[]>([]);
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(
     null,
@@ -415,7 +450,9 @@ export function useChat(): UseChatResult {
   //   - closed by the next loadSession/startNewSession or unmount
   // Dedup against in-request events via maxSeqRef.
   const subscriptionAbortRef = useRef<AbortController | null>(null);
+  const subscriptionSessionIdRef = useRef<string | null>(null);
   const maxSeqRef = useRef<number>(-1);
+  const backgroundQueueRunActiveRef = useRef(false);
   // The active background runId for the in-progress generation. Captured
   // from the `run_started` SSE event the backend emits at the top of every
   // chat run (see Phase 1 in api-gateway/routes/chat.ts). Used by
@@ -474,19 +511,18 @@ export function useChat(): UseChatResult {
   const upsertQueuedMessage = useCallback((evt: ChatEvent) => {
     const id = evt.queuedMessage?.id;
     if (!id) return;
-    setEvents((prev) => {
-      const idx = prev.findIndex((e) => e.kind === 'message_queued' && e.queuedMessage?.id === id);
-      if (idx === -1) return [...prev, evt];
+    setQueuedMessages((prev) => {
+      const queued = evt.queuedMessage!;
+      const idx = prev.findIndex((e) => e.id === id);
+      if (idx === -1) return [...prev, queued].sort(queueSort);
       const next = prev.slice();
-      next[idx] = evt;
-      return next;
+      next[idx] = { ...next[idx], ...queued };
+      return next.sort(queueSort);
     });
   }, []);
 
   const removeQueuedMessage = useCallback((queueItemId: string) => {
-    setEvents((prev) =>
-      prev.filter((e) => !(e.kind === 'message_queued' && e.queuedMessage?.id === queueItemId)),
-    );
+    setQueuedMessages((prev) => prev.filter((e) => e.id !== queueItemId));
   }, []);
 
   const clearPendingNavigation = useCallback(() => {
@@ -592,7 +628,20 @@ export function useChat(): UseChatResult {
             setCurrentSessionId(sid);
           }
           const queueItemId = typeof parsed.queueItemId === 'string' ? parsed.queueItemId : '';
+          const content = typeof parsed.content === 'string' ? parsed.content : '';
           if (queueItemId) removeQueuedMessage(queueItemId);
+          if (queueItemId && content) {
+            const userMsg: ChatMessage = {
+              id: queueItemId,
+              role: 'user',
+              content,
+              timestamp: new Date().toISOString(),
+            };
+            setMessages((prev) => prev.some((msg) => msg.id === queueItemId) ? prev : [...prev, userMsg]);
+            setEvents((prev) => prev.some((evt) => evt.id === queueItemId)
+              ? prev
+              : [...prev, { id: queueItemId, kind: 'message', message: userMsg }]);
+          }
           setIsGenerating(true);
           break;
         }
@@ -825,10 +874,12 @@ export function useChat(): UseChatResult {
    */
   const openSubscription = useCallback(
     (subscribeToSessionId: string, sinceSeq: number) => {
+      if (subscriptionSessionIdRef.current === subscribeToSessionId) return;
       // Tear down any prior subscription (e.g. from a previous session).
       subscriptionAbortRef.current?.abort();
       const controller = new AbortController();
       subscriptionAbortRef.current = controller;
+      subscriptionSessionIdRef.current = subscribeToSessionId;
       maxSeqRef.current = sinceSeq;
       // BASE_URL is already `/api` (see api/config.ts). Don't double-prefix.
       const url = `/chat/sessions/${encodeURIComponent(subscribeToSessionId)}/events/stream`;
@@ -839,25 +890,61 @@ export function useChat(): UseChatResult {
         getReconnectUrl,
         (sseId, eventType, rawData) => {
           // Dedup by seq — the SSE `id:` field carries the persisted seq.
+          let seq: number | null = null;
           if (sseId != null) {
-            const seq = Number(sseId);
-            if (Number.isFinite(seq)) {
-              if (seq <= maxSeqRef.current) return;
-              maxSeqRef.current = seq;
-            }
+            const parsedSeq = Number(sseId);
+            if (Number.isFinite(parsedSeq)) seq = parsedSeq;
           }
-          // While the POST /chat stream is active, the in-request callback
-          // already delivers every event we care about — the bus mirror
-          // would double-render. Drop everything except `idle`, which is a
-          // useful safety terminator (clears the spinner if `done` is
-          // somehow missed).
-          if (postStreamActiveCountRef.current > 0 && eventType !== 'idle') return;
+          if (seq != null && seq <= maxSeqRef.current) {
+            return;
+          }
+          let parsed: Record<string, unknown> = {};
+          try {
+            parsed = JSON.parse(rawData) as Record<string, unknown>;
+          } catch {
+            parsed = {};
+          }
+          const resolvedType =
+            eventType === 'message' && typeof parsed.type === 'string'
+              ? parsed.type
+              : eventType;
+          const wasBackgroundQueueRunActive = backgroundQueueRunActiveRef.current;
+          const isQueueStart = resolvedType === 'queued_message_started';
+          const isTerminal =
+            resolvedType === 'done' ||
+            resolvedType === 'error' ||
+            resolvedType === 'idle';
+          const shouldHandle =
+            postStreamActiveCountRef.current === 0 ||
+            shouldProcessSubscriptionEventDuringPost(
+              resolvedType,
+              wasBackgroundQueueRunActive || isQueueStart,
+            );
+          // While the POST /chat stream is active, mirrored events from the
+          // request stream would double-render. Queue-drain events are the
+          // exception: they are emitted by the live tail after the original
+          // request has logically completed, but can arrive a few ms before
+          // the POST socket closes.
+          if (!shouldHandle) {
+            if (seq != null) maxSeqRef.current = seq;
+            return;
+          }
+          if (seq != null) maxSeqRef.current = seq;
+          if (isQueueStart) {
+            backgroundQueueRunActiveRef.current = true;
+          }
           handleSSEEvent(eventType, rawData);
+          if (isTerminal) {
+            backgroundQueueRunActiveRef.current = false;
+          }
         },
         controller.signal,
       ).catch((err: unknown) => {
         // Aborted = caller closed us, expected. Anything else logs.
         if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (subscriptionSessionIdRef.current === subscribeToSessionId) {
+          subscriptionSessionIdRef.current = null;
+        }
         console.warn('[useChat] events subscription error', err);
       });
     },
@@ -890,6 +977,7 @@ export function useChat(): UseChatResult {
       setIsGenerating(true);
 
       postStreamActiveCountRef.current += 1;
+      let requestWasQueued = false;
       try {
         // Always inject the browser's local timezone so the agent can map
         // any clock time the user mentions ("9:59" off the panel's x-axis)
@@ -906,7 +994,29 @@ export function useChat(): UseChatResult {
             ...(sid ? { sessionId: sid } : {}),
             pageContext: ctxWithTz,
           },
-          handleSSEEvent,
+          (eventType, rawData) => {
+            let parsed: Record<string, unknown> = {};
+            try {
+              parsed = JSON.parse(rawData) as Record<string, unknown>;
+            } catch {
+              parsed = {};
+            }
+            const resolvedType =
+              eventType === 'message' && typeof parsed.type === 'string'
+                ? parsed.type
+                : eventType;
+            if (resolvedType === 'message_queued') requestWasQueued = true;
+            handleSSEEvent(eventType, rawData);
+            const sidFromEvent = typeof parsed.sessionId === 'string' ? parsed.sessionId : '';
+            if (
+              sidFromEvent &&
+              (resolvedType === 'run_started' ||
+                resolvedType === 'message_queued' ||
+                resolvedType === 'done')
+            ) {
+              openSubscription(sidFromEvent, maxSeqRef.current);
+            }
+          },
           controller.signal,
         );
         // A successful round-trip means the session is reachable — drop any
@@ -930,11 +1040,15 @@ export function useChat(): UseChatResult {
         postStreamActiveCountRef.current = Math.max(0, postStreamActiveCountRef.current - 1);
         if (!wasGenerating) {
           abortRef.current = null;
+          if (requestWasQueued) {
+            setMessages((prev) => prev.filter((msg) => msg.id !== userMsg.id));
+            setEvents((prev) => prev.filter((evt) => evt.id !== userMsg.id));
+          }
           setIsGenerating(false);
         }
       }
     },
-    [isGenerating, handleSSEEvent, appendEvent],
+    [isGenerating, handleSSEEvent, appendEvent, openSubscription],
   );
 
   const updateQueuedMessage = useCallback(
@@ -990,7 +1104,12 @@ export function useChat(): UseChatResult {
             // user sees the "ask me anything" prompt rather than the prior
             // page's conversation bleeding through.
             if (sessionIdRef.current) {
+              subscriptionAbortRef.current?.abort();
+              subscriptionAbortRef.current = null;
+              subscriptionSessionIdRef.current = null;
+              backgroundQueueRunActiveRef.current = false;
               setEvents([]);
+              setQueuedMessages([]);
               setCurrentSessionId('');
               sessionIdRef.current = '';
             }
@@ -1061,10 +1180,13 @@ export function useChat(): UseChatResult {
     abortRef.current = null;
     subscriptionAbortRef.current?.abort();
     subscriptionAbortRef.current = null;
+    subscriptionSessionIdRef.current = null;
+    backgroundQueueRunActiveRef.current = false;
     runIdRef.current = null;
     maxSeqRef.current = -1;
     setMessages([]);
     setEvents([]);
+    setQueuedMessages([]);
     setIsGenerating(false);
     setPendingNavigation(null);
     // A previous session's load error must not leak into the new one — the
@@ -1090,6 +1212,8 @@ export function useChat(): UseChatResult {
     abortRef.current = null;
     subscriptionAbortRef.current?.abort();
     subscriptionAbortRef.current = null;
+    subscriptionSessionIdRef.current = null;
+    backgroundQueueRunActiveRef.current = false;
     runIdRef.current = null;
     maxSeqRef.current = -1;
 
@@ -1097,6 +1221,7 @@ export function useChat(): UseChatResult {
     setCurrentSessionId(sessionId);
     setMessages([]);
     setEvents([]);
+    setQueuedMessages([]);
     setIsGenerating(false);
     setPendingNavigation(null);
     setLoadError(null);
@@ -1107,6 +1232,7 @@ export function useChat(): UseChatResult {
         sessionId: string;
         messages: ChatMessage[];
         events?: PersistedChatSessionEvent[];
+        queuedMessages?: QueuedChatMessage[];
       }>(`/chat/sessions/${sessionId}/messages`);
 
       if (token !== loadTokenRef.current) {
@@ -1150,7 +1276,17 @@ export function useChat(): UseChatResult {
       setMessages(loaded);
 
       const persistedEvents = res.data.events ?? [];
-      setEvents(rebuildChatEventsFromSession(loaded, persistedEvents));
+      const rebuiltEvents = rebuildChatEventsFromSession(loaded, persistedEvents);
+      setEvents(rebuiltEvents.filter((evt) => evt.kind !== 'message_queued'));
+      const replayedQueue = rebuiltEvents
+        .map((evt) => evt.queuedMessage)
+        .filter((item): item is QueuedChatMessage => Boolean(item));
+      const serverQueue = (res.data.queuedMessages ?? [])
+        .filter((item) => item.status === undefined || item.status === 'queued');
+      const queueById = new Map<string, QueuedChatMessage>();
+      for (const item of replayedQueue) queueById.set(item.id, item);
+      for (const item of serverQueue) queueById.set(item.id, item);
+      setQueuedMessages(Array.from(queueById.values()).sort(queueSort));
 
       // Heuristic: if the most recent persisted event isn't a terminator
       // (done / error), the agent is most likely still running. Set
@@ -1205,6 +1341,8 @@ export function useChat(): UseChatResult {
     return () => {
       abortRef.current?.abort();
       subscriptionAbortRef.current?.abort();
+      subscriptionSessionIdRef.current = null;
+      backgroundQueueRunActiveRef.current = false;
     };
   }, []);
 
@@ -1212,6 +1350,7 @@ export function useChat(): UseChatResult {
     () => ({
       messages,
       events,
+      queuedMessages,
       isGenerating,
       sendMessage,
       updateQueuedMessage,
@@ -1229,6 +1368,7 @@ export function useChat(): UseChatResult {
     [
       messages,
       events,
+      queuedMessages,
       isGenerating,
       sendMessage,
       updateQueuedMessage,

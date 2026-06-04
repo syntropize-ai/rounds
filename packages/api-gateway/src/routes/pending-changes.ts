@@ -13,10 +13,12 @@
 
 import { Router } from 'express';
 import type { Request, Response, NextFunction, Router as ExpressRouter } from 'express';
+import { randomUUID } from 'node:crypto';
 import { ac, ACTIONS } from '@agentic-obs/common';
-import type { Dashboard, PanelConfig, DashboardVariable } from '@agentic-obs/common';
+import type { Dashboard, DashboardSseEvent, PanelConfig, DashboardVariable } from '@agentic-obs/common';
 import type {
   IGatewayDashboardStore,
+  IChatSessionEventRepository,
   IPendingChangeRepository,
   IPanelEventRepository,
   PendingChange,
@@ -27,6 +29,7 @@ import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 import { createLogger } from '@agentic-obs/server-utils/logging';
+import type { SessionEventBus } from '../services/session-event-bus.js';
 
 const log = createLogger('pending-changes-routes');
 const PANEL_VISUALIZATION_VALUES = new Set([
@@ -56,6 +59,8 @@ export interface PendingChangesRouterDeps {
   /** Optional panel-events sink — when wired, accept emits a row so the
    *  offline lint-mining pipeline sees agent-applied changes. */
   panelEvents?: IPanelEventRepository;
+  chatSessionEvents?: IChatSessionEventRepository;
+  sessionEventBus?: SessionEventBus;
 }
 
 function resolveOrgId(req: Request): string {
@@ -143,6 +148,50 @@ async function applyChange(
 function cryptoRandomId(): string {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return (globalThis.crypto as { randomUUID(): string }).randomUUID();
+}
+
+function sessionIdFromProposedBy(proposedBy: string | null | undefined): string | null {
+  const prefix = 'agent:';
+  if (!proposedBy?.startsWith(prefix)) return null;
+  const sessionId = proposedBy.slice(prefix.length).trim();
+  return sessionId ? sessionId : null;
+}
+
+async function emitPendingChangeResolved(
+  deps: PendingChangesRouterDeps,
+  change: PendingChange,
+  status: 'accepted' | 'rejected',
+): Promise<void> {
+  const sessionId = sessionIdFromProposedBy(change.proposedBy);
+  if (!sessionId || !deps.chatSessionEvents) return;
+
+  const event: DashboardSseEvent = {
+    type: 'pending_change_resolved',
+    id: change.id,
+    dashboardId: change.dashboardId,
+    status,
+  };
+
+  try {
+    const saved = await deps.chatSessionEvents.appendNext({
+      id: randomUUID(),
+      sessionId,
+      kind: event.type,
+      payload: event as unknown as Record<string, unknown>,
+      timestamp: new Date().toISOString(),
+    });
+    deps.sessionEventBus?.publish(sessionId, saved.seq, event);
+  } catch (err) {
+    log.warn(
+      {
+        changeId: change.id,
+        sessionId,
+        status,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'pending_change_resolved emit failed (swallowed)',
+    );
+  }
 }
 
 export function createPendingChangesRouter(deps: PendingChangesRouterDeps): ExpressRouter {
@@ -286,6 +335,7 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
             )
             .catch((err) => log.warn({ err }, 'panel_events emit on accept failed (swallowed)'));
         }
+        await emitPendingChangeResolved(deps, row, 'accepted');
         res.json({ ok: true, applied: resolved });
       } catch (err) {
         next(err);
@@ -312,6 +362,7 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
           return;
         }
         const resolved = await deps.pendingChanges.resolve(orgId, changeId, 'rejected', actorId(req));
+        await emitPendingChangeResolved(deps, row, 'rejected');
         res.json({ ok: true, resolved });
       } catch (err) {
         next(err);
@@ -351,6 +402,7 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
               continue;
             }
             await deps.pendingChanges.resolve(orgId, changeId, 'accepted', actorId(req));
+            await emitPendingChangeResolved(deps, row, 'accepted');
             results.push({ id: changeId, ok: true });
           } catch (err) {
             results.push({
@@ -393,6 +445,7 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
             continue;
           }
           await deps.pendingChanges.resolve(orgId, changeId, 'rejected', actorId(req));
+          await emitPendingChangeResolved(deps, row, 'rejected');
           results.push({ id: changeId, ok: true });
         }
         res.json({ results });

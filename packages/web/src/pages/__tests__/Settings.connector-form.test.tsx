@@ -97,6 +97,7 @@ describe('ConnectorConfigFields rendering', () => {
   // Each connector type's expected visible field labels (from configSchema).
   const cases: { type: ConnectorType; labels: string[] }[] = [
     { type: 'prometheus', labels: ['URL', 'TLS verify'] },
+    { type: 'humio', labels: ['URL', 'Repository', 'TLS verify'] },
     { type: 'clickhouse', labels: ['URL', 'Database', 'TLS verify'] },
     { type: 'kubernetes', labels: ['Cluster name', 'API server', 'Context'] },
     { type: 'github', labels: ['Owner', 'Repo', 'Installation ID'] },
@@ -440,6 +441,10 @@ describe('submitConnectorWithSecret', () => {
 describe('connector template credential wiring', () => {
   it('declares prometheus as token-authenticated', () => {
     expect(getConnectorTemplate('prometheus').credential).toBe('token');
+  });
+
+  it('declares humio as token-authenticated', () => {
+    expect(getConnectorTemplate('humio').credential).toBe('token');
   });
 
   it('declares kubernetes as kubeconfig-authenticated', () => {

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { slideIn } from '../animations.js';
 import type { ChatEvent } from '../hooks/useDashboardChat.js';
+import type { QueuedChatMessage } from '../hooks/useChat.js';
 import { ErrorMessage } from './chat/MessageComponents.js';
 import ChatTranscript from './chat/ChatTranscript.js';
 import type { PendingChangeStatus } from '../types/pending-changes.js';
@@ -12,6 +13,7 @@ import ConfirmDialog from './ConfirmDialog.js';
 
 interface Props {
   events: ChatEvent[];
+  queuedMessages?: QueuedChatMessage[];
   isGenerating: boolean;
   onSendMessage: (content: string) => void;
   onUpdateQueuedMessage?: (queueItemId: string, content: string) => Promise<void>;
@@ -38,6 +40,7 @@ interface Props {
 
 export default function ChatPanel({
   events,
+  queuedMessages = [],
   isGenerating,
   onSendMessage,
   onUpdateQueuedMessage,
@@ -55,6 +58,7 @@ export default function ChatPanel({
   const [chatWidth, setChatWidth] = useState(380);
   const [confirmNewOpen, setConfirmNewOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevEventCountRef = useRef(events.length);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -64,7 +68,10 @@ export default function ChatPanel({
   const didInitialScrollRef = useRef(false);
   useEffect(() => {
     if (events.length === 0) return;
-    const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'instant';
+    const previousEventCount = prevEventCountRef.current;
+    const isLoadedHistory = previousEventCount === 0 || events.length < previousEventCount;
+    const behavior: ScrollBehavior =
+      didInitialScrollRef.current && !isLoadedHistory ? 'smooth' : 'instant';
     bottomRef.current?.scrollIntoView({ behavior });
     didInitialScrollRef.current = true;
   }, [events.length]);
@@ -114,7 +121,15 @@ export default function ChatPanel({
     if (!trimmed) return;
     onSendMessage(trimmed);
     setInput('');
+    requestAnimationFrame(() => {
+      if (inputRef.current) inputRef.current.style.height = '52px';
+    });
   }, [input, onSendMessage]);
+
+  const resizeInput = useCallback((el: HTMLTextAreaElement) => {
+    el.style.height = '52px';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 120)}px`;
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -293,8 +308,6 @@ export default function ChatPanel({
           events={events}
           isGenerating={isGenerating}
           onSendMessage={onSendMessage}
-          onUpdateQueuedMessage={onUpdateQueuedMessage}
-          onDeleteQueuedMessage={onDeleteQueuedMessage}
           proposalStatusOverlay={proposalStatusOverlay}
         />
 
@@ -302,26 +315,37 @@ export default function ChatPanel({
       </div>
 
       <div className="shrink-0 px-4 py-4 bg-surface-lowest border-t border-outline-variant space-y-4">
+        {queuedMessages.length > 0 && (
+          <QueuedMessageStack
+            queuedMessages={queuedMessages}
+            onUpdate={onUpdateQueuedMessage}
+            onDelete={onDeleteQueuedMessage}
+          />
+        )}
         <div className="relative">
           <textarea
+            ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              resizeInput(e.target);
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Ask anything..."
             rows={1}
-            className="w-full bg-surface-container border border-outline-variant focus:border-primary py-3.5 pl-4 pr-24 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-colors"
-            style={{ minHeight: '52px', maxHeight: '120px' }}
-            onInput={(e) => {
-              const el = e.target as HTMLTextAreaElement;
-              el.style.height = 'auto';
-              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+            className="w-full rounded-xl border border-outline-variant bg-surface-container-low py-[14px] pl-4 pr-24 text-sm leading-5 text-on-surface shadow-sm outline-none resize-none transition-[border-color,box-shadow,background-color] placeholder:text-on-surface-variant hover:bg-surface-container focus:border-primary focus:bg-surface-container focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_12%,transparent)]"
+            style={{
+              height: '52px',
+              maxHeight: '120px',
+              borderTopLeftRadius: queuedMessages.length > 0 ? 0 : undefined,
+              borderTopRightRadius: queuedMessages.length > 0 ? 0 : undefined,
             }}
           />
           {isGenerating && onStop && !input.trim() ? (
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
+              className="absolute right-2 top-[26px] -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface"
               title="Stop"
               aria-label="Stop"
             >
@@ -334,7 +358,7 @@ export default function ChatPanel({
               type="button"
               onClick={handleSend}
               disabled={!input.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+              className="absolute right-2 top-[26px] -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
               title="Send"
               aria-label="Send"
             >
@@ -347,7 +371,7 @@ export default function ChatPanel({
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-12 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
+              className="absolute right-12 top-[26px] -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface"
               title="Stop"
               aria-label="Stop"
             >
@@ -374,5 +398,126 @@ export default function ChatPanel({
         onCancel={() => setConfirmNewOpen(false)}
       />
     </motion.div>
+  );
+}
+
+export function QueuedMessageStack({
+  queuedMessages,
+  onUpdate,
+  onDelete,
+}: {
+  queuedMessages: QueuedChatMessage[];
+  onUpdate?: (queueItemId: string, content: string) => Promise<void>;
+  onDelete?: (queueItemId: string) => Promise<void>;
+}) {
+  return (
+    <div className="-mb-2 overflow-hidden rounded-t-xl border border-b-0 border-outline-variant/70 bg-surface-container/70 shadow-sm">
+      <div className="max-h-36 divide-y divide-outline-variant/60 overflow-y-auto">
+        {queuedMessages.map((queuedMessage) => (
+          <QueuedMessageCard
+            key={queuedMessage.id}
+            queuedMessage={queuedMessage}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function QueuedMessageCard({
+  queuedMessage,
+  onUpdate,
+  onDelete,
+}: {
+  queuedMessage: QueuedChatMessage;
+  onUpdate?: (queueItemId: string, content: string) => Promise<void>;
+  onDelete?: (queueItemId: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(queuedMessage.content);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(queuedMessage.content);
+  }, [editing, queuedMessage.content]);
+
+  const save = async () => {
+    const next = draft.trim();
+    if (!next || next === queuedMessage.content) {
+      setEditing(false);
+      setDraft(queuedMessage.content);
+      return;
+    }
+    setBusy(true);
+    try {
+      await onUpdate?.(queuedMessage.id, next);
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await onDelete?.(queuedMessage.id);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="group px-3 py-2 text-sm text-on-surface hover:bg-surface-high/70">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 text-on-surface-variant" aria-hidden="true">
+          ↳
+        </span>
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <textarea
+              data-queue-editing="true"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  void save();
+                }
+              }}
+              className="min-h-[44px] w-full resize-none rounded-md border border-outline-variant bg-surface-lowest px-2 py-1.5 text-sm outline-none focus:border-primary"
+            />
+          ) : (
+            <p className="truncate text-on-surface-variant">{queuedMessage.content}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1 text-xs text-on-surface-variant opacity-80 group-hover:opacity-100">
+          {editing ? (
+            <>
+              <button type="button" onClick={() => void save()} disabled={busy} className="rounded px-1.5 py-0.5 hover:bg-surface-highest hover:text-on-surface disabled:opacity-50">
+                Save
+              </button>
+              <button type="button" onClick={() => { setEditing(false); setDraft(queuedMessage.content); }} disabled={busy} className="rounded px-1.5 py-0.5 hover:bg-surface-highest hover:text-on-surface disabled:opacity-50">
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => setEditing(true)} disabled={busy || !onUpdate} className="rounded px-1.5 py-0.5 hover:bg-surface-highest hover:text-on-surface disabled:opacity-50">
+                Edit
+              </button>
+              <button type="button" onClick={() => void remove()} disabled={busy || !onDelete} className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-surface-highest hover:text-error disabled:opacity-50" title="Delete queued message" aria-label="Delete queued message">
+                <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M7 5V4a1 1 0 011-1h4a1 1 0 011 1v1" />
+                  <path d="M4 5h12" />
+                  <path d="M6 5l1 12h6l1-12" />
+                </svg>
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

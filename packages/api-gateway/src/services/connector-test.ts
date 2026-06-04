@@ -14,6 +14,7 @@ import { parse as parseYaml } from 'yaml';
 import type { Connector } from '@agentic-obs/common';
 import { getConnectorTemplate, type ConnectorType } from '@agentic-obs/common';
 import { createLogger } from '@agentic-obs/server-utils/logging';
+import { normalizeHumioBaseUrl } from '@agentic-obs/adapters';
 import { normalizePrometheusBaseUrl } from '../utils/prometheus-url.js';
 import {
   resolveExecCredential,
@@ -47,12 +48,63 @@ export async function testConnectorAgainstBackend(
       return testKubernetesVersion(connector, secret);
     case 'github-api':
       return testGithubApi(connector, secret);
+    case 'humio-query':
+      return testHumioQuery(connector, secret);
     case 'none':
       return { ok: true };
     default: {
       const kind = (verify as { kind: string }).kind;
       return { ok: false, message: `Verify strategy "${kind}" not implemented yet` };
     }
+  }
+}
+
+async function testHumioQuery(
+  connector: Connector,
+  secret: string | null,
+): Promise<ConnectorTestOutcome> {
+  const rawUrl = typeof connector.config['url'] === 'string' ? connector.config['url'] : '';
+  const repository = typeof connector.config['repository'] === 'string' ? connector.config['repository'].trim() : '';
+  if (!rawUrl) return { ok: false, message: 'connector has no url configured' };
+  if (!repository) return { ok: false, message: 'connector has no repository configured' };
+  if (!secret) return { ok: false, message: 'Humio / LogScale API token is required' };
+
+  const target = `${normalizeHumioBaseUrl(rawUrl)}/api/v1/repositories/${encodeURIComponent(repository)}/queryjobs`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    const res = await fetch(target, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify({
+        queryString: 'limit(1)',
+        start: Date.now() - 60 * 60 * 1000,
+        end: Date.now(),
+        isLive: false,
+        noResultUntilDone: true,
+      }),
+      signal: controller.signal,
+    });
+    if (res.ok) return { ok: true };
+    const body = await safeReadBody(res);
+    return {
+      ok: false,
+      message: `HTTP ${res.status}`,
+      ...(body ? { detail: body } : {}),
+    };
+  } catch (err) {
+    const message = errorMessage(err, target);
+    log.warn({ connectorId: connector.id, target, err: message }, 'connector test humio-query failed');
+    if (controller.signal.aborted) {
+      return { ok: false, message: `request timed out after ${DEFAULT_TIMEOUT_MS}ms` };
+    }
+    return { ok: false, message };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

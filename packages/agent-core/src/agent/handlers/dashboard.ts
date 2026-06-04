@@ -704,6 +704,7 @@ async function runAddPanels(
     ctx.activeDashboardId = created.id;
     ctx.freshlyCreatedDashboards.add(created.id);
     ctx.setNavigateTo(`/dashboards/${created.id}`);
+    ctx.sendEvent({ type: 'navigate', path: `/dashboards/${created.id}` });
     ctx.recordCreatedResource('dashboard', created.id);
     void ctx.auditWriter?.({
       action: AuditAction.DashboardCreate,
@@ -746,7 +747,7 @@ async function runAddPanels(
   for (const panel of panelConfigs) {
     ctx.sendEvent({ type: 'panel_added', panel } as never);
   }
-  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard_add_panels', summary: observationText }));
+  ctx.emitAgentEvent(ctx.makeAgentEvent('agent.tool_completed', { tool: 'dashboard_add_panels', dashboardId: targetDashboardId, summary: observationText }));
   return observationText;
 }
 

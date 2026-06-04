@@ -88,6 +88,7 @@ describe('dashboard handlers', () => {
       expect(ctx.pendingDashboardCreates.size).toBe(0);
       expect(ctx.activeDashboardId).toBe('dash-1');
       expect(ctx.setNavigateTo).toHaveBeenCalledWith('/dashboards/dash-1');
+      expect(ctx.sendEvent).toHaveBeenCalledWith({ type: 'navigate', path: '/dashboards/dash-1' });
       expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(true);
       expect(observation).toContain('Added 1 panel(s): p1');
     });

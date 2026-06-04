@@ -633,7 +633,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'dashboard_create',
       description:
-        'Create an empty dashboard. Returns dashboardId. Follow with dashboard_add_panels to populate it. Required before any other dashboard.* mutation when there is no current dashboard context. Requires a primary datasourceId — pick one via connectors_suggest first (or reuse the session pin if set).',
+        'Prepare a new dashboard draft. It is not persisted or shown to the user until dashboard_add_panels succeeds with real content. Follow with dashboard_add_panels to create and populate it in one step. Required before any other dashboard.* mutation when there is no current dashboard context. Requires a primary datasourceId — pick one via connectors_suggest first (or reuse the session pin if set).',
       input_schema: {
         type: 'object',
         properties: {
@@ -939,7 +939,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'investigation_create',
       description:
-        'Start a new investigation record for a "why is X" question. Returns investigationId.\n\n' +
+        'Start a new investigation draft for a "why is X" question. The persisted investigation record is created only when investigation_complete saves the report.\n\n' +
         'Trigger on diagnostic intents: "why is X" / "investigate X" / "diagnose X" / "排查 X" / "为什么 X 这么慢/高/坏". Do NOT trigger on read intents like "show me X", "what\'s the value of X", "list X" — those are queries, not investigations.\n\n' +
         'Call this at the START of the diagnosis, BEFORE running discovery queries. Investigation sections should capture the actual reasoning trace; if you query first then create the record, the record only contains the writeup, not the live trail.',
       input_schema: {

@@ -38,6 +38,17 @@ import type { IPanelEventRepository } from '../panel-event-recorder.js';
 import type { IPendingChangeRepository } from '@agentic-obs/data-layer';
 import type { AuditVerdict } from '../auditor-prompt.js';
 
+export interface PendingDashboardCreate {
+  title: string;
+  description: string;
+  prompt: string;
+  datasourceId: string;
+}
+
+export interface PendingInvestigationCreate {
+  question: string;
+}
+
 /** Shared context passed to every action handler. */
 export interface ActionContext {
   gateway: LLMGateway;
@@ -190,6 +201,17 @@ export interface ActionContext {
    * fields are missing.
    */
   investigationProvenance: Map<string, Provenance & { startedAt?: number; auditorRounds?: number; reportId?: string }>;
+  /**
+   * Dashboard create requests held in memory until the first panel write.
+   * This avoids showing an empty dashboard shell while the agent is still
+   * researching and validating the content.
+   */
+  pendingDashboardCreates: Map<string, PendingDashboardCreate>;
+  /**
+   * Investigation create requests held in memory until completion. Sections
+   * still accumulate against the draft id, then move to the persisted id.
+   */
+  pendingInvestigationCreates: Map<string, PendingInvestigationCreate>;
   /**
    * Active investigation id for this session. Set by `investigation_create`,
    * cleared by `investigation_complete`. `add_section` and `complete` read

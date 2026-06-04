@@ -92,6 +92,8 @@ export interface OrchestratorActionRuntime {
   ): void;
   investigationSections: Map<string, InvestigationReportSection[]>;
   investigationProvenance: Map<string, Provenance & { startedAt?: number; auditorRounds?: number; reportId?: string }>;
+  pendingDashboardCreates: ActionContext['pendingDashboardCreates'];
+  pendingInvestigationCreates: ActionContext['pendingInvestigationCreates'];
   /** Spawns the read-only investigation auditor. Omitted on the auditor's own
    *  action ctx so the auditor can never recursively re-trigger itself. */
   runAuditor?: ActionContext['runAuditor'];
@@ -150,6 +152,8 @@ export function buildActionContext(
     recordCreatedResource: runtime.recordCreatedResource,
     investigationSections: runtime.investigationSections,
     investigationProvenance: runtime.investigationProvenance,
+    pendingDashboardCreates: runtime.pendingDashboardCreates,
+    pendingInvestigationCreates: runtime.pendingInvestigationCreates,
     runAuditor: runtime.runAuditor,
     get activeInvestigationId() { return invRef.current; },
     set activeInvestigationId(v: string | null) { invRef.current = v; },

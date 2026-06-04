@@ -103,17 +103,19 @@ interface SidebarItemProps {
   icon: React.ReactNode;
   end?: boolean;
   expanded: boolean;
+  onClick?: () => void;
   /** Optional small badge (e.g. pending count) shown on the icon / label. */
   badge?: number;
 }
 
-function SidebarItem({ to, label, icon, end, expanded, badge }: SidebarItemProps) {
+function SidebarItem({ to, label, icon, end, expanded, onClick, badge }: SidebarItemProps) {
   const showBadge = typeof badge === 'number' && badge > 0;
   const badgeLabel = showBadge ? (badge > 99 ? '99+' : String(badge)) : null;
   return (
     <NavLink
       to={to}
       end={end}
+      onClick={onClick}
       title={expanded ? undefined : (showBadge ? `${label} (${badgeLabel} pending)` : label)}
       className={({ isActive }) =>
         `relative flex items-center gap-3 h-10 rounded-lg transition-colors ${
@@ -334,7 +336,7 @@ export default function Navigation() {
       void globalChat.loadSession(sessionId);
       // No URL mutation — session id lives in ChatProvider's React state.
       // Just ensure we're on Home so the conversation surface is visible.
-      if (location.pathname !== '/') navigate('/');
+      if (location.pathname !== '/') navigate('/', { state: { resumeChat: true } });
     },
     [globalChat, navigate, location.pathname],
   );
@@ -477,7 +479,7 @@ export default function Navigation() {
           mode only when the Nav tab is active. */}
       {(activeTab === 'nav' || !expanded) && (
         <div className={`flex flex-col gap-1 flex-1 ${expanded ? '' : 'items-center'}`}>
-          <SidebarItem to="/" label="Home" icon={<HomeIcon />} end expanded={expanded} />
+          <SidebarItem to="/" label="Home" icon={<HomeIcon />} end expanded={expanded} onClick={globalChat.startNewSession} />
           <SidebarItem to="/dashboards" label="Dashboards" icon={<DashboardIcon />} expanded={expanded} />
           <SidebarItem to="/investigations" label="Investigations" icon={<InvestigationIcon />} expanded={expanded} />
           <SidebarItem to="/alerts" label="Alerts" icon={<AlertsIcon />} expanded={expanded} />

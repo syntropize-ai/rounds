@@ -476,11 +476,16 @@ export function useChat(): UseChatResult {
   // empty initial state = new conversation, Recents covers explicit resume.
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
   const sessionIdRef = useRef<string>('');
+  const isGeneratingRef = useRef(false);
 
   // Keep ref in sync with state
   useEffect(() => {
     sessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
+
+  useEffect(() => {
+    isGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
 
   // Best-effort cleanup of any stale id from previous app versions. Run once
   // on mount; ignored if the key was already cleared.
@@ -1096,10 +1101,21 @@ export function useChat(): UseChatResult {
           const res = await apiClient.get<{ sessions: Array<{ id: string }> }>(
             `/chat/sessions/by-context?resourceType=${encodeURIComponent(resourceType)}&resourceId=${encodeURIComponent(resourceId)}&limit=1`,
           );
+          const currentContext = pageContextRef.current;
+          if (
+            !currentContext ||
+            currentContext.kind !== resourceType ||
+            currentContext.id !== resourceId
+          ) {
+            return;
+          }
           const latest = res.data?.sessions?.[0];
           if (latest?.id && latest.id !== sessionIdRef.current) {
             await loadSessionRef.current?.(latest.id);
           } else if (!latest) {
+            if (isGeneratingRef.current) {
+              return;
+            }
             // No session yet for this resource — leave the panel empty so
             // user sees the "ask me anything" prompt rather than the prior
             // page's conversation bleeding through.

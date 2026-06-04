@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { fadeIn } from '../animations.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
@@ -80,6 +81,7 @@ const QUICK_ACTIONS = [
 
 export default function Home() {
   const globalChat = useGlobalChat();
+  const location = useLocation();
   const {
     events,
     queuedMessages,
@@ -95,6 +97,18 @@ export default function Home() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const hasMessages = events.length > 0;
+
+  useEffect(() => {
+    const state = location.state as { resumeChat?: boolean } | null;
+    if (state?.resumeChat) {
+      return;
+    }
+    globalChat.startNewSession();
+    // Run only when Home is entered. `globalChat` is intentionally omitted
+    // because it changes as events stream in; including it would clear the
+    // conversation on every chat update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
 
   // Auto-scroll on new events. First mount jumps to the bottom instantly
   // (no animated scroll-from-top when the page reloads with N existing

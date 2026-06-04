@@ -42,6 +42,7 @@ const URI_PLACEHOLDERS: Partial<Record<ConnectorType, Partial<Record<string, str
   },
   prometheus: { url: 'http://prometheus.monitoring.svc:9090 or Grafana/AMP proxy URL' },
   loki: { url: 'http://loki.monitoring.svc:3100' },
+  humio: { url: 'https://cloud.us.humio.com' },
   'victoria-metrics': { url: 'http://victoria-metrics.monitoring.svc:8428' },
   elasticsearch: { url: 'http://elasticsearch.monitoring.svc:9200' },
   clickhouse: { url: 'http://clickhouse.monitoring.svc:8123' },
@@ -64,6 +65,10 @@ function placeholderFor(
 const FIELD_HELP: Partial<Record<ConnectorType, Partial<Record<string, string>>>> = {
   prometheus: {
     url: 'API root or proxy URL that forwards /api/v1/query. Works with self-hosted Prometheus, AMP, and Grafana datasource proxies.',
+  },
+  humio: {
+    url: 'LogScale base URL, without /api/v1. If /api/v1 is included, Rounds will normalize it.',
+    repository: 'Repository or view name used in /api/v1/repositories/{repository}/queryjobs.',
   },
 };
 

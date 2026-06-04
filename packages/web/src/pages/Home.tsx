@@ -4,7 +4,6 @@ import { fadeIn } from '../animations.js';
 import { useGlobalChat } from '../contexts/ChatContext.js';
 import ChatTranscript from '../components/chat/ChatTranscript.js';
 import { QueuedMessageStack } from '../components/ChatPanel.js';
-import { RoundsLogo } from '../components/RoundsLogo.js';
 
 // Types
 
@@ -92,6 +91,7 @@ export default function Home() {
   } = globalChat;
 
   const [input, setInput] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const hasMessages = events.length > 0;
@@ -112,7 +112,15 @@ export default function Home() {
     if (!trimmed) return;
     void sendMessage(trimmed);
     setInput('');
+    requestAnimationFrame(() => {
+      if (inputRef.current) inputRef.current.style.height = '52px';
+    });
   }, [input, sendMessage]);
+
+  const resizeInput = useCallback((el: HTMLTextAreaElement) => {
+    el.style.height = '52px';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 120)}px`;
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -137,34 +145,33 @@ export default function Home() {
       )}
       <div className="relative">
         <textarea
+          ref={inputRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            resizeInput(e.target);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Ask anything about your systems..."
           rows={1}
-          className="w-full bg-surface-container border border-outline focus:border-on-surface/30 py-4 pl-5 pr-28 text-[15px] text-on-surface placeholder-on-surface-variant/70 outline-none resize-none transition-[border-color,box-shadow,background-color] rounded-[26px] shadow-[0_18px_60px_rgba(15,18,22,0.10),0_1px_2px_rgba(15,18,22,0.08)] focus:shadow-[0_22px_70px_rgba(15,18,22,0.14),0_1px_2px_rgba(15,18,22,0.08)]"
+          className="w-full rounded-2xl border border-outline-variant bg-surface-container-low py-[14px] pl-5 pr-24 text-[15px] leading-5 text-on-surface shadow-[0_14px_42px_rgba(15,18,22,0.10),0_1px_2px_rgba(15,18,22,0.08)] outline-none resize-none transition-[border-color,box-shadow,background-color] placeholder:text-on-surface-variant hover:bg-surface-container focus:border-primary focus:bg-surface-container focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_12%,transparent),0_18px_52px_rgba(15,18,22,0.12)]"
           style={{
-            minHeight: '58px',
-            maxHeight: '220px',
-            borderTopLeftRadius: queuedMessages.length > 0 ? 0 : 26,
-            borderTopRightRadius: queuedMessages.length > 0 ? 0 : 26,
-          }}
-          onInput={(e) => {
-            const el = e.target as HTMLTextAreaElement;
-            el.style.height = 'auto';
-            el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+            height: '52px',
+            maxHeight: '120px',
+            borderTopLeftRadius: queuedMessages.length > 0 ? 0 : undefined,
+            borderTopRightRadius: queuedMessages.length > 0 ? 0 : undefined,
           }}
         />
         {isGenerating && !input.trim() ? (
           <button
             type="button"
             onClick={stopGeneration}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-high hover:bg-surface-highest text-on-surface flex items-center justify-center transition-colors"
+            className="absolute right-3 top-[26px] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface"
             title="Stop"
             aria-label="Stop"
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="6" width="12" height="12" rx="1.5" />
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <rect x="5" y="5" width="10" height="10" rx="1" />
             </svg>
           </button>
         ) : (
@@ -172,20 +179,16 @@ export default function Home() {
           type="button"
           onClick={handleSend}
           disabled={!input.trim()}
-          className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-high hover:bg-surface-highest text-on-surface flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-surface-high"
+          className="absolute right-3 top-[26px] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
           title="Send"
           aria-label="Send"
         >
           <svg
-            className="w-5 h-5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            className="w-4 h-4"
+            viewBox="0 0 20 20"
+            fill="currentColor"
           >
-            <path d="M12 19V5M5 12l7-7 7 7" />
+            <path fillRule="evenodd" d="M14.707 10.293a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L12.586 11H3a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l4 4z" clipRule="evenodd" transform="rotate(-90 10 10)" />
           </svg>
         </button>
         )}
@@ -193,12 +196,12 @@ export default function Home() {
           <button
             type="button"
             onClick={stopGeneration}
-            className="absolute right-14 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-high hover:bg-surface-highest text-on-surface flex items-center justify-center transition-colors"
+            className="absolute right-12 top-[26px] flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface"
             title="Stop"
             aria-label="Stop"
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="6" width="12" height="12" rx="1.5" />
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <rect x="5" y="5" width="10" height="10" rx="1" />
             </svg>
           </button>
         ) : null}
@@ -221,9 +224,6 @@ export default function Home() {
               initial="hidden"
               animate="visible"
             >
-              <div className="inline-flex items-center justify-center mb-5">
-                <RoundsLogo className="w-12 h-12 text-on-surface" size={48} />
-              </div>
               <h1 className="text-[26px] md:text-[34px] font-medium tracking-tight mb-3 leading-[1.15] text-on-surface">
                 How can Rounds help?
               </h1>

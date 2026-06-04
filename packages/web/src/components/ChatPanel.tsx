@@ -58,6 +58,7 @@ export default function ChatPanel({
   const [chatWidth, setChatWidth] = useState(380);
   const [confirmNewOpen, setConfirmNewOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevEventCountRef = useRef(events.length);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -67,7 +68,10 @@ export default function ChatPanel({
   const didInitialScrollRef = useRef(false);
   useEffect(() => {
     if (events.length === 0) return;
-    const behavior: ScrollBehavior = didInitialScrollRef.current ? 'smooth' : 'instant';
+    const previousEventCount = prevEventCountRef.current;
+    const isLoadedHistory = previousEventCount === 0 || events.length < previousEventCount;
+    const behavior: ScrollBehavior =
+      didInitialScrollRef.current && !isLoadedHistory ? 'smooth' : 'instant';
     bottomRef.current?.scrollIntoView({ behavior });
     didInitialScrollRef.current = true;
   }, [events.length]);
@@ -117,7 +121,15 @@ export default function ChatPanel({
     if (!trimmed) return;
     onSendMessage(trimmed);
     setInput('');
+    requestAnimationFrame(() => {
+      if (inputRef.current) inputRef.current.style.height = '52px';
+    });
   }, [input, onSendMessage]);
+
+  const resizeInput = useCallback((el: HTMLTextAreaElement) => {
+    el.style.height = '52px';
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 52), 120)}px`;
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -312,29 +324,28 @@ export default function ChatPanel({
         )}
         <div className="relative">
           <textarea
+            ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              resizeInput(e.target);
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Ask anything..."
             rows={1}
-            className="w-full bg-surface-container border border-outline-variant focus:border-primary py-3.5 pl-4 pr-24 text-sm text-on-surface placeholder-on-surface-variant outline-none resize-none transition-colors"
+            className="w-full rounded-xl border border-outline-variant bg-surface-container-low py-[14px] pl-4 pr-24 text-sm leading-5 text-on-surface shadow-sm outline-none resize-none transition-[border-color,box-shadow,background-color] placeholder:text-on-surface-variant hover:bg-surface-container focus:border-primary focus:bg-surface-container focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--color-primary)_12%,transparent)]"
             style={{
-              minHeight: '52px',
+              height: '52px',
               maxHeight: '120px',
               borderTopLeftRadius: queuedMessages.length > 0 ? 0 : undefined,
               borderTopRightRadius: queuedMessages.length > 0 ? 0 : undefined,
-            }}
-            onInput={(e) => {
-              const el = e.target as HTMLTextAreaElement;
-              el.style.height = 'auto';
-              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
             }}
           />
           {isGenerating && onStop && !input.trim() ? (
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
+              className="absolute right-2 top-[26px] -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface"
               title="Stop"
               aria-label="Stop"
             >
@@ -347,7 +358,7 @@ export default function ChatPanel({
               type="button"
               onClick={handleSend}
               disabled={!input.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+              className="absolute right-2 top-[26px] -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
               title="Send"
               aria-label="Send"
             >
@@ -360,7 +371,7 @@ export default function ChatPanel({
             <button
               type="button"
               onClick={onStop}
-              className="absolute right-12 top-1/2 -translate-y-1/2 w-8 h-8 rounded-md text-on-surface-variant hover:text-on-surface hover:bg-surface-high flex items-center justify-center transition-colors"
+              className="absolute right-12 top-[26px] -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface"
               title="Stop"
               aria-label="Stop"
             >
@@ -494,7 +505,7 @@ function QueuedMessageCard({
           ) : (
             <>
               <button type="button" onClick={() => setEditing(true)} disabled={busy || !onUpdate} className="rounded px-1.5 py-0.5 hover:bg-surface-highest hover:text-on-surface disabled:opacity-50">
-                Steer
+                Edit
               </button>
               <button type="button" onClick={() => void remove()} disabled={busy || !onDelete} className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-surface-highest hover:text-error disabled:opacity-50" title="Delete queued message" aria-label="Delete queued message">
                 <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">

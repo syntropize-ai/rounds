@@ -77,6 +77,7 @@ function renderMessageBlock(
   onOpsConfirmationResolved?: (confirmation: NonNullable<ChatEvent['opsConfirmation']>) => void,
 ) {
   if (evt.kind === 'error') {
+    if (isUserCancelError(evt.content)) return null;
     return <ErrorMessage key={evt.id} content={evt.content ?? 'An error occurred'} />;
   }
 
@@ -159,4 +160,16 @@ function renderMessageBlock(
   }
 
   return null;
+}
+
+function isUserCancelError(content?: string): boolean {
+  const normalized = (content ?? '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized === 'this operation was aborted' ||
+    normalized === 'the operation was aborted' ||
+    normalized === 'aborted' ||
+    normalized.includes('aborted by caller') ||
+    normalized.includes('agent loop aborted')
+  );
 }

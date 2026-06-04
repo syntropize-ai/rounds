@@ -18,6 +18,7 @@ const CONNECTOR_TYPES: ConnectorType[] = [
   'prometheus',
   'victoria-metrics',
   'loki',
+  'humio',
   'elasticsearch',
   'clickhouse',
   'tempo',

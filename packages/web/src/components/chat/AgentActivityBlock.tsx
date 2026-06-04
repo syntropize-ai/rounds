@@ -213,31 +213,31 @@ export default function AgentActivityBlock({
     setExpanded((v) => !v);
   };
 
-  const { steps, preStatus } = useMemo(() => buildSteps(events), [events]);
+  const { preStatus } = useMemo(() => buildSteps(events), [events]);
   const activityGroups = useMemo(() => buildToolActivityGroups(events), [events]);
 
-  // Summary for collapsed state — phase-grouped (steps), so 5 metrics_query
-  // events still summarize as one "Querying metrics" phase rather than 5.
-  // Count by steps.length rather than done-only: some activity (e.g. an
-  // ops command confirmation block) shows up as a step without a paired
-  // tool_call/tool_result, so done-only undercounts to "0 steps" despite
-  // visible activity.
-  const failCount = steps.filter((s) => s.result && !s.result.success).length;
-  const lastActive = [...steps].reverse().find((s) => !s.done);
+  // Collapsed summary: show what the agent is doing, not an internal step
+  // count. This reads closer to Claude/Codex: a concise activity label with
+  // details available on expand.
+  const latestActivity =
+    [...activityGroups].reverse().find((group) => group.status === 'running') ??
+    [...activityGroups].reverse()[0];
 
   // When the only events so far are model thinking (no tool calls yet),
   // surface "Thinking" instead of "Working" / "0 steps" so the user knows
   // the model is reasoning rather than stalled.
-  const onlyThinking = steps.length === 0 && Boolean(preStatus);
+  const onlyThinking = activityGroups.length === 0 && Boolean(preStatus);
   const summaryText = isLive
-    ? lastActive
-      ? lastActive.label
+    ? latestActivity
+      ? latestActivity.label
       : onlyThinking
         ? 'Thinking'
         : 'Working'
-    : onlyThinking
+    : latestActivity
+      ? latestActivity.label
+      : onlyThinking
       ? 'Thinking'
-      : `${steps.length} step${steps.length === 1 ? '' : 's'}${failCount > 0 ? ` (${failCount} failed)` : ''}`;
+      : 'Completed';
 
   return (
     <div className="my-2">

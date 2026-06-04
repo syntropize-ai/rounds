@@ -14,9 +14,8 @@ function newEntryId(): string {
 }
 
 function blankForm(): ConnectorEntry {
-  // Default to prometheus — it's currently the only type with a backend
-  // adapter wired. Other types are still selectable but disabled in the UI.
-  return { id: newEntryId(), type: 'prometheus', name: '', url: '', apiKey: '' };
+  // Default to a metrics connector; logs connectors can be selected below.
+  return { id: newEntryId(), type: 'prometheus', name: '', url: '', apiKey: '', repository: '' };
 }
 
 export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
@@ -40,7 +39,7 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
   };
 
   const handleAdd = async () => {
-    if (!form.url || saving) return;
+    if (!form.url || saving || (form.type === 'humio' && !form.repository?.trim())) return;
     setSaving(true);
     // Reuse the id minted when the form opened. Edits preserve the
     // existing entry's id; in edit mode we PUT, in create mode we POST.
@@ -54,6 +53,9 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
       name: payload.name,
       config: {
         url: payload.url,
+        ...(payload.type === 'humio' && payload.repository?.trim()
+          ? { repository: payload.repository.trim() }
+          : {}),
         ...(payload.apiKey ? { apiKey: payload.apiKey } : {}),
       },
       isDefault: entries.length === 0,
@@ -83,6 +85,7 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
       name: ds.name,
       url: ds.url,
       apiKey: ds.apiKey ?? '',
+      repository: ds.repository ?? '',
     });
     setEditingIdx(idx);
     setAdding(true);
@@ -196,7 +199,7 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
                 ))}
               </select>
               <p className="text-xs text-[var(--color-on-surface-variant)] mt-1">
-                Only Prometheus + VictoriaMetrics are wired to a backend adapter today. Other types are stubbed and will land as we add adapters.
+                Metrics and logs connectors are available now; trace backends are listed for future support.
               </p>
             </div>
 
@@ -222,6 +225,19 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
               />
             </div>
 
+            {form.type === 'humio' && (
+              <div>
+                <label className="block text-xs font-medium text-[var(--color-on-surface-variant)] mb-1">Repository</label>
+                <input
+                  type="text"
+                  value={form.repository ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, repository: e.target.value }))}
+                  placeholder="prod"
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)]"
+                />
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-medium text-[var(--color-on-surface-variant)] mb-1">API Key (optional)</label>
               <input
@@ -238,7 +254,7 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
             <button
               type="button"
               onClick={() => void handleAdd()}
-              disabled={!form.url || saving}
+              disabled={!form.url || saving || (form.type === 'humio' && !form.repository?.trim())}
               className="px-4 py-2 rounded-lg bg-primary text-on-primary-fixed text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
             >
               {saving ? (editingIdx !== null ? 'Saving...' : 'Adding...') : (editingIdx !== null ? 'Save' : 'Add')}

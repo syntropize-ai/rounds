@@ -112,6 +112,51 @@ describe('testConnectorAgainstBackend — http-get', () => {
   });
 });
 
+describe('testConnectorAgainstBackend — humio-query', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('posts a minimal query job with bearer token and repository path', async () => {
+    const fetchMock = mockFetch(async () => jsonResponse(200, JSON.stringify({ id: 'job-1' })));
+    vi.stubGlobal('fetch', fetchMock);
+    const out = await testConnectorAgainstBackend(
+      makeConnector({
+        type: 'humio',
+        config: { url: 'https://cloud.us.humio.com/api/v1', repository: 'prod' },
+      }),
+      'sekret',
+    );
+    expect(out.ok).toBe(true);
+    const [url, opts] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://cloud.us.humio.com/api/v1/repositories/prod/queryjobs');
+    expect((opts as RequestInit).method).toBe('POST');
+    expect((opts as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer sekret',
+      'Content-Type': 'application/json',
+    });
+  });
+
+  it('requires repository and token', async () => {
+    const missingRepo = await testConnectorAgainstBackend(
+      makeConnector({ type: 'humio', config: { url: 'https://humio.example' } }),
+      'sekret',
+    );
+    expect(missingRepo.ok).toBe(false);
+    expect(missingRepo.message).toMatch(/repository/);
+
+    const missingToken = await testConnectorAgainstBackend(
+      makeConnector({
+        type: 'humio',
+        config: { url: 'https://humio.example', repository: 'prod' },
+      }),
+      null,
+    );
+    expect(missingToken.ok).toBe(false);
+    expect(missingToken.message).toMatch(/token/i);
+  });
+});
+
 describe('testConnectorAgainstBackend — kubernetes-version', () => {
   afterEach(() => vi.unstubAllGlobals());
 

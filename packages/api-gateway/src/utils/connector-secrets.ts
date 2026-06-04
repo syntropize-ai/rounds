@@ -19,7 +19,7 @@ function inlineApiKey(connector: Connector): string | undefined {
  * ciphertext is a kubeconfig YAML) resolve their secret through their own
  * runner and must NOT be hydrated here.
  */
-const TOKEN_AUTH_TYPES = new Set(['prometheus', 'victoria-metrics', 'loki']);
+const TOKEN_AUTH_TYPES = new Set(['prometheus', 'victoria-metrics', 'loki', 'humio']);
 
 /**
  * Resolve `connector_secrets` ciphertext into `config.apiKey` for connectors

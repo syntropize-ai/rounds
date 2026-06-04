@@ -22,6 +22,7 @@ export type {
 export { PrometheusMetricsAdapter } from './prometheus/metrics-adapter.js';
 export { MockMetricsAdapter } from './prometheus/mock-metrics-adapter.js';
 export { LokiLogsAdapter } from './loki/logs-adapter.js';
+export { HumioLogsAdapter, normalizeHumioBaseUrl } from './humio/logs-adapter.js';
 export { DuckDuckGoSearchAdapter } from './web-search/duckduckgo-adapter.js';
 
 // -- Prometheus client + helpers (used by api-gateway query route) --

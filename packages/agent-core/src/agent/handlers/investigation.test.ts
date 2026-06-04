@@ -25,6 +25,7 @@ import {
   handleInvestigationComplete,
   handleInvestigationCreate,
 } from './investigation.js';
+import { parseVerdict } from '../auditor-prompt.js';
 import { makeFakeActionContext } from './_test-helpers.js';
 import { AdapterRegistry } from '../../adapters/registry.js';
 import type { IMetricsAdapter } from '../../adapters/metrics-adapter.js';
@@ -62,6 +63,13 @@ function investigationStore(workspaceId = 'test-org') {
 }
 
 describe('investigation handlers', () => {
+  it('fails closed when the auditor verdict is not parseable', () => {
+    const parsed = parseVerdict('I would keep checking the failing pod logs.');
+
+    expect(parsed.verdict).toBe('NEEDS_MORE');
+    expect(parsed.gap).toContain('parseable verdict');
+  });
+
   it('does not save or navigate when completing without an active investigation', async () => {
     const store = investigationStore();
     const reportStore = { save: vi.fn() };
@@ -427,6 +435,39 @@ describe('investigation handlers', () => {
   });
 
   describe('independent audit gate', () => {
+    it('local quality gate bounces shallow symptom-level reports before auditor spend', async () => {
+      const store = investigationStore();
+      const reportStore = { save: vi.fn() };
+      const runAuditor = vi.fn().mockResolvedValue({ verdict: 'ACTIONABLE', gap: '' });
+      const ctx = makeFakeActionContext({
+        investigationStore: store,
+        investigationReportStore: reportStore,
+        activeInvestigationId: 'inv_1',
+        runAuditor,
+        opsConnectors: [{ id: 'ops-1', name: 'ops', type: 'kubernetes' }] as never,
+      });
+      ctx.investigationProvenance.set('inv_1', {
+        runId: 'inv_1',
+        evidenceCount: 1,
+        readToolCalls: 2,
+        metricReadCalls: 2,
+      } as never);
+      ctx.investigationSections.set('inv_1', [
+        { type: 'evidence', content: 'HTTP error rate is non-zero.' },
+      ]);
+
+      const result = await handleInvestigationComplete(ctx, {
+        summary: 'HTTP error rate is non-zero because a pod is crashing.',
+      });
+
+      expect(result).toContain('NOT completed');
+      expect(result).toContain('Kubernetes read');
+      expect(runAuditor).not.toHaveBeenCalled();
+      expect(reportStore.save).not.toHaveBeenCalled();
+      expect(ctx.activeInvestigationId).toBe('inv_1');
+      expect(ctx.investigationProvenance.get('inv_1')?.qualityGateRounds).toBe(1);
+    });
+
     it('NEEDS_MORE bounces the investigator without saving', async () => {
       const store = investigationStore();
       const reportStore = { save: vi.fn() };
@@ -437,7 +478,17 @@ describe('investigation handlers', () => {
         activeInvestigationId: 'inv_1',
         runAuditor,
       });
-      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+      ctx.investigationProvenance.set('inv_1', {
+        runId: 'inv_1',
+        evidenceCount: 1,
+        readToolCalls: 2,
+        metricReadCalls: 1,
+        opsReadCalls: 1,
+      } as never);
+      ctx.investigationSections.set('inv_1', [
+        { type: 'evidence', content: 'Error rate is elevated.' },
+        { type: 'text', content: '## Specific object\n\nThe candidate cause is an EnvoyFilter config change.' },
+      ]);
 
       const result = await handleInvestigationComplete(ctx, { summary: 'done' });
 
@@ -460,7 +511,17 @@ describe('investigation handlers', () => {
         activeInvestigationId: 'inv_1',
         runAuditor,
       });
-      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+      ctx.investigationProvenance.set('inv_1', {
+        runId: 'inv_1',
+        evidenceCount: 1,
+        readToolCalls: 2,
+        metricReadCalls: 1,
+        opsReadCalls: 1,
+      } as never);
+      ctx.investigationSections.set('inv_1', [
+        { type: 'evidence', content: 'Error rate is elevated.' },
+        { type: 'text', content: '## Specific object\n\nThe candidate cause is an EnvoyFilter config change.' },
+      ]);
 
       // r1 + r2 bounce, r3 ships flagged (MAX_AUDIT_ROUNDS = 2).
       const r1 = await handleInvestigationComplete(ctx, { summary: 'done' });
@@ -507,7 +568,17 @@ describe('investigation handlers', () => {
         activeInvestigationId: 'inv_1',
         runAuditor,
       });
-      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+      ctx.investigationProvenance.set('inv_1', {
+        runId: 'inv_1',
+        evidenceCount: 1,
+        readToolCalls: 2,
+        metricReadCalls: 1,
+        opsReadCalls: 1,
+      } as never);
+      ctx.investigationSections.set('inv_1', [
+        { type: 'evidence', content: 'Error rate is elevated.' },
+        { type: 'text', content: '## Specific object\n\nThe cause is a deployment config value.' },
+      ]);
 
       const result = await handleInvestigationComplete(ctx, { summary: 'done' });
 

@@ -342,8 +342,7 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
   function queueGateway(responses: LoopResponse[]) {
     const q = [...responses]
     return {
-      // Anything past the queue ends the turn with plain text (also covers the
-      // internal auditor loop, which falls open to ACTIONABLE on no VERDICT).
+      // Anything past the queue ends the turn with plain text.
       complete: vi.fn().mockImplementation(() => Promise.resolve(q.shift() ?? { content: 'done', toolCalls: [] })),
     }
   }
@@ -356,10 +355,11 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
       summary: 'old summary',
       sections: [
         { type: 'text', content: '## Symptom\n\np99 high.' },
+        { type: 'evidence', content: 'p99 by route shows the bad Envoy path.' },
         { type: 'text', content: '## Unresolved\n\nWhich EnvoyFilter?' },
       ],
       createdAt: '2026-04-26T00:00:00.000Z',
-      provenance: { runId: 'inv_1', model: 'test-model' },
+      provenance: { runId: 'inv_1', model: 'test-model', evidenceCount: 1, readToolCalls: 2, metricReadCalls: 1, opsReadCalls: 1 },
     }
     const reportStore = {
       save: vi.fn(),
@@ -391,6 +391,7 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
     const gateway = queueGateway([
       { content: '', toolCalls: [{ id: 'c1', name: 'investigation_add_text', input: { content: '## Root cause\n\nEnvoyFilter foo merges a bad filter_chain_match.' } }] },
       { content: '', toolCalls: [{ id: 'c2', name: 'investigation_complete', input: { summary: 'EnvoyFilter foo is the cause; delete it.' } }] },
+      { content: 'Delete EnvoyFilter foo.\nVERDICT: ACTIONABLE', toolCalls: [] },
     ])
 
     const agent = new OrchestratorAgent({
@@ -432,8 +433,8 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
     const saved = reportStore.save.mock.calls[0]![0]
     expect(saved.id).toBe('report_x')
     expect(saved.dashboardId).toBe('inv_1')
-    // Prior 2 sections rehydrated + the new one appended.
-    expect(saved.sections).toHaveLength(3)
+    // Prior 3 sections rehydrated + the new one appended.
+    expect(saved.sections).toHaveLength(4)
     expect(saved.sections.some((s: { content: string }) => s.content.includes('## Root cause'))).toBe(true)
   })
 
@@ -460,4 +461,3 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
     expect(reportStore.save).not.toHaveBeenCalled()
   })
 })
-

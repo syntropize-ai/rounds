@@ -200,7 +200,17 @@ export interface ActionContext {
    * it needs cost. Optional shape mirrors `Provenance` so the UI degrades when
    * fields are missing.
    */
-  investigationProvenance: Map<string, Provenance & { startedAt?: number; auditorRounds?: number; reportId?: string }>;
+  investigationProvenance: Map<string, Provenance & {
+    startedAt?: number;
+    auditorRounds?: number;
+    reportId?: string;
+    qualityGateRounds?: number;
+    readToolCalls?: number;
+    metricReadCalls?: number;
+    logReadCalls?: number;
+    opsReadCalls?: number;
+    changeReadCalls?: number;
+  }>;
   /**
    * Dashboard create requests held in memory until the first panel write.
    * This avoids showing an empty dashboard shell while the agent is still

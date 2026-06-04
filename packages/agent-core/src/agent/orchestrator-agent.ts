@@ -182,7 +182,17 @@ export class OrchestratorAgent {
   /** Per-investigation provenance accumulator (Task 10). See ActionContext docs.
    *  `auditorRounds` rides along here (seeded by investigation_create, survives
    *  the audit↔resume bounce) and is stripped before the report row is saved. */
-  private readonly investigationProvenance = new Map<string, Provenance & { startedAt?: number; auditorRounds?: number; reportId?: string }>()
+  private readonly investigationProvenance = new Map<string, Provenance & {
+    startedAt?: number;
+    auditorRounds?: number;
+    reportId?: string;
+    qualityGateRounds?: number;
+    readToolCalls?: number;
+    metricReadCalls?: number;
+    logReadCalls?: number;
+    opsReadCalls?: number;
+    changeReadCalls?: number;
+  }>()
   private readonly pendingDashboardCreates = new Map<string, import('./handlers/_context.js').PendingDashboardCreate>()
   private readonly pendingInvestigationCreates = new Map<string, import('./handlers/_context.js').PendingInvestigationCreate>()
   /**
@@ -468,10 +478,30 @@ export class OrchestratorAgent {
       runAuditor: opts?.auditor ? undefined : (input) => this.runAuditor(input),
     })
     const result = await this.actionRunner.execute(step, ctx)
+    if (!opts?.auditor && result !== null) {
+      this.recordInvestigationRead(step.action)
+    }
     if (!opts?.auditor && result !== null && INVESTIGATION_DIRTY_ACTIONS.has(step.action)) {
       this.investigationDirtyThisTurn = true
     }
     return result
+  }
+
+  private recordInvestigationRead(action: string): void {
+    const investigationId = this.activeInvestigationIdRef.current
+    if (!investigationId || !INVESTIGATION_READ_ACTIONS.has(action)) return
+    const prov = this.investigationProvenance.get(investigationId)
+    if (!prov) return
+    prov.readToolCalls = (prov.readToolCalls ?? 0) + 1
+    if (action.startsWith('metrics_')) {
+      prov.metricReadCalls = (prov.metricReadCalls ?? 0) + 1
+    } else if (action.startsWith('logs_')) {
+      prov.logReadCalls = (prov.logReadCalls ?? 0) + 1
+    } else if (action === 'ops_run_command') {
+      prov.opsReadCalls = (prov.opsReadCalls ?? 0) + 1
+    } else if (action === 'changes_list_recent') {
+      prov.changeReadCalls = (prov.changeReadCalls ?? 0) + 1
+    }
   }
 
   private onBeforeTerminate(_finalText: string): string | null {
@@ -562,4 +592,30 @@ const INVESTIGATION_DIRTY_ACTIONS: ReadonlySet<string> = new Set([
   'investigation_create',
   'investigation_add_text',
   'investigation_add_evidence',
+])
+
+const INVESTIGATION_READ_ACTIONS: ReadonlySet<string> = new Set([
+  'metrics_query',
+  'metrics_range_query',
+  'metrics_discover',
+  'metrics_validate',
+  'metrics_list_names',
+  'metrics_get_labels',
+  'metrics_get_label_values',
+  'metrics_get_cardinality',
+  'metrics_sample_series',
+  'metrics_find_related',
+  'logs_query',
+  'logs_labels',
+  'logs_label_values',
+  'ops_run_command',
+  'changes_list_recent',
+  'github_list_repos',
+  'github_list_prs',
+  'github_get_pr',
+  'github_get_diff',
+  'kb_search',
+  'kb_get',
+  'kb_recommend',
+  'web_search',
 ])

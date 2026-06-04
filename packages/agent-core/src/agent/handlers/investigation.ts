@@ -35,6 +35,56 @@ const KIND_BY_PREFIX: Record<string, Citation['kind']> = {
  * ships with an `## Unresolved` caveat (honest-flagged beats blocked-forever).
  */
 const MAX_AUDIT_ROUNDS = 2;
+const MAX_QUALITY_GATE_ROUNDS = 3;
+
+type InvestigationQualityState = Provenance & {
+  qualityGateRounds?: number;
+  readToolCalls?: number;
+  metricReadCalls?: number;
+  logReadCalls?: number;
+  opsReadCalls?: number;
+  changeReadCalls?: number;
+};
+
+const SERVICE_SIDE_SYMPTOM_RX =
+  /\b(crash(?:loop)?|crashloopbackoff|restarts?|not[-\s]?ready|5xx|http error|error rate|status(?:\s*code)?|connection refused|timeout|oomkilled|pod\s+(?:down|failed|pending|crashing))\b/i;
+
+const CHANGEABLE_CAUSE_RX =
+  /\b(deployment|statefulset|daemonset|replicaset|configmap|secret|env(?:ironment)? variable|image|tag|command|args?|probe|readiness|liveness|port|selector|service|ingress|virtualservice|destinationrule|envoyfilter|serviceentry|certificate|cert|tls|mTLS|dns|quota|limit|request|node pressure|exit code|rollout|deploy|commit|version|owner|reason:|message:)\b/i;
+
+function evaluateInvestigationReadiness(
+  question: string,
+  summary: string,
+  sections: InvestigationReportSection[],
+  prov: InvestigationQualityState,
+  hasOpsConnector: boolean,
+): string | null {
+  const reportText = [question, summary, ...sections.map((s) => s.content)].join('\n\n');
+  const evidenceCount = prov.evidenceCount ?? 0;
+  const readToolCalls = prov.readToolCalls ?? 0;
+  const opsReadCalls = prov.opsReadCalls ?? 0;
+  const sectionCount = sections.length;
+
+  if (evidenceCount < 1) {
+    return 'Add at least one evidence section tied to a real metrics/logs/ops query; a pure prose investigation is not verifiable.';
+  }
+
+  if (readToolCalls < 2 && sectionCount < 2) {
+    return 'Do at least one more independent read before completing: break down the symptom, check a related signal, or inspect the affected object so the conclusion is not based on a single observation.';
+  }
+
+  const serviceSideSymptom = SERVICE_SIDE_SYMPTOM_RX.test(reportText);
+  if (hasOpsConnector && serviceSideSymptom && opsReadCalls < 1) {
+    return 'The report points at a service-side symptom, but no Kubernetes read was used. Inspect the affected pod/workload with ops_run_command read-only commands such as get, describe, logs, or events, then complete with the specific object/value underneath the symptom.';
+  }
+
+  const finalText = [summary, sections.slice(-2).map((s) => s.content).join('\n\n')].join('\n\n');
+  if (serviceSideSymptom && !CHANGEABLE_CAUSE_RX.test(finalText)) {
+    return 'The conclusion still reads like a symptom rather than a changeable root cause. Keep going until it names the specific workload/config/value/change to inspect or fix, or explicitly state the exact next check that is still missing.';
+  }
+
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Investigation lifecycle
@@ -390,6 +440,26 @@ export async function handleInvestigationComplete(
       const provForAudit = ctx.investigationProvenance.get(investigationId);
       let unresolvedGap: string | null = null;
       if (ctx.runAuditor && provForAudit) {
+        const localGap = evaluateInvestigationReadiness(
+          question,
+          summary,
+          sections,
+          provForAudit,
+          (ctx.opsConnectors?.length ?? 0) > 0,
+        );
+        if (localGap) {
+          const rounds = provForAudit.qualityGateRounds ?? 0;
+          if (rounds < MAX_QUALITY_GATE_ROUNDS) {
+            provForAudit.qualityGateRounds = rounds + 1;
+            log.warn({ investigationId, round: rounds + 1, gap: localGap }, 'investigation_complete blocked by local quality gate');
+            return `Investigation NOT completed - the report is not deep enough yet. ${localGap} `
+              + 'Keep investigating in the same thread, add the missing evidence/analysis, then call investigation_complete again.';
+          }
+          unresolvedGap = localGap;
+          log.warn({ investigationId, gap: localGap }, 'local quality gate budget exhausted; completing with unresolved caveat');
+        }
+      }
+      if (ctx.runAuditor && provForAudit) {
         const reportText = [summary, ...sections.map((s) => s.content)].join('\n\n');
         const { verdict, gap } = await ctx.runAuditor({ question, report: reportText });
         if (verdict === 'NEEDS_MORE') {
@@ -457,9 +527,26 @@ export async function handleInvestigationComplete(
       if (provState) {
         // Drop bookkeeping-only fields (`startedAt`, `auditorRounds`,
         // `reportId`) so they never leak into the persisted provenance row.
-        const { startedAt, auditorRounds, reportId, ...rest } = provState;
+        const {
+          startedAt,
+          auditorRounds,
+          reportId,
+          qualityGateRounds,
+          readToolCalls,
+          metricReadCalls,
+          logReadCalls,
+          opsReadCalls,
+          changeReadCalls,
+          ...rest
+        } = provState;
         void auditorRounds;
         void reportId;
+        void qualityGateRounds;
+        void readToolCalls;
+        void metricReadCalls;
+        void logReadCalls;
+        void opsReadCalls;
+        void changeReadCalls;
         finalProvenance = {
           ...rest,
           ...(startedAt ? { latencyMs: Date.now() - startedAt } : {}),

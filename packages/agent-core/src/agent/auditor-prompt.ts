@@ -38,11 +38,18 @@ export function buildAuditorUserMessage(input: InvestigationReportForAudit): str
   ].join('\n');
 }
 
-// Parse the trailing VERDICT line; fail-open to ACTIONABLE when absent.
+// Parse the trailing VERDICT line. Fail-closed: a malformed auditor answer
+// should send the investigator back for one more pass rather than bless a
+// shallow report as actionable.
 export function parseVerdict(text: string): { verdict: AuditVerdict; gap: string } {
   const matches = [...text.matchAll(/VERDICT:\s*(ACTIONABLE|NEEDS_MORE)/gi)];
   const last = matches[matches.length - 1];
-  if (!last) return { verdict: 'ACTIONABLE', gap: '' };
+  if (!last) {
+    return {
+      verdict: 'NEEDS_MORE',
+      gap: 'The auditor did not return a parseable verdict; re-check the conclusion and make the missing next step explicit.',
+    };
+  }
   const verdict = last[1]?.toUpperCase() === 'NEEDS_MORE' ? 'NEEDS_MORE' : 'ACTIONABLE';
   const before = text.slice(0, last.index ?? text.length).trim();
   const gap = before.split(/\r?\n/).filter((l) => l.trim()).slice(-3).join(' ').slice(-500).trim();

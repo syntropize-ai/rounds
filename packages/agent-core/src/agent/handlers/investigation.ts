@@ -51,63 +51,42 @@ export async function handleInvestigationCreate(
   const question = String(args.question ?? '');
   if (!question) return 'Error: "question" is required.';
 
-  let createdId = '';
+  let draftId = '';
   let observationText = '';
   await withToolEventBoundary(
     ctx.sendEvent,
     'investigation_create',
     { question },
-    `Creating investigation: "${question.slice(0, 60)}"`,
+    `Preparing investigation: "${question.slice(0, 60)}"`,
     async () => {
-      // Same reason as dashboard_create: the GET route filters by
-      // workspaceId; missing this field makes the investigation unreachable
-      // even though the row is in the store.
-      const investigation = await ctx.investigationStore!.create(
-        withWorkspaceScope(ctx.identity, {
-          question,
-          sessionId: ctx.sessionId,
-          userId: 'agent',
-        }),
-      );
-
-      createdId = investigation.id;
-      void ctx.auditWriter?.({
-        action: AuditAction.InvestigationCreate,
-        actorType: 'user',
-        actorId: ctx.identity.userId,
-        orgId: ctx.identity.orgId,
-        targetType: 'investigation',
-        targetId: investigation.id,
-        targetName: question,
-        outcome: 'success',
-        metadata: { sessionId: ctx.sessionId, via: 'agent_tool' },
-      });
+      draftId = `draft_investigation_${randomUUID()}`;
+      ctx.pendingInvestigationCreates.set(draftId, { question });
       // Mark this investigation as the active one for the session.
       // `add_section` and `complete` read from here; the LLM no longer
       // has to copy the id back through tool params (which it sometimes
       // truncated, silently re-keying sections to a phantom map slot).
-      ctx.activeInvestigationId = createdId;
+      ctx.activeInvestigationId = draftId;
       // Seed the provenance accumulator with model + runId + start time.
       // Cost / latency get filled in at completion (latency from startedAt;
       // cost is left undefined here — the UI joins llm_audit by sessionId
       // when it needs aggregate spend). See ActionContext docs for the
       // full lifecycle.
-      ctx.investigationProvenance.set(createdId, {
+      ctx.investigationProvenance.set(draftId, {
         model: ctx.model,
-        runId: createdId,
+        runId: draftId,
         toolCalls: 0,
         evidenceCount: 0,
         citations: [],
         startedAt: Date.now(),
       });
-      observationText = `Created investigation "${question.slice(0, 60)}" (id: ${investigation.id}).`;
+      observationText = `Prepared investigation "${question.slice(0, 60)}" (draft id: ${draftId}). It will be created when the report is complete.`;
       return observationText;
     },
   );
   ctx.emitAgentEvent(
     ctx.makeAgentEvent('agent.tool_completed', {
       tool: 'investigation_create',
-      investigationId: createdId,
+      investigationId: draftId,
       summary: observationText,
     }),
   );
@@ -376,16 +355,28 @@ export async function handleInvestigationComplete(
     { investigationId },
     `Completing investigation`,
     async () => {
-      if (!ctx.investigationStore?.findById) {
+      if (!ctx.investigationStore) {
         return 'Error: investigation store is not available.';
       }
 
-      const investigation = await ctx.investigationStore.findById(investigationId);
-      if (!investigation) {
-        return `Error: investigation "${investigationId}" was not found.`;
+      const pendingCreate = ctx.pendingInvestigationCreates.get(investigationId);
+      if (pendingCreate && !ctx.investigationStore.create) {
+        return 'Error: investigation store is not available.';
       }
-      if (investigation.workspaceId !== ctx.identity.orgId) {
-        return `Error: investigation "${investigationId}" was not found.`;
+      if (!pendingCreate && !ctx.investigationStore.findById) {
+        return 'Error: investigation store is not available.';
+      }
+      let persistedInvestigationId = investigationId;
+      let question = pendingCreate?.question ?? '';
+      if (!pendingCreate) {
+        const investigation = await ctx.investigationStore.findById!(investigationId);
+        if (!investigation) {
+          return `Error: investigation "${investigationId}" was not found.`;
+        }
+        if (investigation.workspaceId !== ctx.identity.orgId) {
+          return `Error: investigation "${investigationId}" was not found.`;
+        }
+        question = investigation.intent;
       }
 
       const sections = ctx.investigationSections.get(investigationId) ?? [];
@@ -400,7 +391,7 @@ export async function handleInvestigationComplete(
       let unresolvedGap: string | null = null;
       if (ctx.runAuditor && provForAudit) {
         const reportText = [summary, ...sections.map((s) => s.content)].join('\n\n');
-        const { verdict, gap } = await ctx.runAuditor({ question: investigation.intent, report: reportText });
+        const { verdict, gap } = await ctx.runAuditor({ question, report: reportText });
         if (verdict === 'NEEDS_MORE') {
           const rounds = provForAudit.auditorRounds ?? 0;
           if (rounds < MAX_AUDIT_ROUNDS) {
@@ -417,6 +408,40 @@ export async function handleInvestigationComplete(
         }
       }
 
+      if (pendingCreate) {
+        const investigation = await ctx.investigationStore.create(
+          withWorkspaceScope(ctx.identity, {
+            question: pendingCreate.question,
+            sessionId: ctx.sessionId,
+            userId: 'agent',
+          }),
+        );
+        persistedInvestigationId = investigation.id;
+        ctx.pendingInvestigationCreates.delete(investigationId);
+        ctx.activeInvestigationId = persistedInvestigationId;
+        ctx.investigationSections.delete(investigationId);
+        ctx.investigationSections.set(persistedInvestigationId, sections);
+        const draftProvenance = ctx.investigationProvenance.get(investigationId);
+        if (draftProvenance) {
+          ctx.investigationProvenance.delete(investigationId);
+          ctx.investigationProvenance.set(persistedInvestigationId, {
+            ...draftProvenance,
+            runId: persistedInvestigationId,
+          });
+        }
+        void ctx.auditWriter?.({
+          action: AuditAction.InvestigationCreate,
+          actorType: 'user',
+          actorId: ctx.identity.userId,
+          orgId: ctx.identity.orgId,
+          targetType: 'investigation',
+          targetId: investigation.id,
+          targetName: pendingCreate.question,
+          outcome: 'success',
+          metadata: { sessionId: ctx.sessionId, via: 'agent_tool' },
+        });
+      }
+
       if (unresolvedGap) {
         sections.push({
           type: 'text',
@@ -427,7 +452,7 @@ export async function handleInvestigationComplete(
       // Finalise provenance: copy out a clean Provenance (drop `startedAt`
       // bookkeeping field) and compute end-to-end latency. Cost is left
       // undefined — UI will fall back to "—" or fetch from llm_audit.
-      const provState = ctx.investigationProvenance.get(investigationId);
+      const provState = ctx.investigationProvenance.get(persistedInvestigationId);
       let finalProvenance: Provenance | undefined;
       if (provState) {
         // Drop bookkeeping-only fields (`startedAt`, `auditorRounds`,
@@ -447,7 +472,7 @@ export async function handleInvestigationComplete(
         const citCount = finalProvenance.citations?.length ?? 0;
         if (evCount > 0 && citCount === 0) {
           log.warn(
-            { investigationId, evidenceCount: evCount, citationCount: citCount },
+            { investigationId: persistedInvestigationId, evidenceCount: evCount, citationCount: citCount },
             'investigation has evidence sections but no inline citations',
           );
         }
@@ -458,7 +483,7 @@ export async function handleInvestigationComplete(
       // fresh id inserts a new report.
       await ctx.investigationReportStore.save({
         id: provState?.reportId ?? randomUUID(),
-        dashboardId: investigationId,
+        dashboardId: persistedInvestigationId,
         goal: summary,
         summary,
         sections,
@@ -472,11 +497,11 @@ export async function handleInvestigationComplete(
       // mismatch is discoverable instead of silent.
       if (ctx.investigationStore) {
         try {
-          await ctx.investigationStore.updateStatus(investigationId, 'completed');
+          await ctx.investigationStore.updateStatus(persistedInvestigationId, 'completed');
         } catch (err) {
           log.warn(
             {
-              investigationId,
+              investigationId: persistedInvestigationId,
               targetStatus: 'completed',
               errorClass: err instanceof Error ? err.constructor.name : typeof err,
               error: err instanceof Error ? err.message : String(err),
@@ -488,13 +513,16 @@ export async function handleInvestigationComplete(
 
       // Clean up accumulated sections + provenance
       ctx.investigationSections.delete(investigationId);
+      ctx.investigationSections.delete(persistedInvestigationId);
       ctx.investigationProvenance.delete(investigationId);
+      ctx.investigationProvenance.delete(persistedInvestigationId);
       // Clear active id so the next investigation_create starts a fresh one.
       ctx.activeInvestigationId = null;
 
       // Navigate to the investigation page
-      ctx.setNavigateTo(`/investigations/${investigationId}`);
-      ctx.recordCreatedResource('investigation', investigationId);
+      ctx.setNavigateTo(`/investigations/${persistedInvestigationId}`);
+      ctx.sendEvent({ type: 'navigate', path: `/investigations/${persistedInvestigationId}` });
+      ctx.recordCreatedResource('investigation', persistedInvestigationId);
 
       return `Investigation completed and report saved with ${sections.length} sections. Summary: ${summary}`;
     },

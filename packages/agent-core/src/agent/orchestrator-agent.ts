@@ -183,6 +183,8 @@ export class OrchestratorAgent {
    *  `auditorRounds` rides along here (seeded by investigation_create, survives
    *  the audit↔resume bounce) and is stripped before the report row is saved. */
   private readonly investigationProvenance = new Map<string, Provenance & { startedAt?: number; auditorRounds?: number; reportId?: string }>()
+  private readonly pendingDashboardCreates = new Map<string, import('./handlers/_context.js').PendingDashboardCreate>()
+  private readonly pendingInvestigationCreates = new Map<string, import('./handlers/_context.js').PendingInvestigationCreate>()
   /**
    * Active investigation id for this session. Implicit context for
    * investigation_add_section / investigation_complete so the LLM doesn't
@@ -454,6 +456,8 @@ export class OrchestratorAgent {
       },
       investigationSections: this.investigationSections,
       investigationProvenance: this.investigationProvenance,
+      pendingDashboardCreates: this.pendingDashboardCreates,
+      pendingInvestigationCreates: this.pendingInvestigationCreates,
       activeInvestigationIdRef: this.activeInvestigationIdRef,
       activeDashboardIdRef: this.activeDashboardIdRef,
       freshlyCreatedDashboards: this.freshlyCreatedDashboards,

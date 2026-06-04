@@ -314,6 +314,7 @@ export type DashboardSseEvent =
       error?: string;
     }
   | { type: 'reply'; content: string }
+  | { type: 'navigate'; path: string }
   | { type: 'ask_user'; question: string; options: Array<{ id: string; label: string; hint?: string }> }
   | {
       // Inline narration of the agent's datasource pick. The chat UI renders

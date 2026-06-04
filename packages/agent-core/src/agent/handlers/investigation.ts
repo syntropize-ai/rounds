@@ -521,6 +521,7 @@ export async function handleInvestigationComplete(
 
       // Navigate to the investigation page
       ctx.setNavigateTo(`/investigations/${persistedInvestigationId}`);
+      ctx.sendEvent({ type: 'navigate', path: `/investigations/${persistedInvestigationId}` });
       ctx.recordCreatedResource('investigation', persistedInvestigationId);
 
       return `Investigation completed and report saved with ${sections.length} sections. Summary: ${summary}`;

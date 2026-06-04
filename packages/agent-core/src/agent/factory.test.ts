@@ -19,7 +19,7 @@ import { AdapterRegistry } from '../adapters/index.js';
 import { ActionExecutor } from './action-executor.js';
 import { buildActionContext } from './orchestrator-action-context.js';
 import { createAgentRunner } from './factory.js';
-import { handleDashboardCreate } from './handlers/dashboard.js';
+import { handleDashboardAddPanels, handleDashboardCreate } from './handlers/dashboard.js';
 import type { IAuditWriter } from './types-permissions.js';
 
 function makeIdentity(): Identity {
@@ -66,23 +66,26 @@ describe('audit-writer bridge', () => {
 
     // Build context the same way the factory-built runner does: route the
     // structured writer through the bridge.
-    const ctx = buildActionContext(
-      makeContextDeps({
-        auditEntryWriter: (entry) => writer.log(entry),
-      }),
-      makeContextRuntime(),
-    );
+    const deps = makeContextDeps({
+      auditEntryWriter: (entry) => writer.log(entry),
+    });
+    const runtime = makeContextRuntime();
+    runtime.actionExecutor = new ActionExecutor(deps.store, deps.sendEvent);
+    const ctx = buildActionContext(deps, runtime);
 
     expect(ctx.auditWriter).toBeDefined();
 
-    // Invoke the dashboard.create handler and assert the audit row reached
-    // the underlying AuditWriter.
+    // Invoke create + first panel write and assert the audit row reached
+    // the underlying AuditWriter when the dashboard is actually persisted.
     const result = await handleDashboardCreate(ctx, {
       title: 'Latency overview',
       datasourceId: 'ds-prod',
     });
+    await handleDashboardAddPanels(ctx, {
+      panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
+    });
 
-    expect(result).toContain('Created dashboard');
+    expect(result).toContain('Prepared dashboard');
     // The handler fires-and-forgets; give the microtask queue a tick.
     await new Promise((r) => setTimeout(r, 0));
 
@@ -110,15 +113,30 @@ function makeContextDeps(overrides: {
     id: 'dash-1',
     title: 'Latency overview',
     workspaceId: 'org1',
+    description: '',
+    prompt: '',
+    panels: [],
+    variables: [],
+    source: 'ai_generated',
   };
+  const dashboards = new Map<string, Record<string, unknown>>();
   return {
     gateway: {} as never,
     model: 'test-model',
     store: {
-      create: vi.fn(async (input: Record<string, unknown>) => ({
-        ...input,
-        ...created,
-      })),
+      create: vi.fn(async (input: Record<string, unknown>) => {
+        const dashboard = { ...input, ...created };
+        dashboards.set(String(dashboard.id), dashboard);
+        return dashboard;
+      }),
+      findById: vi.fn(async (id: string) => dashboards.get(id)),
+      updatePanels: vi.fn(async (id: string, panels: unknown[]) => {
+        const dashboard = dashboards.get(id);
+        if (dashboard) dashboard.panels = panels;
+      }),
+      updateVariables: vi.fn(),
+      update: vi.fn(),
+      updateStatus: vi.fn(),
     } as never,
     conversationStore: {} as never,
     investigationReportStore: {} as never,
@@ -147,6 +165,8 @@ function makeContextRuntime(): Parameters<typeof buildActionContext>[1] {
     recordCreatedResource: () => undefined,
     investigationSections: new Map(),
     investigationProvenance: new Map(),
+    pendingDashboardCreates: new Map(),
+    pendingInvestigationCreates: new Map(),
     activeInvestigationIdRef: { current: null },
     activeDashboardIdRef: { current: null },
     freshlyCreatedDashboards: new Set<string>(),

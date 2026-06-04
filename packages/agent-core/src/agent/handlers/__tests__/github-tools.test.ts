@@ -32,6 +32,8 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
     recordCreatedResource: vi.fn(),
     investigationSections: new Map(),
     investigationProvenance: new Map(),
+    pendingDashboardCreates: new Map(),
+    pendingInvestigationCreates: new Map(),
     activeInvestigationId: null,
     activeDashboardId: null,
     freshlyCreatedDashboards: new Set(),

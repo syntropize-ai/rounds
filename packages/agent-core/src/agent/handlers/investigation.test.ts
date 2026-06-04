@@ -145,7 +145,7 @@ describe('investigation handlers', () => {
     expect(ctx.investigationSections.get('inv_1')?.length).toBe(2);
   });
 
-  it('investigation_create sets ctx.activeInvestigationId on success', async () => {
+  it('investigation_create sets a draft activeInvestigationId without persisting yet', async () => {
     const created: Investigation = {
       id: 'inv_new',
       sessionId: 'ses_1',
@@ -175,7 +175,9 @@ describe('investigation handlers', () => {
 
     await handleInvestigationCreate(ctx, { question: 'why is X slow?' });
 
-    expect(ctx.activeInvestigationId).toBe('inv_new');
+    expect(store.create).not.toHaveBeenCalled();
+    expect(ctx.activeInvestigationId).toMatch(/^draft_investigation_/);
+    expect(ctx.pendingInvestigationCreates.get(ctx.activeInvestigationId!)).toEqual({ question: 'why is X slow?' });
   });
 
   // ── Provenance (Task 10) ────────────────────────────────────────────────
@@ -208,9 +210,10 @@ describe('investigation handlers', () => {
     const ctx = makeFakeActionContext({ investigationStore: store });
     await handleInvestigationCreate(ctx, { question: 'why' });
 
-    const prov = ctx.investigationProvenance.get('inv_p1');
+    const draftId = ctx.activeInvestigationId!;
+    const prov = ctx.investigationProvenance.get(draftId);
     expect(prov).toBeDefined();
-    expect(prov!.runId).toBe('inv_p1');
+    expect(prov!.runId).toBe(draftId);
     expect(prov!.model).toBe('test-model');
     expect(prov!.toolCalls).toBe(0);
 
@@ -224,7 +227,7 @@ describe('investigation handlers', () => {
       panel: { title: 'CPU', visualization: 'time_series', queries: [] },
     });
 
-    const after = ctx.investigationProvenance.get('inv_p1')!;
+    const after = ctx.investigationProvenance.get(draftId)!;
     expect(after.toolCalls).toBe(2);
     expect(after.evidenceCount).toBe(1);
     // Citations dedup by ref — m1 referenced twice → counted once.
@@ -279,6 +282,7 @@ describe('investigation handlers', () => {
     });
 
     await handleInvestigationCreate(ctx, { question: 'why' });
+    const draftId = ctx.activeInvestigationId!;
 
     warnSpy.mockClear();
     await handleInvestigationAddSection(ctx, {
@@ -292,7 +296,7 @@ describe('investigation handlers', () => {
     });
 
     // Section persisted with a captureError provenance marker.
-    const sections = ctx.investigationSections.get('inv_cap')!;
+    const sections = ctx.investigationSections.get(draftId)!;
     expect(sections).toHaveLength(1);
     const panel = sections[0]!.panel!;
     expect(panel.snapshotData?.captureError).toMatch(/prom unreachable/);
@@ -303,7 +307,7 @@ describe('investigation handlers', () => {
     );
     expect(snapshotWarn).toBeDefined();
     const ctxFields = snapshotWarn![0] as Record<string, unknown>;
-    expect(ctxFields.investigationId).toBe('inv_cap');
+    expect(ctxFields.investigationId).toBe(draftId);
     expect(ctxFields.queryKind).toBe('range');
     expect(ctxFields.adapterId).toBe('prom-1');
     expect(ctxFields.panelTitle).toBe('CPU');

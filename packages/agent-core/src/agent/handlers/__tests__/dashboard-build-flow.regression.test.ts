@@ -122,14 +122,15 @@ describe('regression: dashboard build flow (connectors -> discover -> validate -
     expect(validate).toMatch(/\d+ series/);
     expect(ctx.dashboardBuildEvidence.validatedQueries.has(expr)).toBe(true);
 
-    // 4) Create dashboard — sets activeDashboardId and marks it freshly created.
+    // 4) Prepare dashboard — sets a draft activeDashboardId without creating
+    //    the row until panel content is ready.
     const create = await handleDashboardCreate(ctx, {
       title: 'Latency',
       datasourceId: 'prom',
     });
-    expect(create).toContain('Created dashboard "Latency"');
-    expect(ctx.activeDashboardId).toBe('dash-1');
-    expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(true);
+    expect(create).toContain('Prepared dashboard "Latency"');
+    expect(ctx.activeDashboardId).toMatch(/^draft_dashboard_/);
+    expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(false);
 
     // 5) Add panels with the validated expression — passes both the
     //    research gate (metricDiscoveryCount > 0) AND the validation gate
@@ -145,6 +146,8 @@ describe('regression: dashboard build flow (connectors -> discover -> validate -
       ],
     });
     expect(addPanels).toContain('Added 1 panel(s): Request rate');
+    expect(ctx.activeDashboardId).toBe('dash-1');
+    expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(true);
     expect(ctx.actionExecutor.execute).toHaveBeenCalledWith(
       'dash-1',
       [expect.objectContaining({ type: 'add_panels' })],

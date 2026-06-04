@@ -15,7 +15,7 @@ import { makeTestIdentity } from '../../test-helpers.js';
 
 describe('dashboard handlers', () => {
   describe('handleDashboardCreate', () => {
-    it('creates a dashboard scoped to the caller orgId and emits tool_call/result', async () => {
+    it('prepares a dashboard draft and emits tool_call/result without persisting yet', async () => {
       const create = vi.fn().mockResolvedValue({
         id: 'dash-1',
         title: 'My Dashboard',
@@ -27,17 +27,18 @@ describe('dashboard handlers', () => {
 
       const observation = await handleDashboardCreate(ctx, { title: 'My Dashboard', datasourceId: 'prom-test' });
 
-      expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'My Dashboard',
-          workspaceId: 'org-7',
-        }),
-      );
-      expect(observation).toContain('Created dashboard "My Dashboard"');
+      expect(create).not.toHaveBeenCalled();
+      expect(observation).toContain('Prepared dashboard "My Dashboard"');
       // Active id is set so the next add_panels / modify_panel call in the
       // same ReAct loop can target this dashboard implicitly.
-      expect(ctx.activeDashboardId).toBe('dash-1');
-      expect(ctx.setNavigateTo).toHaveBeenCalledWith('/dashboards/dash-1');
+      expect(ctx.activeDashboardId).toMatch(/^draft_dashboard_/);
+      expect(ctx.pendingDashboardCreates.get(ctx.activeDashboardId!)).toEqual(
+        expect.objectContaining({
+          title: 'My Dashboard',
+          datasourceId: 'prom-test',
+        }),
+      );
+      expect(ctx.setNavigateTo).not.toHaveBeenCalled();
       expect(ctx.sendEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'tool_call', tool: 'dashboard_create' }),
       );
@@ -56,15 +57,39 @@ describe('dashboard handlers', () => {
       expect(ctx.sendEvent).not.toHaveBeenCalled();
     });
 
-    it('emits tool_result with success: false and rethrows when the store create throws', async () => {
-      const create = vi.fn().mockRejectedValue(new Error('db down'));
+    it('persists the draft when panels are ready', async () => {
       const ctx = makeFakeActionContext({
-        store: { create, findById: vi.fn(), update: vi.fn(), updatePanels: vi.fn(), updateVariables: vi.fn() } as never,
+        store: {
+          create: vi.fn().mockResolvedValue({ id: 'dash-1', title: 'My Dashboard' }),
+          findById: vi.fn(),
+          update: vi.fn(),
+          updatePanels: vi.fn(),
+          updateVariables: vi.fn(),
+          updateStatus: vi.fn(),
+        } as never,
+        identity: makeTestIdentity({ orgId: 'org-7' }),
       });
-      await expect(handleDashboardCreate(ctx, { title: 'X', datasourceId: 'prom-test' })).rejects.toThrow('db down');
-      expect(ctx.sendEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tool_result', tool: 'dashboard_create', summary: 'db down' }),
+      await handleDashboardCreate(ctx, { title: 'My Dashboard', datasourceId: 'prom-test' });
+
+      const observation = await handleDashboardAddPanels(ctx, {
+        panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
+      });
+
+      expect(ctx.store.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'My Dashboard',
+          workspaceId: 'org-7',
+          datasourceIds: ['prom-test'],
+        }),
       );
+      expect(ctx.actionExecutor.execute).toHaveBeenCalledWith('dash-1', [
+        expect.objectContaining({ type: 'add_panels' }),
+      ]);
+      expect(ctx.pendingDashboardCreates.size).toBe(0);
+      expect(ctx.activeDashboardId).toBe('dash-1');
+      expect(ctx.setNavigateTo).toHaveBeenCalledWith('/dashboards/dash-1');
+      expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(true);
+      expect(observation).toContain('Added 1 panel(s): p1');
     });
   });
 
@@ -570,6 +595,10 @@ describe('dashboard handlers', () => {
         store: { create, findById: vi.fn(), update: vi.fn(), updatePanels: vi.fn(), updateVariables: vi.fn() } as never,
       });
       await handleDashboardCreate(ctx, { title: 'My Dashboard', datasourceId: 'prom-test' });
+      expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(false);
+      await handleDashboardAddPanels(ctx, {
+        panels: [{ title: 'p1', description: 'Q: status?', visualization: 'time_series', queries: [] }],
+      });
       expect(ctx.freshlyCreatedDashboards.has('dash-1')).toBe(true);
       // Now a follow-up modify should apply directly (no pending).
       await handleDashboardAddVariable(ctx, { name: 'env', type: 'custom' });

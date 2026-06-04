@@ -363,70 +363,30 @@ export async function handleDashboardCreate(
     return 'Error: "datasourceId" is required. Call connectors_list (or connectors_suggest) first to choose the primary connector for this dashboard.';
   }
 
-  let createdId = '';
+  let draftId = '';
   let observationText = '';
   await withToolEventBoundary(
     ctx.sendEvent,
     'dashboard_create',
     { title, datasourceId },
-    `Creating dashboard: "${title}"`,
+    `Preparing dashboard: "${title}"`,
     async () => {
-      // Scope the new dashboard to the caller's org; the detail route enforces
-      // workspaceId equality, so missing this field makes the redirect land on
-      // "Dashboard not found" even though the row is in the store.
-      const dashboard = await ctx.store.create!(
-        withWorkspaceScope(ctx.identity, {
-          title,
-          description,
-          prompt,
-          userId: 'agent',
-          // Stored as an array (dashboards may bind multiple sources for cross-
-          // env comparison panels); the first id is the dashboard's primary
-          // and acts as the fallback for any query that omits its own ds id.
-          datasourceIds: [datasourceId],
-          sessionId: ctx.sessionId,
-          // Agent-tool created — see writable-gate.ts for source taxonomy.
-          source: 'ai_generated',
-        }),
-      );
-
-      // Navigate to the new dashboard so the user can see panels being added.
-      // Separately record the create relationship — `setNavigateTo` only
-      // remembers the latest URL, so multi-create turns (LLM asked for two
-      // dashboards in one message) would otherwise leave the non-navigated
-      // dashboard without a chat-session linkage and the chat panel would
-      // render blank when the user opened it.
-      ctx.setNavigateTo(`/dashboards/${dashboard.id}`);
-      ctx.recordCreatedResource('dashboard', dashboard.id);
-
-      createdId = dashboard.id;
-      void ctx.auditWriter?.({
-        action: AuditAction.DashboardCreate,
-        actorType: 'user',
-        actorId: ctx.identity.userId,
-        orgId: ctx.identity.orgId,
-        targetType: 'dashboard',
-        targetId: dashboard.id,
-        targetName: dashboard.title,
-        outcome: 'success',
-        metadata: { datasourceId, via: 'agent_tool' },
+      draftId = `draft_dashboard_${randomUUID()}`;
+      ctx.pendingDashboardCreates.set(draftId, {
+        title,
+        description,
+        prompt,
+        datasourceId,
       });
-      // Mark this dashboard as the active one for the session — subsequent
-      // dashboard_add_panels / modify_panel / etc. calls in this ReAct loop
-      // pick it up implicitly instead of taking a (truncatable) id param.
-      ctx.activeDashboardId = createdId;
-      // Task 09 — initial population (add_panels, etc.) on a freshly-created
-      // dashboard applies directly; only mutations to pre-existing dashboards
-      // funnel through pendingChanges.
-      ctx.freshlyCreatedDashboards.add(createdId);
-      observationText = `Created dashboard "${dashboard.title}" (id: ${dashboard.id}).`;
+      ctx.activeDashboardId = draftId;
+      observationText = `Prepared dashboard "${title}" (draft id: ${draftId}). It will be created when panels are ready.`;
       return observationText;
     },
   );
   ctx.emitAgentEvent(
     ctx.makeAgentEvent('agent.tool_completed', {
       tool: 'dashboard_create',
-      dashboardId: createdId,
+      dashboardId: draftId,
       summary: observationText,
     }),
   );
@@ -625,7 +585,14 @@ export async function handleDashboardAddPanels(
     // message so the UI can render an actionable state, then rethrow so
     // the orchestrator's outer error handling still runs.
     const msg = err instanceof Error ? err.message : String(err);
-    await tryUpdateDashboardStatus(ctx, dashboardId, 'failed', msg);
+    const failureDashboardId = ctx.pendingDashboardCreates.has(dashboardId)
+      ? null
+      : dashboardId.startsWith('draft_dashboard_')
+        ? ctx.activeDashboardId
+        : dashboardId;
+    if (failureDashboardId && !failureDashboardId.startsWith('draft_dashboard_')) {
+      await tryUpdateDashboardStatus(ctx, failureDashboardId, 'failed', msg);
+    }
     ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: msg });
     throw err;
   }
@@ -718,25 +685,57 @@ async function runAddPanels(
 
   // Apply auto-layout, then offset below existing panels
   const laidOut = applyLayout(rawPanels);
-  const existing = await ctx.store.findById(dashboardId);
+  const pendingCreate = ctx.pendingDashboardCreates.get(dashboardId);
+  let targetDashboardId = dashboardId;
+  if (pendingCreate) {
+    const created = await ctx.store.create!(
+      withWorkspaceScope(ctx.identity, {
+        title: pendingCreate.title,
+        description: pendingCreate.description,
+        prompt: pendingCreate.prompt,
+        userId: 'agent',
+        datasourceIds: [pendingCreate.datasourceId],
+        sessionId: ctx.sessionId,
+        source: 'ai_generated',
+      }),
+    );
+    targetDashboardId = created.id;
+    ctx.pendingDashboardCreates.delete(dashboardId);
+    ctx.activeDashboardId = created.id;
+    ctx.freshlyCreatedDashboards.add(created.id);
+    ctx.setNavigateTo(`/dashboards/${created.id}`);
+    ctx.recordCreatedResource('dashboard', created.id);
+    void ctx.auditWriter?.({
+      action: AuditAction.DashboardCreate,
+      actorType: 'user',
+      actorId: ctx.identity.userId,
+      orgId: ctx.identity.orgId,
+      targetType: 'dashboard',
+      targetId: created.id,
+      targetName: created.title,
+      outcome: 'success',
+      metadata: { datasourceId: pendingCreate.datasourceId, via: 'agent_tool' },
+    });
+  }
+  const existing = pendingCreate ? null : await ctx.store.findById(targetDashboardId);
   const startRow = existing
     ? Math.max(0, ...existing.panels.map((p) => p.row + p.height))
     : 0;
   const panelConfigs = laidOut.map((p) => ({ ...p, row: p.row + startRow }));
 
-  await ctx.actionExecutor.execute(dashboardId, [{ type: 'add_panels', panels: panelConfigs }]);
+  await ctx.actionExecutor.execute(targetDashboardId, [{ type: 'add_panels', panels: panelConfigs }]);
 
   // Flip the dashboard out of its initial 'generating' state once it has
   // real panels — the list page shows a yellow "GENERATING" badge until
   // status becomes 'ready', which looked wrong for a dashboard the user
   // can already open and see populated. tryUpdateDashboardStatus logs +
   // emits an SSE error if the status write itself fails.
-  await tryUpdateDashboardStatus(ctx, dashboardId, 'ready');
+  await tryUpdateDashboardStatus(ctx, targetDashboardId, 'ready');
 
   // Fire panel_events rows for the freshly-added panels. The Express route
   // does not see this path (agent CRUD bypasses POST /api/dashboards), so
   // without this hook agent-only sessions leave panel_events empty.
-  recordPanelEvents(ctx, dashboardId, panelConfigs, 'created');
+  recordPanelEvents(ctx, targetDashboardId, panelConfigs, 'created');
 
   const observationText = `Added ${panelConfigs.length} panel(s): ${panelConfigs.map((p) => p.title).join(', ')}`;
   ctx.sendEvent({ type: 'tool_result', tool: 'dashboard_add_panels', summary: observationText });

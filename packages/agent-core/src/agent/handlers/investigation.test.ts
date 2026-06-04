@@ -111,6 +111,7 @@ describe('investigation handlers', () => {
     expect(reportStore.save).toHaveBeenCalledOnce();
     expect(store.updateStatus).toHaveBeenCalledWith('inv_1', 'completed');
     expect(ctx.setNavigateTo).toHaveBeenCalledWith('/investigations/inv_1');
+    expect(ctx.sendEvent).toHaveBeenCalledWith({ type: 'navigate', path: '/investigations/inv_1' });
     // active id cleared so the next investigation_create starts a fresh one
     expect(ctx.activeInvestigationId).toBeNull();
   });

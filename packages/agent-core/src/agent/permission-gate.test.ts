@@ -25,6 +25,7 @@ function makeCtx(allowAll = true): ActionContext {
     setNavigateTo: () => {},
     investigationSections: new Map(),
     investigationProvenance: new Map(),
+    investigationStates: new Map(),
     pendingDashboardCreates: new Map(),
     pendingInvestigationCreates: new Map(),
     freshlyCreatedDashboards: new Set<string>(),

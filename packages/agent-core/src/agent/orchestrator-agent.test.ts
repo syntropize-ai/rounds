@@ -390,8 +390,38 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
     }
     const gateway = queueGateway([
       { content: '', toolCalls: [{ id: 'c1', name: 'investigation_add_text', input: { content: '## Root cause\n\nEnvoyFilter foo merges a bad filter_chain_match.' } }] },
-      { content: '', toolCalls: [{ id: 'c2', name: 'investigation_complete', input: { summary: 'EnvoyFilter foo is the cause; delete it.' } }] },
-      { content: 'Delete EnvoyFilter foo.\nVERDICT: ACTIONABLE', toolCalls: [] },
+      { content: '', toolCalls: [{ id: 'r1', name: 'investigation_record_check', input: {
+        hypothesis: 'EnvoyFilter foo is causing the bad Envoy path',
+        signalType: 'config',
+        tool: 'ops_run_command',
+        query: 'kubectl get envoyfilter foo -o yaml',
+        result: 'EnvoyFilter foo contains a filter_chain_match for the failing path',
+        interpretation: 'Supports a specific config object root cause.',
+        status: 'supported',
+      } }] },
+      { content: '', toolCalls: [{ id: 'r2', name: 'investigation_record_check', input: {
+        hypothesis: 'traffic or scrape artifact explains the symptom',
+        signalType: 'metric',
+        tool: 'metrics_range_query',
+        query: 'request rate and errors by route',
+        result: 'traffic is present; errors isolate to the Envoy path',
+        interpretation: 'Rules out no traffic and scrape artifact.',
+        status: 'ruled_out',
+      } }] },
+      { content: '', toolCalls: [{ id: 'c2', name: 'investigation_complete', input: {
+        summary: 'EnvoyFilter foo is the likely cause; delete it.',
+        rootCause: {
+          status: 'likely',
+          object: 'EnvoyFilter/foo',
+          field: 'filter_chain_match',
+          cause: 'bad filter_chain_match routes requests into the failing Envoy path',
+        },
+        confidence: 0.86,
+        evidenceRefs: ['check_1', 'check_2'],
+        ruledOut: ['no traffic', 'scrape artifact'],
+        nextAction: 'Delete or roll back EnvoyFilter foo.',
+      } }] },
+      { content: 'Delete EnvoyFilter foo.', toolCalls: [] },
     ])
 
     const agent = new OrchestratorAgent({

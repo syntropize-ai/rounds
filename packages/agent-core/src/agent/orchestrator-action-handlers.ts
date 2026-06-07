@@ -22,6 +22,7 @@ export {
   handleDashboardAddVariable,
   handleInvestigationCreate,
   handleInvestigationList,
+  handleInvestigationRecordCheck,
   handleInvestigationAddText,
   handleInvestigationAddEvidence,
   handleInvestigationComplete,

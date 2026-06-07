@@ -45,11 +45,12 @@ const OBSERVATION_MAX_CHARS = 2000
  * Verbose read tools whose payloads carry the decisive content past the default
  * cap — `kubectl describe`/`logs`/`events`, log queries, range queries. The old
  * flat 2000 (~15 lines) chopped kubectl output before the Events/log lines the
- * model (and the auditor) actually need. We raise the cap for THESE tools only,
+   * model actually needs. We raise the cap for THESE tools only,
  * rather than globally, so every other observation stays cheap.
  */
 const VERBOSE_OBSERVATION_MAX_CHARS = 30000
 const VERBOSE_OBSERVATION_TOOLS: ReadonlySet<string> = new Set([
+  'metrics_range_query',
   'ops_run_command',
   'ops_cluster_shell',
   'logs_query',

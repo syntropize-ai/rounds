@@ -37,6 +37,7 @@ import type {
   IAuditWriter,
 } from './types-permissions.js'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
+import { createInvestigationWorkingState, type InvestigationWorkingState } from './investigation-state.js'
 import {
   getStructuredAlertRuleContext,
   parseAlertFollowUpAction,
@@ -44,8 +45,6 @@ import {
 } from './orchestrator-alert-helpers.js'
 import { buildSystemPrompt } from './orchestrator-prompt.js'
 import { buildActionContext } from './orchestrator-action-context.js'
-import { AUDITOR_SYSTEM_PROMPT, buildAuditorUserMessage, parseVerdict } from './auditor-prompt.js'
-import type { AuditVerdict } from './auditor-prompt.js'
 import { ToolAuditReporter } from './orchestrator-audit-reporter.js'
 import { PermissionWrappedActionRunner } from './orchestrator-action-runner.js'
 
@@ -179,20 +178,17 @@ export class OrchestratorAgent {
    * sections into each other when investigation ids collide.
    */
   private readonly investigationSections = new Map<string, InvestigationReportSection[]>()
-  /** Per-investigation provenance accumulator (Task 10). See ActionContext docs.
-   *  `auditorRounds` rides along here (seeded by investigation_create, survives
-   *  the audit↔resume bounce) and is stripped before the report row is saved. */
+  /** Per-investigation provenance accumulator (Task 10). See ActionContext docs. */
   private readonly investigationProvenance = new Map<string, Provenance & {
     startedAt?: number;
-    auditorRounds?: number;
     reportId?: string;
-    qualityGateRounds?: number;
     readToolCalls?: number;
     metricReadCalls?: number;
     logReadCalls?: number;
     opsReadCalls?: number;
     changeReadCalls?: number;
   }>()
+  private readonly investigationStates = new Map<string, InvestigationWorkingState>()
   private readonly pendingDashboardCreates = new Map<string, import('./handlers/_context.js').PendingDashboardCreate>()
   private readonly pendingInvestigationCreates = new Map<string, import('./handlers/_context.js').PendingInvestigationCreate>()
   /**
@@ -444,6 +440,7 @@ export class OrchestratorAgent {
       startedAt: Date.now(),
       reportId: latest.id,
     })
+    this.investigationStates.set(investigationId, createInvestigationWorkingState())
     this.activeInvestigationIdRef.current = investigationId
     log.info({ investigationId, sections: latest.sections.length, sessionId: this.sessionId }, 'reopened investigation for follow-up')
     return latest.sections.length
@@ -452,7 +449,6 @@ export class OrchestratorAgent {
   private async executeAction(
     step: ReActStep,
     _userMessage = '',
-    opts?: { auditor?: boolean },
   ): Promise<string | null> {
     const ctx = buildActionContext(this.deps, {
       sessionId: this.sessionId,
@@ -466,22 +462,19 @@ export class OrchestratorAgent {
       },
       investigationSections: this.investigationSections,
       investigationProvenance: this.investigationProvenance,
+      investigationStates: this.investigationStates,
       pendingDashboardCreates: this.pendingDashboardCreates,
       pendingInvestigationCreates: this.pendingInvestigationCreates,
       activeInvestigationIdRef: this.activeInvestigationIdRef,
       activeDashboardIdRef: this.activeDashboardIdRef,
       freshlyCreatedDashboards: this.freshlyCreatedDashboards,
       dashboardBuildEvidence: this.dashboardBuildEvidence,
-      // The auditor's own tool calls must NOT see `runAuditor` — it can never
-      // re-trigger the audit gate (defence in depth on top of the read-only
-      // allowlist, which already excludes investigation_complete).
-      runAuditor: opts?.auditor ? undefined : (input) => this.runAuditor(input),
     })
     const result = await this.actionRunner.execute(step, ctx)
-    if (!opts?.auditor && result !== null) {
+    if (result !== null) {
       this.recordInvestigationRead(step.action)
     }
-    if (!opts?.auditor && result !== null && INVESTIGATION_DIRTY_ACTIONS.has(step.action)) {
+    if (result !== null && INVESTIGATION_DIRTY_ACTIONS.has(step.action)) {
       this.investigationDirtyThisTurn = true
     }
     return result
@@ -506,66 +499,10 @@ export class OrchestratorAgent {
 
   private onBeforeTerminate(_finalText: string): string | null {
     if (!this.investigationDirtyThisTurn || !this.activeInvestigationIdRef.current) return null
-    return 'You created or updated an investigation but have not called investigation_complete. That conclusion is not recorded or audited yet. Add the remaining findings and call investigation_complete to submit the report for review, or keep investigating if the user could not independently act on the report yet. This turn must end through investigation_complete, not plain text.'
-  }
-
-  /**
-   * Spawn an independent, read-only auditor over a draft investigation report.
-   * Same ReActLoop, a launch prompt that judges ONE thing — "could the user fix
-   * the problem from this report alone?" — and a tool surface narrowed to the
-   * read-only allowlist. Fails open (ACTIONABLE) on any throw so an auditor
-   * outage can never block a completed investigation. See `auditor-prompt.ts`.
-   */
-  private async runAuditor(
-    input: { question: string; report: string },
-  ): Promise<{ verdict: AuditVerdict; gap: string }> {
-    try {
-      const auditorTools = this.agentDef.allowedTools.filter((t) => AUDITOR_TOOL_ALLOWLIST.has(t))
-      // The auditor is an internal judge — its terminal "VERDICT: ..." text is
-      // parsed by us, not shown to the user. Drop `reply` events so the verdict
-      // prose never surfaces as a chat message; tool activity still flows
-      // through the original sink for transparency.
-      const auditorSendEvent = (event: DashboardSseEvent) => {
-        if (event.type === 'reply') return
-        this.deps.sendEvent(event)
-      }
-      const auditorLoop = new ReActLoop({
-        gateway: this.deps.gateway,
-        model: this.deps.model,
-        sendEvent: auditorSendEvent,
-        identity: this.deps.identity,
-        accessControl: this.deps.accessControl,
-        allowedTools: auditorTools,
-        maxTokenBudget: 40_000,
-      })
-      const reply = await auditorLoop.runLoop(
-        AUDITOR_SYSTEM_PROMPT,
-        buildAuditorUserMessage(input),
-        (step) => this.executeAction(step, '', { auditor: true }),
-      )
-      const parsed = parseVerdict(reply)
-      this.emitAgentEvent(this.makeAgentEvent('agent.tool_completed', {
-        tool: 'investigation_auditor',
-        verdict: parsed.verdict,
-      }))
-      return parsed
-    } catch (err) {
-      log.warn({
-        error: err instanceof Error ? err.message : String(err),
-        sessionId: this.sessionId,
-      }, 'investigation auditor failed; failing open (ACTIONABLE)')
-      return { verdict: 'ACTIONABLE', gap: '' }
-    }
+    return 'You created or updated an investigation but have not called investigation_complete. That conclusion is not recorded yet. Add the remaining checks, call investigation_record_check for each load-bearing diagnostic read, then call investigation_complete with a structured rootCause and confidence. This turn must end through investigation_complete, not plain text.'
   }
 }
 
-/**
- * Read-only tool surface the auditor may use to confirm/break a load-bearing
- * claim. INCLUSION list — anything not named here is dropped, so a newly-added
- * write tool is excluded by default. MUST NOT contain any `investigation_*` or
- * mutating tool: the auditor returns a verdict, it never finalises or mutates.
- * `tool_search` is required so the auditor can load the deferred metric tools.
- */
 /**
  * Appended to the system prompt when a follow-up reopens an existing
  * investigation. Stops the model from spinning up a NEW investigation and
@@ -576,20 +513,9 @@ function buildReopenAddendum(sectionCount: number): string {
 This follow-up is on an investigation that already has a saved report (${sectionCount} section${sectionCount === 1 ? '' : 's'} already loaded into your working set, and it is already the active investigation). Do NOT call \`investigation_create\` — that would start a separate investigation. Build on what's there: pick up the trail (especially any "## Unresolved" gap), add NEW \`investigation_add_text\` / \`investigation_add_evidence\` sections for what you find, and call \`investigation_complete\` to UPDATE the same report. Don't restate sections that already exist.`
 }
 
-const AUDITOR_TOOL_ALLOWLIST: ReadonlySet<string> = new Set([
-  'tool_search',
-  'metrics_query',
-  'metrics_range_query',
-  'metrics_discover',
-  'logs_query',
-  'ops_run_command',
-  'changes_list_recent',
-  'kb_search',
-  'connectors_list',
-])
-
 const INVESTIGATION_DIRTY_ACTIONS: ReadonlySet<string> = new Set([
   'investigation_create',
+  'investigation_record_check',
   'investigation_add_text',
   'investigation_add_evidence',
 ])

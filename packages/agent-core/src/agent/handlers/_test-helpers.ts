@@ -74,6 +74,7 @@ export function makeFakeActionContext(
     recordCreatedResource,
     investigationSections: new Map(),
     investigationProvenance: new Map(),
+    investigationStates: new Map(),
     pendingDashboardCreates: new Map(),
     pendingInvestigationCreates: new Map(),
     activeInvestigationId: null,

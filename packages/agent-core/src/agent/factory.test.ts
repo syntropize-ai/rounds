@@ -165,6 +165,7 @@ function makeContextRuntime(): Parameters<typeof buildActionContext>[1] {
     recordCreatedResource: () => undefined,
     investigationSections: new Map(),
     investigationProvenance: new Map(),
+    investigationStates: new Map(),
     pendingDashboardCreates: new Map(),
     pendingInvestigationCreates: new Map(),
     activeInvestigationIdRef: { current: null },

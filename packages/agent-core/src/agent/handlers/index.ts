@@ -26,6 +26,7 @@ export {
 export {
   handleInvestigationCreate,
   handleInvestigationList,
+  handleInvestigationRecordCheck,
   handleInvestigationAddText,
   handleInvestigationAddEvidence,
   handleInvestigationComplete,

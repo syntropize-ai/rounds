@@ -16,6 +16,7 @@ export type AgentToolName =
   // Investigation lifecycle
   | 'investigation_create' | 'investigation_list'
   | 'investigation_add_text' | 'investigation_add_evidence'
+  | 'investigation_record_check'
   | 'investigation_complete'
   // Alert rule management — write is the unified create/update/delete tool
   | 'alert_rule_write'

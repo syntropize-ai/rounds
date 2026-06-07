@@ -41,7 +41,7 @@ const MUTATION_ACTIONS: ReadonlySet<string> = new Set([
   'dashboard_modify_panel', 'dashboard_rearrange', 'dashboard_add_variable',
   'dashboard_set_title',
   'folder_create',
-  'investigation_create', 'investigation_add_text', 'investigation_add_evidence', 'investigation_complete',
+    'investigation_create', 'investigation_record_check', 'investigation_add_text', 'investigation_add_evidence', 'investigation_complete',
   // alert_rule_write covers create / update / delete via the `op` discriminator
   'alert_rule_write',
 ]);

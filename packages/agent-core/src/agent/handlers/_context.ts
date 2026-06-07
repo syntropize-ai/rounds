@@ -36,7 +36,7 @@ import type { GithubToolRunner } from '../agent-types.js';
 import type { IAccessControlService } from '../types-permissions.js';
 import type { IPanelEventRepository } from '../panel-event-recorder.js';
 import type { IPendingChangeRepository } from '@agentic-obs/data-layer';
-import type { AuditVerdict } from '../auditor-prompt.js';
+import type { InvestigationWorkingState } from '../investigation-state.js';
 
 export interface PendingDashboardCreate {
   title: string;
@@ -202,15 +202,19 @@ export interface ActionContext {
    */
   investigationProvenance: Map<string, Provenance & {
     startedAt?: number;
-    auditorRounds?: number;
     reportId?: string;
-    qualityGateRounds?: number;
     readToolCalls?: number;
     metricReadCalls?: number;
     logReadCalls?: number;
     opsReadCalls?: number;
     changeReadCalls?: number;
   }>;
+  /**
+   * Structured investigation ledger. Unlike report sections, this is not UI
+   * prose; it is the local control plane that decides whether the same agent
+   * may finish or must keep digging.
+   */
+  investigationStates: Map<string, InvestigationWorkingState>;
   /**
    * Dashboard create requests held in memory until the first panel write.
    * This avoids showing an empty dashboard shell while the agent is still
@@ -261,15 +265,4 @@ export interface ActionContext {
     metricDiscoveryCount: number;
     validatedQueries: Set<string>;
   };
-  /**
-   * Spawns an independent read-only auditor over a draft investigation report.
-   * Wired by the orchestrator; ABSENT in unit tests — when absent (or it
-   * throws), `investigation_complete` skips the audit gate and completes
-   * normally (fail-open: an auditor outage must never block a finished
-   * investigation). See `auditor-prompt.ts`.
-   */
-  runAuditor?: (input: { question: string; report: string }) => Promise<{
-    verdict: AuditVerdict;
-    gap: string;
-  }>;
 }

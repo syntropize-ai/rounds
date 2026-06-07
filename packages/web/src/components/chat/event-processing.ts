@@ -371,7 +371,7 @@ export const TOOL_LABELS: Record<string, string> = {
   'investigation_create': 'Creating investigation',
   'investigation_list': 'Listing investigations',
   'investigation_add_section': 'Adding investigation section',
-  'investigation_complete': 'Completing investigation',
+  'investigation_complete': 'Saving investigation report',
   // Alert rule primitives — write covers create/update/delete via `op`
   'alert_rule_write': 'Writing alert rule',
   'alert_rule_list': 'Listing alerts',

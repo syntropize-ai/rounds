@@ -418,10 +418,11 @@ export async function handleInvestigationComplete(
   if (!pendingCreate && !ctx.investigationStore.findById) {
     return 'Error: investigation store is not available.';
   }
+  const investigationStore = ctx.investigationStore;
 
   let persistedInvestigationId = investigationId;
   if (!pendingCreate) {
-    const investigation = await ctx.investigationStore.findById!(investigationId);
+    const investigation = await investigationStore.findById!(investigationId);
     if (!investigation) {
       return `Error: investigation "${investigationId}" was not found.`;
     }
@@ -439,7 +440,7 @@ export async function handleInvestigationComplete(
     `Saving investigation report`,
     async () => {
       if (pendingCreate) {
-        const investigation = await ctx.investigationStore.create(
+        const investigation = await investigationStore.create!(
           withWorkspaceScope(ctx.identity, {
             question: pendingCreate.question,
             sessionId: ctx.sessionId,

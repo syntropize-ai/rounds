@@ -10,7 +10,7 @@
 import 'dotenv/config';
 import { execSync, spawn } from 'child_process';
 import { createServer } from 'net';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { platform } from 'os';
@@ -78,6 +78,34 @@ function openBrowser(url: string) {
   }
 }
 
+function newestMtimeMs(dir: string): number {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue;
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      newest = Math.max(newest, newestMtimeMs(path));
+      continue;
+    }
+    if (!/\.(ts|tsx|json)$/.test(entry.name)) continue;
+    newest = Math.max(newest, statSync(path).mtimeMs);
+  }
+  return newest;
+}
+
+function shouldBuild(apiMainJs: string): boolean {
+  if (!existsSync(apiMainJs)) return true;
+  const distMtime = statSync(apiMainJs).mtimeMs;
+  const sourceMtime = Math.max(
+    newestMtimeMs(join(ROOT, 'packages', 'api-gateway', 'src')),
+    newestMtimeMs(join(ROOT, 'packages', 'agent-core', 'src')),
+    newestMtimeMs(join(ROOT, 'packages', 'data-layer', 'src')),
+    newestMtimeMs(join(ROOT, 'packages', 'common', 'src')),
+    newestMtimeMs(join(ROOT, 'packages', 'llm-gateway', 'src')),
+  );
+  return sourceMtime > distMtime;
+}
+
 // -- Main
 
 async function main() {
@@ -102,8 +130,8 @@ async function main() {
   // Startup serves compiled JS, not source — skipping this on first run means
   // `npm start` immediately crashes with "Cannot find module dist/main.js".
   const apiMainJs = join(ROOT, 'packages', 'api-gateway', 'dist', 'main.js');
-  if (!existsSync(apiMainJs)) {
-    log('Building workspaces (first run — this can take a minute)...');
+  if (shouldBuild(apiMainJs)) {
+    log('Building workspaces (missing or stale dist — this can take a minute)...');
     execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
   }
 

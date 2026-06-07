@@ -13,7 +13,6 @@ import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { panelSize } from '../layout-engine.js';
 import {
   createInvestigationWorkingState,
-  evaluateInvestigationReadiness,
   normalizeConfidence,
   recordInvestigationCheck,
   type HypothesisStatus,
@@ -421,7 +420,6 @@ export async function handleInvestigationComplete(
   }
 
   let persistedInvestigationId = investigationId;
-  let question = pendingCreate?.question ?? '';
   if (!pendingCreate) {
     const investigation = await ctx.investigationStore.findById!(investigationId);
     if (!investigation) {
@@ -430,30 +428,9 @@ export async function handleInvestigationComplete(
     if (investigation.workspaceId !== ctx.identity.orgId) {
       return `Error: investigation "${investigationId}" was not found.`;
     }
-    question = investigation.intent;
   }
 
   const sections = ctx.investigationSections.get(investigationId) ?? [];
-  const workingState = ctx.investigationStates.get(investigationId) ?? createInvestigationWorkingState();
-  ctx.investigationStates.set(investigationId, workingState);
-  const readiness = evaluateInvestigationReadiness({
-    question,
-    summary,
-    sectionsText: sections.map((s) => s.content).join('\n\n'),
-    claim,
-    state: workingState,
-    hasOpsConnector: (ctx.opsConnectors?.length ?? 0) > 0,
-  });
-  if (!readiness.ok) {
-    workingState.completionGateRounds += 1;
-    log.warn({
-      investigationId,
-      round: workingState.completionGateRounds,
-      reason: readiness.reason,
-    }, 'investigation completion deferred by structured readiness gate');
-    return `Need more investigation before saving the report. ${readiness.reason} `
-      + 'Continue from the current evidence, call investigation_record_check after the next diagnostic read, and only call investigation_complete again when the root cause is at least 80% likely or explicitly unresolved.';
-  }
 
   return withToolEventBoundary(
     ctx.sendEvent,

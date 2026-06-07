@@ -44,7 +44,7 @@ describe('tool-schema-registry', () => {
     { tool: 'remediation_plan_create_rescue', mustContain: ['Pair with the primary plan ONLY', 'silence beats fabrication'] },
     { tool: 'dashboard_add_panels', mustContain: ['PRE-FLIGHT', 'kb_recommend FIRST', 'training-data priors'] },
     { tool: 'investigation_create', mustContain: ['Trigger on diagnostic intents', 'BEFORE running discovery queries'] },
-    { tool: 'investigation_record_check', mustContain: ['diagnostic check', 'completion gate'] },
+    { tool: 'investigation_record_check', mustContain: ['diagnostic check', 'main loop keeps its investigation state'] },
     { tool: 'investigation_add_text', mustContain: ['Interleave', 'short `## heading`'] },
     { tool: 'investigation_add_evidence', mustContain: ['Reuse the query', 'auto-captured snapshot'] },
     { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded', '80% confidence'] },

@@ -492,47 +492,24 @@ describe('investigation handlers', () => {
     expect(ctx.investigationProvenance.has('inv_p2')).toBe(false);
   });
 
-  describe('structured investigation readiness gate', () => {
-    it('bounces completion when no diagnostic ledger was recorded', async () => {
+  describe('investigation completion', () => {
+    it('saves without running a second readiness pass', async () => {
       const store = investigationStore();
       const reportStore = { save: vi.fn() };
       const ctx = makeFakeActionContext({
         investigationStore: store,
         investigationReportStore: reportStore,
         activeInvestigationId: 'inv_1',
-        opsConnectors: [{ id: 'ops-1', name: 'ops', type: 'kubernetes' }] as never,
       });
       ctx.investigationSections.set('inv_1', [
         { type: 'evidence', content: 'HTTP error rate is non-zero.' },
       ]);
 
-      const result = await handleInvestigationComplete(ctx, completionArgs({
-        summary: 'HTTP error rate is non-zero because a pod is crashing.',
-      }));
+      const result = await handleInvestigationComplete(ctx, completionArgs());
 
-      expect(result).toContain('Need more investigation');
-      expect(result).toContain('structured checks');
-      expect(reportStore.save).not.toHaveBeenCalled();
-      expect(ctx.activeInvestigationId).toBe('inv_1');
-      expect(ctx.investigationStates.get('inv_1')?.completionGateRounds).toBe(1);
-    });
-
-    it('bounces likely root causes below the 80 percent confidence bar', async () => {
-      const store = investigationStore();
-      const reportStore = { save: vi.fn() };
-      const ctx = makeFakeActionContext({
-        investigationStore: store,
-        investigationReportStore: reportStore,
-        activeInvestigationId: 'inv_1',
-      });
-      await seedReadyLedger(ctx);
-
-      const result = await handleInvestigationComplete(ctx, completionArgs({ confidence: 0.79 }));
-
-      expect(result).toContain('Need more investigation');
-      expect(result).toContain('below the 80% bar');
-      expect(reportStore.save).not.toHaveBeenCalled();
-      expect(ctx.activeInvestigationId).toBe('inv_1');
+      expect(result).toContain('report saved');
+      expect(reportStore.save).toHaveBeenCalledOnce();
+      expect(ctx.activeInvestigationId).toBeNull();
     });
 
     it('allows honest unresolved completion with a concrete next check', async () => {

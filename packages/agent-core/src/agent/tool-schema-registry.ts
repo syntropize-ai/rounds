@@ -993,7 +993,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       name: 'investigation_record_check',
       description:
         'Record one load-bearing diagnostic check in the active investigation ledger. This is the investigation control plane: call it after every important metrics/logs/ops/changes/web/kb read before you move on or complete.\n\n' +
-        'Use it to say which hypothesis the read tested, what signal type it was, what came back, whether that supports/rules out/is inconclusive, and the next best check. The local completion gate uses this ledger to decide whether you have enough confidence to finish.\n\n' +
+        'Use it to say which hypothesis the read tested, what signal type it was, what came back, whether that supports/rules out/is inconclusive, and the next best check. This is how the main loop keeps its investigation state current while it follows the evidence.\n\n' +
         'Do not use this for prose. Use investigation_add_text for the human-facing report; use investigation_record_check for the structured reasoning state.',
       input_schema: {
         type: 'object',
@@ -1071,10 +1071,10 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'investigation_complete',
       description:
-        'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session. This tool has a local readiness gate: if the structured check ledger does not support at least 80% confidence, the tool returns NOT completed and you must keep investigating in the same loop.\n\n' +
+        'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session. Call this only after the same main loop has already followed the evidence, recorded the load-bearing checks, and written the report sections.\n\n' +
         'MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n\n' +
         'The summary is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
-        'For confirmed/likely root causes: confidence MUST be >= 0.8, rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to recorded check ids, and ruledOut must include plausible alternatives you eliminated. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
+        'For confirmed/likely root causes: use at least 80% confidence (confidence >= 0.8), rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to recorded check ids, and ruledOut must include plausible alternatives you eliminated. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
         'Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.',
       input_schema: {
         type: 'object',

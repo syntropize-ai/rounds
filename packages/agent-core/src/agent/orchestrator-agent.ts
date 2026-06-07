@@ -470,9 +470,11 @@ export class OrchestratorAgent {
       freshlyCreatedDashboards: this.freshlyCreatedDashboards,
       dashboardBuildEvidence: this.dashboardBuildEvidence,
     })
-    const result = await this.actionRunner.execute(step, ctx)
+    let result = await this.actionRunner.execute(step, ctx)
     if (result !== null) {
-      this.recordInvestigationRead(step.action)
+      if (this.recordInvestigationRead(step.action)) {
+        result += '\n\n<system-reminder>For this investigation, record the diagnostic meaning of the read you just performed with investigation_record_check before moving to the next major check. Ignore this only if the read was irrelevant noise.</system-reminder>'
+      }
     }
     if (result !== null && INVESTIGATION_DIRTY_ACTIONS.has(step.action)) {
       this.investigationDirtyThisTurn = true
@@ -480,11 +482,11 @@ export class OrchestratorAgent {
     return result
   }
 
-  private recordInvestigationRead(action: string): void {
+  private recordInvestigationRead(action: string): boolean {
     const investigationId = this.activeInvestigationIdRef.current
-    if (!investigationId || !INVESTIGATION_READ_ACTIONS.has(action)) return
+    if (!investigationId || !INVESTIGATION_READ_ACTIONS.has(action)) return false
     const prov = this.investigationProvenance.get(investigationId)
-    if (!prov) return
+    if (!prov) return false
     prov.readToolCalls = (prov.readToolCalls ?? 0) + 1
     if (action.startsWith('metrics_')) {
       prov.metricReadCalls = (prov.metricReadCalls ?? 0) + 1
@@ -495,6 +497,7 @@ export class OrchestratorAgent {
     } else if (action === 'changes_list_recent') {
       prov.changeReadCalls = (prov.changeReadCalls ?? 0) + 1
     }
+    return true
   }
 
   private onBeforeTerminate(_finalText: string): string | null {

@@ -463,9 +463,11 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
     const saved = reportStore.save.mock.calls[0]![0]
     expect(saved.id).toBe('report_x')
     expect(saved.dashboardId).toBe('inv_1')
-    // Prior 3 sections rehydrated + the new one appended.
-    expect(saved.sections).toHaveLength(4)
+    // Prior 3 sections rehydrated + the new one appended + auto evidence/conclusion sections.
+    expect(saved.sections).toHaveLength(6)
     expect(saved.sections.some((s: { content: string }) => s.content.includes('## Root cause'))).toBe(true)
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('## Evidence Trail'))).toBe(true)
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('EnvoyFilter foo contains'))).toBe(true)
   })
 
   it('does not reopen when no prior report exists (fresh follow-up)', async () => {

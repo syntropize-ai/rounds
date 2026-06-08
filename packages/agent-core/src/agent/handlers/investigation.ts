@@ -13,9 +13,11 @@ import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { panelSize } from '../layout-engine.js';
 import {
   createInvestigationWorkingState,
+  type HypothesisStatus,
+  type InvestigationCheck,
+  type InvestigationWorkingState,
   normalizeConfidence,
   recordInvestigationCheck,
-  type HypothesisStatus,
   type InvestigationCompletionClaim,
   type InvestigationSignalType,
 } from '../investigation-state.js';
@@ -38,6 +40,15 @@ const KIND_BY_PREFIX: Record<string, Citation['kind']> = {
 };
 
 const DEFAULT_COMPLETION_CONFIDENCE = 0;
+const MAX_AUTO_EVIDENCE_CHECKS = 8;
+
+const CITATION_PREFIX_BY_SIGNAL: Partial<Record<InvestigationSignalType, string>> = {
+  metric: 'm',
+  log: 'l',
+  kubernetes: 'k',
+  config: 'k',
+  change: 'c',
+};
 
 // ---------------------------------------------------------------------------
 // Investigation lifecycle
@@ -485,12 +496,24 @@ export async function handleInvestigationComplete(
         });
       }
 
+      const state = ctx.investigationStates.get(persistedInvestigationId)
+        ?? ctx.investigationStates.get(investigationId);
+      const provState = ctx.investigationProvenance.get(persistedInvestigationId);
+      if (state?.checks.length) {
+        appendLedgerSections(sections, state, claim, provState);
+      }
+
       // Finalise provenance: copy out a clean Provenance (drop `startedAt`
       // bookkeeping field) and compute end-to-end latency. Cost is left
       // undefined — UI will fall back to "—" or fetch from llm_audit.
-      const provState = ctx.investigationProvenance.get(persistedInvestigationId);
       let finalProvenance: Provenance | undefined;
       if (provState) {
+        if (provState.citations?.length) {
+          provState.evidenceCount = Math.max(
+            provState.evidenceCount ?? 0,
+            provState.citations.length,
+          );
+        }
         // Drop bookkeeping-only fields so they never leak into the persisted
         // provenance row.
         const {
@@ -578,6 +601,139 @@ export async function handleInvestigationComplete(
       return `Investigation completed and report saved with ${sections.length} sections. Summary: ${summary}`;
     },
   );
+}
+
+function appendLedgerSections(
+  sections: InvestigationReportSection[],
+  state: InvestigationWorkingState,
+  claim: InvestigationCompletionClaim,
+  provenance?: Provenance,
+): void {
+  const checks = rankChecksForReport(state, claim);
+  if (checks.length === 0) return;
+
+  const citationRefs = assignCitationRefs(checks, provenance);
+  const evidenceLines = checks.map((check) => {
+    const ref = citationRefs.get(check.id);
+    const prefix = ref ? `[${ref}] ` : '';
+    const statusLabel = formatStatus(check.status);
+    const query = check.query ? ` Query: \`${truncateOneLine(check.query, 180)}\`.` : '';
+    return `- ${prefix}**${statusLabel}** ${check.hypothesis}: ${check.result} Interpretation: ${check.interpretation}.${query}`;
+  });
+
+  sections.push({
+    type: 'text',
+    content: [
+      '## Evidence Trail',
+      '',
+      ...evidenceLines,
+    ].join('\n'),
+  });
+
+  const confidence = Math.round(claim.confidence * 100);
+  const rootCause = formatRootCause(claim);
+  const ruledOut = claim.ruledOut.length
+    ? claim.ruledOut.map((item) => `- ${item}`).join('\n')
+    : '- No explicit alternatives were recorded.';
+  const nextAction = claim.nextAction ?? claim.rootCause.nextCheck;
+  sections.push({
+    type: 'text',
+    content: [
+      '## Conclusion',
+      '',
+      `Root-cause confidence: **${confidence}%**.`,
+      '',
+      rootCause,
+      '',
+      '### Ruled Out',
+      '',
+      ruledOut,
+      ...(nextAction ? ['', '### Next Action', '', nextAction] : []),
+    ].join('\n'),
+  });
+}
+
+function rankChecksForReport(
+  state: InvestigationWorkingState,
+  claim: InvestigationCompletionClaim,
+): InvestigationCheck[] {
+  const byId = new Map(state.checks.map((check) => [check.id, check]));
+  const selected: InvestigationCheck[] = [];
+  for (const id of claim.evidenceRefs) {
+    const check = byId.get(id);
+    if (check && !selected.some((c) => c.id === check.id)) selected.push(check);
+  }
+  for (const check of state.checks) {
+    if (selected.length >= MAX_AUTO_EVIDENCE_CHECKS) break;
+    if (check.status === 'supported' && !selected.some((c) => c.id === check.id)) {
+      selected.push(check);
+    }
+  }
+  for (const check of state.checks) {
+    if (selected.length >= MAX_AUTO_EVIDENCE_CHECKS) break;
+    if (check.status === 'ruled_out' && !selected.some((c) => c.id === check.id)) {
+      selected.push(check);
+    }
+  }
+  for (const check of state.checks) {
+    if (selected.length >= MAX_AUTO_EVIDENCE_CHECKS) break;
+    if (!selected.some((c) => c.id === check.id)) selected.push(check);
+  }
+  return selected;
+}
+
+function assignCitationRefs(
+  checks: InvestigationCheck[],
+  provenance?: Provenance,
+): Map<string, string> {
+  const refs = new Map<string, string>();
+  if (!provenance) return refs;
+
+  const nextByPrefix: Record<string, number> = { m: 1, l: 1, k: 1, c: 1 };
+  for (const citation of provenance.citations ?? []) {
+    const match = citation.ref.match(/^([mlkc])(\d+)$/);
+    if (!match) continue;
+    const prefix = match[1]!;
+    nextByPrefix[prefix] = Math.max(nextByPrefix[prefix] ?? 1, Number(match[2]!) + 1);
+  }
+
+  const citations = provenance.citations ?? (provenance.citations = []);
+  for (const check of checks) {
+    const prefix = CITATION_PREFIX_BY_SIGNAL[check.signalType];
+    if (!prefix) continue;
+    const ref = `${prefix}${nextByPrefix[prefix] ?? 1}`;
+    nextByPrefix[prefix] = (nextByPrefix[prefix] ?? 1) + 1;
+    refs.set(check.id, ref);
+    citations.push({
+      ref,
+      kind: KIND_BY_PREFIX[prefix]!,
+      summary: `${check.tool}: ${truncateOneLine(check.result, 140)}`,
+    });
+  }
+  return refs;
+}
+
+function formatStatus(status: HypothesisStatus): string {
+  if (status === 'supported') return 'Supported';
+  if (status === 'ruled_out') return 'Ruled out';
+  return 'Inconclusive';
+}
+
+function formatRootCause(claim: InvestigationCompletionClaim): string {
+  const root = claim.rootCause;
+  if (root.status === 'unresolved') {
+    return `Root cause remains unresolved. Next check: ${root.nextCheck ?? claim.nextAction ?? 'not specified'}.`;
+  }
+  const subject = root.object ?? 'the affected system';
+  const field = root.field ? ` (${root.field})` : '';
+  const cause = root.cause ?? 'cause not specified';
+  return `Root cause: **${subject}${field}** - ${cause}.`;
+}
+
+function truncateOneLine(value: string, limit: number): string {
+  const oneLine = value.replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= limit) return oneLine;
+  return `${oneLine.slice(0, Math.max(0, limit - 1))}...`;
 }
 
 function parseCompletionClaim(args: Record<string, unknown>): InvestigationCompletionClaim | null {

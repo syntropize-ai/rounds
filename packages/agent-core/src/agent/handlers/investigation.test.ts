@@ -480,9 +480,10 @@ describe('investigation handlers', () => {
     expect(saved.provenance).toBeDefined();
     expect(saved.provenance.runId).toBe('inv_p2');
     expect(saved.provenance.toolCalls).toBe(1);
-    expect(saved.provenance.evidenceCount).toBe(0);
-    expect(saved.provenance.citations).toHaveLength(1);
-    expect(saved.provenance.citations[0].ref).toBe('m1');
+    expect(saved.provenance.evidenceCount).toBe(3);
+    expect(saved.provenance.citations.map((c: { ref: string }) => c.ref).sort()).toEqual(['k1', 'm1', 'm2']);
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('## Evidence Trail'))).toBe(true);
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('## Conclusion'))).toBe(true);
     // latencyMs is computed from startedAt — should be a finite, non-negative number.
     expect(typeof saved.provenance.latencyMs).toBe('number');
     expect(saved.provenance.latencyMs).toBeGreaterThanOrEqual(0);

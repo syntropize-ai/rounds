@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './orchestrator-prompt.js';
+import { buildSystemPrompt, getTaskModule, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './orchestrator-prompt.js';
 import { makeTestIdentity } from './test-helpers.js';
 import type { Dashboard, DashboardMessage } from '@agentic-obs/common';
 
@@ -118,6 +118,17 @@ describe('buildSystemPrompt — Ops connector guidance', () => {
     expect(prompt).toContain('connectorId="kube-prod"');
     expect(prompt).toContain('namespaces=default,api');
     expect(prompt).toContain('capabilities=read,propose');
+  });
+});
+
+describe('buildSystemPrompt — investigation fix quality', () => {
+  it('tells investigations to prefer durable fixes over current runtime values', () => {
+    const module = getTaskModule('investigate');
+    expect(module).toContain('Fix quality: durable over current-value patches');
+    expect(module).toContain('temporary mitigation');
+    expect(module).toContain('pod IP');
+    expect(module).toContain('ServiceEntry');
+    expect(module).toContain('primary remediation');
   });
 });
 

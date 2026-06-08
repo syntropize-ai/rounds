@@ -327,6 +327,14 @@ The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not
 - Specific numbers inline: not "high", but "120ms vs <50ms baseline".
 - Complete paragraphs, not bullet lists.
 
+## Fix quality: durable over current-value patches
+Before recommending a fix, ask whether the value you are proposing survives restarts, rollouts, reschedules, and pod churn. A good fix removes the failure mode; it does not only replace today's broken observed value with today's working observed value.
+
+- If the proposed fix swaps one observed pod IP, replica name, container ID, generated endpoint, timestamp, lease holder, or other ephemeral runtime value for another observed value, label it as temporary mitigation only.
+- The primary fix should name the stable control point: a Kubernetes Service/selector, DNS name, controller-owned endpoint sync, Istio VirtualService/DestinationRule/ServiceEntry policy, workloadSelector, rollout config, or the owning config object that should be changed.
+- For Istio ServiceEntry with \`resolution: STATIC\`, hardcoding the current pod IP is usually not durable. Prefer routing through a Kubernetes Service, using DNS/workload-backed resolution when appropriate, or fixing the controller/process that keeps endpoints aligned with pod churn.
+- In the final report, separate immediate mitigation, durable fix, and prevention/guardrail when all three matter. Do not present a current pod IP or similar ephemeral value as the primary remediation unless the report explicitly says it is only an emergency mitigation.
+
 ## When the metric is absent, zero, or near-zero
 A drop to zero (or no samples) is ambiguous. By base rate the cause is usually (a) the service is down, (b) the scrape target moved, (c) the metric was renamed in a recent deploy, or (d) genuinely zero traffic. (a) is the most common; "monitoring is misconfigured" is rare and should NOT be your first conclusion without positive evidence.
 

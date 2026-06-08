@@ -1075,6 +1075,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         'MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n\n' +
         'The summary is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
         'For confirmed/likely root causes: use at least 80% confidence (confidence >= 0.8), rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to recorded check ids, and ruledOut must include plausible alternatives you eliminated. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
+        'The nextAction must be durable: it should fix the bad pattern or lifecycle issue, not just substitute the current observed value. If an emergency workaround exists, label it as temporary mitigation and still name the durable fix or prevention. Never recommend hardcoding an ephemeral pod IP, replica name, container ID, or generated runtime value as the primary remediation.\n\n' +
         'Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.',
       input_schema: {
         type: 'object',
@@ -1106,7 +1107,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             items: { type: 'string' },
             description: 'Plausible alternative hypotheses ruled out, e.g. ["no traffic", "scrape issue"].',
           },
-          nextAction: { type: 'string', description: 'Concrete fix or next operator action.' },
+          nextAction: { type: 'string', description: 'Durable fix or next operator action. If a short-term workaround is useful, label it as temporary mitigation and still include the durable remediation or prevention.' },
         },
         required: ['summary', 'rootCause', 'confidence', 'evidenceRefs', 'ruledOut'],
       },

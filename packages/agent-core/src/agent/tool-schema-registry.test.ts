@@ -47,7 +47,7 @@ describe('tool-schema-registry', () => {
     { tool: 'investigation_record_check', mustContain: ['diagnostic check', 'main loop keeps its investigation state'] },
     { tool: 'investigation_add_text', mustContain: ['Interleave', 'short `## heading`'] },
     { tool: 'investigation_add_evidence', mustContain: ['Reuse the query', 'auto-captured snapshot'] },
-    { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded', '80% confidence'] },
+    { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded', '80% confidence', 'durable', 'ephemeral pod IP'] },
     { tool: 'web_search', mustContain: ['Cheap read', 'Named-system dashboard', 'unfamiliar metric'] },
   ];
   for (const { tool, mustContain } of INLINED_GUIDANCE) {
@@ -64,6 +64,14 @@ describe('tool-schema-registry', () => {
       .filter(([, entry]) => 'extendedPrompt' in entry)
       .map(([name]) => name);
     expect(offenders).toEqual([]);
+  });
+
+  it('investigation_complete nextAction asks for durable remediation, not only emergency workaround', () => {
+    const nextAction = TOOL_REGISTRY['investigation_complete']?.schema.input_schema.properties?.['nextAction'];
+    const description = JSON.stringify(nextAction);
+    expect(description).toContain('Durable fix');
+    expect(description).toContain('temporary mitigation');
+    expect(description).toContain('durable remediation');
   });
 
   // ---------------------------------------------------------------------

@@ -10,6 +10,7 @@ import {
   getOpsCommandConfirmation,
   resolveOpsCommandConfirmation,
 } from '../services/ops-command-runner.js';
+import { capabilityForShellCommand } from '../services/ops-policy.js';
 
 export interface OpsCommandConfirmationsRouterDeps {
   connectors: IConnectorRepository;
@@ -67,8 +68,51 @@ export function createOpsCommandConfirmationsRouter(
           res.status(403).json({ error: { code: 'FORBIDDEN', message: 'permission denied' } });
           return;
         }
+        const remember = req.body && typeof req.body === 'object'
+          ? (req.body as { remember?: unknown }).remember === true
+          : false;
+        let rememberedPolicy: Awaited<ReturnType<NonNullable<IConnectorRepository['upsertPolicy']>>> | undefined;
+        if (remember) {
+          const canWritePolicy = await deps.ac.evaluate(
+            auth,
+            ac.any(
+              ac.eval(ACTIONS.ConnectorsPermissionsWrite, `connectors:uid:${confirmation.connectorId}`),
+              ac.eval(ACTIONS.InstanceConfigWrite),
+            ),
+          );
+          if (!canWritePolicy) {
+            res.status(403).json({
+              error: {
+                code: 'FORBIDDEN',
+                message: 'permission denied: changing connector policy requires connector permissions write access',
+              },
+            });
+            return;
+          }
+          if (!deps.connectors.upsertPolicy) {
+            res.status(501).json({
+              error: {
+                code: 'POLICY_STORE_UNAVAILABLE',
+                message: 'connector policy storage is not available',
+              },
+            });
+            return;
+          }
+          const capability = confirmation.capability
+            ?? (confirmation.kind === 'cluster_shell'
+              ? `runtime.cluster_shell.${confirmation.scope ?? 'cluster'}`
+              : capabilityForShellCommand(confirmation.command));
+          rememberedPolicy = await deps.connectors.upsertPolicy({
+            connectorId: confirmation.connectorId,
+            subjectType: 'org',
+            subjectId: auth.orgId,
+            capability,
+            scope: null,
+            humanPolicy: 'allow',
+          });
+        }
         resolveOpsCommandConfirmation(confirmation.id, 'executed', { userId: auth.userId });
-        res.json({ confirmation: getOpsCommandConfirmation(confirmation.id) });
+        res.json({ confirmation: getOpsCommandConfirmation(confirmation.id), rememberedPolicy });
       } catch (err) {
         next(err);
       }

@@ -276,6 +276,7 @@ export function payloadToChatEvent(
         opsConfirmation: {
           id: (payload.id as string) ?? id,
           connectorId: (payload.connectorId as string) ?? '',
+          capability: payload.capability as string | undefined,
           command: (payload.command as string) ?? '',
           risk: payload.risk as 'low' | 'medium' | 'high' | 'critical' | undefined,
           summary: payload.summary as string | undefined,
@@ -758,6 +759,7 @@ export function useChat(): UseChatResult {
             opsConfirmation: {
               id: (parsed.id as string) ?? id,
               connectorId: (parsed.connectorId as string) ?? '',
+              capability: parsed.capability as string | undefined,
               command: (parsed.command as string) ?? '',
               risk: parsed.risk as 'low' | 'medium' | 'high' | 'critical' | undefined,
               summary: parsed.summary as string | undefined,

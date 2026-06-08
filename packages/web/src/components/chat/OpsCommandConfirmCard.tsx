@@ -13,6 +13,7 @@ export default function OpsCommandConfirmCard({
   const [output, setOutput] = useState(confirmation.output ?? '');
   const [error, setError] = useState(confirmation.error ?? '');
   const [busy, setBusy] = useState(false);
+  const [rememberBusy, setRememberBusy] = useState(false);
   useEffect(() => {
     // Only adopt the prop when it's a RESOLVED (non-pending) status. The
     // parent overlay-merge is async, so right after an optimistic
@@ -30,13 +31,14 @@ export default function OpsCommandConfirmCard({
     }
   }, [confirmation.status, confirmation.output, confirmation.error, status]);
 
-  const execute = async () => {
-    setBusy(true);
+  const execute = async (remember = false) => {
+    if (remember) setRememberBusy(true);
+    else setBusy(true);
     try {
       const { data, error: apiError } = await apiClient.post<{
         result?: { observation?: string };
         confirmation?: { status?: typeof status };
-      }>(`/ops-command-confirmations/${encodeURIComponent(confirmation.id)}/execute`, {});
+      }>(`/ops-command-confirmations/${encodeURIComponent(confirmation.id)}/execute`, remember ? { remember: true } : {});
       if (apiError) {
         if (
           apiError.code === 'CONFIRMATION_UNAVAILABLE' ||
@@ -77,6 +79,7 @@ export default function OpsCommandConfirmCard({
       setError(err instanceof Error ? err.message : 'Command failed');
     } finally {
       setBusy(false);
+      setRememberBusy(false);
     }
   };
 
@@ -165,41 +168,66 @@ export default function OpsCommandConfirmCard({
   }
 
   return (
-    <div className="border border-[var(--color-outline-variant)] rounded-lg p-4 bg-[var(--color-surface-highest)] space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-on-surface">Confirm ops command</div>
-          <div className="text-xs text-on-surface-variant">{confirmation.connectorId}</div>
+    <div className="my-2 max-w-full overflow-hidden rounded-xl border border-[var(--color-outline-variant)] bg-[var(--color-surface)] shadow-sm">
+      <div className="flex items-start justify-between gap-3 border-b border-[var(--color-outline-variant)] px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-medium text-on-surface">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--color-outline-variant)] text-[11px] text-on-surface-variant">
+              $
+            </span>
+            <span>Run command?</span>
+          </div>
+          <div className="mt-1 truncate text-xs text-on-surface-variant">
+            {confirmation.capability ?? 'ops command'} on {confirmation.connectorId}
+          </div>
         </div>
-        <span className="text-xs uppercase tracking-wide text-on-surface-variant">{status}</span>
+        <span className="shrink-0 rounded-full border border-[var(--color-outline-variant)] px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-on-surface-variant">
+          {status}
+        </span>
       </div>
-      <pre className="font-mono text-xs whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2">
-        {confirmation.command}
-      </pre>
-      {confirmation.summary && (
-        <p className="text-sm text-on-surface-variant">{confirmation.summary}</p>
-      )}
-      <div className="flex gap-2">
+      <div className="space-y-3 px-4 py-3">
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] px-3 py-2 font-mono text-[12px] leading-relaxed text-on-surface">
+          {confirmation.command}
+        </pre>
+        {confirmation.summary && (
+          <p className="text-sm leading-relaxed text-on-surface-variant">{confirmation.summary}</p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-[var(--color-outline-variant)] px-4 py-3">
         <button
           type="button"
-          disabled={busy}
-          onClick={execute}
-          className="px-3 py-2 rounded-md bg-primary text-on-primary-fixed font-semibold disabled:opacity-50"
+          disabled={busy || rememberBusy}
+          onClick={() => execute(false)}
+          className="rounded-lg bg-on-surface px-3 py-1.5 text-sm font-medium text-surface transition hover:opacity-90 disabled:opacity-50"
         >
-          {busy ? 'Working...' : 'Yes, run'}
+          {busy ? 'Running...' : 'Run'}
         </button>
         <button
           type="button"
-          disabled={busy}
-          onClick={reject}
-          className="px-3 py-2 rounded-md border border-[var(--color-outline-variant)] disabled:opacity-50"
+          disabled={busy || rememberBusy}
+          onClick={() => execute(true)}
+          className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-on-surface transition hover:bg-[var(--color-surface-container-low)] disabled:opacity-50"
+          title="Run this command and allow this connector capability in the future"
         >
-          No, cancel
+          {rememberBusy ? 'Saving...' : 'Always allow'}
+        </button>
+        <button
+          type="button"
+          disabled={busy || rememberBusy}
+          onClick={reject}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-on-surface-variant transition hover:bg-[var(--color-surface-container-low)] hover:text-on-surface disabled:opacity-50"
+        >
+          Cancel
         </button>
       </div>
       {output && (
-        <pre className="font-mono text-xs whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2">
+        <pre className="mx-4 mb-3 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-container-low)] p-3 font-mono text-xs">
           {output}
+        </pre>
+      )}
+      {error && (
+        <pre className="mx-4 mb-3 whitespace-pre-wrap break-all rounded-lg border border-error/40 bg-error/5 p-3 font-mono text-xs text-error">
+          {error}
         </pre>
       )}
     </div>

@@ -581,6 +581,7 @@ describe('resolveOpsCommandConfirmation — approver attribution', () => {
     expect(r.observation).toContain('rejected');
     expect(captured).toBeDefined();
     if (!captured) return;
+    expect(captured.capability).toBe('runtime.exec');
     // Confirmation row preserves the approver + timestamp.
     expect(captured.approvedByUserId).toBe('operator-bob');
     expect(captured.approvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);

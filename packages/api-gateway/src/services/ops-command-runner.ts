@@ -104,6 +104,7 @@ export interface OpsCommandConfirmation {
   userId: string;
   sessionId: string;
   connectorId: string;
+  capability?: string;
   command: string;
   script?: string;
   scope?: 'cluster' | 'namespace';
@@ -253,6 +254,7 @@ function createConfirmation(params: {
   connectorId: string;
   command: string;
 }): OpsCommandConfirmation {
+  const capability = capabilityForShellCommand(params.command);
   const confirmation: OpsCommandConfirmation = {
     id: randomUUID(),
     kind: 'kubectl',
@@ -260,6 +262,7 @@ function createConfirmation(params: {
     userId: params.userId,
     sessionId: params.sessionId,
     connectorId: params.connectorId,
+    capability,
     command: params.command,
     risk: classifyShellCommandRisk(params.command),
     summary: `Run ${params.command}`,

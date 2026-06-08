@@ -301,6 +301,7 @@ export type DashboardSseEvent =
       type: 'ops_command_confirmation_required';
       id: string;
       connectorId: string;
+      capability?: string;
       command: string;
       risk: 'low' | 'medium' | 'high' | 'critical';
       summary: string;

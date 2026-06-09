@@ -414,7 +414,7 @@ describe('AutoInvestigationConsumer', () => {
     expect(stores.investigations.updateStatus).not.toHaveBeenCalledWith('inv-fresh', 'failed');
   });
 
-  it('sweeps stale alert-level investigation markers on start', async () => {
+  it('marks stale alert-level investigation markers interrupted on start', async () => {
     const spawn = vi.fn().mockResolvedValue('ok');
     const stores = mkStores({
       rule: mkRule({
@@ -433,11 +433,11 @@ describe('AutoInvestigationConsumer', () => {
     expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
       investigationStartedAt: undefined,
       investigationFailedAt: '2026-04-29T01:00:00.000Z',
-      investigationFailureReason: 'The investigation was interrupted before saving a report.',
+      investigationFailureReason: 'The investigation was interrupted before this API process started.',
     });
   });
 
-  it('does not sweep fresh alert-level investigation markers on start', async () => {
+  it('marks pre-existing alert-level investigation markers interrupted on start', async () => {
     const spawn = vi.fn().mockResolvedValue('ok');
     const stores = mkStores({
       rule: mkRule({
@@ -451,7 +451,11 @@ describe('AutoInvestigationConsumer', () => {
     await new Promise((r) => setImmediate(r));
     c.stop();
 
-    expect(stores.alertRules.update).not.toHaveBeenCalled();
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationStartedAt: undefined,
+      investigationFailedAt: '2026-04-29T01:00:00.000Z',
+      investigationFailureReason: 'The investigation was interrupted before this API process started.',
+    });
   });
 });
 

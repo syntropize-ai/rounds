@@ -1,12 +1,10 @@
 /**
  * Unit test for POST /api/alert-rules/:id/investigate.
  *
- * The bug this guards against: the route used to call
- * `investigationStore.create` without a `workspaceId`, so the resulting
- * investigation was unreachable from the same workspace's GET handler
- * (which filters by workspaceId) — operators saw "Investigation not
- * found" after clicking Investigate. The fix passes the rule's
- * workspaceId through.
+ * Manual alert investigation should behave like normal agent-created
+ * investigations: queue the agent first, then link the final persisted
+ * investigation after the agent completes. It must not pre-create an empty
+ * operator-visible investigation row.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -62,15 +60,26 @@ function makeApp(opts: {
   rule: AlertRule | null;
   identity: Identity;
   capturedCreate: ReturnType<typeof vi.fn>;
+  finalInvestigations?: Array<{
+    id: string;
+    intent: string;
+    createdAt: string;
+    workspaceId?: string;
+  }>;
   runner?: Parameters<typeof createAlertRulesRouter>[0]['runner'];
 }) {
   const store = {
     findById: vi.fn(async () => opts.rule),
-    update: vi.fn(async () => undefined),
+    update: vi.fn(async () => opts.rule),
   } as unknown as Parameters<typeof createAlertRulesRouter>[0]['alertRuleStore'];
 
+  let findByWorkspaceCalls = 0;
   const investigationStore = {
     create: opts.capturedCreate,
+    findByWorkspace: vi.fn(async () => {
+      findByWorkspaceCalls += 1;
+      return findByWorkspaceCalls === 1 ? [] : opts.finalInvestigations ?? [];
+    }),
   } as unknown as Parameters<typeof createAlertRulesRouter>[0]['investigationStore'];
 
   const app = express();
@@ -96,7 +105,7 @@ function makeApp(opts: {
       ...(opts.runner ? { runner: opts.runner } : {}),
     }),
   );
-  return app;
+  return { app, store, investigationStore };
 }
 
 function makeRunner() {
@@ -110,12 +119,9 @@ function makeRunner() {
 }
 
 describe('POST /api/alert-rules/:id/investigate', () => {
-  it('passes the rule\'s workspaceId to investigationStore.create', async () => {
-    const create = vi.fn(async (input: { workspaceId?: string }) => ({
-      id: 'inv_1',
-      workspaceId: input.workspaceId,
-    }));
-    const app = makeApp({
+  it('queues background investigation without pre-creating an empty row', async () => {
+    const create = vi.fn(async () => ({ id: 'inv_should_not_be_created' }));
+    const { app } = makeApp({
       rule: makeRule({ workspaceId: 'ws_team_a' }),
       identity: { userId: 'u1', orgId: 'ws_team_a', orgRole: 'Editor', isServerAdmin: false, authenticatedBy: 'session' },
       capturedCreate: create,
@@ -127,14 +133,13 @@ describe('POST /api/alert-rules/:id/investigate', () => {
       .send({});
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ investigationId: 'inv_1', existing: false });
-    expect(create).toHaveBeenCalledTimes(1);
-    expect((create.mock.calls[0] as unknown[])?.[0]).toMatchObject({ workspaceId: 'ws_team_a' });
+    expect(res.body).toEqual({ queued: true, existing: false });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('rejects manual investigate when no background runner is configured', async () => {
     const create = vi.fn(async () => ({ id: 'inv_not_created' }));
-    const app = makeApp({
+    const { app } = makeApp({
       rule: makeRule({ workspaceId: 'ws_team_a' }),
       identity: { userId: 'u1', orgId: 'ws_team_a', orgRole: 'Editor', isServerAdmin: false, authenticatedBy: 'session' },
       capturedCreate: create,
@@ -152,7 +157,7 @@ describe('POST /api/alert-rules/:id/investigate', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it('spawns the background agent under the clicker\'s identity and advances investigation status', async () => {
+  it('spawns under the clicker identity and links the final saved investigation', async () => {
     const create = vi.fn(async () => ({ id: 'inv_run_1' }));
     // Promise we resolve when the orchestrator's handleMessage is called.
     // This proves the route actually kicks off the agent path (not just
@@ -183,10 +188,17 @@ describe('POST /api/alert-rules/:id/investigate', () => {
       makeOrchestrator: vi.fn(async () => fakeOrchestrator),
     } as NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>;
 
-    const app = makeApp({
+    const question = 'Investigate alert "Test Rule": up < 1';
+    const { app, store } = makeApp({
       rule: makeRule({ workspaceId: 'ws_team_a' }),
       identity,
       capturedCreate: create,
+      finalInvestigations: [{
+        id: 'inv_run_1',
+        intent: question,
+        createdAt: new Date().toISOString(),
+        workspaceId: 'ws_team_a',
+      }],
       runner,
     });
 
@@ -195,7 +207,7 @@ describe('POST /api/alert-rules/:id/investigate', () => {
       .send({});
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ investigationId: 'inv_run_1', existing: false });
+    expect(res.body).toEqual({ queued: true, existing: false });
 
     // The route returns immediately; the agent spawn is in-flight. Wait
     // for it to land so we can assert it actually ran.
@@ -203,8 +215,15 @@ describe('POST /api/alert-rules/:id/investigate', () => {
     expect(observed.identity.userId).toBe('u_alice');
     expect(observed.message).toContain('Test Rule');
     expect(observed.status).toBe('completed');
-    // Investigation row was created with the clicker's userId, not 'alert-system'.
-    expect((create.mock.calls[0] as unknown[])?.[0]).toMatchObject({ userId: 'u_alice' });
+    expect(create).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(store.update).toHaveBeenCalledWith('r1', {
+        investigationId: 'inv_run_1',
+        investigationStartedAt: undefined,
+        investigationFailedAt: undefined,
+        investigationFailureReason: undefined,
+      });
+    });
   });
 
   // Removed: 'falls back to the requester's workspace when the rule has none'.

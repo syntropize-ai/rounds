@@ -96,6 +96,7 @@ export interface OrchestratorActionRuntime {
   investigationStates: Map<string, InvestigationWorkingState>;
   pendingDashboardCreates: ActionContext['pendingDashboardCreates'];
   pendingInvestigationCreates: ActionContext['pendingInvestigationCreates'];
+  completedInvestigationAliases: ActionContext['completedInvestigationAliases'];
   /**
    * Mutable holder for the session's active investigation id. The agent
    * owns the underlying state; the ctx exposes a getter/setter that reads
@@ -154,6 +155,7 @@ export function buildActionContext(
     investigationStates: runtime.investigationStates,
     pendingDashboardCreates: runtime.pendingDashboardCreates,
     pendingInvestigationCreates: runtime.pendingInvestigationCreates,
+    completedInvestigationAliases: runtime.completedInvestigationAliases,
     get activeInvestigationId() { return invRef.current; },
     set activeInvestigationId(v: string | null) { invRef.current = v; },
     get activeDashboardId() { return dashRef.current; },

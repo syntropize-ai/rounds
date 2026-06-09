@@ -28,6 +28,7 @@ function makeCtx(allowAll = true): ActionContext {
     investigationStates: new Map(),
     pendingDashboardCreates: new Map(),
     pendingInvestigationCreates: new Map(),
+    completedInvestigationAliases: new Map(),
     freshlyCreatedDashboards: new Set<string>(),
     dashboardBuildEvidence: {
       kbConsultCount: 0,

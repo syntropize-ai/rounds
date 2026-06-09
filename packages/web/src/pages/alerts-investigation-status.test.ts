@@ -20,10 +20,29 @@ describe('classifyInvestigation', () => {
     }
   });
 
+  it('returns in_progress for alert-level runs before an investigation exists', () => {
+    expect(classifyInvestigation({ investigationStartedAt: '2026-04-29T00:00:00.000Z' })).toEqual({
+      kind: 'in_progress',
+      status: 'investigating',
+    });
+  });
+
   it('returns failed for failed investigations', () => {
     expect(classifyInvestigation({ investigationId: 'i1', status: 'failed' })).toEqual({
       kind: 'failed',
       investigationId: 'i1',
+    });
+  });
+
+  it('returns failed for alert-level runs that ended before a report was saved', () => {
+    expect(
+      classifyInvestigation({
+        investigationFailedAt: '2026-04-29T00:01:00.000Z',
+        investigationFailureReason: 'No final report',
+      }),
+    ).toEqual({
+      kind: 'failed',
+      reason: 'No final report',
     });
   });
 
@@ -40,11 +59,9 @@ describe('classifyInvestigation', () => {
     });
   });
 
-  it('falls back to in_progress when status is not yet loaded but id exists', () => {
+  it('returns idle when a linked investigation cannot be loaded', () => {
     expect(classifyInvestigation({ investigationId: 'i1' })).toEqual({
-      kind: 'in_progress',
-      status: 'planning',
-      investigationId: 'i1',
+      kind: 'idle',
     });
   });
 });

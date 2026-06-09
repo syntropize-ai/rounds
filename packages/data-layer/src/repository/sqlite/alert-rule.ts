@@ -68,6 +68,9 @@ interface RuleRow {
   pending_since: string | null;
   notification_policy_id: string | null;
   investigation_id: string | null;
+  investigation_started_at: string | null;
+  investigation_failed_at: string | null;
+  investigation_failure_reason: string | null;
   workspace_id: string | null;
   folder_uid: string | null;
   org_id: string;
@@ -184,6 +187,9 @@ function rowToRule(r: RuleRow): AlertRule {
   if (r.pending_since !== null) rule.pendingSince = r.pending_since;
   if (r.notification_policy_id !== null) rule.notificationPolicyId = r.notification_policy_id;
   if (r.investigation_id !== null) rule.investigationId = r.investigation_id;
+  if (r.investigation_started_at !== null) rule.investigationStartedAt = r.investigation_started_at;
+  if (r.investigation_failed_at !== null) rule.investigationFailedAt = r.investigation_failed_at;
+  if (r.investigation_failure_reason !== null) rule.investigationFailureReason = r.investigation_failure_reason;
   if (r.workspace_id !== null) rule.workspaceId = r.workspace_id;
   if (r.folder_uid !== null) rule.folderUid = r.folder_uid;
   if (r.last_evaluated_at !== null) rule.lastEvaluatedAt = r.last_evaluated_at;
@@ -262,7 +268,8 @@ export class AlertRuleRepository implements IAlertRuleRepository {
         id, name, description, original_prompt, condition,
         evaluation_interval_sec, severity, labels, state,
         state_changed_at, pending_since, notification_policy_id,
-        investigation_id, workspace_id, folder_uid, org_id, created_by,
+        investigation_id, investigation_started_at, investigation_failed_at, investigation_failure_reason,
+        workspace_id, folder_uid, org_id, created_by,
         last_evaluated_at, last_fired_at, fire_count,
         source, provenance,
         created_at, updated_at
@@ -280,6 +287,9 @@ export class AlertRuleRepository implements IAlertRuleRepository {
         ${null},
         ${data.notificationPolicyId ?? null},
         ${data.investigationId ?? null},
+        ${data.investigationStartedAt ?? null},
+        ${data.investigationFailedAt ?? null},
+        ${data.investigationFailureReason ?? null},
         ${data.workspaceId ?? null},
         ${data.folderUid ?? null},
         ${'org_main'},
@@ -384,6 +394,15 @@ export class AlertRuleRepository implements IAlertRuleRepository {
       investigationId: hasKey('investigationId')
         ? patch.investigationId ?? null
         : existing.investigationId ?? null,
+      investigationStartedAt: hasKey('investigationStartedAt')
+        ? patch.investigationStartedAt ?? null
+        : existing.investigationStartedAt ?? null,
+      investigationFailedAt: hasKey('investigationFailedAt')
+        ? patch.investigationFailedAt ?? null
+        : existing.investigationFailedAt ?? null,
+      investigationFailureReason: hasKey('investigationFailureReason')
+        ? patch.investigationFailureReason ?? null
+        : existing.investigationFailureReason ?? null,
       workspaceId: hasKey('workspaceId') ? patch.workspaceId ?? null : existing.workspaceId ?? null,
       lastEvaluatedAt: hasKey('lastEvaluatedAt')
         ? patch.lastEvaluatedAt ?? null
@@ -407,6 +426,9 @@ export class AlertRuleRepository implements IAlertRuleRepository {
         pending_since           = ${merged.pendingSince},
         notification_policy_id  = ${merged.notificationPolicyId},
         investigation_id        = ${merged.investigationId},
+        investigation_started_at = ${merged.investigationStartedAt},
+        investigation_failed_at = ${merged.investigationFailedAt},
+        investigation_failure_reason = ${merged.investigationFailureReason},
         workspace_id            = ${merged.workspaceId},
         last_evaluated_at       = ${merged.lastEvaluatedAt},
         last_fired_at           = ${merged.lastFiredAt},

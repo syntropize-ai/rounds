@@ -168,6 +168,7 @@ function makeContextRuntime(): Parameters<typeof buildActionContext>[1] {
     investigationStates: new Map(),
     pendingDashboardCreates: new Map(),
     pendingInvestigationCreates: new Map(),
+    completedInvestigationAliases: new Map(),
     activeInvestigationIdRef: { current: null },
     activeDashboardIdRef: { current: null },
     freshlyCreatedDashboards: new Set<string>(),

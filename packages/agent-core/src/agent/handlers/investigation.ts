@@ -459,6 +459,7 @@ export async function handleInvestigationComplete(
           }),
         );
         persistedInvestigationId = investigation.id;
+        ctx.completedInvestigationAliases?.set(investigationId, persistedInvestigationId);
         ctx.pendingInvestigationCreates.delete(investigationId);
         ctx.activeInvestigationId = persistedInvestigationId;
         ctx.investigationSections.delete(investigationId);

@@ -227,6 +227,13 @@ export interface ActionContext {
    */
   pendingInvestigationCreates: Map<string, PendingInvestigationCreate>;
   /**
+   * Draft investigation ids that have already been persisted by
+   * `investigation_complete`. Follow-on tools in the same ReAct run can still
+   * pass the draft id they saw earlier; handlers resolve through this alias map
+   * so durable rows point at the real investigation.
+   */
+  completedInvestigationAliases: Map<string, string>;
+  /**
    * Active investigation id for this session. Set by `investigation_create`,
    * cleared by `investigation_complete`. `add_section` and `complete` read
    * from here instead of taking the id as a tool parameter — earlier the

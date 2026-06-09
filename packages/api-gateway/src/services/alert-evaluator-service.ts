@@ -508,13 +508,15 @@ export class AlertEvaluatorService extends EventEmitter {
       const value = await this.query(fresh);
       if (value === null) return;
 
+      const now = this.clock();
+      await this.rules.update(fresh.id, { lastEvaluatedAt: now.toISOString() });
+
       const predicate = evaluatePredicate(
         fresh.condition.operator,
         value,
         fresh.condition.threshold,
       );
 
-      const now = this.clock();
       const next = decideTransition(fresh, predicate, now);
       if (next === null || next === fresh.state) return;
 

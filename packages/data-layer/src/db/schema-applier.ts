@@ -63,6 +63,7 @@ export function applySchema(db: SqliteClient): void {
   // columns added to existing tables on already-built databases. Each
   // step is idempotent and inspects sqlite_master / pragma first.
   addProvenanceColumnIfMissing(db);
+  addAlertInvestigationStateColumnsIfMissing(db);
   dropLegacyConnectorTeamPoliciesTable(db);
 }
 
@@ -117,5 +118,22 @@ function addProvenanceColumnIfMissing(db: SqliteClient): void {
   );
   if (!cols.some((c) => c.name === 'provenance')) {
     db.run(sql.raw('ALTER TABLE investigation_reports ADD COLUMN provenance TEXT'));
+  }
+}
+
+function addAlertInvestigationStateColumnsIfMissing(db: SqliteClient): void {
+  const cols = db.all<{ name: string }>(
+    sql`PRAGMA table_info('alert_rules')`,
+  );
+  if (cols.length === 0) return;
+  const names = new Set(cols.map((c) => c.name));
+  if (!names.has('investigation_started_at')) {
+    db.run(sql.raw('ALTER TABLE alert_rules ADD COLUMN investigation_started_at TEXT'));
+  }
+  if (!names.has('investigation_failed_at')) {
+    db.run(sql.raw('ALTER TABLE alert_rules ADD COLUMN investigation_failed_at TEXT'));
+  }
+  if (!names.has('investigation_failure_reason')) {
+    db.run(sql.raw('ALTER TABLE alert_rules ADD COLUMN investigation_failure_reason TEXT'));
   }
 }

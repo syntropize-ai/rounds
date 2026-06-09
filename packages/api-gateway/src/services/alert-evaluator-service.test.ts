@@ -235,6 +235,26 @@ describe('AlertEvaluatorService.tickRule', () => {
     expect(firedEvents).toHaveLength(0);
   });
 
+  it('updates lastEvaluatedAt even when the predicate is false', async () => {
+    const rule = await repo.create({
+      name: 'checked-but-ok',
+      description: '',
+      condition: { query: 'q', operator: '>', threshold: 5, forDurationSec: 0 },
+      evaluationIntervalSec: 30,
+      severity: 'low',
+      createdBy: 'user-1',
+      lastEvaluatedAt: '',
+    });
+    valueByRule.set(rule.id, 1);
+
+    await svc.tickRule(rule);
+
+    const fresh = await repo.findById(rule.id);
+    expect(fresh?.state).toBe('normal');
+    expect(fresh?.lastEvaluatedAt).toBe('2026-04-29T00:00:00.000Z');
+    expect(firedEvents).toHaveLength(0);
+  });
+
   it('disabled rules are skipped', async () => {
     const rule = await repo.create({
       name: 'disabled-rule',

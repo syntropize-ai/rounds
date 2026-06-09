@@ -56,6 +56,25 @@ interface TeamLite {
   name: string;
 }
 
+interface AlertRuleLite {
+  id: string;
+  name: string;
+  state: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  investigationId?: string;
+  labels?: Record<string, string>;
+}
+
+interface AlertRulesResponse {
+  list?: AlertRuleLite[];
+}
+
+interface InvestigationLite {
+  id: string;
+  intent: string;
+  status: string;
+}
+
 // Helpers
 
 function expiresIn(iso: string): string {
@@ -73,6 +92,28 @@ function actionRisk(type: string): RiskLevel {
   if (t.includes('rollback') || t.includes('scale') || t.includes('delete')) return 'high';
   if (t.includes('restart') || t.includes('deploy') || t.includes('flag')) return 'medium';
   return 'low';
+}
+
+function humanizeName(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function commandVerb(plan: RemediationPlan): string {
+  const text = plan.steps[0]?.commandText.trim() ?? '';
+  const parts = text.split(/\s+/);
+  const kubectlIndex = parts.findIndex((p) => p === 'kubectl');
+  return kubectlIndex >= 0 && parts[kubectlIndex + 1] ? parts[kubectlIndex + 1]! : parts[0] || 'run';
+}
+
+function commandTarget(plan: RemediationPlan): string {
+  const text = plan.steps[0]?.commandText ?? '';
+  const match = text.match(/\b(virtualservice|serviceentry|deployment|deploy|pod|service|svc|configmap|secret)\s+([^\s]+)/i);
+  return match ? `${match[1]} ${match[2]}` : `${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}`;
 }
 
 // Status pill tones for ApprovalStatus values that need a coloured chip;
@@ -174,6 +215,58 @@ function ActionCard({ request, processing, onApprove, onReject, canApprove }: Ac
   );
 }
 
+function PlanCard({
+  plan,
+  alert,
+  investigation,
+}: {
+  plan: RemediationPlan;
+  alert: AlertRuleLite | null;
+  investigation: InvestigationLite | null;
+}) {
+  const sourceLabel = alert
+    ? humanizeName(alert.name)
+    : investigation?.intent || `Investigation ${plan.investigationId.slice(0, 12)}...`;
+  const service = alert?.labels?.service;
+  const namespace = alert?.labels?.namespace;
+  return (
+    <Link
+      to={`/plans/${plan.id}`}
+      className="block bg-[var(--color-surface-highest)] rounded-lg border border-[var(--color-outline-variant)] p-4 hover:border-[var(--color-primary)] transition-colors"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Solves</span>
+            {alert ? (
+              <>
+                <span className="font-semibold text-on-surface truncate">{sourceLabel}</span>
+                <StatusPill kind="severity" value={alert.severity} size="md" />
+              </>
+            ) : (
+              <span className="font-semibold text-on-surface line-clamp-1">{sourceLabel}</span>
+            )}
+          </div>
+          <div className="mt-2 text-sm text-on-surface">
+            <span className="font-semibold capitalize">{commandVerb(plan)}</span>
+            <span className="text-on-surface-variant"> {commandTarget(plan)}</span>
+          </div>
+          <p className="mt-1 text-sm text-on-surface-variant line-clamp-2">{plan.summary}</p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-on-surface-variant flex-wrap">
+            {service && <span>service={service}</span>}
+            {namespace && <span>namespace={namespace}</span>}
+            {!alert && investigation?.status && <span>{investigation.status}</span>}
+            <span>{plan.steps.length} step{plan.steps.length === 1 ? '' : 's'}</span>
+            <span>created {relativeTime(plan.createdAt)}</span>
+            <span>expires {relativeTime(plan.expiresAt)}</span>
+          </div>
+        </div>
+        <span className="shrink-0 text-xs font-semibold text-[var(--color-primary)]">Review</span>
+      </div>
+    </Link>
+  );
+}
+
 // Filter chip strip (single-select within group, "All" clears it).
 //
 // Visual style mirrors the state-filter pills in `Alerts.tsx` (bg-surface-high
@@ -269,6 +362,8 @@ export default function ActionCenter() {
     setTabState((prev) => (prev === next ? prev : next));
   }, [searchParams]);
   const [plans, setPlans] = useState<RemediationPlan[]>([]);
+  const [alertsByInvestigation, setAlertsByInvestigation] = useState<Map<string, AlertRuleLite>>(new Map());
+  const [investigationsById, setInvestigationsById] = useState<Map<string, InvestigationLite>>(new Map());
 
   // Filter chip state (T3.2). Lives in the URL so deep links survive refresh
   // and can be linked to from other pages (team detail "See all").
@@ -340,6 +435,23 @@ export default function ActionCenter() {
     try {
       const { data } = await plansApi.list({ status: 'pending_approval' });
       setPlans(data);
+      const investigationIds = Array.from(new Set(data.map((plan) => plan.investigationId).filter(Boolean)));
+      const investigations = await Promise.all(
+        investigationIds.map(async (investigationId) => {
+          const res = await apiClient.get<InvestigationLite>(`/investigations/${investigationId}`);
+          return res.error ? null : res.data;
+        }),
+      );
+      setInvestigationsById(new Map(investigations.filter((inv): inv is InvestigationLite => Boolean(inv)).map((inv) => [inv.id, inv])));
+      const alerts = await apiClient.get<AlertRulesResponse | AlertRuleLite[]>('/alert-rules');
+      if (!alerts.error) {
+        const rules = Array.isArray(alerts.data) ? alerts.data : alerts.data.list ?? [];
+        const map = new Map<string, AlertRuleLite>();
+        for (const rule of rules) {
+          if (rule.investigationId) map.set(rule.investigationId, rule);
+        }
+        setAlertsByInvestigation(map);
+      }
     } catch {
       // Plans endpoint failures shouldn't crash the legacy view; surface
       // through the existing `error` slot only if approvals also failed.
@@ -545,22 +657,12 @@ export default function ActionCenter() {
         ) : (
           <div className="space-y-3">
             {plans.map((plan) => (
-              <Link
+              <PlanCard
                 key={plan.id}
-                to={`/plans/${plan.id}`}
-                className="block bg-[var(--color-surface-highest)] rounded-xl border border-[var(--color-outline-variant)] p-4 hover:border-[var(--color-primary)] transition-colors"
-              >
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="font-semibold text-on-surface">{plan.summary}</div>
-                  <span className="text-xs text-on-surface-variant">{plan.steps.length} step{plan.steps.length === 1 ? '' : 's'}</span>
-                </div>
-                <div className="mt-1 text-xs text-on-surface-variant">
-                  Created {relativeTime(plan.createdAt)} • Expires {relativeTime(plan.expiresAt)}
-                  {plan.investigationId && (
-                    <> • From investigation {plan.investigationId.slice(0, 12)}…</>
-                  )}
-                </div>
-              </Link>
+                plan={plan}
+                alert={alertsByInvestigation.get(plan.investigationId) ?? null}
+                investigation={investigationsById.get(plan.investigationId) ?? null}
+              />
             ))}
           </div>
         )

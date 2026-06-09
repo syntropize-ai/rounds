@@ -191,6 +191,7 @@ export class OrchestratorAgent {
   private readonly investigationStates = new Map<string, InvestigationWorkingState>()
   private readonly pendingDashboardCreates = new Map<string, import('./handlers/_context.js').PendingDashboardCreate>()
   private readonly pendingInvestigationCreates = new Map<string, import('./handlers/_context.js').PendingInvestigationCreate>()
+  private readonly completedInvestigationAliases = new Map<string, string>()
   /**
    * Active investigation id for this session. Implicit context for
    * investigation_add_section / investigation_complete so the LLM doesn't
@@ -465,6 +466,7 @@ export class OrchestratorAgent {
       investigationStates: this.investigationStates,
       pendingDashboardCreates: this.pendingDashboardCreates,
       pendingInvestigationCreates: this.pendingInvestigationCreates,
+      completedInvestigationAliases: this.completedInvestigationAliases,
       activeInvestigationIdRef: this.activeInvestigationIdRef,
       activeDashboardIdRef: this.activeDashboardIdRef,
       freshlyCreatedDashboards: this.freshlyCreatedDashboards,

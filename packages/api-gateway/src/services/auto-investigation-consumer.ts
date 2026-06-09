@@ -43,6 +43,8 @@ const NO_TOKEN_WARN_COOLDOWN_MS = 60_000;
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
 /** Auto-alert investigations older than this are considered abandoned. */
 const DEFAULT_RUNNING_STALE_MS = 30 * 60 * 1000;
+/** Hard cap for one background agent run. Keeps alert UI state from sticking. */
+const DEFAULT_AGENT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const AUTO_ALERT_SESSION_PREFIX = 'auto-alert:';
 
 /**
@@ -109,6 +111,12 @@ export interface AutoInvestigationConsumerOptions {
    * the api-gateway process restarts or the agent dies before finalization.
    */
   staleRunningMs?: number;
+  /**
+   * Maximum wall-clock time for one background agent invocation. The agent may
+   * still be deep, but the alert row must not remain "Investigating..." forever
+   * if the runner gets stuck behind an invisible wait.
+   */
+  agentRunTimeoutMs?: number;
   /** Org whose auto-alert rows should be swept for stale state. */
   orgId?: string;
   /** Override for tests. */
@@ -166,6 +174,7 @@ const RUNNING_STATUSES: ReadonlySet<string> = new Set([
 export class AutoInvestigationConsumer {
   private readonly cooldownMs: number;
   private readonly staleRunningMs: number;
+  private readonly agentRunTimeoutMs: number;
   private readonly orgId: string;
   private readonly clock: () => Date;
   private readonly spawnAgent: typeof runBackgroundAgent;
@@ -176,6 +185,7 @@ export class AutoInvestigationConsumer {
   constructor(private readonly opts: AutoInvestigationConsumerOptions) {
     this.cooldownMs = opts.cooldownMs ?? DEFAULT_COOLDOWN_MS;
     this.staleRunningMs = opts.staleRunningMs ?? DEFAULT_RUNNING_STALE_MS;
+    this.agentRunTimeoutMs = opts.agentRunTimeoutMs ?? DEFAULT_AGENT_RUN_TIMEOUT_MS;
     this.orgId = opts.orgId ?? 'org_main';
     this.clock = opts.clock ?? (() => new Date());
     this.spawnAgent = opts.spawnAgent ?? runBackgroundAgent;
@@ -302,7 +312,7 @@ export class AutoInvestigationConsumer {
     let reply = '';
     let agentError: Error | null = null;
     try {
-      reply = await this.spawnAgent(this.opts.runner, {
+      reply = await this.runAgentWithTimeout({
         identity,
         message: buildAlertQuestion(payload),
       });
@@ -319,6 +329,22 @@ export class AutoInvestigationConsumer {
     }
 
     await this.finalizeInvestigation(payload, identity, startedAtIso, agentError);
+  }
+
+  private async runAgentWithTimeout(input: Parameters<typeof runBackgroundAgent>[1]): Promise<string> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.spawnAgent(this.opts.runner, input),
+        new Promise<string>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error(`Auto-investigation timed out after ${this.agentRunTimeoutMs}ms.`));
+          }, this.agentRunTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
   }
 
   private async markInvestigationStarted(ruleId: string, startedAtIso: string): Promise<void> {

@@ -22,6 +22,7 @@ import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 
 const log = createLogger('alert-rules-route');
+const DEFAULT_MANUAL_INVESTIGATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Resolve the current request's org id. Prefers `req.auth.orgId` populated by
@@ -59,6 +60,11 @@ export interface AlertRulesRouterDeps {
    */
   runner?: BackgroundRunnerDeps;
   /**
+   * Maximum wall-clock time for the queued manual alert investigation.
+   * If the runner waits forever, the alert row is marked failed so the user can retry.
+   */
+  manualInvestigationTimeoutMs?: number;
+  /**
    * Audit writer — records alert_rule.create/update/delete and
    * investigation.create events for manual investigate flows.
    */
@@ -71,6 +77,27 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   const alertRuleService = new AlertRuleService(store, deps.setupConfig, deps.connectorRepo);
   const audit = deps.audit;
   const requirePermission = createRequirePermission(deps.ac);
+  const manualInvestigationTimeoutMs =
+    deps.manualInvestigationTimeoutMs ?? DEFAULT_MANUAL_INVESTIGATION_TIMEOUT_MS;
+
+  async function runManualInvestigationWithTimeout(
+    runner: BackgroundRunnerDeps,
+    input: Parameters<typeof runBackgroundAgent>[1],
+  ): Promise<string> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        runBackgroundAgent(runner, input),
+        new Promise<string>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error(`Manual alert investigation timed out after ${manualInvestigationTimeoutMs}ms.`));
+          }, manualInvestigationTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
 
   function requestFolderUid(req: Request): string {
     const raw = (req.body as { folderUid?: unknown } | undefined)?.folderUid;
@@ -655,7 +682,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         const runner = deps.runner;
         void (async () => {
           try {
-            await runBackgroundAgent(runner, { identity, message: question });
+            await runManualInvestigationWithTimeout(runner, { identity, message: question });
             const investigations = await deps.investigationStore!.findByWorkspace(workspaceId);
             const finalInvestigation = investigations
               .filter((inv) =>

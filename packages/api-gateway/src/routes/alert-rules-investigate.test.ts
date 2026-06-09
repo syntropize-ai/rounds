@@ -67,6 +67,7 @@ function makeApp(opts: {
     workspaceId?: string;
   }>;
   runner?: Parameters<typeof createAlertRulesRouter>[0]['runner'];
+  manualInvestigationTimeoutMs?: number;
 }) {
   const store = {
     findById: vi.fn(async () => opts.rule),
@@ -103,6 +104,9 @@ function makeApp(opts: {
       setupConfig: SETUP_CONFIG_STUB,
       ac: ALWAYS_ALLOW as unknown as Parameters<typeof createAlertRulesRouter>[0]['ac'],
       ...(opts.runner ? { runner: opts.runner } : {}),
+      ...(opts.manualInvestigationTimeoutMs !== undefined
+        ? { manualInvestigationTimeoutMs: opts.manualInvestigationTimeoutMs }
+        : {}),
     }),
   );
   return { app, store, investigationStore };
@@ -224,6 +228,38 @@ describe('POST /api/alert-rules/:id/investigate', () => {
         investigationFailureReason: undefined,
       });
     });
+  });
+
+  it('marks the alert failed and retryable when the queued manual agent never settles', async () => {
+    const create = vi.fn(async () => ({ id: 'inv_should_not_be_created' }));
+    const fakeOrchestrator = {
+      handleMessage: vi.fn(() => new Promise<string>(() => {})),
+    } as unknown as Awaited<ReturnType<NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>['makeOrchestrator']>>;
+    const runner = {
+      saTokens: { validateAndLookup: vi.fn() } as unknown as NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>['saTokens'],
+      makeOrchestrator: vi.fn(async () => fakeOrchestrator),
+    } as NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>;
+    const { app, store } = makeApp({
+      rule: makeRule({ workspaceId: 'ws_team_a' }),
+      identity: { userId: 'u1', orgId: 'ws_team_a', orgRole: 'Editor', isServerAdmin: false, authenticatedBy: 'session' },
+      capturedCreate: create,
+      runner,
+      manualInvestigationTimeoutMs: 1,
+    });
+
+    const res = await request(app)
+      .post('/api/alert-rules/r1/investigate')
+      .send({});
+
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => {
+      expect(store.update).toHaveBeenCalledWith('r1', {
+        investigationStartedAt: undefined,
+        investigationFailedAt: expect.any(String),
+        investigationFailureReason: 'Manual alert investigation timed out after 1ms.',
+      });
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 
   // Removed: 'falls back to the requester's workspace when the rule has none'.

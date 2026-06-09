@@ -144,6 +144,7 @@ describe('AutoInvestigationConsumer', () => {
     resolveSaIdentity: () => Promise<typeof fakeIdentity | null> = async () => fakeIdentity,
     cooldownMs = 60_000,
     staleRunningMs = 30 * 60 * 1000,
+    agentRunTimeoutMs = 15 * 60 * 1000,
   ) {
     return new AutoInvestigationConsumer({
       bus,
@@ -156,6 +157,7 @@ describe('AutoInvestigationConsumer', () => {
       investigations: stores.investigations,
       cooldownMs,
       staleRunningMs,
+      agentRunTimeoutMs,
       clock: () => now,
       spawnAgent: spawn as unknown as typeof import('@agentic-obs/agent-core').runBackgroundAgent,
     });
@@ -361,6 +363,30 @@ describe('AutoInvestigationConsumer', () => {
       investigationFailedAt: '2026-04-29T01:00:00.000Z',
       investigationFailureReason: 'The agent finished without saving an investigation report.',
     });
+  });
+
+  it('marks the alert-level run failed when the background agent never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const spawn = vi.fn(() => new Promise<string>(() => {}));
+      const stores = mkStores({
+        rule: mkRule({ investigationId: undefined }),
+        invsByWorkspace: [],
+      });
+      const c = mkConsumer(spawn, stores, async () => fakeIdentity, 60_000, 30 * 60 * 1000, 10);
+      const run = c.onAlertFired(basePayload());
+
+      await vi.advanceTimersByTimeAsync(11);
+      await run;
+
+      expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+        investigationStartedAt: undefined,
+        investigationFailedAt: '2026-04-29T01:00:00.000Z',
+        investigationFailureReason: 'Auto-investigation timed out after 10ms.',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('start is idempotent and stop unsubscribes', async () => {

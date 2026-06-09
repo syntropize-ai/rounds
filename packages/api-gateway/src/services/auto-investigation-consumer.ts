@@ -70,6 +70,8 @@ export interface ConsumerInvestigationStore {
 /** Alert-rule repo surface the consumer needs. */
 export interface ConsumerAlertRuleStore {
   findById(id: string): AlertRule | null | undefined | Promise<AlertRule | null | undefined>;
+  findAll?(): { list: AlertRule[]; total: number } | Promise<{ list: AlertRule[]; total: number }>;
+  findByWorkspace?(workspaceId: string): AlertRule[] | Promise<AlertRule[]>;
   update(id: string, partial: {
     investigationId?: string;
     investigationStartedAt?: string;
@@ -182,14 +184,14 @@ export class AutoInvestigationConsumer {
   /** Subscribe to `alert.fired` on the bus. Idempotent. */
   start(): void {
     if (this.unsubscribe) return;
-    void this.markStaleLiveInvestigations().catch((err) => {
+    void this.markStaleAutoInvestigations().catch((err) => {
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
         'stale auto-investigation sweep failed',
       );
     });
     this.staleSweepTimer = setInterval(() => {
-      void this.markStaleLiveInvestigations().catch((err) => {
+      void this.markStaleAutoInvestigations().catch((err) => {
         log.warn(
           { err: err instanceof Error ? err.message : String(err) },
           'stale auto-investigation sweep failed',
@@ -357,6 +359,49 @@ export class AutoInvestigationConsumer {
         );
       }
     }
+  }
+
+  private isStaleAlertLevelInvestigation(rule: AlertRule): boolean {
+    if (rule.investigationId) return false;
+    if (!rule.investigationStartedAt) return false;
+    const startedTs = new Date(rule.investigationStartedAt).getTime();
+    return Number.isFinite(startedTs) && this.clock().getTime() - startedTs > this.staleRunningMs;
+  }
+
+  private async markStaleAlertLevelInvestigations(): Promise<void> {
+    let list: AlertRule[];
+    if (this.opts.alertRules.findByWorkspace) {
+      list = await this.opts.alertRules.findByWorkspace(this.orgId);
+    } else if (this.opts.alertRules.findAll) {
+      const result = await this.opts.alertRules.findAll();
+      list = result.list.filter((rule) => rule.workspaceId === this.orgId);
+    } else {
+      return;
+    }
+    const stale = list.filter((rule) => this.isStaleAlertLevelInvestigation(rule));
+    for (const rule of stale) {
+      try {
+        await this.opts.alertRules.update(rule.id, {
+          investigationStartedAt: undefined,
+          investigationFailedAt: this.clock().toISOString(),
+          investigationFailureReason: 'The investigation was interrupted before saving a report.',
+        });
+        log.warn(
+          { ruleId: rule.id, investigationStartedAt: rule.investigationStartedAt },
+          'marked stale alert investigation marker as failed',
+        );
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), ruleId: rule.id },
+          'stale alert investigation marker update failed',
+        );
+      }
+    }
+  }
+
+  private async markStaleAutoInvestigations(): Promise<void> {
+    await this.markStaleLiveInvestigations();
+    await this.markStaleAlertLevelInvestigations();
   }
 
   /**

@@ -84,6 +84,7 @@ interface Stores {
   };
   alertRules: ConsumerAlertRuleStore & {
     findById: ReturnType<typeof vi.fn>;
+    findAll: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
 }
@@ -101,6 +102,10 @@ function mkStores(opts: {
   };
   const alertRules = {
     findById: vi.fn().mockResolvedValue(opts.rule ?? null),
+    findAll: vi.fn().mockResolvedValue({
+      list: opts.rule ? [opts.rule] : [],
+      total: opts.rule ? 1 : 0,
+    }),
     update: vi.fn().mockResolvedValue(null),
   };
   return { investigations, alertRules };
@@ -407,6 +412,46 @@ describe('AutoInvestigationConsumer', () => {
 
     expect(stores.investigations.updateStatus).toHaveBeenCalledWith('inv-stale', 'failed');
     expect(stores.investigations.updateStatus).not.toHaveBeenCalledWith('inv-fresh', 'failed');
+  });
+
+  it('sweeps stale alert-level investigation markers on start', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    const stores = mkStores({
+      rule: mkRule({
+        investigationId: undefined,
+        investigationStartedAt: '2026-04-29T00:00:00.000Z',
+        investigationFailedAt: undefined,
+        investigationFailureReason: undefined,
+      }),
+      invsByWorkspace: [],
+    });
+    const c = mkConsumer(spawn, stores);
+    c.start();
+    await new Promise((r) => setImmediate(r));
+    c.stop();
+
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationStartedAt: undefined,
+      investigationFailedAt: '2026-04-29T01:00:00.000Z',
+      investigationFailureReason: 'The investigation was interrupted before saving a report.',
+    });
+  });
+
+  it('does not sweep fresh alert-level investigation markers on start', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    const stores = mkStores({
+      rule: mkRule({
+        investigationId: undefined,
+        investigationStartedAt: '2026-04-29T00:59:30.000Z',
+      }),
+      invsByWorkspace: [],
+    });
+    const c = mkConsumer(spawn, stores);
+    c.start();
+    await new Promise((r) => setImmediate(r));
+    c.stop();
+
+    expect(stores.alertRules.update).not.toHaveBeenCalled();
   });
 });
 

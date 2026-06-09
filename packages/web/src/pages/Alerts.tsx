@@ -405,28 +405,31 @@ function AlertRuleRow({
             )}
 
             {indicator.kind === 'failed' && (
-              indicator.investigationId ? (
+              <>
                 <button
                   type="button"
-                  onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
-                  title={indicator.reason || 'Investigation failed'}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-severity-critical/10 text-severity-critical hover:bg-severity-critical/20 transition-colors"
+                  onClick={onInvestigate}
+                  disabled={investigating}
+                  title={indicator.reason || 'Investigation failed. Start a new investigation.'}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-severity-critical/10 text-severity-critical hover:bg-severity-critical/20 transition-colors disabled:opacity-50"
                 >
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-severity-critical" />
-                  Investigation failed
+                  {investigating ? 'Starting…' : 'Re-investigate'}
                 </button>
-              ) : (
-                <span
-                  title={indicator.reason || 'Investigation failed before a report was saved'}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-severity-critical/10 text-severity-critical"
-                >
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-severity-critical" />
-                  Investigation failed
-                </span>
-              )
+                {indicator.investigationId && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
+                    title={indicator.reason || 'View failed investigation'}
+                    className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-outline)] hover:text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
+                  >
+                    View failed investigation
+                  </button>
+                )}
+              </>
             )}
 
-            {(rule.state === 'firing' || rule.state === 'pending') && indicator.kind !== 'idle' && indicator.kind !== 'in_progress' && (
+            {(rule.state === 'firing' || rule.state === 'pending') && indicator.kind !== 'idle' && indicator.kind !== 'in_progress' && indicator.kind !== 'failed' && (
               <button
                 type="button"
                 onClick={onInvestigate}

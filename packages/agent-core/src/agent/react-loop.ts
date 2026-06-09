@@ -27,7 +27,7 @@ const log = createLogger('react-loop')
  * is tokens (see TOKEN_BUDGET_TOKENS below); iteration count is just a
  * backstop.
  */
-const MAX_ITERATIONS = 200
+const DEFAULT_MAX_ITERATIONS = 200
 
 /**
  * Soft token budget: when the messages about to be sent to the LLM would
@@ -215,6 +215,8 @@ export interface ReActDeps {
    * gateway call uses native tool_use — we no longer rely on prose-JSON.
    */
   allowedTools: readonly string[]
+  /** Maximum LLM/tool loop iterations before the run is considered non-converged. */
+  maxIterations?: number
   /** Maximum total tokens per chat message. Default: 50000 */
   maxTokenBudget?: number
   /** LLM-generated summary of earlier conversation turns (from context compaction) */
@@ -301,6 +303,7 @@ export class ReActLoop {
     // surfaced by name in a system reminder; the model loads their schemas
     // on demand via `tool_search`, and the loaded set persists for the rest
     // of this loop instance so subsequent gateway calls expose them too.
+    const maxIterations = this.deps.maxIterations ?? DEFAULT_MAX_ITERATIONS
     const alwaysOn = alwaysOnToolsForAgent(this.deps.allowedTools)
     const allDeferredNames = deferredToolNamesForAgent(this.deps.allowedTools)
     const loadedDeferredTools = new Set<string>()
@@ -315,9 +318,32 @@ export class ReActLoop {
     let lastObservation: string | null = null
     let batchCounter = 0
     let terminationReminderCount = 0
+    let iterationBudgetReminderSent = false
 
-    for (let i = 0; i < MAX_ITERATIONS; i++) {
+    for (let i = 0; i < maxIterations; i++) {
       checkAborted()
+      const remainingIterations = maxIterations - i
+      if (
+        !iterationBudgetReminderSent &&
+        remainingIterations <= 3 &&
+        this.deps.onBeforeTerminate
+      ) {
+        const reminder = this.deps.onBeforeTerminate('')
+        if (reminder) {
+          iterationBudgetReminderSent = true
+          const budgetReminder =
+            `${reminder}\n\nYou have ${remainingIterations} model turn${remainingIterations === 1 ? '' : 's'} left. ` +
+            'Stop exploratory reads now. If the root cause is not confirmed, call investigation_complete with rootCause.status="unresolved", the exact next check, and the evidence collected so far.'
+          observations.push({
+            kind: 'termination_reminder',
+            action: '__iteration_budget_reminder__',
+            args: {},
+            result: budgetReminder,
+            reminderText: budgetReminder,
+            batchId: batchCounter++,
+          })
+        }
+      }
       const messages = this.buildMessages(systemPrompt, userMessage, observations)
 
       // Token-budget termination — the primary "we're done" signal once the
@@ -600,24 +626,13 @@ export class ReActLoop {
       }
     }
 
-    if (lastAction && lastObservation) {
-      const finalReply = await this.composePostActionReply(
-        userMessage,
-        lastAction,
-        lastDraftReply,
-        lastObservation,
-      )
-      this.deps.sendEvent({ type: 'reply', content: finalReply })
-      return finalReply
-    }
-
     // Iteration ceiling reached — safety net, not a normal completion path.
     // Be honest: we didn't converge, the user needs to know to retry with a
     // narrower scope rather than assume success.
-    log.warn({ iterations: MAX_ITERATIONS }, 'iteration ceiling reached without terminal action')
-    const fallback = `I ran through ${MAX_ITERATIONS} steps without reaching a clear stopping point. This usually means the task branched more than expected or I got stuck on a loop. Try narrowing the request, or ask me what I learned along the way.`
-    this.deps.sendEvent({ type: 'reply', content: fallback })
-    return fallback
+    log.warn({ iterations: maxIterations }, 'iteration ceiling reached without terminal action')
+    const message = `I ran through ${maxIterations} steps without reaching a clear stopping point. This usually means the task branched more than expected or I got stuck on a loop. Try narrowing the request, or ask me what I learned along the way.`
+    this.deps.sendEvent({ type: 'reply', content: message })
+    return message
   }
 
   buildMessages(

@@ -245,6 +245,7 @@ export class OrchestratorAgent {
       identity: deps.identity,
       accessControl: deps.accessControl,
       allowedTools: this.agentDef.allowedTools,
+      maxIterations: this.agentDef.maxIterations,
       maxTokenBudget: deps.maxTokenBudget,
       conversationSummary: deps.conversationSummary,
       onBeforeTerminate: (finalText) => this.onBeforeTerminate(finalText),

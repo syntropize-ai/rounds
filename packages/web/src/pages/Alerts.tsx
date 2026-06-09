@@ -356,17 +356,21 @@ function AlertRuleRow({
             )}
 
             {indicator.kind === 'in_progress' && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (indicator.investigationId) navigate(`/investigations/${indicator.investigationId}`);
-                }}
-                disabled={!indicator.investigationId}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/20 transition-colors disabled:cursor-default disabled:hover:bg-[var(--color-primary)]/10"
-              >
-                <Spinner />
-                Investigating…
-              </button>
+              indicator.investigationId ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/20 transition-colors"
+                >
+                  <Spinner />
+                  Investigating…
+                </button>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-surface-high)] text-[var(--color-on-surface-variant)] cursor-default">
+                  <Spinner />
+                  Investigating…
+                </span>
+              )
             )}
 
             {indicator.kind === 'completed_with_plan' && (

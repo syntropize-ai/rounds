@@ -48,4 +48,25 @@ export interface Provenance {
   latencyMs?: number;
   /** Inline citations referenced from the artifact's markdown. */
   citations?: Citation[];
+  /**
+   * Product-agnostic evidence gate result for investigation root-cause claims.
+   * A remediation plan may only be proposed when this gate passed on the
+   * latest saved investigation report.
+   */
+  rootCauseGate?: {
+    status: 'passed' | 'unresolved';
+    reasons: string[];
+    rootCause?: {
+      status: 'confirmed' | 'likely' | 'unresolved';
+      object?: string;
+      field?: string;
+      cause?: string;
+      nextCheck?: string;
+    };
+    confidence: number;
+    evidenceRefs: string[];
+    ruledOut: string[];
+    validationMethod?: string;
+    evaluatedAt: string;
+  };
 }

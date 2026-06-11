@@ -532,14 +532,17 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       description:
         'Propose a structured remediation plan: an ordered list of write steps the operator approves once and then executes atomically.\n\n' +
         'BACKGROUND ONLY: use this after an alert-triggered background investigation completes with a concrete, in-scope fix. Direct user chat requests must not use remediation plans; interactive writes are handled by permission checks plus user confirmation.\n\n' +
+        'Evidence gate: the latest saved investigation report must have a passed root-cause evidence gate. The root cause must be directly supported by recorded checks, competing explanations must be ruled out, time/scope relevance must be established, the plan target must match the verified root-cause object/field, and the plan must include an explicit validation step. Missing or unresolved evidence rejects the plan before persistence.\n\n' +
         'LOW COST: this tool does NOT execute anything. It creates a pending_approval plan record and a plan-level ApprovalRequest; a human must open the approval and click Approve before any plan step runs. Treat calling this tool as equivalent to saving a draft for review.\n\n' +
         'Skip ONLY when: the user explicitly asked to stop after diagnosis; the fix needs credentials no configured connector has; the right next step isn\'t executable here (data migration, code change, ask upstream); the safe action is monitor + re-check.\n\n' +
         'Step ordering: reads/verifications first, then writes, then a final `kubectl rollout status` (or equivalent) verification step where it makes sense. Halt-on-failure is the default; only set continueOnError=true on truly non-critical steps (notification, optional cleanup).',
       input_schema: {
         type: 'object',
         properties: {
-          investigationId: { type: 'string', description: 'Id from investigation_create that motivated this background remediation plan. Required; direct-request plans are not supported.' },
+          investigationId: { type: 'string', description: 'Id from the saved investigation that motivated this background remediation plan. Required; its latest report must have passed the root-cause evidence gate.' },
           summary: { type: 'string', description: 'One-line description of what the plan does. Surfaced in approval UI.' },
+          targetObject: { type: 'string', description: 'Specific object/field this plan changes. Must match the verified root-cause object/field on the linked investigation.' },
+          validationMethod: { type: 'string', description: 'How the operator should verify the plan worked after execution. Must name the check, metric, log, query, or observable result.' },
           steps: {
             type: 'array',
             description: 'Ordered list of steps. The order is the execution order. Halt-on-failure by default.',
@@ -569,7 +572,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
                   },
                   required: ['connectorId'],
                 },
-                dryRunText: { type: 'string', description: 'Optional. The expected effect of this step in plain text. If you ran a related read query while investigating, summarize the predicted outcome here.' },
+                dryRunText: { type: 'string', description: 'Optional. The expected effect of this step in plain text. Include how the verified root-cause object/field should change when useful.' },
                 riskNote: { type: 'string', description: 'Optional. Human-readable risk note ("brief drop to 2 replicas"). Surfaced in the approval UI.' },
                 continueOnError: { type: 'boolean', description: 'If true, plan continues if this step fails. Default false (halt). Use for non-critical steps like notifications.' },
               },
@@ -578,7 +581,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           },
           expiresInMs: { type: 'number', description: 'Optional. Override the default approval window (24h) in milliseconds.' },
         },
-        required: ['investigationId', 'summary', 'steps'],
+        required: ['investigationId', 'summary', 'targetObject', 'validationMethod', 'steps'],
       },
     },
   },
@@ -998,7 +1001,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       input_schema: {
         type: 'object',
         properties: {
-          hypothesis: { type: 'string', description: 'The hypothesis this check tested, e.g. "reviews-v2 is returning 5xx because it is OOMKilled".' },
+          hypothesis: { type: 'string', description: 'The hypothesis this check tested, e.g. "component A is returning errors because config value B is invalid".' },
           signalType: {
             type: 'string',
             enum: ['metric', 'log', 'kubernetes', 'change', 'trace', 'config', 'knowledge', 'web', 'other'],
@@ -1074,8 +1077,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session. Call this only after the same main loop has already followed the evidence, recorded the load-bearing checks, and written the report sections.\n\n' +
         'MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n\n' +
         'The summary is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
-        'For confirmed/likely root causes: use at least 80% confidence (confidence >= 0.8), rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to recorded check ids, and ruledOut must include plausible alternatives you eliminated. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
-        'The nextAction must be durable: it should fix the bad pattern or lifecycle issue, not just substitute the current observed value. If an emergency workaround exists, label it as temporary mitigation and still name the durable fix or prevention. Never recommend hardcoding an ephemeral pod IP, replica name, container ID, or generated runtime value as the primary remediation.\n\n' +
+        'For confirmed/likely root causes: use at least 80% confidence (confidence >= 0.8), rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to at least two recorded check ids across at least two signal types, and ruledOut must include plausible alternatives you eliminated. The server evidence gate also requires: direct proof for the root-cause object/cause, recorded handling of competing explanations, time-window or affected-scope relevance, a repair target consistent with the proven root cause, and an explicit validationMethod (or validation wording in nextAction/rootCause.nextCheck). If any of these are missing, the report is saved as unresolved and cannot back an approvable remediation plan. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
+        'The nextAction must be durable: it should fix the bad pattern or lifecycle issue, not just substitute the current observed value. If an emergency workaround exists, label it as temporary mitigation and still name the durable fix or prevention. Never recommend hardcoding an ephemeral runtime value, generated identifier, transient endpoint, or one-off observed value as the primary remediation.\n\n' +
         'Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.',
       input_schema: {
         type: 'object',
@@ -1089,9 +1092,9 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
                 enum: ['confirmed', 'likely', 'unresolved'],
                 description: 'Use confirmed/likely only when confidence is at least 0.8. Use unresolved when available evidence cannot determine root cause.',
               },
-              object: { type: 'string', description: 'Specific object involved, e.g. "Deployment/reviews-v2", "VirtualService/bookinfo", "ConfigMap/foo". Required unless unresolved.' },
-              field: { type: 'string', description: 'Specific field/value if known, e.g. resources.limits.memory, image tag, route weight.' },
-              cause: { type: 'string', description: 'Causal mechanism, not the symptom, e.g. "memory limit too low causing OOMKilled restarts". Required unless unresolved.' },
+              object: { type: 'string', description: 'Specific object involved, e.g. "service checkout", "config rule payments-timeout", "worker queue-consumer". Required unless unresolved.' },
+              field: { type: 'string', description: 'Specific field/value if known, e.g. limit, threshold, route weight, dependency endpoint, timeout.' },
+              cause: { type: 'string', description: 'Causal mechanism, not the symptom, e.g. "timeout too low causing downstream request failures". Required unless unresolved.' },
               nextCheck: { type: 'string', description: 'For unresolved only: exact next check or unavailable data needed.' },
             },
             required: ['status'],
@@ -1107,7 +1110,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             items: { type: 'string' },
             description: 'Plausible alternative hypotheses ruled out, e.g. ["no traffic", "scrape issue"].',
           },
-          nextAction: { type: 'string', description: 'Durable fix or next operator action. If a short-term workaround is useful, label it as temporary mitigation and still include the durable remediation or prevention.' },
+          validationMethod: { type: 'string', description: 'How to verify the root cause or fix. Required for confirmed/likely root causes; name the metric/log/check/result to observe.' },
+          nextAction: { type: 'string', description: 'Durable fix or next operator action plus how to validate it. If a short-term workaround is useful, label it as temporary mitigation and still include the durable remediation or prevention.' },
         },
         required: ['summary', 'rootCause', 'confidence', 'evidenceRefs', 'ruledOut'],
       },

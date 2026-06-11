@@ -47,7 +47,7 @@ describe('tool-schema-registry', () => {
     { tool: 'investigation_record_check', mustContain: ['diagnostic check', 'main loop keeps its investigation state'] },
     { tool: 'investigation_add_text', mustContain: ['Interleave', 'short `## heading`'] },
     { tool: 'investigation_add_evidence', mustContain: ['Reuse the query', 'auto-captured snapshot'] },
-    { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded', '80% confidence', 'durable', 'ephemeral pod IP'] },
+    { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded', '80% confidence', 'durable', 'ephemeral runtime value'] },
     { tool: 'web_search', mustContain: ['Cheap read', 'Named-system dashboard', 'unfamiliar metric'] },
   ];
   for (const { tool, mustContain } of INLINED_GUIDANCE) {

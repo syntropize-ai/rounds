@@ -65,6 +65,7 @@ function makeApp(opts: {
     intent: string;
     createdAt: string;
     workspaceId?: string;
+    sessionId?: string;
   }>;
   runner?: Parameters<typeof createAlertRulesRouter>[0]['runner'];
   manualInvestigationTimeoutMs?: number;
@@ -74,13 +75,9 @@ function makeApp(opts: {
     update: vi.fn(async () => opts.rule),
   } as unknown as Parameters<typeof createAlertRulesRouter>[0]['alertRuleStore'];
 
-  let findByWorkspaceCalls = 0;
   const investigationStore = {
     create: opts.capturedCreate,
-    findByWorkspace: vi.fn(async () => {
-      findByWorkspaceCalls += 1;
-      return findByWorkspaceCalls === 1 ? [] : opts.finalInvestigations ?? [];
-    }),
+    findByWorkspace: vi.fn(async () => opts.finalInvestigations ?? []),
   } as unknown as Parameters<typeof createAlertRulesRouter>[0]['investigationStore'];
 
   const app = express();
@@ -178,10 +175,25 @@ describe('POST /api/alert-rules/:id/investigate', () => {
       authenticatedBy: 'session',
     };
 
+    const finalInvestigations: Array<{
+      id: string;
+      intent: string;
+      createdAt: string;
+      workspaceId: string;
+      sessionId?: string;
+    }> = [];
+    let capturedSessionId: string | undefined;
     const fakeOrchestrator = {
       handleMessage: vi.fn(async (message: string) => {
         // Mock the agent doing its work and advancing status.
         observedStatus = 'completed';
+        finalInvestigations.push({
+          id: 'inv_run_1',
+          intent: question,
+          createdAt: new Date().toISOString(),
+          workspaceId: 'ws_team_a',
+          ...(capturedSessionId ? { sessionId: capturedSessionId } : {}),
+        });
         agentCalledResolve({ identity, message, status: observedStatus });
         return 'done';
       }),
@@ -189,7 +201,10 @@ describe('POST /api/alert-rules/:id/investigate', () => {
 
     const runner = {
       saTokens: { validateAndLookup: vi.fn() } as unknown as NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>['saTokens'],
-      makeOrchestrator: vi.fn(async () => fakeOrchestrator),
+      makeOrchestrator: vi.fn(async (args) => {
+        capturedSessionId = args.sessionId;
+        return fakeOrchestrator;
+      }),
     } as NonNullable<Parameters<typeof createAlertRulesRouter>[0]['runner']>;
 
     const question = 'Investigate alert "Test Rule": up < 1';
@@ -197,12 +212,7 @@ describe('POST /api/alert-rules/:id/investigate', () => {
       rule: makeRule({ workspaceId: 'ws_team_a' }),
       identity,
       capturedCreate: create,
-      finalInvestigations: [{
-        id: 'inv_run_1',
-        intent: question,
-        createdAt: new Date().toISOString(),
-        workspaceId: 'ws_team_a',
-      }],
+      finalInvestigations,
       runner,
     });
 

@@ -47,6 +47,22 @@ const DEFAULT_RUNNING_STALE_MS = 30 * 60 * 1000;
 const DEFAULT_AGENT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
 const AUTO_ALERT_SESSION_PREFIX = 'auto-alert:';
 
+function sanitizeSessionPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.:-]/g, '_');
+}
+
+function buildAutoAlertSessionId(payload: AlertFiredEventPayload, startedAtIso: string): string {
+  const eventPart = payload.fingerprint || payload.firedAt || startedAtIso;
+  return [
+    AUTO_ALERT_SESSION_PREFIX,
+    sanitizeSessionPart(payload.ruleId),
+    ':',
+    sanitizeSessionPart(eventPart),
+    ':',
+    sanitizeSessionPart(startedAtIso),
+  ].join('');
+}
+
 /**
  * Investigation repo surface the consumer needs. Wider repository
  * interfaces (sqlite / postgres / gateway-extended) all satisfy this,
@@ -307,6 +323,7 @@ export class AutoInvestigationConsumer {
     }
 
     const startedAtIso = this.clock().toISOString();
+    const sessionId = buildAutoAlertSessionId(payload, startedAtIso);
     await this.markInvestigationStarted(payload.ruleId, startedAtIso);
 
     let reply = '';
@@ -314,6 +331,7 @@ export class AutoInvestigationConsumer {
     try {
       reply = await this.runAgentWithTimeout({
         identity,
+        sessionId,
         message: buildAlertQuestion(payload),
       });
       log.info(
@@ -328,7 +346,34 @@ export class AutoInvestigationConsumer {
       );
     }
 
-    await this.finalizeInvestigation(payload, identity, startedAtIso, agentError);
+    try {
+      await this.finalizeInvestigation(payload, identity, sessionId, agentError);
+    } catch (err) {
+      log.error(
+        {
+          err: err instanceof Error ? err.message : String(err),
+          ruleId: payload.ruleId,
+          sessionId,
+        },
+        'auto-investigation finalize failed',
+      );
+      try {
+        await this.opts.alertRules.update(payload.ruleId, {
+          investigationStartedAt: undefined,
+          investigationFailedAt: this.clock().toISOString(),
+          investigationFailureReason: err instanceof Error ? err.message : String(err),
+        });
+      } catch (updateErr) {
+        log.error(
+          {
+            err: updateErr instanceof Error ? updateErr.message : String(updateErr),
+            ruleId: payload.ruleId,
+            sessionId,
+          },
+          'auto-investigation finalize failure marker update failed',
+        );
+      }
+    }
   }
 
   private async runAgentWithTimeout(input: Parameters<typeof runBackgroundAgent>[1]): Promise<string> {
@@ -473,7 +518,7 @@ export class AutoInvestigationConsumer {
   private async finalizeInvestigation(
     payload: AlertFiredEventPayload,
     identity: Identity,
-    dispatchStartIso: string,
+    sessionId: string,
     agentError: Error | null,
   ): Promise<void> {
     const { investigations, alertRules } = this.opts;
@@ -481,7 +526,7 @@ export class AutoInvestigationConsumer {
     try {
       const list = await investigations.findByWorkspace(identity.orgId);
       const candidates = list
-        .filter((r) => r.createdAt >= dispatchStartIso)
+        .filter((r) => r.sessionId === sessionId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       inv = candidates[0] ?? null;
     } catch (err) {
@@ -499,7 +544,7 @@ export class AutoInvestigationConsumer {
           investigationFailedAt: this.clock().toISOString(),
           investigationFailureReason: agentError
             ? agentError.message
-            : 'The agent finished without saving an investigation report.',
+            : `The agent finished without saving an investigation report for session ${sessionId}.`,
         });
       } catch (err) {
         log.warn(

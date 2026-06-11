@@ -240,6 +240,7 @@ export interface ChatEvent {
   opsConfirmation?: {
     id: string;
     connectorId: string;
+    capability?: string;
     command: string;
     risk?: 'low' | 'medium' | 'high' | 'critical';
     summary?: string;
@@ -554,6 +555,7 @@ export function useDashboardChat(
             opsConfirmation: {
               id: (parsed.id as string) ?? id,
               connectorId: (parsed.connectorId as string) ?? '',
+              capability: parsed.capability as string | undefined,
               command: (parsed.command as string) ?? '',
               risk: parsed.risk as 'low' | 'medium' | 'high' | 'critical' | undefined,
               summary: parsed.summary as string | undefined,

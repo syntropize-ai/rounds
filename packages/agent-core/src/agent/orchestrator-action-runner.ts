@@ -11,6 +11,7 @@ import {
   handleDashboardCreate,
   handleDashboardClone,
   handleInvestigationCreate,
+  handleInvestigationRecordCheck,
   handleInvestigationAddText,
   handleInvestigationAddEvidence,
   handleInvestigationComplete,
@@ -85,7 +86,7 @@ const MUTATION_ACTIONS = [
   'dashboard_create', 'dashboard_clone',
   'dashboard_add_panels', 'dashboard_remove_panels', 'dashboard_modify_panel',
   'dashboard_rearrange', 'dashboard_add_variable', 'dashboard_set_title',
-  'investigation_create', 'investigation_add_text', 'investigation_add_evidence', 'investigation_complete',
+  'investigation_create', 'investigation_record_check', 'investigation_add_text', 'investigation_add_evidence', 'investigation_complete',
   // alert_rule_write covers create / update / delete via the `op` discriminator
   'alert_rule_write',
 ] as const;
@@ -207,6 +208,7 @@ async function dispatchAction(
     // Investigation lifecycle
     case 'investigation_create': return handleInvestigationCreate(ctx, args);
     case 'investigation_list': return handleInvestigationList(ctx, args);
+    case 'investigation_record_check': return handleInvestigationRecordCheck(ctx, args);
     case 'investigation_add_text': return handleInvestigationAddText(ctx, args);
     case 'investigation_add_evidence': return handleInvestigationAddEvidence(ctx, args);
     case 'investigation_complete': return handleInvestigationComplete(ctx, args);

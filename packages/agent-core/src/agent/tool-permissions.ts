@@ -115,6 +115,11 @@ export const TOOL_PERMS: Record<string, ToolPermissionBuilder> = {
   'investigation_create': () => ac.eval('investigations:create'),
   'investigation_list': () =>
     ac.eval('investigations:read', 'investigations:*'),
+  'investigation_record_check': (args: Record<string, unknown>) =>
+    ac.eval(
+      'investigations:write',
+      `investigations:uid:${String(args.investigationId ?? '*')}`,
+    ),
   'investigation_add_text': (args: Record<string, unknown>) =>
     ac.eval(
       'investigations:write',

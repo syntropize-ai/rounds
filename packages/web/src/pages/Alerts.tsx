@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiClient, plansApi } from '../api/client.js';
+import type { RemediationPlan } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { relativeTime } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
@@ -41,6 +42,9 @@ interface AlertRule {
   lastFiredAt?: string;
   fireCount: number;
   investigationId?: string;
+  investigationStartedAt?: string;
+  investigationFailedAt?: string;
+  investigationFailureReason?: string;
 }
 
 // Helpers
@@ -127,7 +131,12 @@ function InvestigationSummaryChip({ indicator }: { indicator: InvestigationIndic
   }
   if (indicator.kind === 'failed') {
     return (
-      <StatusPill kind="severity" value="critical" label="Failed" className="shrink-0" />
+      <StatusPill
+        kind="severity"
+        value="critical"
+        label="Failed"
+        className="shrink-0"
+      />
     );
   }
   // completed (no plan): subdued
@@ -155,7 +164,7 @@ function AlertRuleRow({
   navigate,
   canWrite,
   canDelete,
-  pendingPlanId,
+  pendingPlan,
   indicator,
 }: {
   rule: AlertRule;
@@ -169,14 +178,13 @@ function AlertRuleRow({
   navigate: (path: string, opts?: { state?: unknown }) => void;
   canWrite: boolean;
   canDelete: boolean;
-  pendingPlanId?: string;
+  pendingPlan?: RemediationPlan;
   indicator: InvestigationIndicator;
 }) {
   const isDisabled = rule.state === 'disabled';
   const dashboardId = rule.labels?.dashboardId;
   const isInvestigating = indicator.kind === 'in_progress';
   const accentColor = rowAccent(rule.state);
-  const accentPulse = rule.state === 'firing' && isInvestigating;
 
   return (
     <div
@@ -184,7 +192,7 @@ function AlertRuleRow({
         accentColor
           ? ''
           : 'border-[var(--color-outline-variant)] hover:border-[var(--color-outline)]'
-      } ${accentPulse ? 'animate-pulse' : ''} ${isDisabled ? 'opacity-60' : ''}`}
+      } ${isDisabled ? 'opacity-60' : ''}`}
       style={
         accentColor
           ? { borderColor: `color-mix(in srgb, ${accentColor} 30%, transparent)` }
@@ -238,8 +246,8 @@ function AlertRuleRow({
         <div className="px-4 pb-3.5 pt-0 border-t border-[var(--color-surface-high)]">
           {/* Query */}
           <div className="mt-3">
-            <span className="text-[10px] text-[var(--color-outline)] uppercase tracking-wider font-medium">Condition</span>
-            <p className="mt-1 text-sm text-[var(--color-on-surface-variant)] font-mono bg-[var(--color-surface-lowest)] rounded-md px-3 py-2 break-all">
+            <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wider font-semibold">Condition</span>
+            <p className="mt-1 text-sm text-[var(--color-on-surface)] font-mono bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded-md px-3 py-2 break-all">
               {rule.condition.query.includes(String(rule.condition.threshold))
                 ? rule.condition.query
                 : `${rule.condition.query} ${rule.condition.operator} ${rule.condition.threshold}`}
@@ -249,25 +257,25 @@ function AlertRuleRow({
 
           {/* Description */}
           {rule.description && (
-            <p className="text-xs text-[var(--color-on-surface-variant)] mt-3">{rule.description}</p>
+            <p className="text-xs text-[var(--color-on-surface)] mt-3">{rule.description}</p>
           )}
 
           {/* Stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
             <div className="bg-[var(--color-surface-high)] rounded-lg px-3 py-2">
-              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide">Interval</span>
+              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide font-semibold">Interval</span>
               <div className="text-sm font-medium text-[var(--color-on-surface)] mt-0.5">{rule.evaluationIntervalSec}s</div>
             </div>
             <div className="bg-[var(--color-surface-high)] rounded-lg px-3 py-2">
-              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide">Last Check</span>
+              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide font-semibold">Last Check</span>
               <div className="text-sm font-medium text-[var(--color-on-surface)] mt-0.5">{rule.lastEvaluatedAt ? relativeTime(rule.lastEvaluatedAt) : 'Never'}</div>
             </div>
             <div className="bg-[var(--color-surface-high)] rounded-lg px-3 py-2">
-              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide">Times Fired</span>
+              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide font-semibold">Times Fired</span>
               <div className="text-sm font-medium text-[var(--color-on-surface)] mt-0.5">{rule.fireCount}</div>
             </div>
             <div className="bg-[var(--color-surface-high)] rounded-lg px-3 py-2">
-              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide">State</span>
+              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide font-semibold">State</span>
               <div
                 className="text-sm font-medium mt-0.5"
                 style={{
@@ -288,18 +296,31 @@ function AlertRuleRow({
           {Object.keys(rule.labels).length > 0 && (
             <div className="flex flex-wrap gap-1 mt-3">
               {Object.entries(rule.labels).map(([k, v]) => (
-                <span key={k} className="px-2 py-0.5 rounded bg-[var(--color-surface-high)] text-[10px] text-[var(--color-on-surface-variant)] font-mono">
+                <span key={k} className="px-2 py-0.5 rounded bg-[var(--color-surface)] border border-[var(--color-outline-variant)] text-[10px] text-[var(--color-on-surface)] font-mono">
                   {k}={v}
                 </span>
               ))}
             </div>
           )}
 
-          {/* Original prompt */}
-          {rule.originalPrompt && (
-            <div className="mt-3">
-              <span className="text-[10px] text-[var(--color-on-surface-variant)] uppercase tracking-wide font-medium">Created from prompt</span>
-              <p className="text-xs text-[var(--color-on-surface-variant)] italic mt-0.5">{rule.originalPrompt}</p>
+          {pendingPlan && (
+            <div className="mt-3 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] text-[var(--color-outline)] uppercase tracking-wide font-semibold">Recommended fix</div>
+                  <p className="mt-1 text-sm text-[var(--color-on-surface)]">{pendingPlan.summary}</p>
+                  <p className="mt-1 text-xs text-[var(--color-on-surface-variant)]">
+                    {pendingPlan.steps.length} step{pendingPlan.steps.length === 1 ? '' : 's'} awaiting approval
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/plans/${pendingPlan.id}`)}
+                  className="shrink-0 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-[var(--color-primary)] text-on-primary-fixed hover:opacity-90"
+                >
+                  Review
+                </button>
+              </div>
             </div>
           )}
 
@@ -335,14 +356,21 @@ function AlertRuleRow({
             )}
 
             {indicator.kind === 'in_progress' && (
-              <button
-                type="button"
-                onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/20 transition-colors"
-              >
-                <Spinner />
-                Investigating…
-              </button>
+              indicator.investigationId ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-primary)]/10 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/20 transition-colors"
+                >
+                  <Spinner />
+                  Investigating…
+                </button>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[var(--color-surface-high)] text-[var(--color-on-surface-variant)] cursor-default">
+                  <Spinner />
+                  Investigating…
+                </span>
+              )
             )}
 
             {indicator.kind === 'completed_with_plan' && (
@@ -377,18 +405,31 @@ function AlertRuleRow({
             )}
 
             {indicator.kind === 'failed' && (
-              <button
-                type="button"
-                onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
-                title="Investigation failed"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-severity-critical/10 text-severity-critical hover:bg-severity-critical/20 transition-colors"
-              >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-severity-critical" />
-                Investigation failed
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={onInvestigate}
+                  disabled={investigating}
+                  title={indicator.reason || 'Investigation failed. Start a new investigation.'}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-severity-critical/10 text-severity-critical hover:bg-severity-critical/20 transition-colors disabled:opacity-50"
+                >
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-severity-critical" />
+                  {investigating ? 'Starting…' : 'Re-investigate'}
+                </button>
+                {indicator.investigationId && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/investigations/${indicator.investigationId}`)}
+                    title={indicator.reason || 'View failed investigation'}
+                    className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-outline)] hover:text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
+                  >
+                    View failed investigation
+                  </button>
+                )}
+              </>
             )}
 
-            {(rule.state === 'firing' || rule.state === 'pending') && indicator.kind !== 'idle' && indicator.kind !== 'in_progress' && (
+            {(rule.state === 'firing' || rule.state === 'pending') && indicator.kind !== 'idle' && indicator.kind !== 'in_progress' && indicator.kind !== 'failed' && (
               <button
                 type="button"
                 onClick={onInvestigate}
@@ -405,7 +446,7 @@ function AlertRuleRow({
               <button
                 type="button"
                 onClick={onToggleState}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
+                className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] transition-colors"
               >
                 {isDisabled ? 'Enable' : 'Disable'}
               </button>
@@ -417,7 +458,7 @@ function AlertRuleRow({
                 onClick={onEdit}
                 title="Edit rule"
                 aria-label="Edit rule"
-                className="p-1.5 rounded-lg text-[var(--color-on-surface-variant)] hover:bg-[var(--color-surface-high)] transition-colors"
+                className="p-1.5 rounded-lg text-[var(--color-on-surface)] hover:bg-[var(--color-surface-high)] transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -429,7 +470,7 @@ function AlertRuleRow({
               <button
                 type="button"
                 onClick={onDelete}
-                className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-outline)] hover:text-severity-critical hover:bg-severity-critical/10 transition-colors"
+                className="px-2.5 py-1.5 rounded-lg text-xs text-[var(--color-on-surface-variant)] hover:text-severity-critical hover:bg-severity-critical/10 transition-colors"
               >
                 Delete
               </button>
@@ -466,7 +507,7 @@ export default function Alerts() {
   const [groupBy, setGroupBy] = useState<'none' | 'severity'>('none');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [investigatingId, setInvestigatingId] = useState<string | null>(null);
-  const [pendingPlanByInvestigation, setPendingPlanByInvestigation] = useState<Record<string, string>>({});
+  const [pendingPlanByInvestigation, setPendingPlanByInvestigation] = useState<Record<string, RemediationPlan>>({});
   // Poll status for any rule that already has an investigation attached so the
   // row can show a live "Investigating…" / "Done" / "Failed" indicator without
   // requiring the operator to click through.
@@ -509,10 +550,10 @@ export default function Alerts() {
   const loadPendingPlans = useCallback(async () => {
     try {
       const { data } = await plansApi.list({ status: 'pending_approval' });
-      const map: Record<string, string> = {};
+      const map: Record<string, RemediationPlan> = {};
       for (const p of data ?? []) {
         if (p.investigationId && !map[p.investigationId]) {
-          map[p.investigationId] = p.id;
+          map[p.investigationId] = p;
         }
       }
       setPendingPlanByInvestigation(map);
@@ -542,24 +583,25 @@ export default function Alerts() {
 
   const handleInvestigate = useCallback(async (rule: AlertRule) => {
     setInvestigatingId(rule.id);
-    // Always force a fresh investigation. Both buttons that call into here
-    // ("Investigate" on idle rules and "Re-investigate" on completed ones)
-    // express the same intent: the user wants the agent to RUN, not to be
-    // bounced back to a stale report. Viewing an existing investigation is
-    // handled by the separate "View Investigation" button. The old logic
-    // `force = !rule.investigationId` inverted this — it made the
-    // Re-investigate button silently navigate to the prior report and
-    // never spawn a new run.
-    const res = await apiClient.post<{ investigationId: string; prompt: string; existing: boolean }>(
+    const res = await apiClient.post<{ queued?: boolean; existing?: boolean; investigationId?: string }>(
       `/alert-rules/${rule.id}/investigate`,
       { force: true },
     );
-    setInvestigatingId(null);
-    if (!res.error && res.data.investigationId) {
-      setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, investigationId: res.data.investigationId } : r));
-      navigate(`/investigations/${res.data.investigationId}`);
+    if (res.error) {
+      setInvestigatingId(null);
+      return;
     }
-  }, [navigate]);
+    if (res.data.investigationId) {
+      setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, investigationId: res.data.investigationId } : r));
+      setInvestigatingId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!investigatingId) return;
+    const rule = rules.find((r) => r.id === investigatingId);
+    if (!rule || rule.investigationId) setInvestigatingId(null);
+  }, [investigatingId, rules]);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -764,28 +806,36 @@ export default function Alerts() {
                 )}
 
                 <div className="space-y-2">
-                  {group.rules.map((rule) => (
-                    <AlertRuleRow
-                      key={rule.id}
-                      rule={rule}
-                      expanded={expandedIds.has(rule.id)}
-                      onToggleExpand={() => toggleExpand(rule.id)}
-                      onToggleState={() => void handleToggle(rule)}
-                      onEdit={() => navigate(`/alerts/${rule.id}/edit`)}
-                      onDelete={() => setDeletingId(rule.id)}
-                      onInvestigate={() => void handleInvestigate(rule)}
-                      investigating={investigatingId === rule.id}
-                      navigate={navigate}
-                      canWrite={canWriteRule}
-                      canDelete={canDeleteRule}
-                      pendingPlanId={rule.investigationId ? pendingPlanByInvestigation[rule.investigationId] : undefined}
-                      indicator={classifyInvestigation({
+                  {group.rules.map((rule) => {
+                    const indicator = investigatingId === rule.id
+                      ? { kind: 'in_progress' as const, status: 'investigating' as const }
+                      : classifyInvestigation({
                         investigationId: rule.investigationId,
+                        investigationStartedAt: rule.investigationStartedAt,
+                        investigationFailedAt: rule.investigationFailedAt,
+                        investigationFailureReason: rule.investigationFailureReason,
                         status: rule.investigationId ? investigationStatuses.get(rule.investigationId)?.status : undefined,
-                        pendingPlanId: rule.investigationId ? pendingPlanByInvestigation[rule.investigationId] : undefined,
-                      })}
-                    />
-                  ))}
+                        pendingPlanId: rule.investigationId ? pendingPlanByInvestigation[rule.investigationId]?.id : undefined,
+                      });
+                    return (
+                      <AlertRuleRow
+                        key={rule.id}
+                        rule={rule}
+                        expanded={expandedIds.has(rule.id)}
+                        onToggleExpand={() => toggleExpand(rule.id)}
+                        onToggleState={() => void handleToggle(rule)}
+                        onEdit={() => navigate(`/alerts/${rule.id}/edit`)}
+                        onDelete={() => setDeletingId(rule.id)}
+                        onInvestigate={() => void handleInvestigate(rule)}
+                        investigating={investigatingId === rule.id}
+                        navigate={navigate}
+                        canWrite={canWriteRule}
+                        canDelete={canDeleteRule}
+                        pendingPlan={rule.investigationId ? pendingPlanByInvestigation[rule.investigationId] : undefined}
+                        indicator={indicator}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             ))}

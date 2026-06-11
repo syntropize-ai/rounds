@@ -348,4 +348,82 @@ describe('ReActLoop', () => {
       .map((t) => t.name)
     expect(secondToolNames).toContain('metrics_query')
   })
+
+  it('honors the configured maxIterations instead of the global ceiling', async () => {
+    const sendEvent = vi.fn()
+    const gateway = {
+      complete: vi.fn().mockResolvedValue({
+        content: '',
+        toolCalls: [
+          {
+            id: 'call_1',
+            name: 'metrics_query',
+            input: { sourceId: 'prom', query: 'up' },
+          },
+        ],
+      }),
+    } as any
+    const executeAction = vi.fn().mockResolvedValue('query ok')
+
+    const loop = new ReActLoop({
+      gateway,
+      model: 'test-model',
+      sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+      maxIterations: 3,
+    })
+
+    const result = await loop.runLoop('system', 'keep querying', executeAction)
+
+    expect(gateway.complete).toHaveBeenCalledTimes(3)
+    expect(executeAction).toHaveBeenCalledTimes(3)
+    expect(result).toContain('3 steps')
+  })
+
+  it('warns an unfinished investigation to complete or mark unresolved before the iteration budget is exhausted', async () => {
+    const sendEvent = vi.fn()
+    const gateway = {
+      complete: vi.fn().mockResolvedValue({
+        content: '',
+        toolCalls: [
+          {
+            id: 'call_1',
+            name: 'metrics_query',
+            input: { sourceId: 'prom', query: 'up' },
+          },
+        ],
+      }),
+    } as any
+    const executeAction = vi.fn().mockResolvedValue('query ok')
+    const onBeforeTerminate = vi.fn().mockReturnValue('Call investigation_complete before ending.')
+
+    const loop = new ReActLoop({
+      gateway,
+      model: 'test-model',
+      sendEvent,
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+      maxIterations: 4,
+      onBeforeTerminate,
+    })
+
+    await loop.runLoop('system', 'why is x broken?', executeAction)
+
+    const thirdCallMessages = gateway.complete.mock.calls[2]![0]
+    expect(thirdCallMessages).toEqual(expect.arrayContaining([
+      {
+        role: 'user',
+        content: expect.stringContaining('Stop exploratory reads now'),
+      },
+    ]))
+    expect(thirdCallMessages).toEqual(expect.arrayContaining([
+      {
+        role: 'user',
+        content: expect.stringContaining('rootCause.status="unresolved"'),
+      },
+    ]))
+  })
 })

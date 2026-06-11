@@ -32,6 +32,9 @@ export interface AlertRule {
 
   // Investigation link
   investigationId?: string; // Report ID from auto/manual investigation
+  investigationStartedAt?: string; // Background run is active; report not finalized yet
+  investigationFailedAt?: string; // Background run ended without a saved report
+  investigationFailureReason?: string;
 
   // Workspace
   workspaceId?: string;

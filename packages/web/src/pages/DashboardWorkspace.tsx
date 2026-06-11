@@ -225,9 +225,6 @@ export default function DashboardWorkspace() {
     if (id) {
       setChatPageContext({ kind: 'dashboard', id, timeRange });
     }
-    return () => {
-      setChatPageContext(null);
-    };
   }, [id, timeRange, setChatPageContext]);
 
   // Chat history is bound by the URL (`?chat=...`) and loaded in Layout.

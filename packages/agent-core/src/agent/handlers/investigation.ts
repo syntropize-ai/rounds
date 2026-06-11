@@ -11,6 +11,16 @@ import type {
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary, withWorkspaceScope } from './_shared.js';
 import { panelSize } from '../layout-engine.js';
+import {
+  createInvestigationWorkingState,
+  type HypothesisStatus,
+  type InvestigationCheck,
+  type InvestigationWorkingState,
+  normalizeConfidence,
+  recordInvestigationCheck,
+  type InvestigationCompletionClaim,
+  type InvestigationSignalType,
+} from '../investigation-state.js';
 
 const log = createLogger('investigation-provenance');
 
@@ -29,12 +39,16 @@ const KIND_BY_PREFIX: Record<string, Citation['kind']> = {
   c: 'change',
 };
 
-/**
- * Bounds the audit↔resume loop: a `NEEDS_MORE` verdict bounces the investigator
- * back to keep digging, but only this many times. On exhaustion the report
- * ships with an `## Unresolved` caveat (honest-flagged beats blocked-forever).
- */
-const MAX_AUDIT_ROUNDS = 2;
+const DEFAULT_COMPLETION_CONFIDENCE = 0;
+const MAX_AUTO_EVIDENCE_CHECKS = 8;
+
+const CITATION_PREFIX_BY_SIGNAL: Partial<Record<InvestigationSignalType, string>> = {
+  metric: 'm',
+  log: 'l',
+  kubernetes: 'k',
+  config: 'k',
+  change: 'c',
+};
 
 // ---------------------------------------------------------------------------
 // Investigation lifecycle
@@ -79,6 +93,7 @@ export async function handleInvestigationCreate(
         citations: [],
         startedAt: Date.now(),
       });
+      ctx.investigationStates.set(draftId, createInvestigationWorkingState());
       observationText = `Prepared investigation "${question.slice(0, 60)}" (draft id: ${draftId}). It will be created when the report is complete.`;
       return observationText;
     },
@@ -91,6 +106,57 @@ export async function handleInvestigationCreate(
     }),
   );
   return observationText;
+}
+
+export async function handleInvestigationRecordCheck(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const investigationId = ctx.activeInvestigationId;
+  if (!investigationId) {
+    return 'Error: no active investigation. Call investigation_create first.';
+  }
+
+  const hypothesis = String(args.hypothesis ?? '').trim();
+  const tool = String(args.tool ?? '').trim();
+  const result = String(args.result ?? '').trim();
+  const interpretation = String(args.interpretation ?? '').trim();
+  if (!hypothesis) return 'Error: "hypothesis" is required.';
+  if (!tool) return 'Error: "tool" is required.';
+  if (!result) return 'Error: "result" is required.';
+  if (!interpretation) return 'Error: "interpretation" is required.';
+
+  const signalType = parseSignalType(args.signalType);
+  if (!signalType) {
+    return 'Error: "signalType" must be one of metric, log, kubernetes, change, trace, config, knowledge, web, other.';
+  }
+  const status = parseHypothesisStatus(args.status);
+  if (!status) {
+    return 'Error: "status" must be one of supported, ruled_out, inconclusive.';
+  }
+
+  return withToolEventBoundary(
+    ctx.sendEvent,
+    'investigation_record_check',
+    { investigationId, signalType, status },
+    `Recording ${signalType} check`,
+    async () => {
+      const state = ctx.investigationStates.get(investigationId) ?? createInvestigationWorkingState();
+      ctx.investigationStates.set(investigationId, state);
+      const check = recordInvestigationCheck(state, {
+        hypothesis,
+        signalType,
+        tool,
+        query: typeof args.query === 'string' ? args.query : '',
+        result,
+        interpretation,
+        status,
+        nextCheck: typeof args.nextCheck === 'string' ? args.nextCheck : undefined,
+      });
+
+      return `Recorded ${check.id} (${signalType}, ${status}). Checks: ${state.checks.length}. Supported hypotheses: ${state.hypotheses.filter((h) => h.status === 'supported').length}; ruled out: ${state.hypotheses.filter((h) => h.status === 'ruled_out').length}.`;
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -348,68 +414,44 @@ export async function handleInvestigationComplete(
   }
   const summary = String(args.summary ?? '');
   if (!summary) return 'Error: "summary" is required.';
+  const claim = parseCompletionClaim(args);
+  if (!claim) {
+    return 'Error: investigation_complete requires rootCause.status plus confidence, evidenceRefs, and ruledOut. rootCause.status must be confirmed, likely, or unresolved.';
+  }
+
+  if (!ctx.investigationStore) {
+    return 'Error: investigation store is not available.';
+  }
+  const pendingCreate = ctx.pendingInvestigationCreates.get(investigationId);
+  if (pendingCreate && !ctx.investigationStore.create) {
+    return 'Error: investigation store is not available.';
+  }
+  if (!pendingCreate && !ctx.investigationStore.findById) {
+    return 'Error: investigation store is not available.';
+  }
+  const investigationStore = ctx.investigationStore;
+
+  let persistedInvestigationId = investigationId;
+  if (!pendingCreate) {
+    const investigation = await investigationStore.findById!(investigationId);
+    if (!investigation) {
+      return `Error: investigation "${investigationId}" was not found.`;
+    }
+    if (investigation.workspaceId !== ctx.identity.orgId) {
+      return `Error: investigation "${investigationId}" was not found.`;
+    }
+  }
+
+  const sections = ctx.investigationSections.get(investigationId) ?? [];
 
   return withToolEventBoundary(
     ctx.sendEvent,
     'investigation_complete',
     { investigationId },
-    `Completing investigation`,
+    `Saving investigation report`,
     async () => {
-      if (!ctx.investigationStore) {
-        return 'Error: investigation store is not available.';
-      }
-
-      const pendingCreate = ctx.pendingInvestigationCreates.get(investigationId);
-      if (pendingCreate && !ctx.investigationStore.create) {
-        return 'Error: investigation store is not available.';
-      }
-      if (!pendingCreate && !ctx.investigationStore.findById) {
-        return 'Error: investigation store is not available.';
-      }
-      let persistedInvestigationId = investigationId;
-      let question = pendingCreate?.question ?? '';
-      if (!pendingCreate) {
-        const investigation = await ctx.investigationStore.findById!(investigationId);
-        if (!investigation) {
-          return `Error: investigation "${investigationId}" was not found.`;
-        }
-        if (investigation.workspaceId !== ctx.identity.orgId) {
-          return `Error: investigation "${investigationId}" was not found.`;
-        }
-        question = investigation.intent;
-      }
-
-      const sections = ctx.investigationSections.get(investigationId) ?? [];
-
-      // --- Independent audit gate ---
-      // Before persisting, an independent read-only auditor judges whether the
-      // user could fix the problem from this report ALONE. NEEDS_MORE bounces
-      // the investigator back to keep digging (the loop resumes — see below).
-      // Skipped (fail-open) when `runAuditor` is unwired (tests) or provenance
-      // is absent.
-      const provForAudit = ctx.investigationProvenance.get(investigationId);
-      let unresolvedGap: string | null = null;
-      if (ctx.runAuditor && provForAudit) {
-        const reportText = [summary, ...sections.map((s) => s.content)].join('\n\n');
-        const { verdict, gap } = await ctx.runAuditor({ question, report: reportText });
-        if (verdict === 'NEEDS_MORE') {
-          const rounds = provForAudit.auditorRounds ?? 0;
-          if (rounds < MAX_AUDIT_ROUNDS) {
-            provForAudit.auditorRounds = rounds + 1;
-            log.warn({ investigationId, round: rounds + 1 }, 'investigation_complete sent back by auditor');
-            // Returning a guidance string WITHOUT persisting or clearing the
-            // active id is the resume: the ReActLoop feeds this back as the
-            // next observation and the investigator re-completes when ready.
-            return `Investigation NOT completed - an independent auditor judged the report not yet directly actionable. ${gap} `
-              + 'Keep going: close that gap so the user could fix the problem from the report alone, then call investigation_complete again.';
-          }
-          unresolvedGap = gap; // budget exhausted -> ship, flagged
-          log.warn({ investigationId }, 'auditor budget exhausted; completing with unresolved caveat');
-        }
-      }
-
       if (pendingCreate) {
-        const investigation = await ctx.investigationStore.create(
+        const investigation = await investigationStore.create!(
           withWorkspaceScope(ctx.identity, {
             question: pendingCreate.question,
             sessionId: ctx.sessionId,
@@ -417,6 +459,7 @@ export async function handleInvestigationComplete(
           }),
         );
         persistedInvestigationId = investigation.id;
+        ctx.completedInvestigationAliases?.set(investigationId, persistedInvestigationId);
         ctx.pendingInvestigationCreates.delete(investigationId);
         ctx.activeInvestigationId = persistedInvestigationId;
         ctx.investigationSections.delete(investigationId);
@@ -428,6 +471,11 @@ export async function handleInvestigationComplete(
             ...draftProvenance,
             runId: persistedInvestigationId,
           });
+        }
+        const draftState = ctx.investigationStates.get(investigationId);
+        if (draftState) {
+          ctx.investigationStates.delete(investigationId);
+          ctx.investigationStates.set(persistedInvestigationId, draftState);
         }
         void ctx.auditWriter?.({
           action: AuditAction.InvestigationCreate,
@@ -442,24 +490,49 @@ export async function handleInvestigationComplete(
         });
       }
 
-      if (unresolvedGap) {
+      if (claim.rootCause.status === 'unresolved') {
         sections.push({
           type: 'text',
-          content: `## Unresolved\n\nCompleted with a gap an independent auditor flagged: ${unresolvedGap}. Treat the conclusion as provisional until this is addressed.`,
+          content: `## Unresolved\n\nThe available evidence did not reach an 80% root-cause confidence threshold. Next check: ${claim.rootCause.nextCheck ?? claim.nextAction ?? 'not specified'}.`,
         });
+      }
+
+      const state = ctx.investigationStates.get(persistedInvestigationId)
+        ?? ctx.investigationStates.get(investigationId);
+      const provState = ctx.investigationProvenance.get(persistedInvestigationId);
+      if (state?.checks.length) {
+        appendLedgerSections(sections, state, claim, provState);
       }
 
       // Finalise provenance: copy out a clean Provenance (drop `startedAt`
       // bookkeeping field) and compute end-to-end latency. Cost is left
       // undefined — UI will fall back to "—" or fetch from llm_audit.
-      const provState = ctx.investigationProvenance.get(persistedInvestigationId);
       let finalProvenance: Provenance | undefined;
       if (provState) {
-        // Drop bookkeeping-only fields (`startedAt`, `auditorRounds`,
-        // `reportId`) so they never leak into the persisted provenance row.
-        const { startedAt, auditorRounds, reportId, ...rest } = provState;
-        void auditorRounds;
+        if (provState.citations?.length) {
+          provState.evidenceCount = Math.max(
+            provState.evidenceCount ?? 0,
+            provState.citations.length,
+          );
+        }
+        // Drop bookkeeping-only fields so they never leak into the persisted
+        // provenance row.
+        const {
+          startedAt,
+          reportId,
+          readToolCalls,
+          metricReadCalls,
+          logReadCalls,
+          opsReadCalls,
+          changeReadCalls,
+          ...rest
+        } = provState;
         void reportId;
+        void readToolCalls;
+        void metricReadCalls;
+        void logReadCalls;
+        void opsReadCalls;
+        void changeReadCalls;
         finalProvenance = {
           ...rest,
           ...(startedAt ? { latencyMs: Date.now() - startedAt } : {}),
@@ -516,6 +589,8 @@ export async function handleInvestigationComplete(
       ctx.investigationSections.delete(persistedInvestigationId);
       ctx.investigationProvenance.delete(investigationId);
       ctx.investigationProvenance.delete(persistedInvestigationId);
+      ctx.investigationStates.delete(investigationId);
+      ctx.investigationStates.delete(persistedInvestigationId);
       // Clear active id so the next investigation_create starts a fresh one.
       ctx.activeInvestigationId = null;
 
@@ -527,6 +602,199 @@ export async function handleInvestigationComplete(
       return `Investigation completed and report saved with ${sections.length} sections. Summary: ${summary}`;
     },
   );
+}
+
+function appendLedgerSections(
+  sections: InvestigationReportSection[],
+  state: InvestigationWorkingState,
+  claim: InvestigationCompletionClaim,
+  provenance?: Provenance,
+): void {
+  const checks = rankChecksForReport(state, claim);
+  if (checks.length === 0) return;
+
+  const citationRefs = assignCitationRefs(checks, provenance);
+  const evidenceLines = checks.map((check) => {
+    const ref = citationRefs.get(check.id);
+    const prefix = ref ? `[${ref}] ` : '';
+    const statusLabel = formatStatus(check.status);
+    const query = check.query ? ` Query: \`${truncateOneLine(check.query, 180)}\`.` : '';
+    return `- ${prefix}**${statusLabel}** ${check.hypothesis}: ${check.result} Interpretation: ${check.interpretation}.${query}`;
+  });
+
+  sections.push({
+    type: 'text',
+    content: [
+      '## Evidence Trail',
+      '',
+      ...evidenceLines,
+    ].join('\n'),
+  });
+
+  const confidence = Math.round(claim.confidence * 100);
+  const rootCause = formatRootCause(claim);
+  const ruledOut = claim.ruledOut.length
+    ? claim.ruledOut.map((item) => `- ${item}`).join('\n')
+    : '- No explicit alternatives were recorded.';
+  const nextAction = claim.nextAction ?? claim.rootCause.nextCheck;
+  sections.push({
+    type: 'text',
+    content: [
+      '## Conclusion',
+      '',
+      `Root-cause confidence: **${confidence}%**.`,
+      '',
+      rootCause,
+      '',
+      '### Ruled Out',
+      '',
+      ruledOut,
+      ...(nextAction ? ['', '### Next Action', '', nextAction] : []),
+    ].join('\n'),
+  });
+}
+
+function rankChecksForReport(
+  state: InvestigationWorkingState,
+  claim: InvestigationCompletionClaim,
+): InvestigationCheck[] {
+  const byId = new Map(state.checks.map((check) => [check.id, check]));
+  const selected: InvestigationCheck[] = [];
+  for (const id of claim.evidenceRefs) {
+    const check = byId.get(id);
+    if (check && !selected.some((c) => c.id === check.id)) selected.push(check);
+  }
+  for (const check of state.checks) {
+    if (selected.length >= MAX_AUTO_EVIDENCE_CHECKS) break;
+    if (check.status === 'supported' && !selected.some((c) => c.id === check.id)) {
+      selected.push(check);
+    }
+  }
+  for (const check of state.checks) {
+    if (selected.length >= MAX_AUTO_EVIDENCE_CHECKS) break;
+    if (check.status === 'ruled_out' && !selected.some((c) => c.id === check.id)) {
+      selected.push(check);
+    }
+  }
+  for (const check of state.checks) {
+    if (selected.length >= MAX_AUTO_EVIDENCE_CHECKS) break;
+    if (!selected.some((c) => c.id === check.id)) selected.push(check);
+  }
+  return selected;
+}
+
+function assignCitationRefs(
+  checks: InvestigationCheck[],
+  provenance?: Provenance,
+): Map<string, string> {
+  const refs = new Map<string, string>();
+  if (!provenance) return refs;
+
+  const nextByPrefix: Record<string, number> = { m: 1, l: 1, k: 1, c: 1 };
+  for (const citation of provenance.citations ?? []) {
+    const match = citation.ref.match(/^([mlkc])(\d+)$/);
+    if (!match) continue;
+    const prefix = match[1]!;
+    nextByPrefix[prefix] = Math.max(nextByPrefix[prefix] ?? 1, Number(match[2]!) + 1);
+  }
+
+  const citations = provenance.citations ?? (provenance.citations = []);
+  for (const check of checks) {
+    const prefix = CITATION_PREFIX_BY_SIGNAL[check.signalType];
+    if (!prefix) continue;
+    const ref = `${prefix}${nextByPrefix[prefix] ?? 1}`;
+    nextByPrefix[prefix] = (nextByPrefix[prefix] ?? 1) + 1;
+    refs.set(check.id, ref);
+    citations.push({
+      ref,
+      kind: KIND_BY_PREFIX[prefix]!,
+      summary: `${check.tool}: ${truncateOneLine(check.result, 140)}`,
+    });
+  }
+  return refs;
+}
+
+function formatStatus(status: HypothesisStatus): string {
+  if (status === 'supported') return 'Supported';
+  if (status === 'ruled_out') return 'Ruled out';
+  return 'Inconclusive';
+}
+
+function formatRootCause(claim: InvestigationCompletionClaim): string {
+  const root = claim.rootCause;
+  if (root.status === 'unresolved') {
+    return `Root cause remains unresolved. Next check: ${root.nextCheck ?? claim.nextAction ?? 'not specified'}.`;
+  }
+  const subject = root.object ?? 'the affected system';
+  const field = root.field ? ` (${root.field})` : '';
+  const cause = root.cause ?? 'cause not specified';
+  return `Root cause: **${subject}${field}** - ${cause}.`;
+}
+
+function truncateOneLine(value: string, limit: number): string {
+  const oneLine = value.replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= limit) return oneLine;
+  return `${oneLine.slice(0, Math.max(0, limit - 1))}...`;
+}
+
+function parseCompletionClaim(args: Record<string, unknown>): InvestigationCompletionClaim | null {
+  const rootRaw = args.rootCause;
+  if (!rootRaw || typeof rootRaw !== 'object') return null;
+  const root = rootRaw as Record<string, unknown>;
+  const status = String(root.status ?? '').trim();
+  if (status !== 'confirmed' && status !== 'likely' && status !== 'unresolved') return null;
+  const confidence = normalizeConfidence(args.confidence ?? DEFAULT_COMPLETION_CONFIDENCE);
+  return {
+    rootCause: {
+      status,
+      object: stringOrUndefined(root.object),
+      field: stringOrUndefined(root.field),
+      cause: stringOrUndefined(root.cause),
+      nextCheck: stringOrUndefined(root.nextCheck),
+    },
+    confidence,
+    evidenceRefs: stringArray(args.evidenceRefs),
+    ruledOut: stringArray(args.ruledOut),
+    nextAction: stringOrUndefined(args.nextAction),
+  };
+}
+
+function parseSignalType(value: unknown): InvestigationSignalType | null {
+  const raw = String(value ?? '').trim();
+  if (
+    raw === 'metric' ||
+    raw === 'log' ||
+    raw === 'kubernetes' ||
+    raw === 'change' ||
+    raw === 'trace' ||
+    raw === 'config' ||
+    raw === 'knowledge' ||
+    raw === 'web' ||
+    raw === 'other'
+  ) {
+    return raw;
+  }
+  return null;
+}
+
+function parseHypothesisStatus(value: unknown): HypothesisStatus | null {
+  const raw = String(value ?? '').trim();
+  if (raw === 'supported' || raw === 'ruled_out' || raw === 'inconclusive') {
+    return raw;
+  }
+  return null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((v) => String(v).trim()).filter(Boolean)
+    : [];
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 // ---------------------------------------------------------------------------

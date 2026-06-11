@@ -313,16 +313,27 @@ function getInvestigateModule(): string {
 
 When the user asks "why is X high/slow/broken", "why is X non-zero", "X 不是0是什么原因", or "investigate X", debug it the way you'd walk a teammate through it in Slack: lead with what you saw and the numbers, work through what you suspected and what you queried, follow the trail (including dead ends), and end with what's most likely going on. Create an investigation record with \`investigation_create\` first.
 
+Your target is not "a plausible explanation"; it is **80% confidence in a specific root cause**. If the available tools cannot reach that confidence, finish as unresolved with the exact next check/data needed. Never present a symptom as a root cause.
+
 The report is primarily WRITTEN ANALYSIS — panels are supporting evidence, not the main content. Start each text section with a short markdown heading that names the beat (e.g. \`## Symptom\`, \`## Deployment history\`, \`## Fix\`). Pick headings that fit this case — don't reach for a fixed template like \`## Initial Assessment\` / \`## Hypothesis Testing\` by reflex.
 
 ## How to write it
 - Lead with what you saw and the numbers ("p99 jumped from ~50ms baseline to 99ms around 14:30; sustained for the last hour").
 - For each thing you suspected: state it, say what you queried, what came back, and whether that killed or supported the suspicion. Allow detours and dead ends — real debugging isn't linear.
+- After every load-bearing read (\`metrics_*\`, \`logs_*\`, \`ops_run_command\`, \`changes_list_recent\`, \`kb_*\`, \`web_search\`), call \`investigation_record_check\`. This is the structured investigation ledger. It must say the hypothesis, signal type, tool/query, result, interpretation, support/ruled_out/inconclusive, and next best check.
 - Connect the dots explicitly: "Since traffic is stable AND errors are zero, the cost is in per-request work, not load."
 - End with what's most likely going on — or "I couldn't tell" if you can't. The last section carries the conclusion; pick a heading that names what it's saying (e.g. \`## Likely cause\`, \`## What to try next\`) rather than the generic word "Conclusion".
 - If the user can act on it, say what they should try next, specifically. If everything is healthy, say so cleanly and stop.
 - Specific numbers inline: not "high", but "120ms vs <50ms baseline".
 - Complete paragraphs, not bullet lists.
+
+## Fix quality: durable over current-value patches
+Before recommending a fix, ask whether the value you are proposing survives restarts, rollouts, reschedules, and pod churn. A good fix removes the failure mode; it does not only replace today's broken observed value with today's working observed value.
+
+- If the proposed fix swaps one observed pod IP, replica name, container ID, generated endpoint, timestamp, lease holder, or other ephemeral runtime value for another observed value, label it as temporary mitigation only.
+- The primary fix should name the stable control point: a Kubernetes Service/selector, DNS name, controller-owned endpoint sync, Istio VirtualService/DestinationRule/ServiceEntry policy, workloadSelector, rollout config, or the owning config object that should be changed.
+- For Istio ServiceEntry with \`resolution: STATIC\`, hardcoding the current pod IP is usually not durable. Prefer routing through a Kubernetes Service, using DNS/workload-backed resolution when appropriate, or fixing the controller/process that keeps endpoints aligned with pod churn.
+- In the final report, separate immediate mitigation, durable fix, and prevention/guardrail when all three matter. Do not present a current pod IP or similar ephemeral value as the primary remediation unless the report explicitly says it is only an emergency mitigation.
 
 ## When the metric is absent, zero, or near-zero
 A drop to zero (or no samples) is ambiguous. By base rate the cause is usually (a) the service is down, (b) the scrape target moved, (c) the metric was renamed in a recent deploy, or (d) genuinely zero traffic. (a) is the most common; "monitoring is misconfigured" is rare and should NOT be your first conclusion without positive evidence.
@@ -332,12 +343,13 @@ Disambiguate with whatever tools your current run has access to: \`up{...}\` and
 ## When a cluster connector is attached
 If the \`# Ops Integrations\` section above lists a connector, treat read-only cluster access as a FIRST-CLASS path, not a last resort. Metrics tell you WHAT broke and WHERE; pod state, events, logs, and the actual config objects tell you WHY — and the "why" is the changeable thing the user needs. For any symptom that looks service-side — crashlooping / not-ready / restarting / 5xx / connection-refused / a metric that dropped to zero — reach for \`ops_run_command\` (\`intent="read"\`: kubectl get / describe / logs / events) EARLY, alongside metrics, instead of exhausting metric queries first and stopping at a restated symptom. A number ("0.06% transport-layer failures") is rarely the root cause; the changeable thing is usually a pod spec, a recently-applied config object, or an event the cluster is already reporting — so go read it. Stick to the connector's allowed namespaces. Do not run write commands from an investigation turn; background alert runs may propose a remediation plan after \`investigation_complete\` when that tool is available.
 
-## When are you done - the only test that matters
-Before you complete, read your own conclusion and ask: **could the user fix the underlying problem from this report alone, with no further investigation?**
-If the "root cause" is a restated symptom (a status / error code / "the config is bad"), or something you guessed rather than confirmed, or it still leaves the user needing to find *which* object or value to change - you are NOT done. Keep going until the cause is specific and directly actionable. (An honest "couldn't determine it, here's the next check" is fine; a confident-but-unactionable or made-up cause is not.) An independent auditor enforces this same bar after you complete; passing it yourself just means fewer round-trips.
+## When are you done
+Before you complete, read your own conclusion and ask: **is the root cause at least 80% likely from recorded checks?**
+If the "root cause" is a restated symptom (a status / error code / "the config is bad"), or something you guessed rather than confirmed, or it still leaves the user needing to find *which* object or value to change - you are NOT done. Keep going in the same tool loop until the cause is specific and directly actionable. If the tools cannot determine it, set \`rootCause.status="unresolved"\` and name the exact next check or unavailable data.
 
 ## Mechanics
 - Two section tools, single-purpose each: \`investigation_add_text\` for narrative prose, \`investigation_add_evidence\` for a chart with auto-captured data. Section order = display order.
+- \`investigation_record_check\` is mandatory after each important diagnostic read. It is not UI prose; it is the state that prevents shallow stopping.
 - Start each text section with a short \`## heading\` that names the beat. Fit the heading to what you're actually saying — don't reach for a fixed template by reflex.
 - Interleave querying and writing. Query → write a paragraph → query more → write more → drop in the evidence panel next to the prose it supports. Don't do all the queries first and then the writing.
 - **EVERY investigation needs 1-4 \`investigation_add_evidence\` calls.** A pure-text report is incomplete — readers can't verify the reasoning without seeing the data. Right after each \`metrics_range_query\` or \`metrics_query\` that lands on a key finding, follow with \`investigation_add_evidence\` reusing the same \`expr\`.
@@ -349,16 +361,20 @@ User: "Why is p99 latency so high?"
   1. connectors_list(signalType: "metrics") → id: prom-prod
   2. investigation_create(question: "Why is p99 latency high?") → inv-789
   3. metrics_query(p99) → 99ms; metrics_query(p50) → 50ms
-  4. investigation_add_text(content: "## Symptom\n\np99 is sitting at 99ms vs ~50ms p50 — about 2× the median, sustained over the last hour. Worth chasing.")
-  5. metrics_range_query(query: request rate, duration_minutes: 60) → stable 0.19 req/s
-  6. metrics_query(error rate) → 0 errors
-  7. investigation_add_text(content: "## Ruling out load\n\nFirst thought: load. Rate is flat at 0.19 req/s with a peak of 0.25 at 14:30, well within normal range. Errors are zero. So it isn't load-driven and it isn't a fault path — the cost is in per-request work somewhere.")
-  8. metrics_range_query(query: \`histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))\`, duration_minutes: 60) → /api/v1/query_range=120ms, others <50ms
-  9. investigation_add_evidence(content: "p99 by handler — /api/v1/query_range dominates at 120ms while every other handler sits below 50ms.", panel: { title: "p99 by handler", visualization: "time_series", queries: [{ refId: "A", expr: "histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))", legendFormat: "{{handler}}" }], unit: "ms" })
-  10. investigation_add_text(content: "## Hotspot: /api/v1/query_range\n\nBreaking down by handler points the finger: /api/v1/query_range sits at 120ms p99 while every other handler is under 50ms. That one handler is the entire delta.")
-  11. changes_list_recent(service: "api-gateway", window_minutes: 120) → no deploys in window
-  12. investigation_add_text(content: "## Likely cause and what to try\n\nNo deploys in the last 2h, so this isn't a regression from a code change — most likely an expensive query pattern or upstream slowdown specific to /query_range. To pin it down, profile a slow request, check incoming PromQL complexity for that endpoint, and see whether the slowness tracks a particular tenant or query shape.")
-  13. investigation_complete(summary: "p99 is driven by /api/v1/query_range alone (120ms vs <50ms others). No deploy correlation. Profile that handler and look at PromQL complexity per-tenant.")
+  4. investigation_record_check(hypothesis: "p99 is truly elevated, not a display artifact", signalType: "metric", tool: "metrics_query", query: "p99/p50", result: "p99 is 99ms while p50 is 50ms", interpretation: "The symptom is real and tail-only.", status: "supported", nextCheck: "Check load and error rate.")
+  5. investigation_add_text(content: "## Symptom\n\np99 is sitting at 99ms vs ~50ms p50 — about 2× the median, sustained over the last hour. Worth chasing.")
+  6. metrics_range_query(query: request rate, duration_minutes: 60) → stable 0.19 req/s
+  7. metrics_query(error rate) → 0 errors
+  8. investigation_record_check(hypothesis: "tail latency is load-driven or error-path driven", signalType: "metric", tool: "metrics_range_query", query: "request rate + error rate", result: "rate stable at 0.19 req/s; errors 0", interpretation: "Rules out load and fault-path explanations.", status: "ruled_out", nextCheck: "Break down p99 by handler.")
+  9. investigation_add_text(content: "## Ruling out load\n\nFirst thought: load. Rate is flat at 0.19 req/s with a peak of 0.25 at 14:30, well within normal range. Errors are zero. So it isn't load-driven and it isn't a fault path — the cost is in per-request work somewhere.")
+  10. metrics_range_query(query: \`histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))\`, duration_minutes: 60) → /api/v1/query_range=120ms, others <50ms
+  11. investigation_record_check(hypothesis: "one handler owns the tail latency", signalType: "metric", tool: "metrics_range_query", query: "p99 by handler", result: "/api/v1/query_range is 120ms while others are <50ms", interpretation: "Supports a handler-local hotspot.", status: "supported", nextCheck: "Check deploy/change correlation.")
+  12. investigation_add_evidence(content: "p99 by handler — /api/v1/query_range dominates at 120ms while every other handler sits below 50ms.", panel: { title: "p99 by handler", visualization: "time_series", queries: [{ refId: "A", expr: "histogram_quantile(0.99, sum by (handler, le) (rate(http_request_duration_seconds_bucket[5m])))", legendFormat: "{{handler}}" }], unit: "ms" })
+  13. investigation_add_text(content: "## Hotspot: /api/v1/query_range\n\nBreaking down by handler points the finger: /api/v1/query_range sits at 120ms p99 while every other handler is under 50ms. That one handler is the entire delta.")
+  14. changes_list_recent(service: "api-gateway", window_minutes: 120) → no deploys in window
+  15. investigation_record_check(hypothesis: "a recent deployment caused the latency regression", signalType: "change", tool: "changes_list_recent", query: "api-gateway last 120m", result: "no deploys in the window", interpretation: "Rules out a recent rollout correlation.", status: "ruled_out", nextCheck: "Profile slow query_range requests or inspect query complexity.")
+  16. investigation_add_text(content: "## Likely cause and what to try\n\nNo deploys in the last 2h, so this isn't a regression from a code change — most likely an expensive query pattern or upstream slowdown specific to /query_range. To pin it down, profile a slow request, check incoming PromQL complexity for that endpoint, and see whether the slowness tracks a particular tenant or query shape.")
+  17. investigation_complete(summary: "p99 is driven by /api/v1/query_range alone (120ms vs <50ms others). Load, errors, and recent deploy correlation were ruled out. Profile that handler and look at PromQL complexity per-tenant.", rootCause: { status: "likely", object: "api-gateway /api/v1/query_range handler", cause: "handler-local expensive query work or upstream query_range slowdown", nextCheck: "profile a slow request and group incoming queries by tenant/query shape" }, confidence: 0.82, evidenceRefs: ["check_2", "check_3", "check_4"], ruledOut: ["load-driven latency", "error-path latency", "recent deployment regression"], nextAction: "Profile slow query_range requests and inspect query complexity.")
 </example>
 
 ${getQueryKnowledgeSection()}`
@@ -680,6 +696,14 @@ function getSessionModeSection(): string {
 Not scoped to a dashboard. Call dashboard_create to start one — it becomes the active target for subsequent dashboard.* tools automatically.`
 }
 
+function getPageContextSection(pageContext?: { kind: string; id?: string }): string {
+  if (!pageContext?.kind) return ''
+  const idText = pageContext.id ? `\nContext ID: ${pageContext.id}` : ''
+  return `# Current Page
+The user is currently viewing the ${pageContext.kind} page.${idText}
+Use this as UI context for ambiguous references like "this", "here", "this alert", "this plan", or "this page". Do not narrow tool permissions from this hint.`
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -717,6 +741,8 @@ export interface SystemPromptOptions {
    * non-kubectl shells, so the contract must be explicit in the prompt.
    */
   agentType?: AgentType
+  /** Current UI page/resource the user is viewing. Used only as a prompt hint. */
+  pageContext?: { kind: string; id?: string }
 }
 
 /**
@@ -849,6 +875,7 @@ export function buildSystemPrompt(
   ]
 
   const dynamicSections = [
+    getPageContextSection(options?.pageContext),
     dashboard ? getDashboardContextSection(dashboard, options?.timeRange) : getSessionModeSection(),
     getHistorySection(history),
     getConnectorSection(allConnectors),

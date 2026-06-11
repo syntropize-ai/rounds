@@ -41,6 +41,11 @@ const log = createLogger('auto-investigation');
 const NO_TOKEN_WARN_COOLDOWN_MS = 60_000;
 /** Default cooldown for the persistent dedup check. */
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
+/** Auto-alert investigations older than this are considered abandoned. */
+const DEFAULT_RUNNING_STALE_MS = 30 * 60 * 1000;
+/** Hard cap for one background agent run. Keeps alert UI state from sticking. */
+const DEFAULT_AGENT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+const AUTO_ALERT_SESSION_PREFIX = 'auto-alert:';
 
 /**
  * Investigation repo surface the consumer needs. Wider repository
@@ -49,6 +54,13 @@ const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
  * bundle's exact intersection type.
  */
 export interface ConsumerInvestigationStore {
+  create?(input: {
+    question: string;
+    sessionId: string;
+    userId: string;
+    tenantId?: string;
+    workspaceId?: string;
+  }): Investigation | Promise<Investigation>;
   findById(id: string): Investigation | null | undefined | Promise<Investigation | null | undefined>;
   findByWorkspace(workspaceId: string): Investigation[] | Promise<Investigation[]>;
   updateStatus(
@@ -60,7 +72,14 @@ export interface ConsumerInvestigationStore {
 /** Alert-rule repo surface the consumer needs. */
 export interface ConsumerAlertRuleStore {
   findById(id: string): AlertRule | null | undefined | Promise<AlertRule | null | undefined>;
-  update(id: string, partial: { investigationId?: string }): unknown;
+  findAll?(): { list: AlertRule[]; total: number } | Promise<{ list: AlertRule[]; total: number }>;
+  findByWorkspace?(workspaceId: string): AlertRule[] | Promise<AlertRule[]>;
+  update(id: string, partial: {
+    investigationId?: string;
+    investigationStartedAt?: string;
+    investigationFailedAt?: string;
+    investigationFailureReason?: string;
+  }): unknown;
 }
 
 /**
@@ -86,6 +105,20 @@ export interface AutoInvestigationConsumerOptions {
    * deduped. Defaults to 5 minutes.
    */
   cooldownMs?: number;
+  /**
+   * Window after which a pre-terminal auto-alert investigation is considered
+   * abandoned. This prevents Alerts from showing "Investigating..." forever if
+   * the api-gateway process restarts or the agent dies before finalization.
+   */
+  staleRunningMs?: number;
+  /**
+   * Maximum wall-clock time for one background agent invocation. The agent may
+   * still be deep, but the alert row must not remain "Investigating..." forever
+   * if the runner gets stuck behind an invisible wait.
+   */
+  agentRunTimeoutMs?: number;
+  /** Org whose auto-alert rows should be swept for stale state. */
+  orgId?: string;
   /** Override for tests. */
   clock?: () => Date;
   /** Override the spawned background-agent function — useful in tests. */
@@ -140,13 +173,20 @@ const RUNNING_STATUSES: ReadonlySet<string> = new Set([
 
 export class AutoInvestigationConsumer {
   private readonly cooldownMs: number;
+  private readonly staleRunningMs: number;
+  private readonly agentRunTimeoutMs: number;
+  private readonly orgId: string;
   private readonly clock: () => Date;
   private readonly spawnAgent: typeof runBackgroundAgent;
   private unsubscribe: (() => void) | null = null;
+  private staleSweepTimer: ReturnType<typeof setInterval> | null = null;
   private lastNoTokenWarnAt = 0;
 
   constructor(private readonly opts: AutoInvestigationConsumerOptions) {
     this.cooldownMs = opts.cooldownMs ?? DEFAULT_COOLDOWN_MS;
+    this.staleRunningMs = opts.staleRunningMs ?? DEFAULT_RUNNING_STALE_MS;
+    this.agentRunTimeoutMs = opts.agentRunTimeoutMs ?? DEFAULT_AGENT_RUN_TIMEOUT_MS;
+    this.orgId = opts.orgId ?? 'org_main';
     this.clock = opts.clock ?? (() => new Date());
     this.spawnAgent = opts.spawnAgent ?? runBackgroundAgent;
   }
@@ -154,6 +194,22 @@ export class AutoInvestigationConsumer {
   /** Subscribe to `alert.fired` on the bus. Idempotent. */
   start(): void {
     if (this.unsubscribe) return;
+    void this.markInterruptedAlertLevelInvestigations()
+      .then(() => this.markStaleLiveInvestigations())
+      .catch((err) => {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'stale auto-investigation sweep failed',
+        );
+      });
+    this.staleSweepTimer = setInterval(() => {
+      void this.markStaleAutoInvestigations().catch((err) => {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'stale auto-investigation sweep failed',
+        );
+      });
+    }, Math.min(this.staleRunningMs, 60_000));
     this.unsubscribe = this.opts.bus.subscribe<AlertFiredEventPayload>(
       ALERT_FIRED_TOPIC,
       (event) => this.onAlertFired(event.payload),
@@ -165,6 +221,10 @@ export class AutoInvestigationConsumer {
     if (!this.unsubscribe) return;
     this.unsubscribe();
     this.unsubscribe = null;
+    if (this.staleSweepTimer) {
+      clearInterval(this.staleSweepTimer);
+      this.staleSweepTimer = null;
+    }
   }
 
   /**
@@ -175,10 +235,29 @@ export class AutoInvestigationConsumer {
    */
   async shouldRun(payload: AlertFiredEventPayload): Promise<boolean> {
     const rule = await this.opts.alertRules.findById(payload.ruleId);
-    if (!rule || !rule.investigationId) return true;
+    if (!rule) return true;
+    if (!rule.investigationId && rule.investigationStartedAt) {
+      const startedTs = new Date(rule.investigationStartedAt).getTime();
+      if (Number.isFinite(startedTs) && this.clock().getTime() - startedTs <= this.staleRunningMs) {
+        return false;
+      }
+      return true;
+    }
+    if (!rule.investigationId) return true;
     const inv = await this.opts.investigations.findById(rule.investigationId);
     if (!inv) return true;
-    if (RUNNING_STATUSES.has(inv.status)) return false;
+    if (RUNNING_STATUSES.has(inv.status)) {
+      if (!this.isStaleAutoAlertInvestigation(inv)) return false;
+      try {
+        await this.opts.investigations.updateStatus(inv.id, 'failed');
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), investigationId: inv.id },
+          'stale auto-investigation status update failed during dedup check',
+        );
+      }
+      return true;
+    }
     const lastTsRaw = inv.updatedAt ?? inv.createdAt;
     const lastTs = new Date(lastTsRaw).getTime();
     return this.clock().getTime() - lastTs > this.cooldownMs;
@@ -228,11 +307,12 @@ export class AutoInvestigationConsumer {
     }
 
     const startedAtIso = this.clock().toISOString();
+    await this.markInvestigationStarted(payload.ruleId, startedAtIso);
 
     let reply = '';
     let agentError: Error | null = null;
     try {
-      reply = await this.spawnAgent(this.opts.runner, {
+      reply = await this.runAgentWithTimeout({
         identity,
         message: buildAlertQuestion(payload),
       });
@@ -249,6 +329,135 @@ export class AutoInvestigationConsumer {
     }
 
     await this.finalizeInvestigation(payload, identity, startedAtIso, agentError);
+  }
+
+  private async runAgentWithTimeout(input: Parameters<typeof runBackgroundAgent>[1]): Promise<string> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.spawnAgent(this.opts.runner, input),
+        new Promise<string>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error(`Auto-investigation timed out after ${this.agentRunTimeoutMs}ms.`));
+          }, this.agentRunTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  private async markInvestigationStarted(ruleId: string, startedAtIso: string): Promise<void> {
+    try {
+      await this.opts.alertRules.update(ruleId, {
+        investigationId: undefined,
+        investigationStartedAt: startedAtIso,
+        investigationFailedAt: undefined,
+        investigationFailureReason: undefined,
+      });
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), ruleId },
+        'auto-investigation start marker update failed',
+      );
+    }
+  }
+
+  private isStaleAutoAlertInvestigation(inv: Investigation): boolean {
+    if (!RUNNING_STATUSES.has(inv.status)) return false;
+    if (!inv.sessionId?.startsWith(AUTO_ALERT_SESSION_PREFIX)) return false;
+    const lastTs = new Date(inv.updatedAt ?? inv.createdAt).getTime();
+    return Number.isFinite(lastTs) && this.clock().getTime() - lastTs > this.staleRunningMs;
+  }
+
+  private async markStaleLiveInvestigations(): Promise<void> {
+    const list = await this.opts.investigations.findByWorkspace(this.orgId);
+    const stale = list.filter((inv) => this.isStaleAutoAlertInvestigation(inv));
+    for (const inv of stale) {
+      try {
+        await this.opts.investigations.updateStatus(inv.id, 'failed');
+        log.warn(
+          { investigationId: inv.id, updatedAt: inv.updatedAt },
+          'marked stale auto-investigation as failed',
+        );
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), investigationId: inv.id },
+          'stale auto-investigation status update failed',
+        );
+      }
+    }
+  }
+
+  private async listAlertRulesInOrg(): Promise<AlertRule[] | null> {
+    if (this.opts.alertRules.findByWorkspace) {
+      return this.opts.alertRules.findByWorkspace(this.orgId);
+    }
+    if (this.opts.alertRules.findAll) {
+      const result = await this.opts.alertRules.findAll();
+      return result.list.filter((rule) => rule.workspaceId === this.orgId);
+    }
+    return null;
+  }
+
+  private isStaleAlertLevelInvestigation(rule: AlertRule): boolean {
+    if (rule.investigationId) return false;
+    if (!rule.investigationStartedAt) return false;
+    const startedTs = new Date(rule.investigationStartedAt).getTime();
+    return Number.isFinite(startedTs) && this.clock().getTime() - startedTs > this.staleRunningMs;
+  }
+
+  private async markStaleAlertLevelInvestigations(): Promise<void> {
+    const list = await this.listAlertRulesInOrg();
+    if (!list) return;
+    const stale = list.filter((rule) => this.isStaleAlertLevelInvestigation(rule));
+    for (const rule of stale) {
+      try {
+        await this.opts.alertRules.update(rule.id, {
+          investigationStartedAt: undefined,
+          investigationFailedAt: this.clock().toISOString(),
+          investigationFailureReason: 'The investigation was interrupted before saving a report.',
+        });
+        log.warn(
+          { ruleId: rule.id, investigationStartedAt: rule.investigationStartedAt },
+          'marked stale alert investigation marker as failed',
+        );
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), ruleId: rule.id },
+          'stale alert investigation marker update failed',
+        );
+      }
+    }
+  }
+
+  private async markInterruptedAlertLevelInvestigations(): Promise<void> {
+    const list = await this.listAlertRulesInOrg();
+    if (!list) return;
+    const interrupted = list.filter((rule) => !rule.investigationId && Boolean(rule.investigationStartedAt));
+    for (const rule of interrupted) {
+      try {
+        await this.opts.alertRules.update(rule.id, {
+          investigationStartedAt: undefined,
+          investigationFailedAt: this.clock().toISOString(),
+          investigationFailureReason: 'The investigation was interrupted before this API process started.',
+        });
+        log.warn(
+          { ruleId: rule.id, investigationStartedAt: rule.investigationStartedAt },
+          'marked interrupted alert investigation marker as failed on startup',
+        );
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), ruleId: rule.id },
+          'interrupted alert investigation marker update failed',
+        );
+      }
+    }
+  }
+
+  private async markStaleAutoInvestigations(): Promise<void> {
+    await this.markStaleLiveInvestigations();
+    await this.markStaleAlertLevelInvestigations();
   }
 
   /**
@@ -283,7 +492,23 @@ export class AutoInvestigationConsumer {
       return;
     }
 
-    if (!inv) return;
+    if (!inv) {
+      try {
+        await alertRules.update(payload.ruleId, {
+          investigationStartedAt: undefined,
+          investigationFailedAt: this.clock().toISOString(),
+          investigationFailureReason: agentError
+            ? agentError.message
+            : 'The agent finished without saving an investigation report.',
+        });
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.message : String(err), ruleId: payload.ruleId },
+          'finalize: clear start marker failed',
+        );
+      }
+      return;
+    }
 
     const terminal = inv.status === 'completed' || inv.status === 'failed';
     if (!terminal) {
@@ -303,7 +528,12 @@ export class AutoInvestigationConsumer {
     }
 
     try {
-      await alertRules.update(payload.ruleId, { investigationId: inv.id });
+      await alertRules.update(payload.ruleId, {
+        investigationId: inv.id,
+        investigationStartedAt: undefined,
+        investigationFailedAt: undefined,
+        investigationFailureReason: undefined,
+      });
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err), ruleId: payload.ruleId, investigationId: inv.id },
@@ -312,4 +542,3 @@ export class AutoInvestigationConsumer {
     }
   }
 }
-

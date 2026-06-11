@@ -40,7 +40,7 @@ agentRegistry.register({
     'folder_create', 'folder_list',
     // Investigation lifecycle
     'investigation_create', 'investigation_list',
-    'investigation_add_text', 'investigation_add_evidence',
+    'investigation_record_check', 'investigation_add_text', 'investigation_add_evidence',
     'investigation_complete',
     // Connector discovery (always allowed; no RBAC)
     'connectors_list',

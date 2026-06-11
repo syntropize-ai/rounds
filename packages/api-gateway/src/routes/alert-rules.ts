@@ -22,6 +22,7 @@ import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 
 const log = createLogger('alert-rules-route');
+const DEFAULT_MANUAL_INVESTIGATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Resolve the current request's org id. Prefers `req.auth.orgId` populated by
@@ -53,13 +54,16 @@ export interface AlertRulesRouterDeps {
    */
   ac: AccessControlSurface;
   /**
-   * Background agent runner. When provided, the manual `/:id/investigate`
-   * route spawns an orchestrator run as the logged-in user after creating
-   * the investigation row, mirroring the auto-investigation dispatcher's
-   * flow. Without it the route still creates the row but no agent runs
-   * (the legacy half-finished behavior).
+   * Background agent runner. Manual `/:id/investigate` queues an orchestrator
+   * run as the logged-in user and lets the agent persist the investigation
+   * only when its report is complete.
    */
   runner?: BackgroundRunnerDeps;
+  /**
+   * Maximum wall-clock time for the queued manual alert investigation.
+   * If the runner waits forever, the alert row is marked failed so the user can retry.
+   */
+  manualInvestigationTimeoutMs?: number;
   /**
    * Audit writer — records alert_rule.create/update/delete and
    * investigation.create events for manual investigate flows.
@@ -73,6 +77,27 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   const alertRuleService = new AlertRuleService(store, deps.setupConfig, deps.connectorRepo);
   const audit = deps.audit;
   const requirePermission = createRequirePermission(deps.ac);
+  const manualInvestigationTimeoutMs =
+    deps.manualInvestigationTimeoutMs ?? DEFAULT_MANUAL_INVESTIGATION_TIMEOUT_MS;
+
+  async function runManualInvestigationWithTimeout(
+    runner: BackgroundRunnerDeps,
+    input: Parameters<typeof runBackgroundAgent>[1],
+  ): Promise<string> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        runBackgroundAgent(runner, input),
+        new Promise<string>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error(`Manual alert investigation timed out after ${manualInvestigationTimeoutMs}ms.`));
+          }, manualInvestigationTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
 
   function requestFolderUid(req: Request): string {
     const raw = (req.body as { folderUid?: unknown } | undefined)?.folderUid;
@@ -638,47 +663,69 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         // to the requester's workspace covers older rules without an
         // explicit workspaceId.
         const workspaceId = rule.workspaceId ?? resolveOrgId(req);
-        const investigation = await deps.investigationStore.create({
-          question,
-          sessionId: `inv_alert_${Date.now()}`,
-          // Run as the user who clicked Investigate so audit + tool
-          // permissions match what they can do anywhere else.
-          userId: identity.userId,
-          workspaceId,
+        const startedAtIso = new Date().toISOString();
+        const startedAt = new Date(startedAtIso).getTime();
+        const beforeInvestigations = await deps.investigationStore.findByWorkspace(workspaceId);
+        const beforeIds = new Set(beforeInvestigations.map((inv) => inv.id));
+        await store.update(rule.id, {
+          investigationId: undefined,
+          investigationStartedAt: startedAtIso,
+          investigationFailedAt: undefined,
+          investigationFailureReason: undefined,
         });
 
-        await store.update(rule.id, { investigationId: investigation.id });
-
-        void audit?.log({
-          action: AuditAction.InvestigationCreate,
-          actorType: 'user',
-          actorId: identity.userId,
-          orgId: workspaceId,
-          targetType: 'investigation',
-          targetId: investigation.id,
-          targetName: question,
-          outcome: 'success',
-          metadata: { alertRuleId: rule.id, manual: true },
-        });
-
-        // Spawn the orchestrator in the background under the clicker's
-        // identity. We respond immediately so the UI can subscribe to the
-        // investigation SSE stream; the agent advances status as it runs.
-        // Errors are isolated — they're logged but don't fail the HTTP
-        // response (Task C handles forced terminal-status fallback).
+        // Spawn the orchestrator in the background under the clicker's identity.
+        // Do not create an investigation row here: investigation_create is a
+        // draft-only tool, and investigation_complete persists the final report.
+        // Once the agent has saved the report, link the final row back to the
+        // alert rule so the UI can show View Investigation / Plan ready.
         const runner = deps.runner;
         void (async () => {
           try {
-            await runBackgroundAgent(runner, { identity, message: question });
+            await runManualInvestigationWithTimeout(runner, { identity, message: question });
+            const investigations = await deps.investigationStore!.findByWorkspace(workspaceId);
+            const finalInvestigation = investigations
+              .filter((inv) =>
+                !beforeIds.has(inv.id)
+                && new Date(inv.createdAt).getTime() >= startedAt - 1000,
+              )
+              .sort((a, b) => {
+                if (a.intent === question && b.intent !== question) return -1;
+                if (b.intent === question && a.intent !== question) return 1;
+                return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            })[0];
+            if (finalInvestigation) {
+              await store.update(rule.id, {
+                investigationId: finalInvestigation.id,
+                investigationStartedAt: undefined,
+                investigationFailedAt: undefined,
+                investigationFailureReason: undefined,
+              });
+            } else {
+              await store.update(rule.id, {
+                investigationStartedAt: undefined,
+                investigationFailedAt: new Date().toISOString(),
+                investigationFailureReason: 'The agent finished without saving an investigation report.',
+              });
+              log.warn(
+                { ruleId: rule.id, workspaceId, question },
+                'manual investigate: agent completed without a persisted investigation to link',
+              );
+            }
           } catch (err) {
+            await store.update(rule.id, {
+              investigationStartedAt: undefined,
+              investigationFailedAt: new Date().toISOString(),
+              investigationFailureReason: err instanceof Error ? err.message : String(err),
+            });
             log.error(
-              { err: err instanceof Error ? err.message : String(err), ruleId: rule.id, investigationId: investigation.id },
+              { err: err instanceof Error ? err.message : String(err), ruleId: rule.id },
               'manual investigate: background agent failed',
             );
           }
         })();
 
-        res.json({ investigationId: investigation.id, existing: false });
+        res.json({ queued: true, existing: false });
       } catch (err) {
         next(err);
       }

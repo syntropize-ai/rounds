@@ -24,10 +24,12 @@ import {
   handleInvestigationAddSection,
   handleInvestigationComplete,
   handleInvestigationCreate,
+  handleInvestigationRecordCheck,
 } from './investigation.js';
 import { makeFakeActionContext } from './_test-helpers.js';
 import { AdapterRegistry } from '../../adapters/registry.js';
 import type { IMetricsAdapter } from '../../adapters/metrics-adapter.js';
+import type { FakeActionContext } from './_test-helpers.js';
 
 function investigationStore(workspaceId = 'test-org') {
   const investigation: Investigation = {
@@ -61,7 +63,64 @@ function investigationStore(workspaceId = 'test-org') {
   };
 }
 
+function completionArgs(overrides: Record<string, unknown> = {}) {
+  return {
+    summary: 'Deployment/reviews-v2 is likely failing because its memory limit is too low.',
+    rootCause: {
+      status: 'likely',
+      object: 'Deployment/reviews-v2',
+      field: 'resources.limits.memory',
+      cause: 'memory limit too low causing OOMKilled restarts',
+    },
+    confidence: 0.85,
+    evidenceRefs: ['check_1', 'check_2'],
+    ruledOut: ['no traffic'],
+    nextAction: 'Raise the memory limit or roll back the deployment.',
+    ...overrides,
+  };
+}
+
+async function seedReadyLedger(ctx: FakeActionContext) {
+  await handleInvestigationRecordCheck(ctx, {
+    hypothesis: 'reviews-v2 is OOMKilled',
+    signalType: 'kubernetes',
+    tool: 'ops_run_command',
+    query: 'kubectl describe pod reviews-v2',
+    result: 'reviews-v2 last state terminated: OOMKilled',
+    interpretation: 'Supports a workload-level memory failure.',
+    status: 'supported',
+    nextCheck: 'Check traffic is present.',
+  });
+  await handleInvestigationRecordCheck(ctx, {
+    hypothesis: 'HTTP errors are caused by no traffic or scrape artifact',
+    signalType: 'metric',
+    tool: 'metrics_range_query',
+    query: 'rate(istio_requests_total[5m])',
+    result: 'traffic is present and 5xx appears only for reviews-v2',
+    interpretation: 'Rules out no traffic and points at reviews-v2.',
+    status: 'ruled_out',
+  });
+}
+
 describe('investigation handlers', () => {
+  it('records diagnostic checks in the structured investigation ledger', async () => {
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      hypothesis: 'reviews-v2 is OOMKilled',
+      signalType: 'kubernetes',
+      tool: 'ops_run_command',
+      query: 'kubectl describe pod reviews-v2',
+      result: 'last state terminated: OOMKilled',
+      interpretation: 'Supports a workload memory failure.',
+      status: 'supported',
+    });
+
+    expect(result).toContain('Recorded check_1');
+    expect(ctx.investigationStates.get('inv_1')?.checks).toHaveLength(1);
+    expect(ctx.investigationStates.get('inv_1')?.hypotheses[0]?.status).toBe('supported');
+  });
+
   it('does not save or navigate when completing without an active investigation', async () => {
     const store = investigationStore();
     const reportStore = { save: vi.fn() };
@@ -71,7 +130,7 @@ describe('investigation handlers', () => {
     });
     // ctx.activeInvestigationId defaults to null
 
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    const result = await handleInvestigationComplete(ctx, completionArgs());
 
     expect(result).toContain('no active investigation');
     expect(store.findById).not.toHaveBeenCalled();
@@ -88,7 +147,9 @@ describe('investigation handlers', () => {
       activeInvestigationId: 'inv_1',
     });
 
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    await seedReadyLedger(ctx);
+
+    const result = await handleInvestigationComplete(ctx, completionArgs());
 
     expect(result).toContain('was not found');
     expect(reportStore.save).not.toHaveBeenCalled();
@@ -105,7 +166,9 @@ describe('investigation handlers', () => {
       activeInvestigationId: 'inv_1',
     });
 
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    await seedReadyLedger(ctx);
+
+    const result = await handleInvestigationComplete(ctx, completionArgs());
 
     expect(result).toContain('report saved');
     expect(reportStore.save).toHaveBeenCalledOnce();
@@ -315,7 +378,8 @@ describe('investigation handlers', () => {
     expect(ctxFields.errorClass).toBe('Error');
 
     // Investigation still completes — capture failure is non-fatal.
-    const finishResult = await handleInvestigationComplete(ctx, { summary: 'done' });
+    await seedReadyLedger(ctx);
+    const finishResult = await handleInvestigationComplete(ctx, completionArgs());
     expect(finishResult).toContain('report saved');
     expect(reportStore.save).toHaveBeenCalledOnce();
   });
@@ -354,7 +418,8 @@ describe('investigation handlers', () => {
     });
 
     warnSpy.mockClear();
-    const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+    await seedReadyLedger(ctx);
+    const result = await handleInvestigationComplete(ctx, completionArgs());
 
     // Report saved regardless of status-update outcome.
     expect(result).toContain('report saved');
@@ -407,16 +472,18 @@ describe('investigation handlers', () => {
       type: 'text',
       content: 'Spike [m1].',
     });
-    await handleInvestigationComplete(ctx, { summary: 'CPU saturation' });
+    await seedReadyLedger(ctx);
+    await handleInvestigationComplete(ctx, completionArgs({ summary: 'CPU saturation' }));
 
     expect(reportStore.save).toHaveBeenCalledOnce();
     const saved = (reportStore.save.mock.calls[0] ?? [])[0];
     expect(saved.provenance).toBeDefined();
     expect(saved.provenance.runId).toBe('inv_p2');
     expect(saved.provenance.toolCalls).toBe(1);
-    expect(saved.provenance.evidenceCount).toBe(0);
-    expect(saved.provenance.citations).toHaveLength(1);
-    expect(saved.provenance.citations[0].ref).toBe('m1');
+    expect(saved.provenance.evidenceCount).toBe(3);
+    expect(saved.provenance.citations.map((c: { ref: string }) => c.ref).sort()).toEqual(['k1', 'm1', 'm2']);
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('## Evidence Trail'))).toBe(true);
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('## Conclusion'))).toBe(true);
     // latencyMs is computed from startedAt — should be a finite, non-negative number.
     expect(typeof saved.provenance.latencyMs).toBe('number');
     expect(saved.provenance.latencyMs).toBeGreaterThanOrEqual(0);
@@ -426,56 +493,55 @@ describe('investigation handlers', () => {
     expect(ctx.investigationProvenance.has('inv_p2')).toBe(false);
   });
 
-  describe('independent audit gate', () => {
-    it('NEEDS_MORE bounces the investigator without saving', async () => {
+  describe('investigation completion', () => {
+    it('saves without running a second readiness pass', async () => {
       const store = investigationStore();
       const reportStore = { save: vi.fn() };
-      const runAuditor = vi.fn().mockResolvedValue({ verdict: 'NEEDS_MORE', gap: 'find which EnvoyFilter.' });
       const ctx = makeFakeActionContext({
         investigationStore: store,
         investigationReportStore: reportStore,
         activeInvestigationId: 'inv_1',
-        runAuditor,
       });
-      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+      ctx.investigationSections.set('inv_1', [
+        { type: 'evidence', content: 'HTTP error rate is non-zero.' },
+      ]);
 
-      const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+      const result = await handleInvestigationComplete(ctx, completionArgs());
 
-      expect(runAuditor).toHaveBeenCalledOnce();
-      expect(result).toContain('NOT completed');
-      expect(result).toContain('find which EnvoyFilter.');
-      // Not persisted; active id retained so the loop resumes.
-      expect(reportStore.save).not.toHaveBeenCalled();
-      expect(ctx.activeInvestigationId).toBe('inv_1');
-      expect(ctx.investigationProvenance.get('inv_1')?.auditorRounds).toBe(1);
+      expect(result).toContain('report saved');
+      expect(reportStore.save).toHaveBeenCalledOnce();
+      expect(ctx.activeInvestigationId).toBeNull();
     });
 
-    it('ships with an ## Unresolved section once the round budget is exhausted', async () => {
+    it('allows honest unresolved completion with a concrete next check', async () => {
       const store = investigationStore();
       const reportStore = { save: vi.fn() };
-      const runAuditor = vi.fn().mockResolvedValue({ verdict: 'NEEDS_MORE', gap: 'still a guess.' });
       const ctx = makeFakeActionContext({
         investigationStore: store,
         investigationReportStore: reportStore,
         activeInvestigationId: 'inv_1',
-        runAuditor,
       });
-      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+      await seedReadyLedger(ctx);
+      ctx.investigationSections.set('inv_1', [
+        { type: 'evidence', content: 'Error rate is elevated.' },
+        { type: 'text', content: '## Specific object\n\nThe candidate cause is an EnvoyFilter config change.' },
+      ]);
 
-      // r1 + r2 bounce, r3 ships flagged (MAX_AUDIT_ROUNDS = 2).
-      const r1 = await handleInvestigationComplete(ctx, { summary: 'done' });
-      const r2 = await handleInvestigationComplete(ctx, { summary: 'done' });
-      const r3 = await handleInvestigationComplete(ctx, { summary: 'done' });
+      const result = await handleInvestigationComplete(ctx, completionArgs({
+        rootCause: {
+          status: 'unresolved',
+          nextCheck: 'Inspect EnvoyFilter diffs from the last rollout.',
+        },
+        confidence: 0.45,
+        evidenceRefs: ['check_1', 'check_2'],
+        ruledOut: ['no traffic'],
+      }));
 
-      expect(r1).toContain('NOT completed');
-      expect(r2).toContain('NOT completed');
-      expect(r3).toContain('report saved');
+      expect(result).toContain('report saved');
       expect(reportStore.save).toHaveBeenCalledOnce();
       const saved = (reportStore.save.mock.calls[0] ?? [])[0];
       const unresolved = saved.sections.find((s: { content: string }) => s.content.startsWith('## Unresolved'));
-      expect(unresolved?.content).toContain('still a guess.');
-      // auditorRounds is bookkeeping — it must not leak into the saved row.
-      expect(saved.provenance?.auditorRounds).toBeUndefined();
+      expect(unresolved?.content).toContain('Inspect EnvoyFilter diffs');
     });
 
     it('reuses the prior report id (update-in-place) when reopened', async () => {
@@ -488,8 +554,9 @@ describe('investigation handlers', () => {
       });
       // Reopen seeds provenance with the existing report's id.
       ctx.investigationProvenance.set('inv_1', { runId: 'inv_1', reportId: 'report_existing' } as never);
+      await seedReadyLedger(ctx);
 
-      await handleInvestigationComplete(ctx, { summary: 'refined' });
+      await handleInvestigationComplete(ctx, completionArgs({ summary: 'refined' }));
 
       const saved = (reportStore.save.mock.calls[0] ?? [])[0];
       expect(saved.id).toBe('report_existing');
@@ -497,21 +564,22 @@ describe('investigation handlers', () => {
       expect(saved.provenance?.reportId).toBeUndefined();
     });
 
-    it('ACTIONABLE saves normally', async () => {
+    it('saves normally when the ledger supports an 80 percent likely root cause', async () => {
       const store = investigationStore();
       const reportStore = { save: vi.fn() };
-      const runAuditor = vi.fn().mockResolvedValue({ verdict: 'ACTIONABLE', gap: '' });
       const ctx = makeFakeActionContext({
         investigationStore: store,
         investigationReportStore: reportStore,
         activeInvestigationId: 'inv_1',
-        runAuditor,
       });
-      ctx.investigationProvenance.set('inv_1', { runId: 'inv_1' } as never);
+      await seedReadyLedger(ctx);
+      ctx.investigationSections.set('inv_1', [
+        { type: 'evidence', content: 'Error rate is elevated.' },
+        { type: 'text', content: '## Specific object\n\nThe cause is a deployment config value.' },
+      ]);
 
-      const result = await handleInvestigationComplete(ctx, { summary: 'done' });
+      const result = await handleInvestigationComplete(ctx, completionArgs());
 
-      expect(runAuditor).toHaveBeenCalledOnce();
       expect(result).toContain('report saved');
       expect(reportStore.save).toHaveBeenCalledOnce();
       expect(ctx.activeInvestigationId).toBeNull();

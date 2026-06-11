@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './orchestrator-prompt.js';
+import { buildSystemPrompt, getTaskModule, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './orchestrator-prompt.js';
 import { makeTestIdentity } from './test-helpers.js';
 import type { Dashboard, DashboardMessage } from '@agentic-obs/common';
 
@@ -50,6 +50,19 @@ describe('buildSystemPrompt — D8 identity + denial principle', () => {
   it('omits the escalation-contact line when env is not set', () => {
     const prompt = build();
     expect(prompt).not.toContain('Permission escalation contact');
+  });
+
+  it('includes current page context as a prompt hint', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      identity: makeTestIdentity(),
+      now: '2026-04-18T00:00:00.000Z',
+      pageContext: { kind: 'plan', id: 'plan_123' },
+    });
+    expect(prompt).toContain('# Current Page');
+    expect(prompt).toContain('currently viewing the plan page');
+    expect(prompt).toContain('Context ID: plan_123');
+    expect(prompt).toContain('Do not narrow tool permissions from this hint.');
   });
 });
 
@@ -118,6 +131,17 @@ describe('buildSystemPrompt — Ops connector guidance', () => {
     expect(prompt).toContain('connectorId="kube-prod"');
     expect(prompt).toContain('namespaces=default,api');
     expect(prompt).toContain('capabilities=read,propose');
+  });
+});
+
+describe('buildSystemPrompt — investigation fix quality', () => {
+  it('tells investigations to prefer durable fixes over current runtime values', () => {
+    const module = getTaskModule('investigate');
+    expect(module).toContain('Fix quality: durable over current-value patches');
+    expect(module).toContain('temporary mitigation');
+    expect(module).toContain('pod IP');
+    expect(module).toContain('ServiceEntry');
+    expect(module).toContain('primary remediation');
   });
 });
 

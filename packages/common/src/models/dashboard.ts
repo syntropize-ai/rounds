@@ -301,6 +301,7 @@ export type DashboardSseEvent =
       type: 'ops_command_confirmation_required';
       id: string;
       connectorId: string;
+      capability?: string;
       command: string;
       risk: 'low' | 'medium' | 'high' | 'critical';
       summary: string;
@@ -410,7 +411,17 @@ export interface ChatSession {
   contextSummary?: string;
 }
 
-export type ChatSessionContextResourceType = 'dashboard' | 'investigation' | 'alert';
+export type ChatSessionContextResourceType =
+  | 'dashboard'
+  | 'dashboards'
+  | 'investigation'
+  | 'investigations'
+  | 'alert'
+  | 'plan'
+  | 'evidence'
+  | 'feed'
+  | 'actions'
+  | 'home';
 export type ChatSessionContextRelation =
   | 'created_from_chat'
   | 'viewed_with_chat'

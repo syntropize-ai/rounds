@@ -439,6 +439,35 @@ describe('KubectlOpsCommandRunner.runCommand — connector policy gate', () => {
     expect(r.observation).toContain('rejected');
   });
 
+  it('background bypass skips confirmation for read-safe runtime.exec when policy is allow', async () => {
+    const runner = new KubectlOpsCommandRunner({
+      connectors: fakeConnectorRepo({
+        connectors: [
+          mkConnector({
+            id: 'kube-prod',
+            config: { kubeconfig: 'apiVersion: v1\nkind: Config' },
+          }),
+        ],
+        secrets: new Map(),
+        policies: [readPolicy('kube-prod', 'runtime.exec', 'allow')],
+      }),
+      orgId: 'org_a',
+      readOnlyAgentBypass: true,
+    });
+    let captured: OpsCommandConfirmation | undefined;
+    await runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec pod-a -- ps aux',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        captured = c;
+      },
+    });
+    expect(captured).toBeUndefined();
+  });
+
   it('honors a team-scope block over an org-scope allow', async () => {
     const orgRow: ConnectorPolicy = readPolicy(
       'kube-prod',
@@ -581,6 +610,7 @@ describe('resolveOpsCommandConfirmation — approver attribution', () => {
     expect(r.observation).toContain('rejected');
     expect(captured).toBeDefined();
     if (!captured) return;
+    expect(captured.capability).toBe('runtime.exec');
     // Confirmation row preserves the approver + timestamp.
     expect(captured.approvedByUserId).toBe('operator-bob');
     expect(captured.approvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);

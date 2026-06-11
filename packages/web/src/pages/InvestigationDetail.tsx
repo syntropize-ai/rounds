@@ -213,16 +213,6 @@ export default function InvestigationDetail() {
     void fetchInvestigation();
   }, [fetchInvestigation]);
 
-  // Tell the global chat which investigation the user is viewing
-  useEffect(() => {
-    if (id) {
-      globalChat.setPageContext({ kind: 'investigation', id });
-    }
-    return () => {
-      globalChat.setPageContext(null);
-    };
-  }, [id, globalChat]);
-
   // Poll while investigation is active
   useEffect(() => {
     if (!investigation || isTerminal(investigation.status)) return;

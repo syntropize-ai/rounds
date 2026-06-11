@@ -987,6 +987,38 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       },
     },
   },
+  'investigation_record_check': {
+    category: 'deferred',
+    schema: {
+      name: 'investigation_record_check',
+      description:
+        'Record one load-bearing diagnostic check in the active investigation ledger. This is the investigation control plane: call it after every important metrics/logs/ops/changes/web/kb read before you move on or complete.\n\n' +
+        'Use it to say which hypothesis the read tested, what signal type it was, what came back, whether that supports/rules out/is inconclusive, and the next best check. This is how the main loop keeps its investigation state current while it follows the evidence.\n\n' +
+        'Do not use this for prose. Use investigation_add_text for the human-facing report; use investigation_record_check for the structured reasoning state.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          hypothesis: { type: 'string', description: 'The hypothesis this check tested, e.g. "reviews-v2 is returning 5xx because it is OOMKilled".' },
+          signalType: {
+            type: 'string',
+            enum: ['metric', 'log', 'kubernetes', 'change', 'trace', 'config', 'knowledge', 'web', 'other'],
+            description: 'Independent signal class used by this check.',
+          },
+          tool: { type: 'string', description: 'The read tool just used, e.g. metrics_range_query, logs_query, ops_run_command.' },
+          query: { type: 'string', description: 'PromQL/log query/kubectl command/search phrase. Empty only when the tool had no query string.' },
+          result: { type: 'string', description: 'Specific observed result with numbers/object names/statuses, not vague prose.' },
+          interpretation: { type: 'string', description: 'What this result means for the hypothesis and the investigation.' },
+          status: {
+            type: 'string',
+            enum: ['supported', 'ruled_out', 'inconclusive'],
+            description: 'Whether this check supports, rules out, or leaves the hypothesis inconclusive.',
+          },
+          nextCheck: { type: 'string', description: 'The next best uncertainty-reducing check, if any.' },
+        },
+        required: ['hypothesis', 'signalType', 'tool', 'result', 'interpretation', 'status'],
+      },
+    },
+  },
   'investigation_add_evidence': {
     category: 'deferred',
     schema: {
@@ -1039,16 +1071,45 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'investigation_complete',
       description:
-        'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session.\n\n' +
+        'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session. Call this only after the same main loop has already followed the evidence, recorded the load-bearing checks, and written the report sections.\n\n' +
         'MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n\n' +
-        'The summary you pass here is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
+        'The summary is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
+        'For confirmed/likely root causes: use at least 80% confidence (confidence >= 0.8), rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to recorded check ids, and ruledOut must include plausible alternatives you eliminated. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
+        'The nextAction must be durable: it should fix the bad pattern or lifecycle issue, not just substitute the current observed value. If an emergency workaround exists, label it as temporary mitigation and still name the durable fix or prevention. Never recommend hardcoding an ephemeral pod IP, replica name, container ID, or generated runtime value as the primary remediation.\n\n' +
         'Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.',
       input_schema: {
         type: 'object',
         properties: {
           summary: { type: 'string', description: 'One-paragraph executive summary of the conclusion' },
+          rootCause: {
+            type: 'object',
+            properties: {
+              status: {
+                type: 'string',
+                enum: ['confirmed', 'likely', 'unresolved'],
+                description: 'Use confirmed/likely only when confidence is at least 0.8. Use unresolved when available evidence cannot determine root cause.',
+              },
+              object: { type: 'string', description: 'Specific object involved, e.g. "Deployment/reviews-v2", "VirtualService/bookinfo", "ConfigMap/foo". Required unless unresolved.' },
+              field: { type: 'string', description: 'Specific field/value if known, e.g. resources.limits.memory, image tag, route weight.' },
+              cause: { type: 'string', description: 'Causal mechanism, not the symptom, e.g. "memory limit too low causing OOMKilled restarts". Required unless unresolved.' },
+              nextCheck: { type: 'string', description: 'For unresolved only: exact next check or unavailable data needed.' },
+            },
+            required: ['status'],
+          },
+          confidence: { type: 'number', description: 'Root-cause confidence from 0 to 1. Must be >= 0.8 for confirmed/likely.' },
+          evidenceRefs: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Recorded check ids that support the conclusion, e.g. ["check_1", "check_3"].',
+          },
+          ruledOut: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Plausible alternative hypotheses ruled out, e.g. ["no traffic", "scrape issue"].',
+          },
+          nextAction: { type: 'string', description: 'Durable fix or next operator action. If a short-term workaround is useful, label it as temporary mitigation and still include the durable remediation or prevention.' },
         },
-        required: ['summary'],
+        required: ['summary', 'rootCause', 'confidence', 'evidenceRefs', 'ruledOut'],
       },
     },
   },

@@ -11,27 +11,42 @@ export const IN_PROGRESS_INVESTIGATION_STATUSES: ReadonlySet<InvestigationStatus
 
 export type InvestigationIndicator =
   | { kind: 'idle' }
-  | { kind: 'in_progress'; status: InvestigationStatus; investigationId: string }
+  | { kind: 'in_progress'; status: InvestigationStatus; investigationId?: string }
   | { kind: 'completed_with_plan'; investigationId: string; planId: string }
   | { kind: 'completed'; investigationId: string }
-  | { kind: 'failed'; investigationId: string };
+  | { kind: 'failed'; investigationId?: string; reason?: string };
 
 export function classifyInvestigation(args: {
   investigationId?: string;
+  investigationStartedAt?: string;
+  investigationFailedAt?: string;
+  investigationFailureReason?: string;
   status?: InvestigationStatus;
   pendingPlanId?: string;
 }): InvestigationIndicator {
-  const { investigationId, status, pendingPlanId } = args;
-  if (!investigationId) return { kind: 'idle' };
+  const {
+    investigationId,
+    investigationStartedAt,
+    investigationFailedAt,
+    investigationFailureReason,
+    status,
+    pendingPlanId,
+  } = args;
+  if (!investigationId) {
+    if (investigationStartedAt) return { kind: 'in_progress', status: 'investigating' };
+    if (investigationFailedAt) return { kind: 'failed', reason: investigationFailureReason };
+    return { kind: 'idle' };
+  }
   if (status && IN_PROGRESS_INVESTIGATION_STATUSES.has(status)) {
     return { kind: 'in_progress', status, investigationId };
   }
-  if (status === 'failed') return { kind: 'failed', investigationId };
+  if (status === 'failed') return { kind: 'failed', investigationId, reason: investigationFailureReason };
   if (pendingPlanId) return { kind: 'completed_with_plan', investigationId, planId: pendingPlanId };
   if (status === 'completed') return { kind: 'completed', investigationId };
-  // Status unknown yet (still loading) but we have an investigationId: treat as in-progress
-  // so the UI shows the spinner rather than nothing.
-  return { kind: 'in_progress', status: status ?? 'planning', investigationId };
+  // If the rule still has an investigationId but the row can no longer be
+  // loaded, do not leave the alert looking permanently in-progress. This can
+  // happen after an investigation is deleted or a local dev DB is edited.
+  return { kind: 'idle' };
 }
 
 /**

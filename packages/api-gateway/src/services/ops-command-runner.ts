@@ -72,8 +72,9 @@ export interface KubectlOpsCommandRunnerDeps {
    *
    * The bypass NEVER applies to (a) commands classified as `critical` risk
    * (`kubectl delete/drain`, `rm`, `mkfs`, …), (b) explicit kubectl write
-   * verbs (`apply`/`create`/`patch`/…), or (c) commands where an operator
-   * has set an EXPLICIT (team/org) policy row — operator config always wins.
+   * verbs (`apply`/`create`/`patch`/…), or (c) capabilities where an operator
+   * has set an explicit `ask`/`block` policy. Explicit `allow` is treated as
+   * permission to run read-safe commands without a confirmation prompt.
    *
    * Agent honesty about the command being read-only is enforced by the
    * orchestrator prompt; the runner only checks the surface shape.
@@ -104,6 +105,7 @@ export interface OpsCommandConfirmation {
   userId: string;
   sessionId: string;
   connectorId: string;
+  capability?: string;
   command: string;
   script?: string;
   scope?: 'cluster' | 'namespace';
@@ -253,6 +255,7 @@ function createConfirmation(params: {
   connectorId: string;
   command: string;
 }): OpsCommandConfirmation {
+  const capability = capabilityForShellCommand(params.command);
   const confirmation: OpsCommandConfirmation = {
     id: randomUUID(),
     kind: 'kubectl',
@@ -260,6 +263,7 @@ function createConfirmation(params: {
     userId: params.userId,
     sessionId: params.sessionId,
     connectorId: params.connectorId,
+    capability,
     command: params.command,
     risk: classifyShellCommandRisk(params.command),
     summary: `Run ${params.command}`,
@@ -453,11 +457,13 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     // pure friction (background runs have no human to click it; interactive
     // chat reads don't warrant a prompt). Only applies when (a) caller opted
     // in, (b) command shape is read-safe, (c) operator has not set an explicit
-    // policy (explicit ask/block always wins).
+    // ask/block policy. Explicit allow is still eligible: otherwise background
+    // investigations can hang on a read-only kubectl exec even though the
+    // connector policy says runtime.exec is allowed.
     if (
       needsConfirmation &&
       this.deps.readOnlyAgentBypass &&
-      explicit === 'no-policy' &&
+      (explicit === 'no-policy' || explicit === 'allow') &&
       isAgentReadSafeCommand(command)
     ) {
       needsConfirmation = false;

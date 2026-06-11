@@ -77,12 +77,14 @@ function mkRule(overrides: Partial<AlertRule> = {}): AlertRule {
 
 interface Stores {
   investigations: ConsumerInvestigationStore & {
+    create: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
     findByWorkspace: ReturnType<typeof vi.fn>;
     updateStatus: ReturnType<typeof vi.fn>;
   };
   alertRules: ConsumerAlertRuleStore & {
     findById: ReturnType<typeof vi.fn>;
+    findAll: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
 }
@@ -93,15 +95,24 @@ function mkStores(opts: {
   invsByWorkspace?: Investigation[];
 } = {}): Stores {
   const investigations = {
+    create: vi.fn().mockResolvedValue(mkInv({ id: 'inv-LIVE', createdAt: nowIsoForTest() })),
     findById: vi.fn().mockResolvedValue(opts.invById ?? null),
     findByWorkspace: vi.fn().mockResolvedValue(opts.invsByWorkspace ?? []),
     updateStatus: vi.fn().mockResolvedValue(null),
   };
   const alertRules = {
     findById: vi.fn().mockResolvedValue(opts.rule ?? null),
+    findAll: vi.fn().mockResolvedValue({
+      list: opts.rule ? [opts.rule] : [],
+      total: opts.rule ? 1 : 0,
+    }),
     update: vi.fn().mockResolvedValue(null),
   };
   return { investigations, alertRules };
+}
+
+function nowIsoForTest(): string {
+  return '2026-04-29T01:00:00.000Z';
 }
 
 describe('buildAlertQuestion', () => {
@@ -132,6 +143,8 @@ describe('AutoInvestigationConsumer', () => {
     stores: Stores,
     resolveSaIdentity: () => Promise<typeof fakeIdentity | null> = async () => fakeIdentity,
     cooldownMs = 60_000,
+    staleRunningMs = 30 * 60 * 1000,
+    agentRunTimeoutMs = 15 * 60 * 1000,
   ) {
     return new AutoInvestigationConsumer({
       bus,
@@ -143,6 +156,8 @@ describe('AutoInvestigationConsumer', () => {
       alertRules: stores.alertRules,
       investigations: stores.investigations,
       cooldownMs,
+      staleRunningMs,
+      agentRunTimeoutMs,
       clock: () => now,
       spawnAgent: spawn as unknown as typeof import('@agentic-obs/agent-core').runBackgroundAgent,
     });
@@ -151,6 +166,28 @@ describe('AutoInvestigationConsumer', () => {
   describe('shouldRun (persistent dedup)', () => {
     it('runs when the rule has no investigationId', async () => {
       const stores = mkStores({ rule: mkRule({ investigationId: undefined }) });
+      const c = mkConsumer(vi.fn().mockResolvedValue('ok'), stores);
+      expect(await c.shouldRun(basePayload())).toBe(true);
+    });
+
+    it('skips when an alert-level investigation is already running', async () => {
+      const stores = mkStores({
+        rule: mkRule({
+          investigationId: undefined,
+          investigationStartedAt: '2026-04-29T00:59:30.000Z',
+        }),
+      });
+      const c = mkConsumer(vi.fn().mockResolvedValue('ok'), stores);
+      expect(await c.shouldRun(basePayload())).toBe(false);
+    });
+
+    it('runs when an alert-level investigation start marker is stale', async () => {
+      const stores = mkStores({
+        rule: mkRule({
+          investigationId: undefined,
+          investigationStartedAt: '2026-04-29T00:00:00.000Z',
+        }),
+      });
       const c = mkConsumer(vi.fn().mockResolvedValue('ok'), stores);
       expect(await c.shouldRun(basePayload())).toBe(true);
     });
@@ -177,6 +214,36 @@ describe('AutoInvestigationConsumer', () => {
       });
       const c = mkConsumer(vi.fn().mockResolvedValue('ok'), stores);
       expect(await c.shouldRun(basePayload())).toBe(false);
+    });
+
+    it('marks stale auto-alert investigations failed and allows a new run', async () => {
+      const stores = mkStores({
+        rule: mkRule({ investigationId: 'inv-A' }),
+        invById: mkInv({
+          id: 'inv-A',
+          sessionId: 'auto-alert:rule-1:2026-04-29T00:00:00.000Z',
+          status: 'investigating',
+          updatedAt: '2026-04-29T00:00:00.000Z',
+        }),
+      });
+      const c = mkConsumer(vi.fn().mockResolvedValue('ok'), stores);
+      expect(await c.shouldRun(basePayload())).toBe(true);
+      expect(stores.investigations.updateStatus).toHaveBeenCalledWith('inv-A', 'failed');
+    });
+
+    it('does not fail stale non-auto investigations during dedup', async () => {
+      const stores = mkStores({
+        rule: mkRule({ investigationId: 'inv-A' }),
+        invById: mkInv({
+          id: 'inv-A',
+          sessionId: 'manual-session',
+          status: 'investigating',
+          updatedAt: '2026-04-29T00:00:00.000Z',
+        }),
+      });
+      const c = mkConsumer(vi.fn().mockResolvedValue('ok'), stores);
+      expect(await c.shouldRun(basePayload())).toBe(false);
+      expect(stores.investigations.updateStatus).not.toHaveBeenCalledWith('inv-A', 'failed');
     });
 
     it('skips when the linked investigation completed within cooldown', async () => {
@@ -227,8 +294,20 @@ describe('AutoInvestigationConsumer', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(spawn).toHaveBeenCalledTimes(1);
+    expect(stores.investigations.create).not.toHaveBeenCalled();
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationId: undefined,
+      investigationStartedAt: '2026-04-29T01:00:00.000Z',
+      investigationFailedAt: undefined,
+      investigationFailureReason: undefined,
+    });
     expect(stores.investigations.updateStatus).toHaveBeenCalledWith('inv-NEW', 'completed');
-    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', { investigationId: 'inv-NEW' });
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationId: 'inv-NEW',
+      investigationStartedAt: undefined,
+      investigationFailedAt: undefined,
+      investigationFailureReason: undefined,
+    });
 
     c.stop();
   });
@@ -261,7 +340,53 @@ describe('AutoInvestigationConsumer', () => {
     const c = mkConsumer(spawn, stores);
     await c.onAlertFired(basePayload());
     expect(stores.investigations.updateStatus).toHaveBeenCalledWith('inv-NEW', 'failed');
-    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', { investigationId: 'inv-NEW' });
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationId: 'inv-NEW',
+      investigationStartedAt: undefined,
+      investigationFailedAt: undefined,
+      investigationFailureReason: undefined,
+    });
+  });
+
+  it('marks the alert-level run failed when the agent does not persist a final investigation', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    const stores = mkStores({
+      rule: mkRule({ investigationId: undefined }),
+      invsByWorkspace: [],
+    });
+    const c = mkConsumer(spawn, stores);
+    await c.onAlertFired(basePayload());
+
+    expect(stores.investigations.create).not.toHaveBeenCalled();
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationStartedAt: undefined,
+      investigationFailedAt: '2026-04-29T01:00:00.000Z',
+      investigationFailureReason: 'The agent finished without saving an investigation report.',
+    });
+  });
+
+  it('marks the alert-level run failed when the background agent never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const spawn = vi.fn(() => new Promise<string>(() => {}));
+      const stores = mkStores({
+        rule: mkRule({ investigationId: undefined }),
+        invsByWorkspace: [],
+      });
+      const c = mkConsumer(spawn, stores, async () => fakeIdentity, 60_000, 30 * 60 * 1000, 10);
+      const run = c.onAlertFired(basePayload());
+
+      await vi.advanceTimersByTimeAsync(11);
+      await run;
+
+      expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+        investigationStartedAt: undefined,
+        investigationFailedAt: '2026-04-29T01:00:00.000Z',
+        investigationFailureReason: 'Auto-investigation timed out after 10ms.',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('start is idempotent and stop unsubscribes', async () => {
@@ -286,6 +411,77 @@ describe('AutoInvestigationConsumer', () => {
     });
     await new Promise((r) => setImmediate(r));
     expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sweeps stale auto-alert rows on start', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    const stale = mkInv({
+      id: 'inv-stale',
+      sessionId: 'auto-alert:rule-1:2026-04-29T00:00:00.000Z',
+      status: 'investigating',
+      updatedAt: '2026-04-29T00:00:00.000Z',
+    });
+    const fresh = mkInv({
+      id: 'inv-fresh',
+      sessionId: 'auto-alert:rule-2:2026-04-29T01:00:00.000Z',
+      status: 'investigating',
+      updatedAt: '2026-04-29T01:00:00.000Z',
+    });
+    const stores = mkStores({
+      rule: mkRule({ investigationId: undefined }),
+      invsByWorkspace: [stale, fresh],
+    });
+    const c = mkConsumer(spawn, stores);
+    c.start();
+    await new Promise((r) => setImmediate(r));
+    c.stop();
+
+    expect(stores.investigations.updateStatus).toHaveBeenCalledWith('inv-stale', 'failed');
+    expect(stores.investigations.updateStatus).not.toHaveBeenCalledWith('inv-fresh', 'failed');
+  });
+
+  it('marks stale alert-level investigation markers interrupted on start', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    const stores = mkStores({
+      rule: mkRule({
+        investigationId: undefined,
+        investigationStartedAt: '2026-04-29T00:00:00.000Z',
+        investigationFailedAt: undefined,
+        investigationFailureReason: undefined,
+      }),
+      invsByWorkspace: [],
+    });
+    const c = mkConsumer(spawn, stores);
+    c.start();
+    await new Promise((r) => setImmediate(r));
+    c.stop();
+
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationStartedAt: undefined,
+      investigationFailedAt: '2026-04-29T01:00:00.000Z',
+      investigationFailureReason: 'The investigation was interrupted before this API process started.',
+    });
+  });
+
+  it('marks pre-existing alert-level investigation markers interrupted on start', async () => {
+    const spawn = vi.fn().mockResolvedValue('ok');
+    const stores = mkStores({
+      rule: mkRule({
+        investigationId: undefined,
+        investigationStartedAt: '2026-04-29T00:59:30.000Z',
+      }),
+      invsByWorkspace: [],
+    });
+    const c = mkConsumer(spawn, stores);
+    c.start();
+    await new Promise((r) => setImmediate(r));
+    c.stop();
+
+    expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
+      investigationStartedAt: undefined,
+      investigationFailedAt: '2026-04-29T01:00:00.000Z',
+      investigationFailureReason: 'The investigation was interrupted before this API process started.',
+    });
   });
 });
 

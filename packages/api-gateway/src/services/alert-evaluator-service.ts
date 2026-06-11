@@ -384,7 +384,11 @@ export class AlertEvaluatorService extends EventEmitter {
     // alerts-boot wiring; warn loudly in dev/test so the race is caught
     // pre-prod. Don't throw — operators may legitimately run without
     // auto-investigation.
-    if (process.env['NODE_ENV'] !== 'production' && this.listenerCount('alert.fired') === 0) {
+    if (
+      process.env['NODE_ENV'] !== 'production'
+      && !this.eventBus
+      && this.listenerCount('alert.fired') === 0
+    ) {
       log.warn(
         {},
         'AlertEvaluatorService.start() called with zero alert.fired listeners. ' +
@@ -508,13 +512,15 @@ export class AlertEvaluatorService extends EventEmitter {
       const value = await this.query(fresh);
       if (value === null) return;
 
+      const now = this.clock();
+      await this.rules.update(fresh.id, { lastEvaluatedAt: now.toISOString() });
+
       const predicate = evaluatePredicate(
         fresh.condition.operator,
         value,
         fresh.condition.threshold,
       );
 
-      const now = this.clock();
       const next = decideTransition(fresh, predicate, now);
       if (next === null || next === fresh.state) return;
 

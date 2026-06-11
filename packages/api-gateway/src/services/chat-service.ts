@@ -126,16 +126,46 @@ function parseResourcePath(
   | undefined {
   const pathname = path.split('?')[0] ?? '';
   const match = pathname.match(
-    /^\/(dashboards|investigations|alerts|alert-rules)\/([^/?#]+)/,
+    /^\/(dashboards|investigations|alerts|alert-rules|plans|evidence)\/([^/?#]+)/,
   );
-  if (!match) return undefined;
+  if (match) {
+    const resourceType: ChatSessionContextResourceType =
+      match[1] === 'dashboards'
+        ? 'dashboard'
+        : match[1] === 'investigations'
+          ? 'investigation'
+          : match[1] === 'plans'
+            ? 'plan'
+            : match[1] === 'evidence'
+              ? 'evidence'
+              : 'alert';
+    return { resourceType, resourceId: decodeURIComponent(match[2] ?? '') };
+  }
+  if (pathname === '/' || pathname === '') {
+    return { resourceType: 'home', resourceId: 'home' };
+  }
+  const staticResource = pathname.match(/^\/(feed|actions|alerts|dashboards|investigations)\/?$/);
+  if (!staticResource) return undefined;
   const resourceType: ChatSessionContextResourceType =
-    match[1] === 'dashboards'
-      ? 'dashboard'
-      : match[1] === 'investigations'
-        ? 'investigation'
-        : 'alert';
-  return { resourceType, resourceId: decodeURIComponent(match[2] ?? '') };
+    staticResource[1] === 'alerts' ? 'alert' : (staticResource[1] as ChatSessionContextResourceType);
+  return { resourceType, resourceId: staticResource[1] ?? resourceType };
+}
+
+const chatSessionContextResourceTypes: readonly ChatSessionContextResourceType[] = [
+  'dashboard',
+  'dashboards',
+  'investigation',
+  'investigations',
+  'alert',
+  'plan',
+  'evidence',
+  'feed',
+  'actions',
+  'home',
+];
+
+function isChatSessionContextResourceType(kind: string): kind is ChatSessionContextResourceType {
+  return chatSessionContextResourceTypes.includes(kind as ChatSessionContextResourceType);
 }
 
 function resourceFromPageContext(pageContext?: {
@@ -145,13 +175,7 @@ function resourceFromPageContext(pageContext?: {
   | { resourceType: ChatSessionContextResourceType; resourceId: string }
   | undefined {
   if (!pageContext?.id) return undefined;
-  if (
-    pageContext.kind !== 'dashboard' &&
-    pageContext.kind !== 'investigation' &&
-    pageContext.kind !== 'alert'
-  ) {
-    return undefined;
-  }
+  if (!isChatSessionContextResourceType(pageContext.kind)) return undefined;
   return { resourceType: pageContext.kind, resourceId: pageContext.id };
 }
 
@@ -688,6 +712,9 @@ export class ChatService {
             }
           : {}),
         timeRange,
+        pageContext: pageContext
+          ? { kind: pageContext.kind, ...(pageContext.id ? { id: pageContext.id } : {}) }
+          : undefined,
         conversationSummary,
         identity,
         accessControl: this.deps.accessControl,

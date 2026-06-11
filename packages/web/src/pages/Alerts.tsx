@@ -5,7 +5,6 @@ import type { RemediationPlan } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
 import { relativeTime } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
-import { useGlobalChat } from '../contexts/ChatContext.js';
 import { useInvestigationStatuses } from '../hooks/useInvestigationStatuses.js';
 import {
   classifyInvestigation,
@@ -486,7 +485,6 @@ function AlertRuleRow({
 export default function Alerts() {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
-  const { setPageContext } = useGlobalChat();
   // Backend gates alert-rule CRUD with the canonical `alert.rules:*` actions
   // (see packages/api-gateway/src/routes/alert-rules.ts). The legacy
   // `dashboard:write` fallback was removed once the backend rename landed.
@@ -519,13 +517,6 @@ export default function Alerts() {
   );
   const investigationStatuses = useInvestigationStatuses(trackedInvestigationIds);
   const searchRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setPageContext({ kind: 'alert', id: 'alerts' });
-    return () => {
-      setPageContext(null);
-    };
-  }, [setPageContext]);
 
   // Keyboard shortcut: / to focus search
   useEffect(() => {

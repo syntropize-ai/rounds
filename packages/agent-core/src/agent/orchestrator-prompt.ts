@@ -696,6 +696,14 @@ function getSessionModeSection(): string {
 Not scoped to a dashboard. Call dashboard_create to start one — it becomes the active target for subsequent dashboard.* tools automatically.`
 }
 
+function getPageContextSection(pageContext?: { kind: string; id?: string }): string {
+  if (!pageContext?.kind) return ''
+  const idText = pageContext.id ? `\nContext ID: ${pageContext.id}` : ''
+  return `# Current Page
+The user is currently viewing the ${pageContext.kind} page.${idText}
+Use this as UI context for ambiguous references like "this", "here", "this alert", "this plan", or "this page". Do not narrow tool permissions from this hint.`
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -733,6 +741,8 @@ export interface SystemPromptOptions {
    * non-kubectl shells, so the contract must be explicit in the prompt.
    */
   agentType?: AgentType
+  /** Current UI page/resource the user is viewing. Used only as a prompt hint. */
+  pageContext?: { kind: string; id?: string }
 }
 
 /**
@@ -865,6 +875,7 @@ export function buildSystemPrompt(
   ]
 
   const dynamicSections = [
+    getPageContextSection(options?.pageContext),
     dashboard ? getDashboardContextSection(dashboard, options?.timeRange) : getSessionModeSection(),
     getHistorySection(history),
     getConnectorSection(allConnectors),

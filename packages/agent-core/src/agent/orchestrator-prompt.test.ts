@@ -51,6 +51,19 @@ describe('buildSystemPrompt — D8 identity + denial principle', () => {
     const prompt = build();
     expect(prompt).not.toContain('Permission escalation contact');
   });
+
+  it('includes current page context as a prompt hint', () => {
+    const prompt = buildSystemPrompt(null, [], [], null, [], {
+      hasPrometheus: false,
+      identity: makeTestIdentity(),
+      now: '2026-04-18T00:00:00.000Z',
+      pageContext: { kind: 'plan', id: 'plan_123' },
+    });
+    expect(prompt).toContain('# Current Page');
+    expect(prompt).toContain('currently viewing the plan page');
+    expect(prompt).toContain('Context ID: plan_123');
+    expect(prompt).toContain('Do not narrow tool permissions from this hint.');
+  });
 });
 
 describe('buildSystemPrompt — D0/D15 no behavioral priming', () => {

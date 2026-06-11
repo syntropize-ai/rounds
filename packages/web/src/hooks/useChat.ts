@@ -4,10 +4,21 @@ import { subscribeStream, BASE_URL } from '../api/client.js';
 import type { ChatMessage, ChatEvent } from './useDashboardChat.js';
 import { parseAskUserPayload, parseInlineChartPayload } from './useDashboardChat.js';
 
+type PageContextKind =
+  | 'dashboard'
+  | 'dashboards'
+  | 'investigation'
+  | 'investigations'
+  | 'alert'
+  | 'plan'
+  | 'evidence'
+  | 'feed'
+  | 'actions'
+  | 'home';
+
 /** Page context — tells the agent what the user is currently looking at. */
 export interface PageContext {
-  /** e.g., "dashboard", "investigation", "alerts", "home" */
-  kind: string;
+  kind: PageContextKind;
   /** Resource ID (dashboardId, investigationId, etc.) */
   id?: string;
   /** Selected time range on the dashboard (e.g., "1h", "6h", "24h", "7d") */
@@ -1087,13 +1098,12 @@ export function useChat(): UseChatResult {
   const setPageContext = useCallback((ctx: PageContext | null) => {
     const prev = pageContextRef.current;
     pageContextRef.current = ctx;
-    // When navigating to a page that has a resource context (dashboard /
-    // investigation / alert), and we don't already have a session loaded
+    // When navigating to a page that has a resource context, and we don't
+    // already have a session loaded
     // for THIS resource, look up the most-recent owned chat session for
-    // it and resume. Falls back to blank state if none exists.
+    // it and resume. If none exists, clear the previous page's chat.
     if (
       ctx?.id &&
-      (ctx.kind === 'dashboard' || ctx.kind === 'investigation' || ctx.kind === 'alert') &&
       (!prev || prev.id !== ctx.id || prev.kind !== ctx.kind)
     ) {
       const resourceType = ctx.kind;

@@ -105,6 +105,7 @@ export interface OrchestratorDeps {
    */
   knowledge?: import('@agentic-obs/data-layer').IKnowledgeRepository
   sendEvent: (event: DashboardSseEvent) => void
+  pageContext?: { kind: string; id?: string }
   timeRange?: { start: string; end: string; clientTimezone?: string }
   maxTokenBudget?: number
   /** LLM-generated summary of earlier conversation turns (from context compaction) */
@@ -387,6 +388,7 @@ export class OrchestratorAgent {
       opsConnectors: this.deps.opsConnectors,
       allowedTools: this.agentDef.allowedTools,
       agentType: this.agentDef.type,
+      pageContext: this.deps.pageContext,
     })
     const finalSystemPrompt = reopenedSectionCount !== null
       ? `${systemPrompt}\n\n${buildReopenAddendum(reopenedSectionCount)}`

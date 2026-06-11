@@ -24,6 +24,7 @@ function LayoutInner() {
     loadError,
     retryLoadSession,
     startNewSession,
+    setPageContext,
   } = useGlobalChat();
 
   // Hide the global ChatPanel on Home, the top-level list pages
@@ -51,6 +52,41 @@ function LayoutInner() {
       : pathname.startsWith('/alerts/')
         ? 'alert'
         : undefined;
+
+  useEffect(() => {
+    const match = (pattern: RegExp) => pathname.match(pattern)?.[1];
+    const dashboardId = match(/^\/dashboards\/([^/]+)$/);
+    const investigationId = match(/^\/investigations\/([^/]+)$/);
+    const alertEditId = match(/^\/alerts\/([^/]+)\/edit$/);
+    const planId = match(/^\/plans\/([^/]+)$/);
+    const evidenceId = match(/^\/evidence\/([^/]+)$/);
+
+    if (dashboardId) {
+      setPageContext({ kind: 'dashboard', id: decodeURIComponent(dashboardId) });
+    } else if (investigationId) {
+      setPageContext({ kind: 'investigation', id: decodeURIComponent(investigationId) });
+    } else if (alertEditId) {
+      setPageContext({ kind: 'alert', id: decodeURIComponent(alertEditId) });
+    } else if (pathname === '/alerts') {
+      setPageContext({ kind: 'alert', id: 'alerts' });
+    } else if (planId) {
+      setPageContext({ kind: 'plan', id: decodeURIComponent(planId) });
+    } else if (evidenceId) {
+      setPageContext({ kind: 'evidence', id: decodeURIComponent(evidenceId) });
+    } else if (pathname === '/feed') {
+      setPageContext({ kind: 'feed', id: 'feed' });
+    } else if (pathname === '/actions') {
+      setPageContext({ kind: 'actions', id: 'actions' });
+    } else if (pathname === '/dashboards') {
+      setPageContext({ kind: 'dashboards', id: 'dashboards' });
+    } else if (pathname === '/investigations') {
+      setPageContext({ kind: 'investigations', id: 'investigations' });
+    } else if (pathname === '/') {
+      setPageContext({ kind: 'home', id: 'home' });
+    } else {
+      setPageContext(null);
+    }
+  }, [pathname, setPageContext]);
 
   // Session id no longer lives in the URL. ChatProvider's React state holds
   // currentSessionId and persists across route changes within the tab, so

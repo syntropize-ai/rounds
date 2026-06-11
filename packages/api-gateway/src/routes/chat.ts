@@ -7,7 +7,7 @@ import type {
 } from 'express';
 import { randomUUID } from 'node:crypto';
 import { createLogger } from '@agentic-obs/server-utils/logging';
-import type { DashboardSseEvent } from '@agentic-obs/common';
+import type { ChatSessionContextResourceType, DashboardSseEvent } from '@agentic-obs/common';
 import { ac, ACTIONS } from '@agentic-obs/common';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
@@ -33,6 +33,19 @@ type ChatPageContext = {
   timeRange?: string;
   clientTimezone?: string;
 };
+
+const chatSessionContextResourceTypes: readonly ChatSessionContextResourceType[] = [
+  'dashboard',
+  'dashboards',
+  'investigation',
+  'investigations',
+  'alert',
+  'plan',
+  'evidence',
+  'feed',
+  'actions',
+  'home',
+];
 
 const pumpingSessions = new Set<string>();
 
@@ -675,9 +688,8 @@ export function createChatRouter(
           res.status(400).json({ error: { code: 'VALIDATION', message: 'resourceType and resourceId required' } });
           return;
         }
-        const allowed = ['dashboard', 'investigation', 'alert'];
-        if (!allowed.includes(resourceType)) {
-          res.status(400).json({ error: { code: 'VALIDATION', message: `resourceType must be one of ${allowed.join(',')}` } });
+        if (!chatSessionContextResourceTypes.includes(resourceType as ChatSessionContextResourceType)) {
+          res.status(400).json({ error: { code: 'VALIDATION', message: `resourceType must be one of ${chatSessionContextResourceTypes.join(',')}` } });
           return;
         }
         const limit = Math.min(Number(req.query['limit']) || 1, 50);
@@ -685,7 +697,7 @@ export function createChatRouter(
           {
             orgId: auth.orgId,
             ownerUserId: auth.userId,
-            resourceType: resourceType as 'dashboard' | 'investigation' | 'alert',
+            resourceType: resourceType as ChatSessionContextResourceType,
             resourceId,
           },
           limit,

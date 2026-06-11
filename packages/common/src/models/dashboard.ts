@@ -411,7 +411,17 @@ export interface ChatSession {
   contextSummary?: string;
 }
 
-export type ChatSessionContextResourceType = 'dashboard' | 'investigation' | 'alert';
+export type ChatSessionContextResourceType =
+  | 'dashboard'
+  | 'dashboards'
+  | 'investigation'
+  | 'investigations'
+  | 'alert'
+  | 'plan'
+  | 'evidence'
+  | 'feed'
+  | 'actions'
+  | 'home';
 export type ChatSessionContextRelation =
   | 'created_from_chat'
   | 'viewed_with_chat'

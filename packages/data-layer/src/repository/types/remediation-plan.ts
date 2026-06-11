@@ -13,10 +13,20 @@ export type RemediationPlanStatus =
   | 'approved'
   | 'rejected'
   | 'executing'
+  | 'applied'
+  | 'execution_failed'
   | 'completed'
   | 'failed'
   | 'expired'
   | 'cancelled';
+
+export type RemediationPlanVerificationStatus =
+  | 'not_started'
+  | 'waiting'
+  | 'passed'
+  | 'failed'
+  | 'inconclusive'
+  | 'skipped';
 
 export type RemediationPlanStepStatus =
   | 'pending'
@@ -69,6 +79,14 @@ export interface RemediationPlan {
   rescueForPlanId: string | null;
   summary: string;
   status: RemediationPlanStatus;
+  linkedAlertRuleId: string | null;
+  targetObject: string | null;
+  validationMethod: string | null;
+  verificationStatus: RemediationPlanVerificationStatus;
+  verificationStartedAt: string | null;
+  verificationDeadlineAt: string | null;
+  verificationEvidenceJson: Record<string, unknown> | null;
+  continuationInvestigationId: string | null;
   /**
    * Set at approval time. When true the executor skips per-step approval and
    * runs the whole plan. Scope is this plan only — does not carry across.
@@ -102,6 +120,14 @@ export interface NewRemediationPlan {
   summary: string;
   /** Defaults to `'pending_approval'`. */
   status?: RemediationPlanStatus;
+  linkedAlertRuleId?: string | null;
+  targetObject?: string | null;
+  validationMethod?: string | null;
+  verificationStatus?: RemediationPlanVerificationStatus;
+  verificationStartedAt?: string | null;
+  verificationDeadlineAt?: string | null;
+  verificationEvidenceJson?: Record<string, unknown> | null;
+  continuationInvestigationId?: string | null;
   autoEdit?: boolean;
   approvalRequestId?: string | null;
   createdBy: string;
@@ -112,6 +138,14 @@ export interface NewRemediationPlan {
 
 export interface RemediationPlanPatch {
   status?: RemediationPlanStatus;
+  linkedAlertRuleId?: string | null;
+  targetObject?: string | null;
+  validationMethod?: string | null;
+  verificationStatus?: RemediationPlanVerificationStatus;
+  verificationStartedAt?: string | null;
+  verificationDeadlineAt?: string | null;
+  verificationEvidenceJson?: Record<string, unknown> | null;
+  continuationInvestigationId?: string | null;
   autoEdit?: boolean;
   approvalRequestId?: string | null;
   resolvedAt?: string | null;
@@ -128,6 +162,7 @@ export interface RemediationPlanStepPatch {
 
 export interface ListRemediationPlansOptions {
   status?: RemediationPlanStatus | RemediationPlanStatus[];
+  verificationStatus?: RemediationPlanVerificationStatus | RemediationPlanVerificationStatus[];
   investigationId?: string;
   rescueForPlanId?: string | null;
   limit?: number;
@@ -148,6 +183,9 @@ export interface IRemediationPlanRepository {
   findByApprovalRequestId(approvalRequestId: string): Promise<RemediationPlan | null>;
 
   listByOrg(orgId: string, opts?: ListRemediationPlansOptions): Promise<RemediationPlan[]>;
+
+  /** List plans currently awaiting verification. Used by the verifier sweeper. */
+  listWaitingVerification(limit?: number): Promise<RemediationPlan[]>;
 
   /** Update plan-level fields. Steps are not touched. */
   updatePlan(orgId: string, id: string, patch: RemediationPlanPatch): Promise<RemediationPlan | null>;

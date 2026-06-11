@@ -6,8 +6,8 @@
  * approval; this service is the unit of execution. State machine:
  *
  *   pending_approval ──approve──► approved ──startExecution──► executing
- *   executing ──all steps done──► completed
- *   executing ──step fails──────► failed (later steps marked skipped)
+ *   executing ──all steps done──► applied
+ *   executing ──step fails──────► execution_failed (later steps marked skipped)
  *   executing ──cancel──────────► cancelled
  *   pending_approval ──reject──► rejected
  *   pending_approval ──ttl pass─► expired (handled by repo.expireStale)
@@ -344,7 +344,7 @@ export class PlanExecutorService {
       outputText: null,
       executedAt: null,
     });
-    if (plan.status === 'failed') {
+    if (plan.status === 'failed' || plan.status === 'execution_failed') {
       // Reset skipped → pending so subsequent steps can run again.
       for (const s of plan.steps) {
         if (s.ordinal > ordinal && s.status === 'skipped') {
@@ -375,7 +375,7 @@ export class PlanExecutorService {
     const plan = await this.opts.plans.findByIdInOrg(orgId, planId);
     if (!plan) throw new Error(`plan ${planId} not found`);
 
-    if (plan.status === 'failed') {
+    if (plan.status === 'failed' || plan.status === 'execution_failed') {
       const failed = plan.steps.find((s) => s.status === 'failed');
       return {
         kind: 'failed',
@@ -387,7 +387,7 @@ export class PlanExecutorService {
 
     const next = plan.steps.find((s) => s.status === 'pending');
     if (!next) {
-      await this.opts.plans.updatePlan(orgId, planId, { status: 'completed' });
+      await this.opts.plans.updatePlan(orgId, planId, { status: 'applied' });
       return { kind: 'completed' };
     }
 
@@ -645,7 +645,7 @@ export class PlanExecutorService {
         }
       }
     }
-    await this.opts.plans.updatePlan(orgId, planId, { status: 'failed' });
+    await this.opts.plans.updatePlan(orgId, planId, { status: 'execution_failed' });
     return { kind: 'failed', failedOrdinal, reason };
   }
 

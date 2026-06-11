@@ -28,6 +28,7 @@ export {
   type RemediationPlan,
   type RemediationPlanStep,
   type RemediationPlanStatus,
+  type RemediationPlanVerificationStatus,
   type RemediationPlanStepStatus,
   type PlanExecutorOutcome,
 } from './plans-api.js';

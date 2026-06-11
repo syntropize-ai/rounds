@@ -184,6 +184,16 @@ async function createPlanCommon(
   const expiresAt = typeof expiresInMs === 'number'
     ? new Date(Date.now() + expiresInMs).toISOString()
     : undefined;
+  let linkedAlertRuleId: string | null = null;
+  if (ctx.alertRuleStore.findAll) {
+    try {
+      const rules = await ctx.alertRuleStore.findAll();
+      const linked = rules.find((rule) => rule.investigationId === investigationId);
+      linkedAlertRuleId = linked?.id ?? null;
+    } catch {
+      linkedAlertRuleId = null;
+    }
+  }
 
   const tool = rescueForPlanId === null ? 'remediation_plan_create' : 'remediation_plan_create_rescue';
   const displayText = rescueForPlanId === null
@@ -202,6 +212,9 @@ async function createPlanCommon(
         investigationId,
         rescueForPlanId,
         summary,
+        linkedAlertRuleId,
+        targetObject: targetObject || null,
+        validationMethod: validationMethod || null,
         createdBy: 'agent',
         ...(expiresAt ? { expiresAt } : {}),
         steps: parsed.map((p) => {

@@ -21,6 +21,7 @@ import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { setAuthMiddleware } from '../middleware/auth.js';
 import type { PlanExecutorService } from '../services/plan-executor-service.js';
+import type { PlanVerificationService } from '../services/plan-verification-service.js';
 
 function plan(overrides: Partial<RemediationPlan> = {}): RemediationPlan {
   return {
@@ -30,6 +31,14 @@ function plan(overrides: Partial<RemediationPlan> = {}): RemediationPlan {
     rescueForPlanId: null,
     summary: 'Scale payments-api',
     status: 'pending_approval',
+    linkedAlertRuleId: null,
+    targetObject: null,
+    validationMethod: null,
+    verificationStatus: 'not_started',
+    verificationStartedAt: null,
+    verificationDeadlineAt: null,
+    verificationEvidenceJson: null,
+    continuationInvestigationId: null,
     autoEdit: false,
     approvalRequestId: null,
     createdBy: 'agent',
@@ -55,6 +64,7 @@ function buildHarness(plans: RemediationPlan[], permissions: ResolvedPermission[
     findById: async (id: string) => byId.get(id) ?? null,
     findByApprovalRequestId: async () => null,
     listByOrg: async () => plans,
+    listWaitingVerification: async () => [],
     updatePlan: async () => null,
     updateStep: async () => null,
     delete: async () => false,
@@ -73,6 +83,9 @@ function buildHarness(plans: RemediationPlan[], permissions: ResolvedPermission[
     cancel: approvalCreate,
     retryStep: approvalCreate,
   } as unknown as PlanExecutorService;
+  const verifier = {
+    onExecutionOutcome: async (_orgId: string, id: string) => byId.get(id) ?? null,
+  } as unknown as PlanVerificationService;
 
   const accessControl: AccessControlSurface = {
     getUserPermissions: async () => permissions,
@@ -101,7 +114,7 @@ function buildHarness(plans: RemediationPlan[], permissions: ResolvedPermission[
   });
   app.use(
     '/api/plans',
-    createPlansRouter({ plans: repo, executor, ac: accessControl }),
+    createPlansRouter({ plans: repo, executor, verifier, ac: accessControl }),
   );
   return { app, approvalCreate };
 }

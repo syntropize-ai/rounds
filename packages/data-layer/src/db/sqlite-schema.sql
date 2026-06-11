@@ -885,6 +885,14 @@ CREATE TABLE IF NOT EXISTS remediation_plan (
   rescue_for_plan_id  TEXT,
   summary             TEXT NOT NULL,
   status              TEXT NOT NULL DEFAULT 'pending_approval',
+  linked_alert_rule_id TEXT,
+  target_object       TEXT,
+  validation_method   TEXT,
+  verification_status TEXT NOT NULL DEFAULT 'not_started',
+  verification_started_at TEXT,
+  verification_deadline_at TEXT,
+  verification_evidence_json TEXT,
+  continuation_investigation_id TEXT,
   auto_edit           INTEGER NOT NULL DEFAULT 0,
   approval_request_id TEXT,
   created_by          TEXT NOT NULL,
@@ -900,6 +908,8 @@ CREATE INDEX IF NOT EXISTS ix_remediation_plan_investigation
   ON remediation_plan(investigation_id);
 CREATE INDEX IF NOT EXISTS ix_remediation_plan_rescue_for
   ON remediation_plan(rescue_for_plan_id);
+CREATE INDEX IF NOT EXISTS ix_remediation_plan_verification
+  ON remediation_plan(verification_status, verification_deadline_at);
 
 CREATE TABLE IF NOT EXISTS remediation_plan_step (
   id                  TEXT PRIMARY KEY,

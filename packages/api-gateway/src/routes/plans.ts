@@ -50,10 +50,12 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { PlanExecutorService } from '../services/plan-executor-service.js';
+import type { PlanVerificationService } from '../services/plan-verification-service.js';
 
 export interface PlansRouterDeps {
   plans: IRemediationPlanRepository;
   executor: PlanExecutorService;
+  verifier: PlanVerificationService;
   ac: AccessControlSurface;
 }
 
@@ -63,6 +65,8 @@ const STATUSES: ReadonlySet<RemediationPlanStatus> = new Set([
   'approved',
   'rejected',
   'executing',
+  'applied',
+  'execution_failed',
   'completed',
   'failed',
   'expired',
@@ -218,7 +222,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
           true,
           auth,
         );
-        const plan = await deps.plans.findByIdInOrg(auth.orgId, req.params['id'] ?? '');
+        const plan = await deps.verifier.onExecutionOutcome(auth.orgId, req.params['id'] ?? '', outcome);
         res.json({ outcome, plan });
       } catch (err) { next(err); }
     },
@@ -296,7 +300,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
           return;
         }
         const outcome = await deps.executor.retryStep(auth.orgId, req.params['id'] ?? '', ordinal);
-        const plan = await deps.plans.findByIdInOrg(auth.orgId, req.params['id'] ?? '');
+        const plan = await deps.verifier.onExecutionOutcome(auth.orgId, req.params['id'] ?? '', outcome);
         res.json({ outcome, plan });
       } catch (err) { next(err); }
     },

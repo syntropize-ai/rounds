@@ -12,10 +12,20 @@ export type RemediationPlanStatus =
   | 'approved'
   | 'rejected'
   | 'executing'
+  | 'applied'
+  | 'execution_failed'
   | 'completed'
   | 'failed'
   | 'expired'
   | 'cancelled';
+
+export type RemediationPlanVerificationStatus =
+  | 'not_started'
+  | 'waiting'
+  | 'passed'
+  | 'failed'
+  | 'inconclusive'
+  | 'skipped';
 
 export type RemediationPlanStepStatus =
   | 'pending'
@@ -51,6 +61,14 @@ export interface RemediationPlan {
   status: RemediationPlanStatus;
   autoEdit: boolean;
   approvalRequestId: string | null;
+  linkedAlertRuleId: string | null;
+  targetObject: string | null;
+  validationMethod: string | null;
+  verificationStatus: RemediationPlanVerificationStatus;
+  verificationStartedAt: string | null;
+  verificationDeadlineAt: string | null;
+  verificationEvidenceJson: Record<string, unknown> | null;
+  continuationInvestigationId: string | null;
   createdBy: string;
   createdAt: string;
   expiresAt: string;

@@ -27,7 +27,9 @@ function LayoutInner() {
   } = useGlobalChat();
 
   // Hide the global ChatPanel on Home, the top-level list pages
-  // (Dashboards / Investigations / Alerts), and configuration surfaces
+  // (Dashboards / Investigations), and configuration surfaces.
+  // Alerts keeps the panel because triage and alert edits are naturally
+  // chat-driven from the list.
   // (Settings, Admin). Detail pages keep the panel because that's
   // where a context-specific chat is actually useful.
   const pathname = location.pathname;
@@ -35,7 +37,6 @@ function LayoutInner() {
     '/',
     '/dashboards',
     '/investigations',
-    '/alerts',
   ]);
   const chatHiddenPrefix = ['/settings', '/admin'];
   const showChat =

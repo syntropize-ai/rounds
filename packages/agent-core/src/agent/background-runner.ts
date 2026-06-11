@@ -35,6 +35,12 @@ export interface BackgroundAgentRunInput {
   /** Which specialized agent type to start. Defaults to 'orchestrator'. */
   agentType?: AgentType;
   /**
+   * Optional explicit agent session id. Background callers that need to
+   * correlate persisted artifacts with a specific run should provide this and
+   * then join on artifact.sessionId.
+   */
+  sessionId?: string;
+  /**
    * Raw SA token (`openobs_sa_...`). One of `saToken` or `identity` must
    * be provided. When `saToken` is supplied it is resolved through
    * `deps.saTokens.validateAndLookup`.
@@ -70,6 +76,7 @@ export interface BackgroundRunnerDeps {
   makeOrchestrator: (
     overrides: Pick<OrchestratorDeps, 'identity'> & {
       agentType?: AgentType;
+      sessionId?: string;
     },
   ) => AgentRunner | Promise<AgentRunner>;
 }
@@ -111,6 +118,7 @@ export async function runBackgroundAgent(
   const agent = await deps.makeOrchestrator({
     identity,
     ...(input.agentType ? { agentType: input.agentType } : {}),
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
   });
 
   return agent.handleMessage(input.message, input.dashboardId);

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'node:crypto';
 import type { AlertRule, AlertSilence, NotificationPolicy } from '@agentic-obs/common';
 import {
   ACTIONS,
@@ -23,6 +24,15 @@ import { getOrgId } from '../middleware/workspace-context.js';
 
 const log = createLogger('alert-rules-route');
 const DEFAULT_MANUAL_INVESTIGATION_TIMEOUT_MS = 15 * 60 * 1000;
+const MANUAL_ALERT_SESSION_PREFIX = 'manual-alert:';
+
+function sanitizeSessionPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_.:-]/g, '_');
+}
+
+function buildManualAlertSessionId(ruleId: string): string {
+  return `${MANUAL_ALERT_SESSION_PREFIX}${sanitizeSessionPart(ruleId)}:${randomUUID()}`;
+}
 
 /**
  * Resolve the current request's org id. Prefers `req.auth.orgId` populated by
@@ -664,9 +674,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         // explicit workspaceId.
         const workspaceId = rule.workspaceId ?? resolveOrgId(req);
         const startedAtIso = new Date().toISOString();
-        const startedAt = new Date(startedAtIso).getTime();
-        const beforeInvestigations = await deps.investigationStore.findByWorkspace(workspaceId);
-        const beforeIds = new Set(beforeInvestigations.map((inv) => inv.id));
+        const sessionId = buildManualAlertSessionId(rule.id);
         await store.update(rule.id, {
           investigationId: undefined,
           investigationStartedAt: startedAtIso,
@@ -682,18 +690,11 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         const runner = deps.runner;
         void (async () => {
           try {
-            await runManualInvestigationWithTimeout(runner, { identity, message: question });
+            await runManualInvestigationWithTimeout(runner, { identity, sessionId, message: question });
             const investigations = await deps.investigationStore!.findByWorkspace(workspaceId);
             const finalInvestigation = investigations
-              .filter((inv) =>
-                !beforeIds.has(inv.id)
-                && new Date(inv.createdAt).getTime() >= startedAt - 1000,
-              )
-              .sort((a, b) => {
-                if (a.intent === question && b.intent !== question) return -1;
-                if (b.intent === question && a.intent !== question) return 1;
-                return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-            })[0];
+              .filter((inv) => inv.sessionId === sessionId)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
             if (finalInvestigation) {
               await store.update(rule.id, {
                 investigationId: finalInvestigation.id,
@@ -705,10 +706,10 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
               await store.update(rule.id, {
                 investigationStartedAt: undefined,
                 investigationFailedAt: new Date().toISOString(),
-                investigationFailureReason: 'The agent finished without saving an investigation report.',
+                investigationFailureReason: `The agent finished without saving an investigation report for session ${sessionId}.`,
               });
               log.warn(
-                { ruleId: rule.id, workspaceId, question },
+                { ruleId: rule.id, workspaceId, question, sessionId },
                 'manual investigate: agent completed without a persisted investigation to link',
               );
             }

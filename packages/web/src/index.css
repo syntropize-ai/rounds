@@ -5,6 +5,7 @@
   --color-surface-lowest: #0f1216;
   --color-surface: #14181d;
   --color-surface-low: #181d23;
+  --color-surface-container-low: #181d23;
   --color-surface-container: #1c2229;
   --color-surface-high: #242b33;
   --color-surface-highest: #2b333c;
@@ -111,6 +112,7 @@
   --color-surface-lowest: #f4f5f5;    /* page canvas */
   --color-surface: #f4f5f5;           /* body bg */
   --color-surface-low: #ffffff;        /* panel bg */
+  --color-surface-container-low: #ffffff;
   --color-surface-container: #ffffff;
   --color-surface-high: #ebebeb;       /* raised surfaces, badges, inputs */
   --color-surface-highest: #e4e7eb;

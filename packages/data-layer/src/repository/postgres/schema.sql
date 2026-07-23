@@ -905,8 +905,6 @@ CREATE INDEX IF NOT EXISTS ix_remediation_plan_investigation
   ON remediation_plan(investigation_id);
 CREATE INDEX IF NOT EXISTS ix_remediation_plan_rescue_for
   ON remediation_plan(rescue_for_plan_id);
-CREATE INDEX IF NOT EXISTS ix_remediation_plan_verification
-  ON remediation_plan(verification_status, verification_deadline_at);
 
 CREATE TABLE IF NOT EXISTS remediation_plan_step (
   id                  TEXT PRIMARY KEY,

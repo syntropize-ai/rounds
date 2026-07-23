@@ -329,6 +329,7 @@ export class AlertRuleRepository implements IAlertRuleRepository {
     const wheres: SQL[] = [];
     if (filter.state) wheres.push(sql`state = ${filter.state}`);
     if (filter.severity) wheres.push(sql`severity = ${filter.severity}`);
+    if (filter.workspaceId) wheres.push(sql`workspace_id = ${filter.workspaceId}`);
     const whereClause = wheres.length
       ? sql.join([sql`WHERE`, sql.join(wheres, sql` AND `)], sql` `)
       : sql``;

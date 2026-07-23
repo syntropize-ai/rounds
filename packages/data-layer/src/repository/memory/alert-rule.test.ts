@@ -54,6 +54,16 @@ describe('InMemoryAlertRuleRepository', () => {
     expect(stillNormal.list).toHaveLength(1);
   });
 
+  it('findAll() scopes to workspaceId before total and paging', async () => {
+    for (const workspaceId of ['ws_1', 'ws_2', 'ws_1', 'ws_2', 'ws_1'])
+      await repo.create(makeRuleData({ name: `r-${workspaceId}`, workspaceId }));
+
+    const { list, total } = await repo.findAll({ workspaceId: 'ws_1', limit: 1, offset: 2 });
+    expect(total).toBe(3);
+    expect(list).toHaveLength(1);
+    expect(list[0]!.workspaceId).toBe('ws_1');
+  });
+
   it('transition() changes state', async () => {
     const rule = await repo.create(makeRuleData());
     expect(rule.state).toBe('normal');

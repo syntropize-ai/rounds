@@ -96,6 +96,24 @@ describe('AlertRuleRepository', () => {
       expect(list).toHaveLength(2);
     });
 
+    it('findAll() scopes to workspaceId before total and paging', async () => {
+      // Interleaved so a post-pagination filter would leak / mis-count.
+      for (const workspaceId of ['ws_1', 'ws_2', 'ws_1', 'ws_2', 'ws_1']) {
+        await repo.create(sampleInput({ name: `r-${workspaceId}`, workspaceId }));
+        await new Promise((r) => setTimeout(r, 2));
+      }
+      await repo.create(sampleInput({ name: 'no-ws' }));
+
+      for (const offset of [0, 1, 2]) {
+        const { list, total } = await repo.findAll({ workspaceId: 'ws_1', limit: 1, offset });
+        expect(total).toBe(3);
+        expect(list).toHaveLength(1);
+        expect(list[0]!.workspaceId).toBe('ws_1');
+      }
+      const { total: otherTotal } = await repo.findAll({ workspaceId: 'ws_2', limit: 1 });
+      expect(otherTotal).toBe(2);
+    });
+
     it('findByWorkspace() filters on workspace_id', async () => {
       await repo.create(sampleInput({ name: 'ws-a', workspaceId: 'ws_1' }));
       await repo.create(sampleInput({ name: 'ws-b', workspaceId: 'ws_2' }));

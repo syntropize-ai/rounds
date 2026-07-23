@@ -74,6 +74,10 @@ export class InMemoryAlertRuleRepository implements IAlertRuleRepository {
       list = list.filter((r) => r.state === filter.state);
     if (filter?.severity)
       list = list.filter((r) => r.severity === filter.severity);
+    if (filter?.workspaceId)
+      list = list.filter(
+        (r) => (r.workspaceId ?? this.workspaces.get(r.id)) === filter.workspaceId,
+      );
     if (filter?.search) {
       const q = filter.search.toLowerCase();
       list = list.filter((r) =>

@@ -230,17 +230,17 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       const offset = req.query['offset'] ? parseInt(req.query['offset'] as string) : undefined;
       const workspaceId = resolveOrgId(req);
 
+      // Workspace scoping is pushed into the store so it applies before
+      // paging — filtering here would corrupt both `total` and the page
+      // boundaries on an instance with more than one workspace.
       const results = await store.findAll({
         state: state as AlertRule['state'] | undefined,
         severity,
         search,
+        workspaceId,
         limit,
         offset,
       });
-
-      // Filter by workspace
-      results.list = results.list.filter((r) => r.workspaceId === workspaceId);
-      results.total = results.list.length;
 
       res.json(results);
     },

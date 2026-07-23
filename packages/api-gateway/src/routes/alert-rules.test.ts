@@ -269,3 +269,64 @@ describe('POST /alert-rules/preview', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('GET /alert-rules pagination across workspaces', () => {
+  // Rows from both workspaces interleaved, as on a shared instance.
+  const seeded = [
+    rule({ id: 'a1', workspaceId: 'org_a' }),
+    rule({ id: 'b1', workspaceId: 'org_b' }),
+    rule({ id: 'a2', workspaceId: 'org_a' }),
+    rule({ id: 'b2', workspaceId: 'org_b' }),
+    rule({ id: 'a3', workspaceId: 'org_a' }),
+  ];
+
+  // Store double honouring the repository contract: filter first, then
+  // total, then offset/limit.
+  function makeSeededStore(): IAlertRuleRepository {
+    const store = makeStore();
+    store.findAll = vi.fn(async (filter?: { workspaceId?: string; limit?: number; offset?: number }) => {
+      const matched = filter?.workspaceId
+        ? seeded.filter((r) => r.workspaceId === filter.workspaceId)
+        : seeded;
+      let list = matched;
+      if (filter?.offset) list = list.slice(filter.offset);
+      if (filter?.limit) list = list.slice(0, filter.limit);
+      return { list, total: matched.length };
+    });
+    return store;
+  }
+
+  beforeEach(() => {
+    authState.orgId = 'org_a';
+    vi.clearAllMocks();
+  });
+
+  it('passes the workspace down to the store instead of filtering the page', async () => {
+    const { app, store } = makeApp(makeSeededStore());
+
+    await request(app).get('/alert-rules?limit=1&offset=0');
+
+    expect(store.findAll).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'org_a' }));
+  });
+
+  it.each([0, 1, 2])('returns the workspace total and no foreign rows at offset %i', async (offset) => {
+    const { app } = makeApp(makeSeededStore());
+
+    const res = await request(app).get(`/alert-rules?limit=1&offset=${offset}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(3);
+    expect(res.body.list).toHaveLength(1);
+    expect(res.body.list.every((r: AlertRule) => r.workspaceId === 'org_a')).toBe(true);
+  });
+
+  it('pages the other workspace independently', async () => {
+    authState.orgId = 'org_b';
+    const { app } = makeApp(makeSeededStore());
+
+    const res = await request(app).get('/alert-rules?limit=1&offset=1');
+
+    expect(res.body.total).toBe(2);
+    expect(res.body.list.map((r: AlertRule) => r.id)).toEqual(['b2']);
+  });
+});

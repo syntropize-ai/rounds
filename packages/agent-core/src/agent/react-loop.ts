@@ -47,6 +47,10 @@ const OBSERVATION_MAX_CHARS = 2000
  * flat 2000 (~15 lines) chopped kubectl output before the Events/log lines the
    * model actually needs. We raise the cap for THESE tools only,
  * rather than globally, so every other observation stays cheap.
+ * `load_task_context` is included because its observation IS the task playbook
+ * (largest module ~14.8k chars); the 2000 cap silently dropped ~85% of it.
+ * Known limitation: older-batch compression (~120 chars) still applies once the
+ * observation ages out of the recent window.
  */
 const VERBOSE_OBSERVATION_MAX_CHARS = 30000
 const VERBOSE_OBSERVATION_TOOLS: ReadonlySet<string> = new Set([
@@ -54,6 +58,7 @@ const VERBOSE_OBSERVATION_TOOLS: ReadonlySet<string> = new Set([
   'ops_run_command',
   'ops_cluster_shell',
   'logs_query',
+  'load_task_context',
 ])
 function observationMaxChars(action: string): number {
   return VERBOSE_OBSERVATION_TOOLS.has(action) ? VERBOSE_OBSERVATION_MAX_CHARS : OBSERVATION_MAX_CHARS

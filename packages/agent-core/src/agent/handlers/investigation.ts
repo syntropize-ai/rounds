@@ -493,7 +493,19 @@ export async function handleInvestigationComplete(
 
       const state = ctx.investigationStates.get(persistedInvestigationId)
         ?? ctx.investigationStates.get(investigationId);
-      const gate = evaluateInvestigationEvidenceGate(state, claim);
+      const provState = ctx.investigationProvenance.get(persistedInvestigationId);
+      // Reopened follow-up with no new checks this session: the working ledger
+      // starts empty (historical checks are never persisted in structured
+      // form), so re-running the gate would downgrade an already-verified
+      // report. Reuse the prior passed gate carried over from the saved
+      // report's provenance instead. If new checks were recorded, or the model
+      // now claims unresolved, evaluate normally.
+      const priorGate = provState?.rootCauseGate;
+      const gate = priorGate?.status === 'passed'
+        && (state?.checks.length ?? 0) === 0
+        && claim.rootCause.status !== 'unresolved'
+        ? priorGate
+        : evaluateInvestigationEvidenceGate(state, claim);
       const effectiveClaim: InvestigationCompletionClaim = gate.status === 'unresolved' && claim.rootCause.status !== 'unresolved'
         ? {
           ...claim,
@@ -521,7 +533,6 @@ export async function handleInvestigationComplete(
         });
       }
 
-      const provState = ctx.investigationProvenance.get(persistedInvestigationId);
       if (state?.checks.length) {
         appendLedgerSections(sections, state, effectiveClaim, provState);
       }

@@ -420,6 +420,7 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
         evidenceRefs: ['check_1', 'check_2'],
         ruledOut: ['no traffic', 'scrape artifact'],
         nextAction: 'Delete or roll back EnvoyFilter foo.',
+        validationMethod: 'verify p99 latency returns to baseline after rollback',
       } }] },
       { content: 'Delete EnvoyFilter foo.', toolCalls: [] },
     ])
@@ -468,6 +469,121 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
     expect(saved.sections.some((s: { content: string }) => s.content.includes('## Root cause'))).toBe(true)
     expect(saved.sections.some((s: { content: string }) => s.content.includes('## Evidence Trail'))).toBe(true)
     expect(saved.sections.some((s: { content: string }) => s.content.includes('EnvoyFilter foo contains'))).toBe(true)
+  })
+
+  it('keeps a prior passed gate when a reopened follow-up records no new checks', async () => {
+    const priorGate = {
+      status: 'passed' as const,
+      reasons: [],
+      rootCause: {
+        status: 'likely' as const,
+        object: 'EnvoyFilter/foo',
+        field: 'filter_chain_match',
+        cause: 'bad filter_chain_match routes requests into the failing Envoy path',
+      },
+      confidence: 0.86,
+      evidenceRefs: ['check_1', 'check_2'],
+      ruledOut: ['no traffic', 'scrape artifact'],
+      validationMethod: 'verify p99 latency returns to baseline after rollback',
+      evaluatedAt: '2026-04-26T00:00:00.000Z',
+    }
+    const existingReport = {
+      id: 'report_x',
+      dashboardId: 'inv_1',
+      goal: 'why slow',
+      summary: 'EnvoyFilter foo is the likely cause.',
+      sections: [
+        { type: 'text', content: '## Symptom\n\np99 high.' },
+        { type: 'evidence', content: 'p99 by route shows the bad Envoy path.' },
+      ],
+      createdAt: '2026-04-26T00:00:00.000Z',
+      provenance: { runId: 'inv_1', model: 'test-model', evidenceCount: 1, rootCauseGate: priorGate },
+    }
+    const reportStore = {
+      save: vi.fn(),
+      findByDashboard: vi.fn().mockResolvedValue([existingReport]),
+    }
+    const investigationStore = {
+      create: vi.fn(),
+      findById: vi.fn().mockResolvedValue({
+        id: 'inv_1',
+        sessionId: 'ses_1',
+        userId: 'u1',
+        intent: 'why slow',
+        structuredIntent: {},
+        plan: { entity: 'api', objective: 'why slow', steps: [], stopConditions: [] },
+        status: 'completed',
+        hypotheses: [],
+        actions: [],
+        evidence: [],
+        symptoms: [],
+        workspaceId: 'test-org',
+        createdAt: '2026-04-26T00:00:00.000Z',
+        updatedAt: '2026-04-26T00:00:00.000Z',
+      }),
+      updateStatus: vi.fn(),
+      updatePlan: vi.fn(),
+      updateResult: vi.fn(),
+    }
+    // Follow-up adds prose only — no investigation_record_check this session.
+    const gateway = queueGateway([
+      { content: '', toolCalls: [{ id: 'c1', name: 'investigation_add_text', input: { content: '## Remediation note\n\nDeleting EnvoyFilter foo is safe during business hours.' } }] },
+      { content: '', toolCalls: [{ id: 'c2', name: 'investigation_complete', input: {
+        summary: 'EnvoyFilter foo is the likely cause; delete it.',
+        rootCause: {
+          status: 'likely',
+          object: 'EnvoyFilter/foo',
+          field: 'filter_chain_match',
+          cause: 'bad filter_chain_match routes requests into the failing Envoy path',
+        },
+        confidence: 0.86,
+        evidenceRefs: ['check_1', 'check_2'],
+        ruledOut: ['no traffic', 'scrape artifact'],
+        nextAction: 'Delete or roll back EnvoyFilter foo.',
+      } }] },
+      { content: 'Done.', toolCalls: [] },
+    ])
+
+    const agent = new OrchestratorAgent({
+      gateway: gateway as any,
+      model: 'test-model',
+      store: {
+        findById: vi.fn().mockResolvedValue(undefined),
+        update: vi.fn(),
+        updatePanels: vi.fn(),
+        updateVariables: vi.fn(),
+      },
+      conversationStore: {
+        addMessage: vi.fn(),
+        getMessages: vi.fn().mockResolvedValue([]),
+        clearMessages: vi.fn(),
+        deleteConversation: vi.fn(),
+      },
+      investigationReportStore: reportStore as any,
+      investigationStore: investigationStore as any,
+      alertRuleStore: { create: vi.fn() } as any,
+      adapters: buildFakeMetricsAdapters(),
+      sendEvent: vi.fn(),
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+    })
+
+    await agent.handleMessage(
+      'add a remediation note',
+      undefined,
+      undefined,
+      { reopenInvestigationId: 'inv_1' },
+    )
+
+    expect(reportStore.save).toHaveBeenCalledTimes(1)
+    const saved = reportStore.save.mock.calls[0]![0]
+    expect(saved.id).toBe('report_x')
+    // The verified report is NOT downgraded: gate stays passed with the prior
+    // confidence, and no Unresolved section is appended.
+    expect(saved.provenance?.rootCauseGate?.status).toBe('passed')
+    expect(saved.provenance?.rootCauseGate?.confidence).toBe(0.86)
+    expect(saved.sections).toHaveLength(3)
+    expect(saved.sections.some((s: { content: string }) => s.content.includes('## Unresolved'))).toBe(false)
   })
 
   it('does not reopen when no prior report exists (fresh follow-up)', async () => {

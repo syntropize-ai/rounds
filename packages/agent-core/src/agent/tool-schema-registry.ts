@@ -590,7 +590,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
     schema: {
       name: 'remediation_plan_create_rescue',
       description:
-        'Propose a rescue/undo plan paired with a primary plan, to be invoked manually by an operator if the primary fails. Same shape as remediation_plan_create plus rescueForPlanId. Does NOT auto-create an ApprovalRequest; rescue plans are triggered on demand from the UI.\n\n' +
+        'Propose a rescue/undo plan paired with a primary plan, to be invoked manually by an operator if the primary fails. Same shape as remediation_plan_create plus rescueForPlanId — including the required targetObject and validationMethod fields; the same root-cause evidence gate applies. Does NOT auto-create an ApprovalRequest; rescue plans are triggered on demand from the UI.\n\n' +
         'Pair with the primary plan ONLY when each primary write step is reasonably reversible AND you know the exact undo (scale up→down, replicas, env-var flip, ConfigMap patch, image rollback to a known-good tag).\n\n' +
         'Skip rescue for inherently irreversible primary steps (`kubectl delete <unique resource>`, manual data migration, schema change). A wrong undo is worse than no undo — silence beats fabrication.\n\n' +
         'Rescue plans don\'t auto-approve and don\'t auto-run. They sit in storage; an operator triggers them from the UI only after the primary fails.',
@@ -600,6 +600,8 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           rescueForPlanId: { type: 'string', description: 'Id of the primary plan this rescue undoes.' },
           investigationId: { type: 'string', description: 'Same investigation that produced the primary plan.' },
           summary: { type: 'string', description: 'One-line description of the rollback action.' },
+          targetObject: { type: 'string', description: 'Specific object/field this plan changes. Must match the verified root-cause object/field on the linked investigation.' },
+          validationMethod: { type: 'string', description: 'How the operator should verify the rollback worked after execution. Must name the check, metric, log, query, or observable result.' },
           steps: {
             type: 'array',
             items: {
@@ -623,7 +625,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             },
           },
         },
-        required: ['rescueForPlanId', 'investigationId', 'summary', 'steps'],
+        required: ['rescueForPlanId', 'investigationId', 'summary', 'targetObject', 'validationMethod', 'steps'],
       },
     },
   },

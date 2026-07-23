@@ -59,6 +59,18 @@ describe('tool-schema-registry', () => {
     });
   }
 
+  it('remediation_plan_create_rescue requires the evidence-gate fields', () => {
+    // The rescue handler runs the same evidence gate as the primary
+    // (createPlanCommon → validateRemediationPlanEvidence), which rejects
+    // plans without targetObject/validationMethod. The schema must demand
+    // them or every schema-conformant rescue plan is rejected at runtime.
+    const schema = TOOL_REGISTRY['remediation_plan_create_rescue']?.schema.input_schema;
+    expect(schema?.properties?.['targetObject']).toBeDefined();
+    expect(schema?.properties?.['validationMethod']).toBeDefined();
+    expect(schema?.required).toContain('targetObject');
+    expect(schema?.required).toContain('validationMethod');
+  });
+
   it('no entry carries the removed extendedPrompt field (drift guard)', () => {
     const offenders = Object.entries(TOOL_REGISTRY)
       .filter(([, entry]) => 'extendedPrompt' in entry)

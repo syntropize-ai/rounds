@@ -1,7 +1,7 @@
 module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
-  plugins: ['@typescript-eslint'],
+  plugins: ['@typescript-eslint', 'react-hooks'],
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
@@ -22,5 +22,10 @@ module.exports = {
     'no-empty': ['warn', { allowEmptyCatch: true }],
     'no-useless-escape': 'warn',
     'no-constant-condition': 'warn',
+    // The .tsx half of the codebase carries eslint-disable comments for
+    // exhaustive-deps; without the plugin registered those comments are
+    // themselves lint errors. Both rules stay at 'warn' per the note above.
+    'react-hooks/rules-of-hooks': 'warn',
+    'react-hooks/exhaustive-deps': 'warn',
   },
 };

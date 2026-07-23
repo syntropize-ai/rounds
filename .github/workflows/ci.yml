@@ -20,6 +20,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Globs "packages/*/src/**/*.{ts,tsx}". The .tsx half matters: packages/web
+      # is ~130 .tsx files that a *.ts-only glob silently skipped. --max-warnings
+      # pins today's warning count so the total can only ratchet down.
       - run: npm run lint
 
   typecheck:
@@ -31,6 +34,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Runs "tsc --build", which walks the project references in tsconfig.json.
+      # Do not switch this back to "tsc --noEmit -p tsconfig.json": that config is
+      # a solution file with "files": [], so it has zero direct inputs and the job
+      # passed in ~0.3s without type-checking a single package.
       - run: npm run typecheck
 
   build-and-test:

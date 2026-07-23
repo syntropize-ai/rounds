@@ -38,11 +38,7 @@ import type {
 } from './types-permissions.js'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import { createInvestigationWorkingState, type InvestigationWorkingState } from './investigation-state.js'
-import {
-  getStructuredAlertRuleContext,
-  parseAlertFollowUpAction,
-  composeAlertFollowUpReply,
-} from './orchestrator-alert-helpers.js'
+import { getStructuredAlertRuleContext } from './orchestrator-alert-helpers.js'
 import { buildSystemPrompt } from './orchestrator-prompt.js'
 import { buildActionContext } from './orchestrator-action-context.js'
 import { ToolAuditReporter } from './orchestrator-audit-reporter.js'
@@ -357,18 +353,6 @@ export class OrchestratorAgent {
     }
 
     const activeAlertRule = getStructuredAlertRuleContext(history, alertRules)
-    const directFollowUpAction = parseAlertFollowUpAction(message, activeAlertRule)
-    if (directFollowUpAction) {
-      const result = await this.executeAction(directFollowUpAction)
-      const finalReply = result
-        ? await composeAlertFollowUpReply(this.deps.gateway, this.deps.model, message, directFollowUpAction, result)
-        : ''
-      if (finalReply) {
-        this.deps.sendEvent({ type: 'reply', content: finalReply })
-      }
-      this.emitAgentEvent(this.makeAgentEvent('agent.completed', { dashboardId, mode: 'structured_alert_followup' }));
-      return finalReply
-    }
 
     // Reopen path: a follow-up that landed inside an existing investigation
     // rehydrates that investigation's report so the loop CONTINUES it (updates

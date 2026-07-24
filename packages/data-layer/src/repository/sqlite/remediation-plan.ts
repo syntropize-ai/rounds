@@ -341,6 +341,31 @@ export class SqliteRemediationPlanRepository implements IRemediationPlanReposito
     return planRows.map((pr) => rowToPlan(pr, stepsByPlan.get(pr.id) ?? []));
   }
 
+  async listAppliedAwaitingVerification(limit = 100): Promise<RemediationPlan[]> {
+    const planRows = this.db.all<PlanRow>(sql`
+      SELECT * FROM remediation_plan
+      WHERE status = 'applied' AND verification_status = 'not_started'
+      ORDER BY created_at ASC
+      LIMIT ${limit}
+    `);
+    if (planRows.length === 0) return [];
+
+    const planIds = planRows.map((p) => p.id);
+    const idList = sql.join(planIds.map((p) => sql`${p}`), sql`, `);
+    const stepRows = this.db.all<StepRow>(sql`
+      SELECT * FROM remediation_plan_step
+      WHERE plan_id IN (${idList})
+      ORDER BY plan_id, ordinal
+    `);
+    const stepsByPlan = new Map<string, RemediationPlanStep[]>();
+    for (const sr of stepRows) {
+      const arr = stepsByPlan.get(sr.plan_id) ?? [];
+      arr.push(rowToStep(sr));
+      stepsByPlan.set(sr.plan_id, arr);
+    }
+    return planRows.map((pr) => rowToPlan(pr, stepsByPlan.get(pr.id) ?? []));
+  }
+
   async updatePlan(
     orgId: string,
     id: string,

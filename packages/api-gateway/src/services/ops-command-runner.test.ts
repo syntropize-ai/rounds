@@ -931,3 +931,52 @@ describe('checkShellCommandAllowlist — shell tokenization edge cases', () => {
       .toEqual({ allow: true });
   });
 });
+
+describe('checkShellCommandAllowlist — wrapper and operand bypasses', () => {
+  // A review probe drove real commands through the gate and found three shapes
+  // that walked straight past it. Each one is pinned below.
+  const ns = ['api', 'web'];
+
+  it('re-enters a shell wrapper instead of treating the body as one opaque token', () => {
+    // `sh -c "<body>"` survives tokenization as a single token, so before this
+    // the wrapper disabled the gate entirely for anything inside it.
+    for (const cmd of [
+      'sh -c "kubectl get secret db-creds -n kube-system -o yaml"',
+      "bash -c 'kubectl delete deploy web -n kube-system'",
+      '/bin/sh -c "kubectl get secret x -n api"',
+    ]) {
+      expect(checkShellCommandAllowlist(cmd, { mode: 'read' }, ns).allow).toBe(false);
+    }
+  });
+
+  it('lets a wrapped command through when its body is genuinely allowed', () => {
+    expect(checkShellCommandAllowlist('sh -c "kubectl get pods -n api"', { mode: 'read' }, ns))
+      .toEqual({ allow: true });
+  });
+
+  it('reads the namespace out of a kubectl cp operand', () => {
+    // `kubectl cp <ns>/<pod>:<path>` carries the namespace in the operand, not
+    // in -n, so the allowlist saw no namespace and allowed the copy.
+    const d = checkShellCommandAllowlist(
+      'kubectl cp kube-system/etcd-0:/etc/kubernetes/pki/ca.key ./ca.key',
+      { mode: 'write' },
+      ns,
+    );
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain('kube-system');
+
+    expect(checkShellCommandAllowlist('kubectl cp api/mypod:/tmp/log ./log', { mode: 'write' }, ns))
+      .toEqual({ allow: true });
+  });
+
+  it('denies a namespace-gated verb whose namespace cannot be determined', () => {
+    // Failing open here was the shared root of both bypasses above.
+    const d = checkShellCommandAllowlist('kubectl exec mypod -- ls', { mode: 'write' }, ns);
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain('must name a namespace');
+
+    // A connector with no namespace restriction is unaffected.
+    expect(checkShellCommandAllowlist('kubectl exec mypod -- ls', { mode: 'write' }, []))
+      .toEqual({ allow: true });
+  });
+});

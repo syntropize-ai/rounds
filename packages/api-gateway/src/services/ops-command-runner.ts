@@ -362,19 +362,46 @@ function isKubectlToken(token: string): boolean {
   return posixPath.basename(token) === 'kubectl';
 }
 
+/** Shells whose `-c <body>` argument is another command line to be gated. */
+const SHELL_BINARIES: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'ash', 'zsh', 'ksh']);
+
+/**
+ * Depth cap for re-entering `sh -c` bodies. Real commands nest at most once
+ * or twice; the cap only exists so a pathological `sh -c "sh -c \"…\""` chain
+ * cannot spin.
+ */
+const MAX_SHELL_NESTING = 8;
+
+/**
+ * `kubectl cp` carries its namespace inside the operand rather than in `-n`:
+ * `kubectl cp kube-system/etcd-0:/etc/…/ca.key ./ca.key`. Pull every namespace
+ * that appears that way so the allowlist sees them.
+ */
+function namespacesInCpOperands(argv: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const tok of argv) {
+    if (tok.startsWith('-')) continue;
+    // `<namespace>/<pod>:<path>` — the colon is what distinguishes a remote
+    // operand from a local path like `./dir/file`.
+    const match = /^([^/:\s]+)\/[^/:\s]+:/.exec(tok);
+    if (match?.[1]) found.push(match[1]);
+  }
+  return found;
+}
+
 /**
  * Structural allowlist gate for the shell path. Every `kubectl` invocation
- * inside the command string — including ones behind a pipe, `&&`, `$(…)` or
- * `xargs`, and ones spelled with a path (`/usr/bin/kubectl`) — is checked
- * against the same `checkKubectl` allowlist the plan executor uses, with the
- * connector's `allowedNamespaces`.
+ * inside the command string — behind a pipe, `&&`, `$(…)`, `xargs`, spelled
+ * with a path (`/usr/bin/kubectl`), or re-entered through `sh -c "…"` — is
+ * checked against the same `checkKubectl` allowlist the plan executor uses,
+ * with the connector's `allowedNamespaces`.
  *
- * KNOWN BOUNDARIES — shapes this gate does not see, so it is defense in
- * depth and not a sandbox. The connector capability policy and the
- * confirmation card remain the gate for:
- *   - a kubectl call re-entered through a quoted string: `sh -c "kubectl …"`,
- *     `bash -c '…'`. The quoted body is a single token here and is never
- *     re-tokenized.
+ * The gate fails closed: when a namespace-gated verb runs against a connector
+ * that restricts namespaces and the namespace cannot be determined, the
+ * command is denied rather than allowed.
+ *
+ * KNOWN BOUNDARIES — this is defense in depth, not a sandbox. The connector
+ * capability policy and the confirmation card remain the gate for:
  *   - indirection through a variable or alias: `K=kubectl; $K get secret …`.
  *   - a differently-named binary on PATH that execs kubectl.
  *
@@ -386,8 +413,25 @@ export function checkShellCommandAllowlist(
   command: string,
   policy: OpsCommandPolicy,
   allowedNamespaces: readonly string[],
+  depth = 0,
 ): AllowlistDecision {
   for (const tokens of shellSegments(command)) {
+    // `sh -c "<body>"` — the quoted body survives tokenization as one token.
+    // Re-enter the gate on it, otherwise wrapping any command in a shell
+    // walks straight past every check below.
+    const shellAt = tokens.findIndex((t) => SHELL_BINARIES.has(posixPath.basename(t)));
+    if (shellAt !== -1) {
+      const flagAt = tokens.indexOf('-c', shellAt + 1);
+      const body = flagAt === -1 ? undefined : tokens[flagAt + 1];
+      if (body !== undefined) {
+        if (depth >= MAX_SHELL_NESTING) {
+          return { allow: false, reason: 'shell nesting is too deep to inspect' };
+        }
+        const nested = checkShellCommandAllowlist(body, policy, allowedNamespaces, depth + 1);
+        if (!nested.allow) return nested;
+      }
+    }
+
     const at = tokens.findIndex(isKubectlToken);
     if (at === -1) continue;
     const argv = tokens.slice(at + 1);
@@ -397,14 +441,21 @@ export function checkShellCommandAllowlist(
     if (argv.length === 0) continue;
     const parsed = parseKubectlArgv(argv);
     if (policy.mode === 'write' && POLICY_GATED_KUBECTL_VERBS.has(parsed.verb)) {
-      if (
-        parsed.namespace !== null &&
-        allowedNamespaces.length > 0 &&
-        !allowedNamespaces.includes(parsed.namespace)
-      ) {
+      if (allowedNamespaces.length === 0) continue;
+      const namespaces = parsed.namespace !== null
+        ? [parsed.namespace]
+        : namespacesInCpOperands(argv);
+      if (namespaces.length === 0) {
         return {
           allow: false,
-          reason: `namespace '${parsed.namespace}' is not in the connector's allowed namespaces`,
+          reason: `'kubectl ${parsed.verb}' must name a namespace from the connector's allowed namespaces`,
+        };
+      }
+      const outside = namespaces.find((ns) => !allowedNamespaces.includes(ns));
+      if (outside !== undefined) {
+        return {
+          allow: false,
+          reason: `namespace '${outside}' is not in the connector's allowed namespaces`,
         };
       }
       continue;

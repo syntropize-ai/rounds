@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, plansApi } from '../api/client.js';
-import type { RemediationPlan } from '../api/client.js';
+import type { RemediationPlan, RemediationPlanStatus } from '../api/client.js';
 import { opsApi, type OpsConnector } from '../api/ops-api.js';
 import { relativeTime } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
@@ -116,7 +116,19 @@ function commandTarget(plan: RemediationPlan): string {
   return match ? `${match[1]} ${match[2]}` : `${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}`;
 }
 
-function planCtaLabel(plan: RemediationPlan): string {
+// Plan states the operator can still act on. `completed`, `rejected`, `expired`
+// and `cancelled` are terminal and stay out of the queue; `draft` was never
+// submitted.
+export const ACTIONABLE_PLAN_STATUSES = [
+  'pending_approval',
+  'approved',
+  'executing',
+  'applied',
+  'execution_failed',
+  'failed',
+] as const satisfies readonly RemediationPlanStatus[];
+
+export function planCtaLabel(plan: RemediationPlan): string {
   if (plan.status === 'pending_approval') return 'Review';
   if (plan.verificationStatus === 'waiting') return 'Verifying';
   if (plan.verificationStatus === 'passed') return 'Fixed';
@@ -443,7 +455,18 @@ export default function ActionCenter() {
 
   const loadPlans = useCallback(async () => {
     try {
-      const { data } = await plansApi.list({ status: 'pending_approval' });
+      // The tab shows the plans an operator still has something to do about:
+      // ones awaiting approval, ones running or being verified, and ones that
+      // failed. Fetching only `pending_approval` made every lifecycle label in
+      // `planCtaLabel` unreachable and hid failed remediations entirely.
+      const responses = await Promise.all(
+        ACTIONABLE_PLAN_STATUSES.map((status) => plansApi.list({ status })),
+      );
+      const byId = new Map<string, RemediationPlan>();
+      for (const { data: page } of responses) {
+        for (const plan of page) byId.set(plan.id, plan);
+      }
+      const data = [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setPlans(data);
       const investigationIds = Array.from(new Set(data.map((plan) => plan.investigationId).filter(Boolean)));
       const investigations = await Promise.all(
@@ -663,7 +686,7 @@ export default function ActionCenter() {
         </div>
       ) : tab === 'plans' ? (
         plans.length === 0 ? (
-          <div className="text-center py-16 text-[var(--color-outline)] text-sm">No plans pending approval</div>
+          <div className="text-center py-16 text-[var(--color-outline)] text-sm">No plans need attention</div>
         ) : (
           <div className="space-y-3">
             {plans.map((plan) => (

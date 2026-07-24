@@ -17,6 +17,7 @@ import type {
   RemediationPlanStepStatus,
   RemediationPlanVerificationStatus,
 } from '../api/client.js';
+import type { ApiResponse } from '../api/types.js';
 import type { Provenance } from '@agentic-obs/common';
 import { useAuth } from '../contexts/AuthContext.js';
 import { relativeTime } from '../utils/time.js';
@@ -475,13 +476,22 @@ function evidenceValue(evidence: Record<string, unknown> | null | undefined, key
   return null;
 }
 
+/**
+ * The alert-rule snapshot the verifier nests under `rule` — see
+ * `plan-verification-service.ts#ruleSnapshot`. Absent until the verifier has
+ * resolved the linked rule.
+ */
+function evidenceRule(evidence: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  const rule = evidence?.['rule'];
+  return rule !== null && typeof rule === 'object' ? (rule as Record<string, unknown>) : null;
+}
+
 function ValidationPanel({ plan, alert }: { plan: RemediationPlan; alert: AlertRuleLite | null }) {
   const status = plan.verificationStatus ?? 'not_started';
   const evidence = plan.verificationEvidenceJson;
-  const alertState = evidenceValue(evidence, 'alertState') ?? alert?.state ?? null;
-  const observedAt = evidenceValue(evidence, 'observedAt');
+  const alertState = evidenceValue(evidenceRule(evidence), 'state') ?? alert?.state ?? null;
+  const observedAt = evidenceValue(evidence, 'checkedAt');
   const reason = evidenceValue(evidence, 'reason');
-  const currentValue = evidenceValue(evidence, 'currentValue');
   const deadline = plan.verificationDeadlineAt ? relativeTime(plan.verificationDeadlineAt) : null;
   return (
     <section className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-5">
@@ -523,7 +533,7 @@ function ValidationPanel({ plan, alert }: { plan: RemediationPlan; alert: AlertR
         </div>
         <div>
           <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Observed</div>
-          <div className="mt-1 text-sm text-on-surface">{observedAt ? relativeTime(observedAt) : currentValue || 'not yet'}</div>
+          <div className="mt-1 text-sm text-on-surface">{observedAt ? relativeTime(observedAt) : 'not yet'}</div>
         </div>
       </div>
 
@@ -541,6 +551,42 @@ function ValidationPanel({ plan, alert }: { plan: RemediationPlan; alert: AlertR
   );
 }
 
+/**
+ * Rescue-plan entry point. Only failed executions have anything to roll back,
+ * and the executor writes `execution_failed` (`failed` is the pre-rename
+ * value still present on older rows). Exported for tests.
+ */
+export function RescuePlanPanel({ plan, rescuePlan }: { plan: RemediationPlan; rescuePlan: RemediationPlan | null }) {
+  if (plan.status !== 'execution_failed' && plan.status !== 'failed') return null;
+  if (!rescuePlan) return null;
+  return (
+    <div className="border border-[var(--color-outline-variant)] rounded-xl p-4 bg-[var(--color-surface-highest)]">
+      <h3 className="font-semibold text-on-surface mb-1">Rescue plan available</h3>
+      <p className="text-sm text-on-surface-variant mb-3">A paired rollback plan was generated alongside this plan. It will not run automatically.</p>
+      <Link
+        to={`/plans/${rescuePlan.id}`}
+        className="inline-block px-4 py-2 rounded-md bg-primary text-on-primary-fixed font-semibold hover:opacity-90"
+      >
+        Open rescue plan
+      </Link>
+    </div>
+  );
+}
+
+/**
+ * `apiClient` resolves API failures into `{ data, error }` rather than
+ * throwing, so plan mutations must inspect the envelope — a bare `await`
+ * makes a rejected approve look like a successful one. Returns the message to
+ * show the operator, or null when the call succeeded. Exported for tests.
+ */
+export async function planActionError(
+  label: string,
+  call: () => Promise<ApiResponse<unknown>>,
+): Promise<string | null> {
+  const { error } = await call();
+  return error ? `${label} failed: ${error.message}` : null;
+}
+
 export default function PlanDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -552,6 +598,7 @@ export default function PlanDetail() {
   const [investigationReport, setInvestigationReport] = useState<InvestigationReportLite | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [retryingOrdinal, setRetryingOrdinal] = useState<number | null>(null);
 
@@ -598,56 +645,42 @@ export default function PlanDetail() {
     void reload();
   }, [reload]);
 
+  const runAction = async (label: string, call: () => Promise<ApiResponse<unknown>>) => {
+    setActionError(null);
+    const message = await planActionError(label, call);
+    if (message) {
+      setActionError(message);
+      return;
+    }
+    await reload();
+  };
+
   const handleApprove = async () => {
     if (!id) return;
     setBusy(true);
-    try {
-      await plansApi.approve(id, true);
-      await reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Approve failed');
-    } finally {
-      setBusy(false);
-    }
+    await runAction('Approve', () => plansApi.approve(id, true));
+    setBusy(false);
   };
 
   const handleReject = async () => {
     if (!id) return;
     setBusy(true);
-    try {
-      await plansApi.reject(id);
-      await reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Reject failed');
-    } finally {
-      setBusy(false);
-    }
+    await runAction('Reject', () => plansApi.reject(id));
+    setBusy(false);
   };
 
   const handleCancel = async () => {
     if (!id) return;
     setBusy(true);
-    try {
-      await plansApi.cancel(id);
-      await reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cancel failed');
-    } finally {
-      setBusy(false);
-    }
+    await runAction('Cancel', () => plansApi.cancel(id));
+    setBusy(false);
   };
 
   const handleRetry = async (ordinal: number) => {
     if (!id) return;
     setRetryingOrdinal(ordinal);
-    try {
-      await plansApi.retryStep(id, ordinal);
-      await reload();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Retry failed');
-    } finally {
-      setRetryingOrdinal(null);
-    }
+    await runAction('Retry', () => plansApi.retryStep(id, ordinal));
+    setRetryingOrdinal(null);
   };
 
   const expiresLabel = useMemo(() => {
@@ -700,6 +733,20 @@ export default function PlanDetail() {
 
       {error && <p className="text-severity-critical">{error}</p>}
 
+      {/* Action error toast */}
+      {actionError && (
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-severity-critical/10 border border-severity-critical/20 text-sm text-severity-critical">
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="ml-3 text-severity-critical/70 hover:text-severity-critical font-semibold"
+          >
+            x
+          </button>
+        </div>
+      )}
+
       <DecisionPanel
         plan={plan}
         busy={busy}
@@ -745,18 +792,7 @@ export default function PlanDetail() {
       )}
 
       {/* Rescue plan link on failed plans */}
-      {plan.status === 'failed' && rescuePlan && (
-        <div className="border border-[var(--color-outline-variant)] rounded-xl p-4 bg-[var(--color-surface-highest)]">
-          <h3 className="font-semibold text-on-surface mb-1">Rescue plan available</h3>
-          <p className="text-sm text-on-surface-variant mb-3">A paired rollback plan was generated alongside this plan. It will not run automatically.</p>
-          <Link
-            to={`/plans/${rescuePlan.id}`}
-            className="inline-block px-4 py-2 rounded-md bg-primary text-on-primary-fixed font-semibold hover:opacity-90"
-          >
-            Open rescue plan
-          </Link>
-        </div>
-      )}
+      <RescuePlanPanel plan={plan} rescuePlan={rescuePlan} />
     </div>
   );
 }

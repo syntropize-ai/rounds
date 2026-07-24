@@ -5,6 +5,7 @@
  */
 
 import { apiClient } from './rest-api.js';
+import type { ApiResponse } from './types.js';
 
 export type RemediationPlanStatus =
   | 'draft'
@@ -93,27 +94,32 @@ export interface RetryStepResponse {
   plan: RemediationPlan | null;
 }
 
+/**
+ * `apiClient` resolves failed requests into `{ data, error }` instead of
+ * throwing, so every method here returns the full envelope — callers must
+ * check `error` or the failure is invisible.
+ */
 export const plansApi = {
-  list(opts: { status?: RemediationPlanStatus; investigationId?: string } = {}): Promise<{ data: RemediationPlan[] }> {
+  list(opts: { status?: RemediationPlanStatus; investigationId?: string } = {}): Promise<ApiResponse<RemediationPlan[]>> {
     const qs = new URLSearchParams();
     if (opts.status) qs.set('status', opts.status);
     if (opts.investigationId) qs.set('investigationId', opts.investigationId);
     const path = qs.toString() ? `/plans?${qs}` : '/plans';
     return apiClient.get<RemediationPlan[]>(path);
   },
-  get(id: string): Promise<{ data: RemediationPlan }> {
+  get(id: string): Promise<ApiResponse<RemediationPlan>> {
     return apiClient.get<RemediationPlan>(`/plans/${encodeURIComponent(id)}`);
   },
-  approve(id: string, autoEdit: boolean): Promise<{ data: ApproveResponse }> {
+  approve(id: string, autoEdit: boolean): Promise<ApiResponse<ApproveResponse>> {
     return apiClient.post<ApproveResponse>(`/plans/${encodeURIComponent(id)}/approve`, { autoEdit });
   },
-  reject(id: string): Promise<{ data: RemediationPlan | null }> {
+  reject(id: string): Promise<ApiResponse<RemediationPlan | null>> {
     return apiClient.post<RemediationPlan | null>(`/plans/${encodeURIComponent(id)}/reject`, {});
   },
-  cancel(id: string): Promise<{ data: RemediationPlan | null }> {
+  cancel(id: string): Promise<ApiResponse<RemediationPlan | null>> {
     return apiClient.post<RemediationPlan | null>(`/plans/${encodeURIComponent(id)}/cancel`, {});
   },
-  retryStep(id: string, ordinal: number): Promise<{ data: RetryStepResponse }> {
+  retryStep(id: string, ordinal: number): Promise<ApiResponse<RetryStepResponse>> {
     return apiClient.post<RetryStepResponse>(
       `/plans/${encodeURIComponent(id)}/steps/${ordinal}/retry`,
       {},

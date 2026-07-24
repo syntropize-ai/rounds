@@ -40,7 +40,7 @@ interface StateEntry {
 
 export interface ConnectorsGithubDeps {
   createConnector: (input: NewConnector) => Promise<Connector>;
-  upsertSecret: (input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }) => Promise<unknown>;
+  upsertSecret: (input: { connectorId: string; ciphertext: Uint8Array }) => Promise<unknown>;
   githubAppConfig: IGithubAppConfigRepository;
   /** Base URL operator uses to reach this instance. Used for redirect/hook URLs. */
   appBaseUrl: string;
@@ -285,7 +285,6 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
           await deps.upsertSecret({
             connectorId: connector.id,
             ciphertext: new TextEncoder().encode(JSON.stringify({ token, expiresAt })),
-            keyVersion: 1,
           });
           created.push({ connectorId: connector.id, owner, installationId: installation.id });
         } catch (err) {
@@ -296,7 +295,6 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
               await deps.upsertSecret({
                 connectorId,
                 ciphertext: new TextEncoder().encode(JSON.stringify({ token, expiresAt })),
-                keyVersion: 1,
               });
               refreshed.push({ connectorId, owner, installationId: installation.id });
               continue;
@@ -351,7 +349,6 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
       await deps.upsertSecret({
         connectorId: connector.id,
         ciphertext: new TextEncoder().encode(JSON.stringify({ token, expiresAt })),
-        keyVersion: 1,
       });
       res.redirect(`${resolveSettingsUrl(req)}?github=connected`);
     } catch (err) {

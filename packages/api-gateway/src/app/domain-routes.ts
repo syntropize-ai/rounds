@@ -159,7 +159,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   const githubAppBaseUrl = process.env['ROUNDS_BASE_URL']
     ?? process.env['APP_BASE_URL']
     ?? '';
-  const upsertSecretFn = (repos as { connectors?: { upsertSecret?: (input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }) => Promise<unknown> } })
+  const upsertSecretFn = (repos as { connectors?: { upsertSecret?: (input: { connectorId: string; ciphertext: Uint8Array }) => Promise<unknown> } })
     .connectors?.upsertSecret;
   const githubAppConfigRepo = (repos as { githubAppConfig?: import('@agentic-obs/data-layer').IGithubAppConfigRepository }).githubAppConfig;
   if (typeof upsertSecretFn === 'function' && connectorsRepo.create && githubAppConfigRepo) {

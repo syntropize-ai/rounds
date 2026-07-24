@@ -3,6 +3,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import type { SqliteClient } from './sqlite-client.js';
+import {
+  CONNECTOR_SECRET_KEY_VERSION,
+  CONNECTOR_SECRET_PLAINTEXT_KEY_VERSION,
+  sealConnectorSecret,
+} from '../repository/connector-shared.js';
 
 /**
  * Locate `sqlite-schema.sql` next to this module. In dev (tsx, src tree) the
@@ -66,6 +71,31 @@ export function applySchema(db: SqliteClient): void {
   addAlertInvestigationStateColumnsIfMissing(db);
   addRemediationVerificationColumnsIfMissing(db);
   dropLegacyConnectorTeamPoliciesTable(db);
+  encryptLegacyConnectorSecrets(db);
+}
+
+/**
+ * Re-encrypt `connector_secrets` rows written before connector credentials
+ * were encrypted at rest. Those rows carry `key_version = 1` and hold the raw
+ * kubeconfig / token bytes; this wraps each in an AES-256-GCM envelope and
+ * bumps `key_version`. Idempotent — a second boot finds no version-1 rows.
+ *
+ * SECRET_KEY is only resolved when there is something to convert, so fresh
+ * databases (and tests) never require it.
+ */
+function encryptLegacyConnectorSecrets(db: SqliteClient): void {
+  const rows = db.all<{ connector_id: string; ciphertext: Uint8Array }>(sql`
+    SELECT connector_id, ciphertext FROM connector_secrets
+    WHERE key_version = ${CONNECTOR_SECRET_PLAINTEXT_KEY_VERSION}
+  `);
+  for (const row of rows) {
+    db.run(sql`
+      UPDATE connector_secrets
+      SET ciphertext = ${sealConnectorSecret(row.ciphertext)},
+          key_version = ${CONNECTOR_SECRET_KEY_VERSION}
+      WHERE connector_id = ${row.connector_id}
+    `);
+  }
 }
 
 function renameLegacyUserTable(db: SqliteClient): void {

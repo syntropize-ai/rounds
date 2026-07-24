@@ -163,8 +163,8 @@ describe('Scenario 1 — Viewer → dashboard_create → permission denied', () 
 });
 
 describe('Scenario 2 — Editor → dashboard_create → allowed', () => {
-  it('executes the create and audits an allow row', async () => {
-    const { agent, audit, store } = build({
+  it('executes the handler (stages a draft) and audits an allow row', async () => {
+    const { agent, audit, store, sendEvent } = build({
       llmResponses: [
         asStep('create', 'dashboard_create', { folderUid: 'prod', title: 'My Dash', datasourceId: 'prom-test' }),
         asReply('Created.'),
@@ -172,7 +172,14 @@ describe('Scenario 2 — Editor → dashboard_create → allowed', () => {
       identity: makeTestIdentity({ orgRole: 'Editor' }),
     });
     await agent.handleMessage('Create a dashboard.');
-    expect(store.create).toHaveBeenCalled();
+    // Since #257 (deferred resource creation), dashboard_create only stages a
+    // draft; store.create runs later when dashboard_add_panels flushes it.
+    // The gate allowing execution is observable via the handler's tool_result.
+    expect(store.create).not.toHaveBeenCalled();
+    const toolResults = sendEvent.mock.calls
+      .map((c) => c[0])
+      .filter((e: any) => e.type === 'tool_result' && e.tool === 'dashboard_create');
+    expect(toolResults[0].summary).toContain('Prepared dashboard "My Dash"');
     const allowed = (audit.entries as Array<{ action: string }>).filter((e) => e.action === 'agent.tool_called');
     expect(allowed.length).toBe(1);
   });

@@ -45,6 +45,7 @@ describe('SqliteConnectorRepository', () => {
       'clickhouse',
       'elasticsearch',
       'github',
+      'humio',
       'jaeger',
       'kubernetes',
       'loki',

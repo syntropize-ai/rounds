@@ -810,9 +810,9 @@ export default function DashboardPanelCard({
       }
       case 'gauge': {
         const rawVal = scaleNumber(firstInstantValue(instantData), valueScale);
-        let val = rawVal;
-        let max = 100;
-        let gaugeUnit = displayUnit;
+        const val = rawVal;
+        const max = 100;
+        const gaugeUnit = displayUnit;
         return (
           <div className="flex h-full w-full items-center justify-center">
             <GaugeViz
@@ -834,9 +834,9 @@ export default function DashboardPanelCard({
       }
       case 'bar_gauge': {
         const items = instantToBarItems(instantData).map((it) => ({ ...it, value: it.value * valueScale }));
-        let displayItems = items;
+        const displayItems = items;
         let displayMax = panel.barGaugeMax;
-        let barGaugeUnit = displayUnit;
+        const barGaugeUnit = displayUnit;
         if (displayUnit === 'percent' && displayMax === undefined) {
           displayMax = 100;
         }

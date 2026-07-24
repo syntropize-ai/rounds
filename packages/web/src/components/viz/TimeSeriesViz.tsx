@@ -647,6 +647,11 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
     [sourceId, syncKey],
   );
 
+  // Must stay above the empty-state return: `usePanelLayout` holds state and
+  // an effect, so skipping it on empty renders changes the hook count and
+  // React throws when a panel flips between data and no-data.
+  const panelLayout = usePanelLayout(containerRef);
+
   // -- Empty-state render ----------------------------------------------------
 
   if (isEmpty || !built || !options) {
@@ -704,7 +709,6 @@ export function TimeSeriesViz(props: TimeSeriesVizProps): JSX.Element {
   // concrete legend mode (list / table / stacked / hidden) plus
   // basis. Everything below reads from `legendDecision` — no scattered
   // breakpoints / magic-number widths in this file anymore.
-  const panelLayout = usePanelLayout(containerRef);
   const legendDecision = decideLegendLayout(
     panelLayout,
     metas.length,

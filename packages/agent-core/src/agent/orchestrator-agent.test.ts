@@ -57,20 +57,23 @@ function createDashboard(): Dashboard {
   }
 }
 
-describe('OrchestratorAgent structured alert follow-up', () => {
+describe('OrchestratorAgent alert follow-up (ReAct loop)', () => {
   const sendEvent = vi.fn()
-  const gateway = {
-    complete: vi.fn(),
-  } as any
 
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('modifies the active alert without calling the LLM for a threshold follow-up', async () => {
-    const dashboard = createDashboard()
-    gateway.complete.mockResolvedValueOnce({ content: 'Updated the existing alert to trigger at 150ms.' })
-    const history: DashboardMessage[] = [
+  type LoopResponse = { content: string; toolCalls: Array<{ id: string; name: string; input: Record<string, unknown> }> }
+  function queueGateway(responses: LoopResponse[]) {
+    const q = [...responses]
+    return {
+      complete: vi.fn().mockImplementation(() => Promise.resolve(q.shift() ?? { content: 'done', toolCalls: [] })),
+    }
+  }
+
+  function alertHistory(): DashboardMessage[] {
+    return [
       {
         id: 'm1',
         role: 'assistant',
@@ -91,8 +94,10 @@ describe('OrchestratorAgent structured alert follow-up', () => {
         timestamp: new Date().toISOString(),
       },
     ]
+  }
 
-    const alertRuleStore = {
+  function makeAlertRuleStore() {
+    return {
       create: vi.fn(),
       findAll: vi.fn().mockResolvedValue({
         list: [
@@ -121,21 +126,23 @@ describe('OrchestratorAgent structured alert follow-up', () => {
         },
       }),
       update: vi.fn().mockResolvedValue({}),
-      delete: vi.fn(),
+      delete: vi.fn().mockResolvedValue(true),
     }
+  }
 
-    const agent = new OrchestratorAgent({
-      gateway,
+  function makeAgent(gateway: ReturnType<typeof queueGateway>, alertRuleStore: ReturnType<typeof makeAlertRuleStore>) {
+    return new OrchestratorAgent({
+      gateway: gateway as any,
       model: 'test-model',
       store: {
-        findById: vi.fn().mockResolvedValue(dashboard),
+        findById: vi.fn().mockResolvedValue(createDashboard()),
         update: vi.fn(),
         updatePanels: vi.fn(),
         updateVariables: vi.fn(),
       },
       conversationStore: {
         addMessage: vi.fn(),
-        getMessages: vi.fn().mockResolvedValue(history),
+        getMessages: vi.fn().mockResolvedValue(alertHistory()),
         clearMessages: vi.fn(),
         deleteConversation: vi.fn(),
       },
@@ -146,10 +153,22 @@ describe('OrchestratorAgent structured alert follow-up', () => {
       identity: makeTestIdentity(),
       accessControl: new AccessControlStub(),
     })
+  }
+
+  it('modifies the active alert when the LLM emits an alert_rule_write update call', async () => {
+    const gateway = queueGateway([
+      {
+        content: '',
+        toolCalls: [{ id: 'c1', name: 'alert_rule_write', input: { op: 'update', ruleId: 'alert_1', patch: { threshold: 150 } } }],
+      },
+      { content: 'Updated the existing alert to trigger at 150ms.', toolCalls: [] },
+    ])
+    const alertRuleStore = makeAlertRuleStore()
+    const agent = makeAgent(gateway, alertRuleStore)
 
     const reply = await agent.handleMessage('just change it to 150ms and notify me', 'dash-1')
 
-    expect(gateway.complete).toHaveBeenCalledTimes(1)
+    expect(gateway.complete).toHaveBeenCalledTimes(2)
     expect(alertRuleStore.update).toHaveBeenCalledWith(
       'alert_1',
       expect.objectContaining({
@@ -162,79 +181,52 @@ describe('OrchestratorAgent structured alert follow-up', () => {
     expect(reply).toContain('150ms')
   })
 
-  it('deletes the active alert without calling the LLM for a delete follow-up', async () => {
-    const dashboard = createDashboard()
-    gateway.complete.mockResolvedValueOnce({ content: 'Deleted the existing alert.' })
-    const history: DashboardMessage[] = [
+  it('deletes the active alert when the LLM emits an alert_rule_write delete call', async () => {
+    const gateway = queueGateway([
       {
-        id: 'm1',
-        role: 'assistant',
-        content: 'Created alert.',
-        actions: [
-          {
-            type: 'create_alert_rule',
-            ruleId: 'alert_1',
-            name: 'HighHTTPPLatency90thPercentile',
-            severity: 'high',
-            query: 'histogram_quantile(0.9, ...)',
-            operator: '>',
-            threshold: 300,
-            forDurationSec: 300,
-            evaluationIntervalSec: 60,
-          },
-        ],
-        timestamp: new Date().toISOString(),
+        content: '',
+        toolCalls: [{ id: 'c1', name: 'alert_rule_write', input: { op: 'delete', ruleId: 'alert_1' } }],
       },
-    ]
-
-    const deleteFn = vi.fn().mockResolvedValue(true)
-
-    const agent = new OrchestratorAgent({
-      gateway,
-      model: 'test-model',
-      store: {
-        findById: vi.fn().mockResolvedValue(dashboard),
-        update: vi.fn(),
-        updatePanels: vi.fn(),
-        updateVariables: vi.fn(),
-      },
-      conversationStore: {
-        addMessage: vi.fn(),
-        getMessages: vi.fn().mockResolvedValue(history),
-        clearMessages: vi.fn(),
-        deleteConversation: vi.fn(),
-      },
-      investigationReportStore: { save: vi.fn() },
-      alertRuleStore: {
-        create: vi.fn(),
-        findAll: vi.fn().mockResolvedValue({
-          list: [
-            {
-              id: 'alert_1',
-              name: 'HighHTTPPLatency90thPercentile',
-              severity: 'high',
-              condition: {
-                query: 'histogram_quantile(0.9, ...)',
-                operator: '>',
-                threshold: 300,
-                forDurationSec: 300,
-              },
-            },
-          ],
-        }),
-        delete: deleteFn,
-      } as any,
-      adapters: buildFakeMetricsAdapters(),
-      sendEvent,
-      identity: makeTestIdentity(),
-      accessControl: new AccessControlStub(),
-    })
+      { content: 'Deleted the existing alert.', toolCalls: [] },
+    ])
+    const alertRuleStore = makeAlertRuleStore()
+    const agent = makeAgent(gateway, alertRuleStore)
 
     const reply = await agent.handleMessage('delete it', 'dash-1')
 
-    expect(gateway.complete).toHaveBeenCalledTimes(1)
-    expect(deleteFn).toHaveBeenCalledWith('alert_1')
+    expect(gateway.complete).toHaveBeenCalledTimes(2)
+    expect(alertRuleStore.delete).toHaveBeenCalledWith('alert_1')
     expect(reply.toLowerCase()).toContain('deleted')
+  })
+
+  it('does not delete the alert for an analysis question containing "drop"', async () => {
+    const gateway = queueGateway([
+      { content: 'p99 dropped at 3pm because traffic shifted away from the slow route.', toolCalls: [] },
+    ])
+    const alertRuleStore = makeAlertRuleStore()
+    const agent = makeAgent(gateway, alertRuleStore)
+
+    const reply = await agent.handleMessage('why did p99 drop at 3pm?', 'dash-1')
+
+    expect(gateway.complete).toHaveBeenCalled()
+    expect(alertRuleStore.delete).not.toHaveBeenCalled()
+    expect(alertRuleStore.update).not.toHaveBeenCalled()
+    expect(reply).toContain('traffic')
+  })
+
+  it('does not rewrite the threshold for a data question containing a number', async () => {
+    const gateway = queueGateway([
+      { content: 'Here is the CPU usage over the last 30 minutes.', toolCalls: [] },
+    ])
+    const alertRuleStore = makeAlertRuleStore()
+    const agent = makeAgent(gateway, alertRuleStore)
+
+    const reply = await agent.handleMessage('show me the last 30 minutes of CPU', 'dash-1')
+
+    expect(gateway.complete).toHaveBeenCalled()
+    expect(alertRuleStore.update).not.toHaveBeenCalled()
+    expect(alertRuleStore.delete).not.toHaveBeenCalled()
+    expect(reply).toContain('CPU')
   })
 })
 

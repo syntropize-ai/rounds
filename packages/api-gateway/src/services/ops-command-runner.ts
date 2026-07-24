@@ -197,6 +197,17 @@ function assertNoUnauthorizedExec(kubeconfigYaml: string): void {
 const PENDING_CONFIRMATIONS = new Map<string, OpsCommandConfirmation>();
 const CONFIRMATION_WAITERS = new Map<string, (status: OpsCommandConfirmation['status']) => void>();
 const CONFIRMATION_TTL_MS = 10 * 60 * 1000;
+/**
+ * How long a settled card stays readable after it reaches a terminal status.
+ * It cannot be dropped the instant it settles: `/execute` reads it back to
+ * build its response, `runCommand` reads the approver fields back once the
+ * waiter wakes, and a decision that lands before the waiter registers is only
+ * observable through the store. Once the window passes the row is pruned —
+ * without pruning the map grows for the whole life of the process.
+ */
+const CONFIRMATION_RETENTION_MS = 60 * 1000;
+/** id → epoch ms after which the row may be dropped. Parallel to PENDING_CONFIRMATIONS. */
+const CONFIRMATION_PRUNE_AT = new Map<string, number>();
 
 function clusterShellRisk(scope: 'cluster' | 'namespace'): OpsCommandConfirmation['risk'] {
   return scope === 'cluster' ? 'critical' : 'high';
@@ -488,6 +499,7 @@ function createConfirmation(params: {
     expiresAt: new Date(Date.now() + CONFIRMATION_TTL_MS).toISOString(),
     status: 'pending',
   };
+  sweepConfirmations();
   PENDING_CONFIRMATIONS.set(confirmation.id, confirmation);
   return confirmation;
 }
@@ -520,17 +532,42 @@ function createClusterShellConfirmation(params: {
     expiresAt: new Date(Date.now() + CONFIRMATION_TTL_MS).toISOString(),
     status: 'pending',
   };
+  sweepConfirmations();
   PENDING_CONFIRMATIONS.set(confirmation.id, confirmation);
   return confirmation;
 }
 
-export function getOpsCommandConfirmation(id: string): OpsCommandConfirmation | undefined {
-  const confirmation = PENDING_CONFIRMATIONS.get(id);
-  if (!confirmation) return undefined;
-  if (confirmation.status === 'pending' && Date.parse(confirmation.expiresAt) <= Date.now()) {
-    confirmation.status = 'expired';
+function settleConfirmation(
+  confirmation: OpsCommandConfirmation,
+  status: Exclude<OpsCommandConfirmation['status'], 'pending'>,
+): void {
+  confirmation.status = status;
+  CONFIRMATION_PRUNE_AT.set(confirmation.id, Date.now() + CONFIRMATION_RETENTION_MS);
+}
+
+/**
+ * Flip pending rows whose TTL elapsed to `expired`, then drop every row past
+ * its prune deadline. Runs on each insert and each lookup, so the store stays
+ * bounded by the confirmations actually in flight instead of accumulating one
+ * row per command for the life of the process.
+ */
+function sweepConfirmations(): void {
+  const now = Date.now();
+  for (const [id, confirmation] of PENDING_CONFIRMATIONS) {
+    if (confirmation.status === 'pending' && Date.parse(confirmation.expiresAt) <= now) {
+      settleConfirmation(confirmation, 'expired');
+    }
+    const pruneAt = CONFIRMATION_PRUNE_AT.get(id);
+    if (pruneAt !== undefined && pruneAt <= now) {
+      PENDING_CONFIRMATIONS.delete(id);
+      CONFIRMATION_PRUNE_AT.delete(id);
+    }
   }
-  return confirmation;
+}
+
+export function getOpsCommandConfirmation(id: string): OpsCommandConfirmation | undefined {
+  sweepConfirmations();
+  return PENDING_CONFIRMATIONS.get(id);
 }
 
 export function resolveOpsCommandConfirmation(
@@ -540,7 +577,7 @@ export function resolveOpsCommandConfirmation(
 ): OpsCommandConfirmation | undefined {
   const confirmation = getOpsCommandConfirmation(id);
   if (!confirmation || confirmation.status !== 'pending') return confirmation;
-  confirmation.status = status;
+  settleConfirmation(confirmation, status);
   if (approver) {
     confirmation.approvedByUserId = approver.userId;
     confirmation.approvedAt = new Date().toISOString();
@@ -557,12 +594,25 @@ async function waitForConfirmationDecision(
   confirmation: OpsCommandConfirmation,
 ): Promise<OpsCommandConfirmation['status']> {
   const current = getOpsCommandConfirmation(confirmation.id);
-  if (!current || current.status !== 'pending') return current?.status ?? 'expired';
+  // No row at all means this process has no record of the card — it was
+  // pruned, or the api-gateway restarted since it was created. We cannot tell
+  // an approval from a rejection from silence, so fail loudly instead of
+  // reporting a decision the user never made (and instead of waiting on a
+  // card nobody can ever resolve).
+  if (!current) {
+    throw new Error(
+      `Ops confirmation ${confirmation.id} is no longer tracked by this api-gateway process ` +
+        `(it expired and was pruned, or the process restarted). Re-run the command to get a new confirmation.`,
+    );
+  }
+  if (current.status !== 'pending') return current.status;
   const expiresInMs = Math.max(0, Date.parse(current.expiresAt) - Date.now());
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      const latest = getOpsCommandConfirmation(confirmation.id);
-      if (latest?.status === 'pending') latest.status = 'expired';
+      // Our own deadline fired, so `expired` is a fact rather than a guess —
+      // report it even if the row was already swept away.
+      const latest = PENDING_CONFIRMATIONS.get(confirmation.id);
+      if (latest?.status === 'pending') settleConfirmation(latest, 'expired');
       CONFIRMATION_WAITERS.delete(confirmation.id);
       resolve('expired');
     }, expiresInMs);

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type {
   Connector,
   ConnectorLookupOptions,
@@ -12,6 +12,7 @@ import {
   KubectlOpsCommandRunner,
   checkShellCommandAllowlist,
   connectorToOpsConfig,
+  getOpsCommandConfirmation,
   isAgentReadSafeCommand,
   resolveOpsCommandConfirmation,
   type OpsCommandConfirmation,
@@ -978,5 +979,148 @@ describe('checkShellCommandAllowlist — wrapper and operand bypasses', () => {
     // A connector with no namespace restriction is unaffected.
     expect(checkShellCommandAllowlist('kubectl exec mypod -- ls', { mode: 'write' }, []))
       .toEqual({ allow: true });
+  });
+});
+
+describe('confirmation store lifecycle', () => {
+  // The pending-confirmation store is process-local. Rows used to be inserted
+  // and never removed, so every confirmed command leaked one entry for the
+  // life of the api-gateway. These tests pin the pruning contract and the
+  // "never report a decision we do not have" rule.
+
+  // Mirrors CONFIRMATION_TTL_MS / CONFIRMATION_RETENTION_MS in the module.
+  const TTL_MS = 10 * 60 * 1000;
+  const RETENTION_MS = 60 * 1000;
+
+  const identity = {
+    userId: 'agent-sa',
+    orgId: 'org_a',
+    orgRole: 'Editor' as const,
+    isServerAdmin: false,
+    authenticatedBy: 'api_key' as const,
+  };
+
+  function mkRunner(): KubectlOpsCommandRunner {
+    return new KubectlOpsCommandRunner({
+      connectors: fakeConnectorRepo({
+        connectors: [
+          mkConnector({ id: 'kube-prod', config: { kubeconfig: 'apiVersion: v1\nkind: Config' } }),
+        ],
+        secrets: new Map(),
+      }),
+      orgId: 'org_a',
+      // The allowlist gate makes commandPolicy a required dependency; these
+      // tests are about the confirmation store, so use the permissive mode.
+      commandPolicy: { mode: 'write' },
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('drops a resolved confirmation once the retention window passes', async () => {
+    const runner = mkRunner();
+    let id = '';
+    const r = await runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux', // forces confirmation
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        id = c.id;
+        resolveOpsCommandConfirmation(c.id, 'rejected', { userId: 'operator-bob' });
+      },
+    });
+
+    expect(r.observation).toContain('rejected');
+    // Readable right after settling — /execute reads the row back to build
+    // its response and runCommand reads the approver fields off it.
+    expect(getOpsCommandConfirmation(id)?.status).toBe('rejected');
+
+    vi.advanceTimersByTime(RETENTION_MS + 1);
+    expect(getOpsCommandConfirmation(id)).toBeUndefined();
+  });
+
+  it('expires a pending confirmation, settles its waiter, then drops the row', async () => {
+    const runner = mkRunner();
+    let resolveId: (id: string) => void = () => {};
+    const shown = new Promise<string>((res) => {
+      resolveId = res;
+    });
+    const pending = runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => resolveId(c.id),
+    });
+    const id = await shown;
+
+    await vi.advanceTimersByTimeAsync(TTL_MS + 1);
+    const r = await pending;
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('expired');
+    expect(getOpsCommandConfirmation(id)?.status).toBe('expired');
+
+    vi.advanceTimersByTime(RETENTION_MS + 1);
+    expect(getOpsCommandConfirmation(id)).toBeUndefined();
+  });
+
+  it('fails the waiting call loudly when the store has no row for the card', async () => {
+    // The state a restart leaves behind: the store is process-local, so after
+    // a restart it holds nothing while the card the user is looking at still
+    // says "pending". A waiter that finds no row must not invent a decision
+    // (it used to report `expired`, i.e. "user did not approve") and must not
+    // sit on a card nobody can resolve.
+    const runner = mkRunner();
+    const pending = runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        // Drive the row out of the store before the waiter looks it up:
+        // one sweep past the TTL expires it, a second past retention prunes it.
+        vi.setSystemTime(Date.now() + TTL_MS + 1);
+        expect(getOpsCommandConfirmation(c.id)?.status).toBe('expired');
+        vi.setSystemTime(Date.now() + RETENTION_MS + 1);
+        expect(getOpsCommandConfirmation(c.id)).toBeUndefined();
+      },
+    });
+
+    await expect(pending).rejects.toThrow(/no longer tracked by this api-gateway process/);
+  });
+
+  it('prunes settled rows on insert so the store cannot grow unbounded', async () => {
+    const runner = mkRunner();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      await runner.runCommand({
+        connectorId: 'kube-prod',
+        command: 'kubectl exec foo -- ps aux',
+        intent: 'read',
+        identity,
+        sessionId: 's1',
+        onConfirmationRequired: (c) => {
+          ids.push(c.id);
+          resolveOpsCommandConfirmation(c.id, 'rejected');
+        },
+      });
+      vi.advanceTimersByTime(RETENTION_MS + 1);
+    }
+
+    // Each insert sweeps, so only the newest row can still be present — and it
+    // is itself past retention by now.
+    for (const id of ids) {
+      expect(getOpsCommandConfirmation(id)).toBeUndefined();
+    }
   });
 });

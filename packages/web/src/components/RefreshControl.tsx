@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
+import { relativeTimeFromElapsed } from '../utils/time.js';
 
 /**
  * RefreshControl — combined manual refresh + auto-refresh interval picker.
@@ -109,7 +110,7 @@ export default function RefreshControl({ onRefresh }: { onRefresh: () => void })
     }
   }, [open]);
 
-  const lastLabel = formatLastRefreshed(Date.now() - lastRefreshAt);
+  const lastLabel = relativeTimeFromElapsed(Date.now() - lastRefreshAt);
   const activeOption = OPTIONS.find((o) => o.ms === intervalMs) ?? OPTIONS[0]!;
 
   return (
@@ -185,16 +186,6 @@ function readStoredInterval(): number {
   } catch {
     return 0;
   }
-}
-
-function formatLastRefreshed(elapsedMs: number): string {
-  if (elapsedMs < 2000) return 'just now';
-  const sec = Math.round(elapsedMs / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  return `${hr}h ago`;
 }
 
 function RefreshIcon({ spinning }: { spinning: boolean }): JSX.Element {

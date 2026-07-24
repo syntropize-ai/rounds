@@ -6,6 +6,7 @@ import Layout from './components/Layout.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { apiClient } from './api/client.js';
 import { setUnauthorizedHandler } from './api/transport.js';
+import { useRouteTitle } from './hooks/useRouteTitle.js';
 
 // Single auth-boundary handler for transport-layer 401s. Registered at
 // module load (before AuthProvider mounts) so even early requests funnel
@@ -43,6 +44,13 @@ const Dashboards = lazy(() => import('./pages/Dashboards.js'));
 const DashboardWorkspace = lazy(() => import('./pages/DashboardWorkspace.js'));
 const Alerts = lazy(() => import('./pages/Alerts.js'));
 const AlertRuleEdit = lazy(() => import('./pages/AlertRuleEdit.js'));
+
+// Titles every route from one place, rather than making each of the ~20 page
+// components remember to set its own. Renders nothing.
+function RouteTitle() {
+  useRouteTitle();
+  return null;
+}
 
 function RouteFallback() {
   return (
@@ -149,6 +157,7 @@ export default function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <BrowserRouter>
+          <RouteTitle />
           <AuthProvider>
             <Suspense fallback={<RouteFallback />}>
             <SetupGuard>

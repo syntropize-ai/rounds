@@ -20,7 +20,7 @@ import type {
 import type { ApiResponse } from '../api/types.js';
 import type { Provenance } from '@agentic-obs/common';
 import { useAuth } from '../contexts/AuthContext.js';
-import { relativeTime } from '../utils/time.js';
+import { relativeTime, expiryLabel } from '../utils/time.js';
 import StatusPill from '../components/StatusPill.js';
 
 interface AlertRuleLite {
@@ -685,7 +685,8 @@ export default function PlanDetail() {
 
   const expiresLabel = useMemo(() => {
     if (!plan) return '';
-    return relativeTime(plan.expiresAt);
+    const label = expiryLabel(plan.expiresAt);
+    return label.charAt(0).toUpperCase() + label.slice(1);
   }, [plan]);
 
   if (loading) return <div className="p-6 text-on-surface-variant">Loading plan…</div>;
@@ -721,7 +722,8 @@ export default function PlanDetail() {
             Investigation {plan.investigationId.slice(0, 12)}…
           </Link>
           <span>•</span>
-          <span>Expires {expiresLabel}</span>
+          {/* expiryLabel already reads "Expires in 32m" / "Expired 5m ago". */}
+          <span>{expiresLabel}</span>
         </div>
         {plan.rescueForPlanId && (
           <div className="text-sm text-on-surface-variant">

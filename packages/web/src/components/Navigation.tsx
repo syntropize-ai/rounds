@@ -5,6 +5,7 @@ import { useGlobalChat } from '../contexts/ChatContext.js';
 import { RoundsLogo } from './RoundsLogo.js';
 import { OrgSwitcher } from './OrgSwitcher.js';
 import { apiClient, plansApi } from '../api/client.js';
+import { relativeTime } from '../utils/time.js';
 
 /** Recent chat session shown in the sidebar Recents tab. */
 interface RecentSession {
@@ -15,21 +16,6 @@ interface RecentSession {
 }
 
 type SidebarTab = 'nav' | 'recents';
-
-function relativeTime(iso: string | undefined): string {
-  if (!iso) return '';
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diff = Date.now() - then;
-  const min = Math.floor(diff / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
 
 /* ───── Icon components ───── */
 

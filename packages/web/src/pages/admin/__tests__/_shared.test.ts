@@ -145,7 +145,7 @@ describe('formatLastSeen', () => {
 
   it('formats into a coarse relative duration', () => {
     expect(formatLastSeen('2026-04-17T11:59:30Z', now)).toBe('just now');
-    expect(formatLastSeen('2026-04-17T11:55:00Z', now)).toBe('5 min ago');
+    expect(formatLastSeen('2026-04-17T11:55:00Z', now)).toBe('5m ago');
     expect(formatLastSeen('2026-04-17T09:00:00Z', now)).toBe('3h ago');
     expect(formatLastSeen('2026-04-10T12:00:00Z', now)).toBe('7d ago');
     expect(formatLastSeen('2026-01-01T12:00:00Z', now)).toBe('3mo ago');

@@ -9,7 +9,7 @@ import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { RescuePlanPanel, planActionError } from './PlanDetail.js';
+import { RescuePlanPanel, ValidationPanel, planActionError } from './PlanDetail.js';
 import { plansApi } from '../api/client.js';
 import type { RemediationPlan, RemediationPlanStatus } from '../api/client.js';
 
@@ -97,5 +97,35 @@ describe('planActionError', () => {
     const message = await planActionError('Approve', () => plansApi.approve('plan-1', true));
 
     expect(message).toBeNull();
+  });
+});
+
+describe('ValidationPanel deadline', () => {
+  // The verification deadline is a FUTURE timestamp. relativeTime only measures
+  // backwards, so it rendered a deadline half an hour out as "just now" and, a
+  // little later — still before expiry — as "32m ago".
+  function renderDeadline(deadlineAt: string): string {
+    const plan = { ...makePlan('plan-1', 'applied'), verificationStatus: 'waiting' as const, verificationDeadlineAt: deadlineAt };
+    return renderToStaticMarkup(<ValidationPanel plan={plan} alert={null} />);
+  }
+
+  it('counts down to a deadline that is still ahead', () => {
+    const html = renderDeadline(new Date(Date.now() + 32 * 60_000).toISOString());
+    // Not pinned to the exact minute: a few ms elapse between building the
+    // timestamp and rendering, so 32m floors to 31m.
+    expect(html).toMatch(/expires in 3[12]m/);
+    expect(html).not.toContain('just now');
+    expect(html).not.toContain('ago');
+  });
+
+  it('says it expired once the deadline has passed', () => {
+    const html = renderDeadline(new Date(Date.now() - 5 * 60_000).toISOString());
+    expect(html).toContain('expired');
+    expect(html).toContain('ago');
+  });
+
+  it('shows none when no deadline is set', () => {
+    const html = renderToStaticMarkup(<ValidationPanel plan={makePlan('plan-1', 'applied')} alert={null} />);
+    expect(html).toContain('none');
   });
 });

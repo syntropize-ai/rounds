@@ -486,13 +486,13 @@ function evidenceRule(evidence: Record<string, unknown> | null | undefined): Rec
   return rule !== null && typeof rule === 'object' ? (rule as Record<string, unknown>) : null;
 }
 
-function ValidationPanel({ plan, alert }: { plan: RemediationPlan; alert: AlertRuleLite | null }) {
+export function ValidationPanel({ plan, alert }: { plan: RemediationPlan; alert: AlertRuleLite | null }) {
   const status = plan.verificationStatus ?? 'not_started';
   const evidence = plan.verificationEvidenceJson;
   const alertState = evidenceValue(evidenceRule(evidence), 'state') ?? alert?.state ?? null;
   const observedAt = evidenceValue(evidence, 'checkedAt');
   const reason = evidenceValue(evidence, 'reason');
-  const deadline = plan.verificationDeadlineAt ? relativeTime(plan.verificationDeadlineAt) : null;
+  const deadline = plan.verificationDeadlineAt ? expiryLabel(plan.verificationDeadlineAt) : null;
   return (
     <section className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">

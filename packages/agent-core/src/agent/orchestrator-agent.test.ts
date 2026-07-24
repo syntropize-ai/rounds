@@ -390,6 +390,7 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
         result: 'EnvoyFilter foo contains a filter_chain_match for the failing path',
         interpretation: 'Supports a specific config object root cause.',
         status: 'supported',
+        scope: { affected: 'EnvoyFilter/foo in namespace mesh' },
       } }] },
       { content: '', toolCalls: [{ id: 'r2', name: 'investigation_record_check', input: {
         hypothesis: 'traffic or scrape artifact explains the symptom',
@@ -399,6 +400,7 @@ describe('OrchestratorAgent investigation reopen (follow-up)', () => {
         result: 'traffic is present; errors isolate to the Envoy path',
         interpretation: 'Rules out no traffic and scrape artifact.',
         status: 'ruled_out',
+        scope: { timeWindow: 'last 60m', affected: 'the failing Envoy route' },
       } }] },
       { content: '', toolCalls: [{ id: 'c2', name: 'investigation_complete', input: {
         summary: 'EnvoyFilter foo is the likely cause; delete it.',

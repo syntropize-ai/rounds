@@ -35,8 +35,11 @@ const STOP_WORDS = new Set([
   'over', 'the', 'this', 'to', 'too', 'under', 'with',
 ]);
 
-const TIME_SCOPE_RX = /\b(last|past|since|during|between|window|range|baseline|current|now|then|before|after|scope|scoped|only|all|one|per|by|where|tenant|region|zone|host|node|instance|service|workload|target|component)\b|\b\d+\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\b|\b\d{4}-\d{2}-\d{2}t/i;
-const VALIDATION_RX = /\b(validate|validation|verify|verification|confirm|check|test|monitor|observe|measure|rollout status|dry[- ]run|backtest|compare)\b/i;
+// Han / Hiragana / Katakana / Hangul runs carry no word separators, so the
+// latin tokenizer below drops them wholesale. Score them as character bigrams
+// instead — otherwise every non-English investigation has zero root-cause
+// tokens and can never establish direct support.
+const CJK_RUN_RX = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]+/g;
 
 export function evaluateInvestigationEvidenceGate(
   state: InvestigationWorkingState | undefined,
@@ -97,11 +100,11 @@ export function evaluateInvestigationEvidenceGate(
   if (!checks.some((check) => check.status === 'ruled_out')) {
     reasons.push('at least one competing explanation must be recorded as ruled_out');
   }
-  if (!referenced.some((check) => TIME_SCOPE_RX.test(checkText(check)))) {
-    reasons.push('referenced evidence must establish time window or affected scope');
+  if (!referenced.some(hasRecordedScope)) {
+    reasons.push('at least one referenced check must record scope.timeWindow or scope.affected');
   }
-  if (!hasValidationMethod(claim)) {
-    reasons.push('nextAction or rootCause.nextCheck must state how to validate the fix or next finding');
+  if (!claim.validationMethod?.trim()) {
+    reasons.push('validationMethod must state how to validate the fix or next finding');
   }
 
   return {
@@ -140,7 +143,7 @@ export function validateRemediationPlanEvidence(
   if (gate?.status === 'passed' && !planMatchesRootCause(targetObject, gate.rootCause)) {
     reasons.push('plan target does not match the verified root-cause object or field');
   }
-  if (!validationMethod || !VALIDATION_RX.test(validationMethod)) {
+  if (!validationMethod) {
     reasons.push('plan must include an explicit verification or validation method');
   }
 
@@ -167,9 +170,8 @@ function hasDirectSupport(checks: InvestigationCheck[], rootCause: Investigation
   });
 }
 
-function hasValidationMethod(claim: InvestigationCompletionClaim): boolean {
-  const text = [claim.validationMethod ?? '', claim.nextAction ?? '', claim.rootCause.nextCheck ?? ''].join(' ');
-  return VALIDATION_RX.test(text);
+function hasRecordedScope(check: InvestigationCheck): boolean {
+  return Boolean(check.scope.timeWindow?.trim() || check.scope.affected?.trim());
 }
 
 function planMatchesRootCause(targetObject: string, rootCause: InvestigationRootCause | undefined): boolean {
@@ -203,5 +205,19 @@ function significantTokens(value: string): string[] {
     .flatMap((token) => token.split(/[_.:/-]+/))
     .map((token) => token.trim())
     .filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
-  return Array.from(new Set(tokens));
+  return Array.from(new Set([...tokens, ...cjkTokens(value)]));
+}
+
+function cjkTokens(value: string): string[] {
+  const tokens: string[] = [];
+  for (const run of value.match(CJK_RUN_RX) ?? []) {
+    if (run.length === 1) {
+      tokens.push(run);
+      continue;
+    }
+    for (let i = 0; i + 1 < run.length; i += 1) {
+      tokens.push(run.slice(i, i + 2));
+    }
+  }
+  return tokens;
 }

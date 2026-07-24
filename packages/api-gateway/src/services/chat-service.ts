@@ -538,6 +538,9 @@ export class ChatService {
       ? new KubectlOpsCommandRunner({
           connectors: this.deps.connectorRepo,
           orgId: identity.orgId,
+          // Interactive chat: a human sees the confirmation card before any
+          // mutation runs, so the write-verb allowlist applies here.
+          commandPolicy: { mode: 'write' },
           // Auto-approve read-shaped commands in interactive chat too, matching
           // background runs. The bypass still respects explicit ask/block
           // policy and only fires for read-safe shapes — writes / critical /

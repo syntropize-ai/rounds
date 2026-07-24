@@ -10,6 +10,7 @@ import { Router, type Response, type Router as ExpressRouter } from 'express';
 import type { IPanelEventRepository } from '@agentic-obs/data-layer';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { getOrgId } from '../middleware/workspace-context.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface AdminPanelEventsDeps {
   panelEvents: IPanelEventRepository;
@@ -34,7 +35,7 @@ function resolveOrgId(req: AuthenticatedRequest): string {
 export function createAdminPanelEventsRouter(deps: AdminPanelEventsDeps): ExpressRouter {
   const router = Router();
 
-  router.get('/aggregate', async (req: AuthenticatedRequest, res: Response) => {
+  router.get('/aggregate', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!requireServerAdmin(req, res)) return;
     const orgId = resolveOrgId(req);
     const sinceRaw = typeof req.query['since'] === 'string' ? req.query['since'] : undefined;
@@ -58,7 +59,7 @@ export function createAdminPanelEventsRouter(deps: AdminPanelEventsDeps): Expres
 
     const rows = await deps.panelEvents.aggregateBySignature(orgId, opts);
     res.json({ rows });
-  });
+  }));
 
   return router;
 }

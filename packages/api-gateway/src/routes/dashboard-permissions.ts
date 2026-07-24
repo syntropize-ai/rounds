@@ -21,6 +21,7 @@ import {
 } from '../services/resource-permission-service.js';
 import type { ResourcePermissionSetItem } from '@agentic-obs/common';
 import type { QueryClient } from '@agentic-obs/data-layer';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface DashboardPermissionsRouterDeps {
   permissionService: ResourcePermissionService;
@@ -74,7 +75,7 @@ export function createDashboardPermissionsRouter(
         `dashboards:uid:${req.params['uid']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const uid = req.params['uid']!;
         const folderUid = await readDashboardFolderUid(deps.db, req.auth!.orgId, uid);
@@ -88,7 +89,7 @@ export function createDashboardPermissionsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/dashboards/uid/:uid/permissions -----------------------------
@@ -100,7 +101,7 @@ export function createDashboardPermissionsRouter(
         `dashboards:uid:${req.params['uid']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const uid = req.params['uid']!;
         const body = req.body as { items?: ResourcePermissionSetItem[] };
@@ -120,7 +121,7 @@ export function createDashboardPermissionsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

@@ -22,6 +22,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import { OrgService, OrgServiceError } from '../services/org-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface OrgRouterDeps {
   orgs: OrgService;
@@ -59,7 +60,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgsRead, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const org = await deps.orgs.getById(req.auth!.orgId);
         if (!org) {
@@ -72,7 +73,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PUT /api/org ----------------------------------------------------------
@@ -81,7 +82,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgsWrite, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as Record<string, unknown>;
         const patch = {
@@ -99,7 +100,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/org/users ---------------------------------------------------
@@ -108,7 +109,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersRead, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const query =
           typeof req.query['query'] === 'string'
@@ -144,7 +145,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/org/users ---------------------------------------------------
@@ -153,7 +154,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersAdd, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as {
           loginOrEmail?: string;
@@ -184,7 +185,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PATCH /api/org/users/:userId ------------------------------------------
@@ -193,7 +194,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersWrite, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as { role?: string };
         if (!body.role || !(ORG_ROLES as readonly string[]).includes(body.role)) {
@@ -212,7 +213,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — DELETE /api/org/users/:userId -----------------------------------------
@@ -221,7 +222,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersRemove, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         await deps.orgs.removeUser(
           req.auth!.orgId,
@@ -232,7 +233,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/org/preferences ---------------------------------------------
@@ -241,7 +242,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgsPreferencesRead, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!deps.preferences) {
         res.json({});
         return;
@@ -258,7 +259,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PUT /api/org/preferences ---------------------------------------------
@@ -267,7 +268,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgsPreferencesWrite, `orgs:id:${req.auth!.orgId}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!deps.preferences) {
         res.status(501).json({
           error: {
@@ -291,7 +292,7 @@ export function createOrgRouter(deps: OrgRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

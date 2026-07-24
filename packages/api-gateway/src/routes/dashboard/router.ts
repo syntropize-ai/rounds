@@ -32,6 +32,7 @@ function resolveOrgId(req: Request): string {
   return getOrgId(req);
 }
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
+import { asyncHandler } from '../../middleware/async-handler.js'
 
 export interface DashboardRouterDeps {
   store: IGatewayDashboardStore
@@ -125,7 +126,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   // SSE stream pushes updates to the UI. There is no longer a background
   // auto-generation path; callers that want generation should drive it via
   // /api/chat after creation.
-  router.post('/', requirePermission(() => ac.eval(ACTIONS.DashboardsCreate, 'folders:*')), async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/', requirePermission(() => ac.eval(ACTIONS.DashboardsCreate, 'folders:*')), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.body as { prompt?: string, title?: string, datasourceIds?: string[], useExistingMetrics?: boolean, folder?: string }
       if (!body.prompt || typeof body.prompt !== 'string' || !body.prompt.trim()) {
@@ -165,10 +166,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // GET /dashboards
-  router.get('/', requirePermission(() => ac.eval(ACTIONS.DashboardsRead, 'dashboards:*')), async (req: Request, res: Response, next: NextFunction) => {
+  router.get('/', requirePermission(() => ac.eval(ACTIONS.DashboardsRead, 'dashboards:*')), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const workspaceId = resolveOrgId(req)
       let all = await store.findAll()
@@ -179,10 +180,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // GET /dashboards/:id/export — download as JSON file
-  router.get('/:id/export', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:id/export', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const dashboard = await loadOwnedDashboard(req, res, id)
@@ -194,10 +195,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
       res.json(dashboard)
     } catch (err) { next(err) }
-  })
+  }))
 
   // GET /dashboards/:id
-  router.get('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const dashboard = await loadOwnedDashboard(req, res, id)
@@ -212,10 +213,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // PUT /dashboards/:id
-  router.put('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.put('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const body = req.body as { title?: string, description?: string, folder?: string }
@@ -263,10 +264,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // DELETE /dashboards/:id
-  router.delete('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsDelete, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.delete('/:id', requirePermission((req) => ac.eval(ACTIONS.DashboardsDelete, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const dashboard = await loadOwnedDashboard(req, res, id)
@@ -298,7 +299,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // POST /dashboards/:id/fork — Wave 2 / Step 5
   // Copy the (possibly provisioned) source dashboard into the caller's personal
@@ -308,7 +309,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
   router.post(
     '/:id/fork',
     requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? ''
         const body = (req.body ?? {}) as { newTitle?: string }
@@ -377,11 +378,11 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
       } catch (err) {
         next(err)
       }
-    },
+    }),
   )
 
   // PUT /dashboards/:id/panels
-  router.put('/:id/panels', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.put('/:id/panels', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const body = req.body as { panels?: PanelConfig[] }
@@ -409,10 +410,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // POST /dashboards/:id/panels
-  router.post('/:id/panels', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/panels', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const d = await loadOwnedDashboard(req, res, id)
@@ -441,10 +442,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // DELETE /dashboards/:id/panels/:panelId
-  router.delete('/:id/panels/:panelId', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.delete('/:id/panels/:panelId', requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const panelId = req.params['panelId'] ?? ''
@@ -468,10 +469,10 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   // POST /dashboards/:id/variables/resolve
-  router.post('/:id/variables/resolve', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/:id/variables/resolve', requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)), asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const id = req.params['id'] ?? ''
       const dashboard = await loadOwnedDashboard(req, res, id)
@@ -517,7 +518,7 @@ export function createDashboardRouter(deps: DashboardRouterDeps): ExpressRouter 
     catch (err) {
       next(err)
     }
-  })
+  }))
 
   return router
 }

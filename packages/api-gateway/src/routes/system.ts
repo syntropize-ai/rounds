@@ -31,6 +31,7 @@ import type { INotificationRepository } from '@agentic-obs/data-layer';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface SystemRouterDeps {
   setupConfig: SetupConfigService;
@@ -162,7 +163,7 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
   });
 
   // PUT /api/system/llm — save LLM config.
-  router.put('/llm', requireConfigWrite, async (req: Request, res: Response) => {
+  router.put('/llm', requireConfigWrite, asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as LlmConfigWire | { config: LlmConfigWire };
     const cfg = 'config' in (body as { config?: LlmConfigWire })
       ? (body as { config: LlmConfigWire }).config
@@ -206,17 +207,17 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
     };
     const saved = await setupConfig.setLlm(input, actorFromReq(req));
     res.json({ ok: true, llm: { ...saved, apiKey: saved.apiKey ? '••••••' + (saved.apiKey.slice(-4)) : null } });
-  });
+  }));
 
   // DELETE /api/system/llm — clear the LLM config (dev / reset).
-  router.delete('/llm', requireConfigWrite, async (req: Request, res: Response) => {
+  router.delete('/llm', requireConfigWrite, asyncHandler(async (req: Request, res: Response) => {
     const removed = await setupConfig.clearLlm(actorFromReq(req));
     res.json({ ok: true, cleared: removed });
-  });
+  }));
 
   // PUT /api/system/notifications — replace the full set of notification
   // channels (slack/pagerduty/email). Mirrors the legacy wizard payload shape.
-  router.put('/notifications', requireConfigWrite, async (req: Request, res: Response) => {
+  router.put('/notifications', requireConfigWrite, asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as NotificationsWire | { notifications: NotificationsWire };
     const dto =
       'notifications' in (body as { notifications?: NotificationsWire })
@@ -275,7 +276,7 @@ export function createSystemRouter(deps: SystemRouterDeps): Router {
     }
     await syncSlackNotificationRouting(deps.notificationStore, dto.slack?.webhookUrl);
     res.json({ ok: true });
-  });
+  }));
 
   return router;
 }

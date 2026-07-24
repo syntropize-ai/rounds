@@ -32,6 +32,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
 import { getOrgId } from '../middleware/workspace-context.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface SaveAsDashboardRouterDeps {
   dashboardStore: IGatewayDashboardStore;
@@ -131,7 +132,7 @@ export function createMetricsSaveAsDashboardRouter(
   router.use(authMiddleware);
 
   // POST /save-as-dashboard/preview — similarity hints (no mutation).
-  router.post('/save-as-dashboard/preview', async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/save-as-dashboard/preview', asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = (req as AuthenticatedRequest).auth;
       if (!auth) {
@@ -175,10 +176,10 @@ export function createMetricsSaveAsDashboardRouter(
     } catch (err) {
       next(err);
     }
-  });
+  }));
 
   // POST /save-as-dashboard — create or append.
-  router.post('/save-as-dashboard', async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/save-as-dashboard', asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = (req as AuthenticatedRequest).auth;
       if (!auth) {
@@ -298,7 +299,7 @@ export function createMetricsSaveAsDashboardRouter(
     } catch (err) {
       next(err);
     }
-  });
+  }));
 
   return router;
 }

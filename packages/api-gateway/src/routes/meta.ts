@@ -9,6 +9,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { IGatewayInvestigationStore, IGatewayFeedStore } from '@agentic-obs/data-layer';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 // -- Types
 
@@ -200,11 +201,11 @@ export function createMetaRouter(deps: MetaRouterDeps): Router {
   router.use(authMiddleware);
   router.use(requirePermission(() => ac.eval(ACTIONS.InvestigationsRead, 'investigations:*')));
 
-  router.get('/quality', async (req, res) => {
+  router.get('/quality', asyncHandler(async (req, res) => {
     const orgId = (req as AuthenticatedRequest).auth!.orgId;
     const metrics = await computeQualityMetrics(invStore, feed, orgId);
     res.json(metrics);
-  });
+  }));
 
   return router;
 }

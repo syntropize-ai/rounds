@@ -21,6 +21,7 @@ import { AlertRuleService } from '../services/alert-rule-service.js';
 import type { ConnectorSecretReader } from '../utils/connector-secrets.js';
 import type { SetupConfigService } from '../services/setup-config-service.js';
 import { getOrgId } from '../middleware/workspace-context.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('alert-rules-route');
 const DEFAULT_MANUAL_INVESTIGATION_TIMEOUT_MS = 15 * 60 * 1000;
@@ -166,7 +167,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   router.post(
     '/preview',
     requirePermission(() => ac.eval(ACTIONS.AlertRulesRead, 'folders:*')),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const body = req.body as {
           query?: unknown;
@@ -214,7 +215,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- Alert Rules CRUD
@@ -222,7 +223,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   router.get(
     '/',
     requirePermission(() => ac.eval(ACTIONS.AlertRulesRead, 'folders:*')),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const state = req.query['state'] as string | undefined;
       const severity = req.query['severity'] as string | undefined;
       const search = req.query['search'] as string | undefined;
@@ -243,29 +244,29 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       });
 
       res.json(results);
-    },
+    }),
   );
 
   router.get(
     '/silences/all',
     requirePermission(() => ac.eval(ACTIONS.AlertSilencesRead)),
-    async (_req: Request, res: Response) => {
+    asyncHandler(async (_req: Request, res: Response) => {
       res.json(await store.findAllSilencesIncludingExpired());
-    },
+    }),
   );
 
   router.get(
     '/silences',
     requirePermission(() => ac.eval(ACTIONS.AlertSilencesRead)),
-    async (_req: Request, res: Response) => {
+    asyncHandler(async (_req: Request, res: Response) => {
       res.json(await store.findSilences());
-    },
+    }),
   );
 
   router.post(
     '/silences',
     requirePermission(() => ac.eval(ACTIONS.AlertSilencesCreate)),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as Partial<AlertSilence>;
       if (!body?.matchers || !body?.startsAt || !body?.endsAt) {
         res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'matchers, startsAt, endsAt are required' } });
@@ -281,32 +282,32 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       } as Omit<AlertSilence, 'id' | 'createdAt'>);
 
       res.status(201).json(silence);
-    },
+    }),
   );
 
   router.put(
     '/silences/:id',
     requirePermission(() => ac.eval(ACTIONS.AlertSilencesWrite)),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const updated = await store.updateSilence(req.params['id'] ?? '', req.body as Partial<AlertSilence>);
       if (!updated) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Silence not found' } });
         return;
       }
       res.json(updated);
-    },
+    }),
   );
 
   router.delete(
     '/silences/:id',
     requirePermission(() => ac.eval(ACTIONS.AlertSilencesWrite)),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       if (!(await store.deleteSilence(req.params['id'] ?? ''))) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Silence not found' } });
         return;
       }
       res.status(204).end();
-    },
+    }),
   );
 
   // -- Notification Policies
@@ -314,15 +315,15 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
   router.get(
     '/notification-policies',
     requirePermission(() => ac.eval(ACTIONS.AlertNotificationsRead)),
-    async (_req: Request, res: Response) => {
+    asyncHandler(async (_req: Request, res: Response) => {
       res.json(await store.findAllPolicies());
-    },
+    }),
   );
 
   router.post(
     '/notification-policies',
     requirePermission(() => ac.eval(ACTIONS.AlertNotificationsWrite)),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as Partial<NotificationPolicy>;
       if (!body?.name || !body?.channels) {
         res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'name and channels are required' } });
@@ -340,32 +341,32 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       } as Omit<NotificationPolicy, 'id' | 'createdAt' | 'updatedAt'>);
 
       res.status(201).json(policy);
-    },
+    }),
   );
 
   router.put(
     '/notification-policies/:id',
     requirePermission(() => ac.eval(ACTIONS.AlertNotificationsWrite)),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const updated = await store.updatePolicy(req.params['id'] ?? '', req.body as Partial<NotificationPolicy>);
       if (!updated) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Notification policy not found' } });
         return;
       }
       res.json(updated);
-    },
+    }),
   );
 
   router.delete(
     '/notification-policies/:id',
     requirePermission(() => ac.eval(ACTIONS.AlertNotificationsWrite)),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       if (!(await store.deletePolicy(req.params['id'] ?? ''))) {
         res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Notification policy not found' } });
         return;
       }
       res.status(204).end();
-    },
+    }),
   );
 
   router.get(
@@ -373,11 +374,11 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesRead, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const rule = await loadOwnedRule(req, res);
       if (!rule) return;
       res.json(rule);
-    },
+    }),
   );
 
   router.post(
@@ -392,7 +393,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         folderUid ? `folders:uid:${folderUid}` : 'folders:uid:*',
       );
     }),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as Partial<AlertRule>;
       if (!body?.name || !body.condition) {
         res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'name and condition are required' } });
@@ -434,7 +435,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       });
 
       res.status(201).json(rule);
-    },
+    }),
   );
 
   // POST /api/alert-rules/:id/fork — Wave 2 / Step 5
@@ -446,7 +447,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesRead, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const existing = await loadOwnedRule(req, res);
         if (!existing) return;
@@ -503,7 +504,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   router.put(
@@ -511,7 +512,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesWrite, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const existing = await loadOwnedRule(req, res);
       if (!existing) return;
       if (refuseIfProvisioned(res, existing)) return;
@@ -535,7 +536,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         },
       });
       res.json(updated);
-    },
+    }),
   );
 
   router.delete(
@@ -543,7 +544,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesDelete, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const existing = await loadOwnedRule(req, res);
       if (!existing) return;
       if (refuseIfProvisioned(res, existing)) return;
@@ -562,7 +563,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         outcome: 'success',
       });
       res.status(204).end();
-    },
+    }),
   );
 
   router.post(
@@ -570,7 +571,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesWrite, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const existing = await loadOwnedRule(req, res);
       if (!existing) return;
       if (refuseIfProvisioned(res, existing)) return;
@@ -580,7 +581,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         return;
       }
       res.json(rule);
-    },
+    }),
   );
 
   router.post(
@@ -588,7 +589,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesWrite, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const existing = await loadOwnedRule(req, res);
       if (!existing) return;
       const rule = await store.update(req.params['id'] ?? '', { state: 'normal' as const });
@@ -597,7 +598,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
         return;
       }
       res.json(rule);
-    },
+    }),
   );
 
   router.get(
@@ -605,12 +606,12 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesRead, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const limit = parseInt((req.query['limit'] as string | undefined) ?? '50', 10);
       const rule = await loadOwnedRule(req, res);
       if (!rule) return;
       res.json(await store.getHistory(rule.id, limit));
-    },
+    }),
   );
 
   router.post(
@@ -618,7 +619,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesWrite, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const rule = await loadOwnedRule(req, res);
         if (!rule) return;
@@ -627,7 +628,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   router.post(
@@ -635,7 +636,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.AlertRulesWrite, `alert.rules:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const rule = await loadOwnedRule(req, res);
         if (!rule) return;
@@ -730,7 +731,7 @@ export function createAlertRulesRouter(deps: AlertRulesRouterDeps): Router {
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   return router;

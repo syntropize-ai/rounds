@@ -22,4 +22,4 @@ jobs:
         run: |
           helm template rounds ./helm/rounds \
             --set secretEnv.JWT_SECRET=ci-test-secret-minimum-32-characters \
-            --set secretEnv.LLM_API_KEY=sk-test > /dev/null
+            --set secretEnv.ANTHROPIC_API_KEY=sk-test > /dev/null

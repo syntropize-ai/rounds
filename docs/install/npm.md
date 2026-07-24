@@ -33,18 +33,20 @@ Upgrade with the same command — `npm install -g @syntropize/rounds` re-fetches
 
 ## Configure via environment variables
 
-For unattended setups (CI, headless servers), skip the wizard by setting variables before the first start:
+For unattended setups (CI, headless servers), you can create the first admin
+without the wizard by setting variables before the first start:
 
 ```bash
 export JWT_SECRET="$(openssl rand -hex 32)"
-export LLM_PROVIDER=anthropic
-export LLM_API_KEY=sk-ant-...
-export SEED_ADMIN=true
+export SECRET_KEY="$(openssl rand -hex 32)"
 export SEED_ADMIN_EMAIL=admin@example.com
 export SEED_ADMIN_LOGIN=admin
 export SEED_ADMIN_PASSWORD='at-least-12-chars'
 rounds
 ```
+
+The LLM provider, model, and API key are not environment variables — configure
+them in Settings → LLM after logging in.
 
 See [Configuration](/configuration) for the complete environment variable reference.
 
@@ -52,7 +54,7 @@ See [Configuration](/configuration) for the complete environment variable refere
 
 By default Rounds uses an embedded SQLite database stored in:
 
-- macOS / Linux: `~/.syntropize/rounds.db`
+- macOS / Linux: `~/.rounds/rounds.db`
 - Windows: `%USERPROFILE%\.rounds\rounds.db`
 
 Override with `DATA_DIR=/path/to/dir` or `SQLITE_PATH=/path/to/rounds.db`.

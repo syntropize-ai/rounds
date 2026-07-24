@@ -75,7 +75,7 @@ function completionArgs(overrides: Record<string, unknown> = {}) {
     confidence: 0.85,
     evidenceRefs: ['check_1', 'check_2'],
     ruledOut: ['no traffic'],
-    nextAction: 'Raise the memory limit or roll back the deployment.',
+    nextAction: 'Raise the memory limit or roll back the deployment, then verify restarts and error rate return to baseline.',
     ...overrides,
   };
 }
@@ -86,8 +86,8 @@ async function seedReadyLedger(ctx: FakeActionContext) {
     signalType: 'kubernetes',
     tool: 'ops_run_command',
     query: 'kubectl describe pod reviews-v2',
-    result: 'reviews-v2 last state terminated: OOMKilled',
-    interpretation: 'Supports a workload-level memory failure.',
+    result: 'reviews-v2 last state terminated: OOMKilled during the last 30m in the affected service scope',
+    interpretation: 'Supports a workload-level memory failure caused by a low memory limit.',
     status: 'supported',
     nextCheck: 'Check traffic is present.',
   });
@@ -96,7 +96,7 @@ async function seedReadyLedger(ctx: FakeActionContext) {
     signalType: 'metric',
     tool: 'metrics_range_query',
     query: 'rate(istio_requests_total[5m])',
-    result: 'traffic is present and 5xx appears only for reviews-v2',
+    result: 'traffic is present during the last 30m and 5xx appears only for reviews-v2',
     interpretation: 'Rules out no traffic and points at reviews-v2.',
     status: 'ruled_out',
   });
@@ -505,6 +505,7 @@ describe('investigation handlers', () => {
       ctx.investigationSections.set('inv_1', [
         { type: 'evidence', content: 'HTTP error rate is non-zero.' },
       ]);
+      await seedReadyLedger(ctx);
 
       const result = await handleInvestigationComplete(ctx, completionArgs());
 
@@ -582,7 +583,47 @@ describe('investigation handlers', () => {
 
       expect(result).toContain('report saved');
       expect(reportStore.save).toHaveBeenCalledOnce();
+      const saved = (reportStore.save.mock.calls[0] ?? [])[0];
+      expect(saved.provenance?.rootCauseGate?.status).toBe('passed');
       expect(ctx.activeInvestigationId).toBeNull();
+    });
+
+    it('downgrades a claimed root cause to unresolved when evidence gate fails', async () => {
+      const store = investigationStore();
+      const reportStore = { save: vi.fn() };
+      const ctx = makeFakeActionContext({
+        investigationStore: store,
+        investigationReportStore: reportStore,
+        activeInvestigationId: 'inv_1',
+      });
+
+      await handleInvestigationRecordCheck(ctx, {
+        hypothesis: 'error rate is elevated',
+        signalType: 'metric',
+        tool: 'metrics_query',
+        query: 'error_rate',
+        result: 'error rate is 12%',
+        interpretation: 'Confirms the symptom but not the cause.',
+        status: 'supported',
+      });
+
+      const result = await handleInvestigationComplete(ctx, completionArgs({
+        evidenceRefs: ['check_1'],
+        ruledOut: [],
+        nextAction: 'Raise the memory limit.',
+      }));
+
+      expect(result).toContain('saved as unresolved');
+      expect(reportStore.save).toHaveBeenCalledOnce();
+      const saved = (reportStore.save.mock.calls[0] ?? [])[0];
+      expect(saved.provenance?.rootCauseGate?.status).toBe('unresolved');
+      expect(saved.provenance?.rootCauseGate?.reasons).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('competing explanations'),
+          expect.stringContaining('validate'),
+        ]),
+      );
+      expect(saved.sections.some((s: { content: string }) => s.content.includes('## Unresolved'))).toBe(true);
     });
   });
 });

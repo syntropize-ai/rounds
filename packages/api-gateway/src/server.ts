@@ -356,7 +356,10 @@ export async function createApp(): Promise<Application> {
   // silently mounted by a stray import. Legacy OPENOBS_DEMO is still
   // honored for back-compat with pre-rebrand configs.
   if (process.env['ROUNDS_DEMO'] === '1' || process.env['OPENOBS_DEMO'] === '1') {
-    const { createDemoRouter } = await import('./routes/demo.js');
+    const { createDemoRouter, seedDemoInvestigation } = await import('./routes/demo.js');
+    // Seed the fixture investigation the banner CTA deep-links to. Idempotent:
+    // re-runs at every demo boot, skips once the row exists.
+    await seedDemoInvestigation(persistence.db);
     app.use('/api/demo', createDemoRouter());
     log.info('demo routes mounted at /api/demo (ROUNDS_DEMO=1)');
   }

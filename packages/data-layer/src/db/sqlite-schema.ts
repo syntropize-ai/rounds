@@ -313,6 +313,65 @@ export const alertSilences = sqliteTable(
   ],
 );
 
+// — remediation plans
+
+export const remediationPlans = sqliteTable(
+  'remediation_plan',
+  {
+    id: text('id').primaryKey(),
+    orgId: text('org_id').notNull(),
+    investigationId: text('investigation_id').notNull(),
+    rescueForPlanId: text('rescue_for_plan_id'),
+    summary: text('summary').notNull(),
+    status: text('status').notNull().default('pending_approval'),
+    linkedAlertRuleId: text('linked_alert_rule_id'),
+    targetObject: text('target_object'),
+    validationMethod: text('validation_method'),
+    verificationStatus: text('verification_status').notNull().default('not_started'),
+    verificationStartedAt: text('verification_started_at'),
+    verificationDeadlineAt: text('verification_deadline_at'),
+    verificationEvidenceJson: text('verification_evidence_json', { mode: 'json' }),
+    continuationInvestigationId: text('continuation_investigation_id'),
+    autoEdit: integer('auto_edit', { mode: 'boolean' }).notNull().default(false),
+    approvalRequestId: text('approval_request_id'),
+    createdBy: text('created_by').notNull(),
+    createdAt: text('created_at').notNull(),
+    expiresAt: text('expires_at').notNull(),
+    resolvedAt: text('resolved_at'),
+    resolvedBy: text('resolved_by'),
+  },
+  (t) => [
+    index('ix_remediation_plan_org_status').on(t.orgId, t.status),
+    index('ix_remediation_plan_investigation').on(t.investigationId),
+    index('ix_remediation_plan_rescue_for').on(t.rescueForPlanId),
+    index('ix_remediation_plan_verification').on(t.verificationStatus, t.verificationDeadlineAt),
+  ],
+);
+
+export const remediationPlanSteps = sqliteTable(
+  'remediation_plan_step',
+  {
+    id: text('id').primaryKey(),
+    planId: text('plan_id').notNull(),
+    ordinal: integer('ordinal').notNull(),
+    kind: text('kind').notNull(),
+    commandText: text('command_text').notNull(),
+    paramsJson: text('params_json', { mode: 'json' }).notNull().default('{}'),
+    dryRunText: text('dry_run_text'),
+    riskNote: text('risk_note'),
+    continueOnError: integer('continue_on_error', { mode: 'boolean' }).notNull().default(false),
+    status: text('status').notNull().default('pending'),
+    approvalRequestId: text('approval_request_id'),
+    executedAt: text('executed_at'),
+    outputText: text('output_text'),
+    errorText: text('error_text'),
+  },
+  (t) => [
+    index('ix_remediation_plan_step_plan').on(t.planId),
+    uniqueIndex('ux_remediation_plan_step_plan_ordinal').on(t.planId, t.ordinal),
+  ],
+);
+
 // — notification policies (flat, from AlertRuleStore)
 
 export const notificationPolicies = sqliteTable(

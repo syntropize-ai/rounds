@@ -45,6 +45,7 @@ export async function applyPostgresSchema(db: DbClient): Promise<void> {
     // type drift broke reads. The CREATE TABLE IF NOT EXISTS above does not
     // alter existing columns, so retrofit type-by-type.
     await fixLegacyBooleanColumns(tx);
+    await addRemediationVerificationColumns(tx);
   });
 }
 
@@ -95,6 +96,26 @@ async function dropLegacyKnowledgeEntriesTable(tx: {
       END IF;
     END
     $$;
+  `));
+}
+
+async function addRemediationVerificationColumns(tx: {
+  execute: (q: ReturnType<typeof sql>) => Promise<unknown>;
+}): Promise<void> {
+  await tx.execute(sql.raw(`
+    ALTER TABLE remediation_plan
+      ADD COLUMN IF NOT EXISTS linked_alert_rule_id TEXT,
+      ADD COLUMN IF NOT EXISTS target_object TEXT,
+      ADD COLUMN IF NOT EXISTS validation_method TEXT,
+      ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'not_started',
+      ADD COLUMN IF NOT EXISTS verification_started_at TEXT,
+      ADD COLUMN IF NOT EXISTS verification_deadline_at TEXT,
+      ADD COLUMN IF NOT EXISTS verification_evidence_json JSONB,
+      ADD COLUMN IF NOT EXISTS continuation_investigation_id TEXT;
+  `));
+  await tx.execute(sql.raw(`
+    CREATE INDEX IF NOT EXISTS ix_remediation_plan_verification
+      ON remediation_plan(verification_status, verification_deadline_at);
   `));
 }
 

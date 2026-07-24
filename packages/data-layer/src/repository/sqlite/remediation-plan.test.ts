@@ -40,6 +40,14 @@ describe('SqliteRemediationPlanRepository', () => {
     const plan = await repo.create(basePlan());
     expect(plan.id).toMatch(/^plan-/);
     expect(plan.status).toBe('pending_approval');
+    expect(plan.linkedAlertRuleId).toBeNull();
+    expect(plan.targetObject).toBeNull();
+    expect(plan.validationMethod).toBeNull();
+    expect(plan.verificationStatus).toBe('not_started');
+    expect(plan.verificationStartedAt).toBeNull();
+    expect(plan.verificationDeadlineAt).toBeNull();
+    expect(plan.verificationEvidenceJson).toBeNull();
+    expect(plan.continuationInvestigationId).toBeNull();
     expect(plan.autoEdit).toBe(false);
     expect(plan.steps).toHaveLength(2);
     expect(plan.steps[0]?.ordinal).toBe(0);
@@ -120,6 +128,34 @@ describe('SqliteRemediationPlanRepository', () => {
     expect(after?.autoEdit).toBe(true);
     expect(after?.resolvedAt).toBe('2026-04-29T00:00:00.000Z');
     expect(after?.resolvedBy).toBe('user-1');
+  });
+
+  it('persists and filters verification metadata', async () => {
+    const plan = await repo.create(basePlan({
+      linkedAlertRuleId: 'alert-1',
+      targetObject: 'deployment/web',
+      validationMethod: 'linked_alert_rule',
+    }));
+    expect(plan.linkedAlertRuleId).toBe('alert-1');
+    expect(plan.targetObject).toBe('deployment/web');
+    expect(plan.validationMethod).toBe('linked_alert_rule');
+
+    const after = await repo.updatePlan('org_main', plan.id, {
+      status: 'applied',
+      verificationStatus: 'waiting',
+      verificationStartedAt: '2026-04-29T00:00:00.000Z',
+      verificationDeadlineAt: '2026-04-29T00:01:00.000Z',
+      verificationEvidenceJson: { reason: 'waiting' },
+    });
+    expect(after?.status).toBe('applied');
+    expect(after?.verificationStatus).toBe('waiting');
+    expect(after?.verificationEvidenceJson).toEqual({ reason: 'waiting' });
+
+    const waiting = await repo.listWaitingVerification();
+    expect(waiting.map((p) => p.id)).toEqual([plan.id]);
+
+    const filtered = await repo.listByOrg('org_main', { verificationStatus: 'waiting' });
+    expect(filtered.map((p) => p.id)).toEqual([plan.id]);
   });
 
   it('updatePlan cross-org returns null and writes nothing', async () => {

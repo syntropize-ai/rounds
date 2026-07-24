@@ -15,7 +15,9 @@ import type {
   RemediationPlanStep,
   RemediationPlanStatus,
   RemediationPlanStepStatus,
+  RemediationPlanVerificationStatus,
 } from '../api/client.js';
+import type { Provenance } from '@agentic-obs/common';
 import { useAuth } from '../contexts/AuthContext.js';
 import { relativeTime } from '../utils/time.js';
 import StatusPill from '../components/StatusPill.js';
@@ -37,6 +39,11 @@ interface InvestigationLite {
   id: string;
   intent: string;
   status: string;
+}
+
+interface InvestigationReportLite {
+  summary: string;
+  provenance?: Provenance;
 }
 
 function humanizeName(name: string): string {
@@ -61,6 +68,32 @@ function commandTarget(step: RemediationPlanStep): string {
   const match = text.match(/\b(virtualservice|serviceentry|deployment|deploy|pod|service|svc|configmap|secret)\s+([^\s]+)/i);
   if (match) return `${match[1]} ${match[2]}`;
   return step.kind.replace(/\./g, ' ');
+}
+
+function stepTitle(step: RemediationPlanStep): string {
+  const verb = humanizeName(commandVerb(step));
+  const target = commandTarget(step);
+  return `${verb} ${target}`;
+}
+
+function shortCommand(command: string): string {
+  return command.replace(/^kubectl\s+/, '').replace(/\s+/g, ' ').trim();
+}
+
+function rootCauseText(report: InvestigationReportLite | null): string {
+  const gate = report?.provenance?.rootCauseGate;
+  if (!gate?.rootCause) return 'No verified root cause recorded';
+  const bits = [
+    gate.rootCause.object,
+    gate.rootCause.field,
+    gate.rootCause.cause,
+  ].filter((v): v is string => Boolean(v && v.trim()));
+  return bits.length > 0 ? bits.join(' · ') : 'Root cause verified';
+}
+
+function confidenceLabel(value: number | undefined): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'unknown';
+  return `${Math.round(value * 100)}%`;
 }
 
 function planRisk(plan: RemediationPlan): 'medium' | 'high' | 'critical' {
@@ -89,6 +122,8 @@ const STATUS_TONE: Record<string, Tone> = {
   pending_approval: { kind: 'state', value: 'pending' },
   approved: { kind: 'severity', value: 'info' },
   executing: { kind: 'severity', value: 'info' },
+  applied: { kind: 'severity', value: 'info' },
+  execution_failed: { kind: 'state', value: 'firing' },
   completed: { kind: 'state', value: 'resolved' },
   failed: { kind: 'state', value: 'firing' },
   rejected: { kind: 'state', value: 'firing' },
@@ -112,19 +147,92 @@ function StatusBadge({ status }: { status: RemediationPlanStatus | RemediationPl
   return <StatusPill kind={tone.kind} value={tone.value} label={label} size="md" />;
 }
 
+function verificationTone(status: RemediationPlanVerificationStatus): Tone {
+  if (status === 'passed') return { kind: 'state', value: 'resolved' };
+  if (status === 'failed') return { kind: 'state', value: 'firing' };
+  if (status === 'waiting') return { kind: 'state', value: 'pending' };
+  if (status === 'inconclusive') return { kind: 'severity', value: 'info' };
+  return null;
+}
+
+function VerificationBadge({ status }: { status: RemediationPlanVerificationStatus }) {
+  const tone = verificationTone(status);
+  const label = status === 'passed'
+    ? 'fixed'
+    : status === 'failed'
+      ? 'ineffective'
+      : status.replace(/_/g, ' ');
+  if (tone === null) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-[var(--color-surface-high)] text-[var(--color-outline)]">
+        {label}
+      </span>
+    );
+  }
+  return <StatusPill kind={tone.kind} value={tone.value} label={label} size="md" />;
+}
+
+function outcomeTitle(plan: RemediationPlan): string {
+  if (plan.status === 'pending_approval') return 'Approve this plan to run it now';
+  if (plan.status === 'executing' || plan.status === 'approved') return 'Running approved changes';
+  if (plan.status === 'execution_failed' || plan.status === 'failed') return 'Execution failed';
+  if (plan.status === 'applied' || plan.status === 'completed') {
+    if (plan.verificationStatus === 'passed') return 'Change applied and verified';
+    if (plan.verificationStatus === 'failed') return 'Change applied but did not fix the alert';
+    if (plan.verificationStatus === 'waiting') return 'Change applied, verifying impact';
+    if (plan.verificationStatus === 'inconclusive') return 'Change applied, verification inconclusive';
+    return 'Change applied';
+  }
+  return 'Plan execution state';
+}
+
+function outcomeDescription(plan: RemediationPlan): string {
+  if (plan.status === 'pending_approval') {
+    return `This will run ${plan.steps.length} ordered step${plan.steps.length === 1 ? '' : 's'} once. It does not change future approval policy.`;
+  }
+  if (plan.status === 'execution_failed' || plan.status === 'failed') {
+    return 'At least one command failed. The alert may still be firing because the change was not fully applied.';
+  }
+  if (plan.verificationStatus === 'passed') {
+    return 'The linked alert recovered after the change was applied.';
+  }
+  if (plan.verificationStatus === 'failed') {
+    return 'The commands ran successfully, but the linked alert was still firing after the validation window.';
+  }
+  if (plan.verificationStatus === 'waiting') {
+    return 'The commands ran successfully. Rounds is waiting for fresh alert evaluations before calling this fixed.';
+  }
+  if (plan.verificationStatus === 'inconclusive') {
+    return 'Rounds could not prove whether the change fixed the alert. Review the validation evidence before taking another action.';
+  }
+  if (plan.verificationStatus === 'skipped') {
+    return 'The commands ran successfully, but this plan has no linked alert verification signal.';
+  }
+  return 'This plan has already left the approval queue. The execution timeline below shows what happened.';
+}
+
 function StepRow({ step, onRetry, retrying }: {
   step: RemediationPlanStep;
   onRetry: (ordinal: number) => void;
   retrying: boolean;
 }) {
+  const hasRuntimeDetail = Boolean(step.dryRunText || step.outputText || step.errorText);
   return (
     <li className="border border-[var(--color-outline-variant)] rounded-lg bg-[var(--color-surface-highest)] p-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono text-xs text-on-surface-variant">step {step.ordinal + 1}</span>
-          <StatusBadge status={step.status} />
-          {step.continueOnError && (
-            <span className="text-xs text-on-surface-variant italic">continue-on-error</span>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md bg-[var(--color-surface-high)] px-2 text-xs font-semibold text-on-surface-variant">
+              {step.ordinal + 1}
+            </span>
+            <StatusBadge status={step.status} />
+            {step.continueOnError && (
+              <span className="text-xs text-on-surface-variant">continues if this fails</span>
+            )}
+          </div>
+          <h3 className="mt-3 text-base font-semibold text-on-surface">{stepTitle(step)}</h3>
+          {step.riskNote && (
+            <p className="mt-1 text-sm leading-6 text-on-surface-variant">{step.riskNote}</p>
           )}
         </div>
         {step.status === 'failed' && (
@@ -132,37 +240,107 @@ function StepRow({ step, onRetry, retrying }: {
             type="button"
             disabled={retrying}
             onClick={() => onRetry(step.ordinal)}
-            className="px-3 py-1 rounded-md text-xs font-semibold border border-[var(--color-outline-variant)] hover:bg-[var(--color-surface-high)] disabled:opacity-50"
+            className="shrink-0 px-3 py-1.5 rounded-md text-xs font-semibold border border-[var(--color-outline-variant)] hover:bg-[var(--color-surface-high)] disabled:opacity-50"
           >
             {retrying ? 'Retrying…' : 'Retry this step'}
           </button>
         )}
       </div>
-      <pre className="mt-2 font-mono text-sm whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2 text-on-surface">
-        {step.commandText}
-      </pre>
-      {step.riskNote && (
-        <p className="mt-2 text-sm text-on-surface-variant">
-          <span className="font-semibold">Risk: </span>{step.riskNote}
-        </p>
-      )}
-      {step.dryRunText && (
-        <details className="mt-2 text-sm">
-          <summary className="cursor-pointer text-on-surface-variant">Dry-run preview</summary>
-          <pre className="mt-1 font-mono text-xs whitespace-pre-wrap bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2 max-h-64 overflow-auto">{step.dryRunText}</pre>
-        </details>
-      )}
-      {(step.outputText || step.errorText) && (
-        <details className="mt-2 text-sm" open={Boolean(step.errorText)}>
-          <summary className="cursor-pointer text-on-surface-variant">
-            {step.errorText ? 'Error output' : 'Output'}
-          </summary>
-          <pre className="mt-1 font-mono text-xs whitespace-pre-wrap bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-2 max-h-64 overflow-auto">
+
+      <details className="mt-3 text-sm" open={step.status === 'failed'}>
+        <summary className="cursor-pointer select-none text-on-surface-variant hover:text-on-surface">
+          Command and run details
+        </summary>
+        <pre className="mt-2 font-mono text-sm whitespace-pre-wrap break-all bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-3 text-on-surface">
+          {step.commandText}
+        </pre>
+        {step.dryRunText && (
+          <pre className="mt-2 font-mono text-xs whitespace-pre-wrap bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-3 max-h-64 overflow-auto text-on-surface-variant">{step.dryRunText}</pre>
+        )}
+        {hasRuntimeDetail && (step.outputText || step.errorText) && (
+          <pre className="mt-2 font-mono text-xs whitespace-pre-wrap bg-[var(--color-surface)] border border-[var(--color-outline-variant)] rounded p-3 max-h-64 overflow-auto text-on-surface">
             {step.errorText ?? step.outputText}
           </pre>
-        </details>
-      )}
+        )}
+      </details>
     </li>
+  );
+}
+
+function DecisionPanel({
+  plan,
+  busy,
+  canApprove,
+  onApprove,
+  onReject,
+}: {
+  plan: RemediationPlan;
+  busy: boolean;
+  canApprove: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const risk = planRisk(plan);
+  const pending = plan.status === 'pending_approval';
+  const verificationStatus = plan.verificationStatus ?? 'not_started';
+  return (
+    <section className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Decision</div>
+          <h2 className="mt-2 text-xl font-semibold text-on-surface">{outcomeTitle(plan)}</h2>
+          <p className="mt-2 text-sm leading-6 text-on-surface-variant">
+            {outcomeDescription(plan)}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusBadge status={plan.status} />
+          {plan.status !== 'pending_approval' && <VerificationBadge status={verificationStatus} />}
+          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase ${RISK_STYLE[risk]}`}>
+            {risk} risk
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Steps</div>
+          <div className="mt-1 text-lg font-semibold text-on-surface">{plan.steps.length}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Target</div>
+          <div className="mt-1 text-sm text-on-surface">{plan.targetObject || 'not recorded'}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Validation</div>
+          <div className="mt-1 text-sm text-on-surface">{plan.validationMethod || 'not recorded'}</div>
+        </div>
+      </div>
+
+      {pending && (
+        <div className="mt-5 flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            disabled={!canApprove || busy}
+            onClick={onApprove}
+            className="px-4 py-2 rounded-md bg-primary text-on-primary-fixed font-semibold hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? 'Starting...' : 'Approve & run'}
+          </button>
+          <button
+            type="button"
+            disabled={!canApprove || busy}
+            onClick={onReject}
+            className="px-4 py-2 rounded-md border border-[var(--color-outline-variant)] text-on-surface hover:bg-[var(--color-surface-high)] disabled:opacity-50"
+          >
+            Reject
+          </button>
+          {!canApprove && (
+            <span className="text-xs text-on-surface-variant">You need plan approval permission.</span>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -214,66 +392,151 @@ function SourcePanel({
   );
 }
 
-function ApprovalReviewCard({
-  plan,
-  busy,
-  canApprove,
-  onApprove,
-  onReject,
-}: {
-  plan: RemediationPlan;
-  busy: boolean;
-  canApprove: boolean;
-  onApprove: () => void;
-  onReject: () => void;
-}) {
-  const risk = planRisk(plan);
+function EvidenceGatePanel({ report }: { report: InvestigationReportLite | null }) {
+  const gate = report?.provenance?.rootCauseGate;
+  const passed = gate?.status === 'passed';
   return (
-    <section className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-4 space-y-4">
+    <section className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-5">
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Review required</div>
-          <h2 className="mt-1 text-lg font-semibold text-on-surface">Approve this fix to run {plan.steps.length} step{plan.steps.length === 1 ? '' : 's'}</h2>
-          <p className="mt-1 text-sm text-on-surface-variant">Review the commands below. Approval runs this plan once; it does not change future policy.</p>
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Why trust it</div>
+          <h2 className="mt-2 text-lg font-semibold text-on-surface">{rootCauseText(report)}</h2>
+          <p className="mt-2 text-sm leading-6 text-on-surface-variant">
+            {gate?.validationMethod || report?.summary || 'No investigation report was attached to this plan.'}
+          </p>
         </div>
-        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase ${RISK_STYLE[risk]}`}>
-          {risk} risk
+        <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase ${
+          passed ? 'bg-state-resolved/10 text-state-resolved' : 'bg-state-pending/10 text-state-pending'
+        }`}>
+          {passed ? 'verified' : 'not verified'}
         </span>
       </div>
 
-      <div className="grid gap-2">
+      <div className="mt-5 grid gap-3 sm:grid-cols-4">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Confidence</div>
+          <div className="mt-1 text-sm font-semibold text-on-surface">{confidenceLabel(gate?.confidence)}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Evidence</div>
+          <div className="mt-1 text-sm font-semibold text-on-surface">{gate?.evidenceRefs.length ?? report?.provenance?.evidenceCount ?? 0}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Ruled out</div>
+          <div className="mt-1 text-sm font-semibold text-on-surface">{gate?.ruledOut.length ?? 0}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Tool calls</div>
+          <div className="mt-1 text-sm font-semibold text-on-surface">{report?.provenance?.toolCalls ?? 'unknown'}</div>
+        </div>
+      </div>
+
+      {gate && gate.status !== 'passed' && gate.reasons.length > 0 && (
+        <div className="mt-4 rounded-md border border-[var(--color-outline-variant)] bg-[var(--color-surface)] p-3">
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Open concerns</div>
+          <ul className="mt-2 space-y-1 text-sm text-on-surface-variant">
+            {gate.reasons.slice(0, 4).map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ChangePlanPanel({ plan }: { plan: RemediationPlan }) {
+  return (
+    <section className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-5">
+      <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">What will change</div>
+      <h2 className="mt-2 text-lg font-semibold text-on-surface">{plan.summary}</h2>
+      <div className="mt-4 divide-y divide-[var(--color-outline-variant)] border-y border-[var(--color-outline-variant)]">
         {plan.steps.map((step) => (
-          <div key={step.id} className="rounded-md border border-[var(--color-outline-variant)] bg-[var(--color-surface)] p-3">
-            <div className="flex items-center gap-2 text-xs text-on-surface-variant">
-              <span className="font-semibold text-on-surface">{commandVerb(step)}</span>
-              <span>{commandTarget(step)}</span>
+          <div key={step.id} className="py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-on-surface">{stepTitle(step)}</div>
+                <div className="mt-1 truncate font-mono text-xs text-on-surface-variant">{shortCommand(step.commandText)}</div>
+              </div>
+              <StatusBadge status={step.status} />
             </div>
-            <code className="mt-1 block text-sm font-mono text-on-surface break-all">{step.commandText}</code>
+            {step.riskNote && <p className="mt-2 text-sm leading-6 text-on-surface-variant">{step.riskNote}</p>}
           </div>
         ))}
       </div>
+    </section>
+  );
+}
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <button
-          type="button"
-          disabled={!canApprove || busy}
-          onClick={onApprove}
-          className="px-4 py-2 rounded-md bg-primary text-on-primary-fixed font-semibold hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? 'Working...' : 'Approve & run'}
-        </button>
-        <button
-          type="button"
-          disabled={!canApprove || busy}
-          onClick={onReject}
-          className="px-4 py-2 rounded-md border border-[var(--color-outline-variant)] hover:bg-[var(--color-surface-high)] disabled:opacity-50"
-        >
-          Reject
-        </button>
-        {!canApprove && (
-          <span className="text-xs text-on-surface-variant">You need plan approval permission.</span>
-        )}
+function evidenceValue(evidence: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = evidence?.[key];
+  if (typeof value === 'string' && value.trim()) return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+}
+
+function ValidationPanel({ plan, alert }: { plan: RemediationPlan; alert: AlertRuleLite | null }) {
+  const status = plan.verificationStatus ?? 'not_started';
+  const evidence = plan.verificationEvidenceJson;
+  const alertState = evidenceValue(evidence, 'alertState') ?? alert?.state ?? null;
+  const observedAt = evidenceValue(evidence, 'observedAt');
+  const reason = evidenceValue(evidence, 'reason');
+  const currentValue = evidenceValue(evidence, 'currentValue');
+  const deadline = plan.verificationDeadlineAt ? relativeTime(plan.verificationDeadlineAt) : null;
+  return (
+    <section className="rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-highest)] p-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">After approval validation</div>
+          <h2 className="mt-2 text-lg font-semibold text-on-surface">
+            {status === 'passed'
+              ? 'Alert recovered after the change'
+              : status === 'failed'
+                ? 'Alert still firing after the change'
+                : status === 'waiting'
+                  ? 'Waiting for fresh alert evaluations'
+                  : status === 'inconclusive'
+                    ? 'Validation could not reach a clear result'
+                    : status === 'skipped'
+                      ? 'No linked validation signal'
+                      : 'Validation has not started'}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-on-surface-variant">
+            {reason || plan.validationMethod || 'Rounds will only call this fixed when the linked alert or validation signal proves recovery.'}
+          </p>
+        </div>
+        <VerificationBadge status={status} />
       </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-4">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Linked alert</div>
+          <div className="mt-1 text-sm text-on-surface">{plan.linkedAlertRuleId || 'none'}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Alert state</div>
+          <div className="mt-1 text-sm text-on-surface">{alertState || 'unknown'}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Deadline</div>
+          <div className="mt-1 text-sm text-on-surface">{deadline || 'none'}</div>
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-wide text-[var(--color-outline)] font-semibold">Observed</div>
+          <div className="mt-1 text-sm text-on-surface">{observedAt ? relativeTime(observedAt) : currentValue || 'not yet'}</div>
+        </div>
+      </div>
+
+      {status === 'failed' && (
+        <div className="mt-4 rounded-md border border-severity-critical/20 bg-severity-critical/10 p-3 text-sm text-severity-critical">
+          The change was applied, but the alert did not recover. Treat this plan as disproven evidence before approving another fix.
+        </div>
+      )}
+      {status === 'inconclusive' && (
+        <div className="mt-4 rounded-md border border-[var(--color-outline-variant)] bg-[var(--color-surface)] p-3 text-sm text-on-surface-variant">
+          Verification could not prove success or failure. Continue investigation with this result attached instead of repeating the same fix.
+        </div>
+      )}
     </section>
   );
 }
@@ -286,6 +549,7 @@ export default function PlanDetail() {
   const [rescuePlan, setRescuePlan] = useState<RemediationPlan | null>(null);
   const [sourceAlert, setSourceAlert] = useState<AlertRuleLite | null>(null);
   const [sourceInvestigation, setSourceInvestigation] = useState<InvestigationLite | null>(null);
+  const [investigationReport, setInvestigationReport] = useState<InvestigationReportLite | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -306,15 +570,22 @@ export default function PlanDetail() {
         setRescuePlan(rescue ?? null);
         const investigation = await apiClient.get<InvestigationLite>(`/investigations/${data.investigationId}`);
         setSourceInvestigation(investigation.error ? null : investigation.data);
+        const report = await apiClient.get<InvestigationReportLite>(`/investigations/${data.investigationId}/report`);
+        setInvestigationReport(report.error ? null : report.data);
         const alerts = await apiClient.get<AlertRulesResponse | { list: AlertRuleLite[] }>('/alert-rules');
         if (!alerts.error) {
           const rules = Array.isArray(alerts.data) ? alerts.data : alerts.data.list ?? [];
-          setSourceAlert(rules.find((r) => r.investigationId === data.investigationId) ?? null);
+          setSourceAlert(
+            rules.find((r) => data.linkedAlertRuleId && r.id === data.linkedAlertRuleId)
+              ?? rules.find((r) => r.investigationId === data.investigationId)
+              ?? null,
+          );
         }
       } else {
         setRescuePlan(null);
         setSourceAlert(null);
         setSourceInvestigation(null);
+        setInvestigationReport(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load plan');
@@ -393,32 +664,31 @@ export default function PlanDetail() {
   );
   if (!plan) return null;
 
-  const isPending = plan.status === 'pending_approval';
   const canCancel = plan.status === 'approved' || plan.status === 'executing';
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="max-w-5xl mx-auto p-6 space-y-5">
       <div className="flex items-center gap-3">
         <Link to="/actions" className="text-on-surface-variant hover:underline">← Action Center</Link>
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold text-on-surface">Review Fix</h1>
+          <h1 className="text-2xl font-bold text-on-surface">Fix plan</h1>
           <StatusBadge status={plan.status} />
           {plan.autoEdit && plan.status !== 'pending_approval' && (
             <StatusPill kind="severity" value="info" label="auto-edit" size="md" />
           )}
         </div>
-        <p className="text-on-surface">{plan.summary}</p>
-        <div className="text-sm text-on-surface-variant flex items-center gap-4 flex-wrap">
+        <p className="max-w-3xl text-on-surface-variant leading-7">{plan.summary}</p>
+        <div className="text-sm text-on-surface-variant flex items-center gap-3 flex-wrap">
           <span>Created {relativeTime(plan.createdAt)} by {plan.createdBy}</span>
           <span>•</span>
-          <span>Expires {expiresLabel}</span>
-          <span>•</span>
           <Link to={`/investigations/${plan.investigationId}`} className="hover:underline">
-            From investigation {plan.investigationId.slice(0, 12)}…
+            Investigation {plan.investigationId.slice(0, 12)}…
           </Link>
+          <span>•</span>
+          <span>Expires {expiresLabel}</span>
         </div>
         {plan.rescueForPlanId && (
           <div className="text-sm text-on-surface-variant">
@@ -430,20 +700,24 @@ export default function PlanDetail() {
 
       {error && <p className="text-severity-critical">{error}</p>}
 
+      <DecisionPanel
+        plan={plan}
+        busy={busy}
+        canApprove={canApprove}
+        onApprove={handleApprove}
+        onReject={handleReject}
+      />
+
       <SourcePanel plan={plan} alert={sourceAlert} investigation={sourceInvestigation} />
 
-      {isPending && (
-        <ApprovalReviewCard
-          plan={plan}
-          busy={busy}
-          canApprove={canApprove}
-          onApprove={handleApprove}
-          onReject={handleReject}
-        />
-      )}
+      <ValidationPanel plan={plan} alert={sourceAlert} />
+
+      <EvidenceGatePanel report={investigationReport} />
+
+      <ChangePlanPanel plan={plan} />
 
       <div>
-        <h2 className="text-lg font-semibold text-on-surface mb-3">Execution steps</h2>
+        <h2 className="text-lg font-semibold text-on-surface mb-3">Execution timeline</h2>
         <ol className="space-y-3">
           {plan.steps.map((step) => (
             <StepRow

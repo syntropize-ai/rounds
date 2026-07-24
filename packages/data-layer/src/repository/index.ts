@@ -77,6 +77,7 @@ export type {
   RemediationPlanStepKind,
   RemediationPlanStepPatch,
   RemediationPlanStepStatus,
+  RemediationPlanVerificationStatus,
 } from './types/remediation-plan.js';
 
 export * from './postgres/index.js';

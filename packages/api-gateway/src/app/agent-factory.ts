@@ -68,6 +68,7 @@ export interface BackgroundOrchestratorFactoryDeps {
 export type MakeBackgroundOrchestrator = (overrides: {
   identity: Identity;
   agentType?: AgentType;
+  sessionId?: string;
 }) => Promise<AgentRunner>;
 
 /**
@@ -82,7 +83,7 @@ export type MakeBackgroundOrchestrator = (overrides: {
 export function buildBackgroundOrchestratorFactory(
   deps: BackgroundOrchestratorFactoryDeps,
 ): MakeBackgroundOrchestrator {
-  return async ({ identity, agentType }) => {
+  return async ({ identity, agentType, sessionId }) => {
     const llm = await deps.setupConfig.getLlm();
     if (!llm) {
       throw new Error('LLM not configured — complete the Setup Wizard before running background investigations');
@@ -144,6 +145,6 @@ export function buildBackgroundOrchestratorFactory(
       accessControl: deps.accessControl,
       ...(deps.audit ? { auditWriter: deps.audit } : {}),
       agentType: effectiveAgentType,
-    }, `bg_${randomUUID()}`);
+    }, sessionId ?? `bg_${randomUUID()}`);
   };
 }

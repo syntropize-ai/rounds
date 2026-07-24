@@ -132,6 +132,7 @@ describe('buildAlertQuestion', () => {
 describe('AutoInvestigationConsumer', () => {
   let bus: InMemoryEventBus;
   let now: Date;
+  const expectedAutoSessionId = 'auto-alert:rule-1:fp-1:2026-04-29T01:00:00.000Z';
 
   beforeEach(() => {
     bus = new InMemoryEventBus();
@@ -277,7 +278,12 @@ describe('AutoInvestigationConsumer', () => {
 
   it('happy path: bus event spawns agent → finalize completes → rule.investigationId updated', async () => {
     const spawn = vi.fn().mockResolvedValue('ok');
-    const fresh = mkInv({ id: 'inv-NEW', status: 'planning', createdAt: '2026-04-29T01:00:00.500Z' });
+    const fresh = mkInv({
+      id: 'inv-NEW',
+      sessionId: expectedAutoSessionId,
+      status: 'planning',
+      createdAt: '2026-04-29T01:00:00.500Z',
+    });
     const stores = mkStores({
       rule: mkRule({ investigationId: undefined }),
       invsByWorkspace: [fresh],
@@ -294,6 +300,10 @@ describe('AutoInvestigationConsumer', () => {
     await new Promise((r) => setImmediate(r));
 
     expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn.mock.calls[0]![1]).toMatchObject({
+      identity: fakeIdentity,
+      sessionId: expectedAutoSessionId,
+    });
     expect(stores.investigations.create).not.toHaveBeenCalled();
     expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
       investigationId: undefined,
@@ -332,7 +342,12 @@ describe('AutoInvestigationConsumer', () => {
 
   it('still finalizes investigation as failed when the agent throws', async () => {
     const spawn = vi.fn().mockRejectedValue(new Error('LLM 500'));
-    const fresh = mkInv({ id: 'inv-NEW', status: 'planning', createdAt: '2026-04-29T01:00:00.500Z' });
+    const fresh = mkInv({
+      id: 'inv-NEW',
+      sessionId: expectedAutoSessionId,
+      status: 'planning',
+      createdAt: '2026-04-29T01:00:00.500Z',
+    });
     const stores = mkStores({
       rule: mkRule({ investigationId: undefined }),
       invsByWorkspace: [fresh],
@@ -361,7 +376,7 @@ describe('AutoInvestigationConsumer', () => {
     expect(stores.alertRules.update).toHaveBeenCalledWith('rule-1', {
       investigationStartedAt: undefined,
       investigationFailedAt: '2026-04-29T01:00:00.000Z',
-      investigationFailureReason: 'The agent finished without saving an investigation report.',
+      investigationFailureReason: `The agent finished without saving an investigation report for session ${expectedAutoSessionId}.`,
     });
   });
 
@@ -393,7 +408,11 @@ describe('AutoInvestigationConsumer', () => {
     const spawn = vi.fn().mockResolvedValue('ok');
     const stores = mkStores({
       rule: mkRule({ investigationId: undefined }),
-      invsByWorkspace: [mkInv({ id: 'inv-NEW', createdAt: '2026-04-29T01:00:00.500Z' })],
+      invsByWorkspace: [mkInv({
+        id: 'inv-NEW',
+        sessionId: expectedAutoSessionId,
+        createdAt: '2026-04-29T01:00:00.500Z',
+      })],
     });
     const c = mkConsumer(spawn, stores);
     c.start();

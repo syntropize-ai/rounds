@@ -308,6 +308,12 @@ export interface AlertRuleFindAllOptions {
   state?: AlertRuleState;
   severity?: string;
   search?: string;
+  /**
+   * Restrict to rules owned by this workspace/org. Applied before `total` is
+   * computed and before limit/offset so paging is correct on a shared
+   * instance. Rules with no workspace are excluded when set.
+   */
+  workspaceId?: string;
   limit?: number;
   offset?: number;
 }

@@ -319,6 +319,7 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
   mountPlans({
     app,
     plans: repos.remediationPlans,
+    alertRules: eventAlertRuleStore,
     approvals: deps.approvalsForExecutor ?? repos.approvals,
     approvalEventStore: eventApprovalStore,
     connectors: repos.connectors,

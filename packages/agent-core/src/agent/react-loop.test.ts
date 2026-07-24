@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ReActLoop } from './react-loop.js'
 import { AccessControlStub, makeTestIdentity } from './test-helpers.js'
+import { getTaskModule } from './orchestrator-prompt.js'
 
 const ALLOWED_TOOLS = [
   'ask_user',
@@ -425,5 +426,40 @@ describe('ReActLoop', () => {
         content: expect.stringContaining('rootCause.status="unresolved"'),
       },
     ]))
+  })
+
+  it('replays the full load_task_context playbook in the recent window without truncation', () => {
+    const loop = new ReActLoop({
+      gateway: { complete: vi.fn() } as any,
+      model: 'test-model',
+      sendEvent: vi.fn(),
+      identity: makeTestIdentity(),
+      accessControl: new AccessControlStub(),
+      allowedTools: ALLOWED_TOOLS,
+    })
+
+    // Largest real task module (~14.8k chars) — well past the default 2000 cap.
+    const playbook = getTaskModule('dashboard_build')
+    expect(playbook.length).toBeGreaterThan(2000)
+
+    const messages = loop.buildMessages('system prompt', 'build me a dashboard', [
+      {
+        action: 'load_task_context',
+        args: { mode: 'dashboard_build' },
+        result: playbook,
+        toolUseId: 'call_1',
+        batchId: 1,
+      },
+    ])
+
+    const toolResultMessage = messages.find(
+      m => m.role === 'user' && Array.isArray(m.content)
+        && m.content.some((b: any) => b.type === 'tool_result'),
+    )
+    expect(toolResultMessage).toBeDefined()
+    const block = (toolResultMessage!.content as any[]).find(b => b.type === 'tool_result')
+    expect(block.tool_name).toBe('load_task_context')
+    expect(block.content).toBe(playbook)
+    expect(block.content).not.toContain('(truncated')
   })
 })

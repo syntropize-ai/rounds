@@ -95,7 +95,7 @@ describe('PlanExecutorService — autoEdit happy path', () => {
     plansRepo = new SqliteRemediationPlanRepository(db);
   });
 
-  it('runs every step and marks the plan completed', async () => {
+  it('runs every step and marks the plan applied', async () => {
     const plan = await plansRepo.create(basePlan());
     const adapter = fakeAdapter();
     const svc = new PlanExecutorService({
@@ -105,7 +105,7 @@ describe('PlanExecutorService — autoEdit happy path', () => {
     const outcome = await svc.approve('org_main', plan.id, true, ID);
     expect(outcome).toEqual({ kind: 'completed' });
     const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
-    expect(fresh?.status).toBe('completed');
+    expect(fresh?.status).toBe('applied');
     expect(fresh?.steps.every((s) => s.status === 'done')).toBe(true);
     expect(adapter.calls).toHaveLength(2);
     expect(adapter.calls[0]?.argv[0]).toBe('scale');
@@ -129,7 +129,7 @@ describe('PlanExecutorService — autoEdit happy path', () => {
       expect(outcome.reason).toMatch(/rollout exited 1/);
     }
     const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
-    expect(fresh?.status).toBe('failed');
+    expect(fresh?.status).toBe('execution_failed');
     expect(fresh?.steps[0]?.status).toBe('done');
     expect(fresh?.steps[1]?.status).toBe('failed');
   });
@@ -159,7 +159,7 @@ describe('PlanExecutorService — autoEdit happy path', () => {
     const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
     expect(fresh?.steps[0]?.status).toBe('failed');
     expect(fresh?.steps[1]?.status).toBe('done');
-    expect(fresh?.status).toBe('completed');
+    expect(fresh?.status).toBe('applied');
   });
 
   it('rejects approve on non-pending_approval plan', async () => {
@@ -200,7 +200,7 @@ describe('PlanExecutorService — autoEdit happy path', () => {
 
     expect(outcome.kind).toBe('failed');
     const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
-    expect(fresh?.status).toBe('failed');
+    expect(fresh?.status).toBe('execution_failed');
     expect(fresh?.steps[0]?.status).toBe('failed');
     // Critical: NOT stuck in executing.
     expect(fresh?.steps[0]?.status).not.toBe('executing');
@@ -279,7 +279,7 @@ describe('PlanExecutorService — autoEdit=false (per-step approval)', () => {
     }
     expect(adapter.calls).toHaveLength(2);
     const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
-    expect(fresh?.status).toBe('completed');
+    expect(fresh?.status).toBe('applied');
   });
 
   it('onStepRejected halts the plan unless continueOnError is set', async () => {
@@ -295,7 +295,7 @@ describe('PlanExecutorService — autoEdit=false (per-step approval)', () => {
     const after = await svc.onStepRejected('org_main', first.approvalRequestId);
     expect(after.kind).toBe('failed');
     const fresh = await plansRepo.findByIdInOrg('org_main', plan.id);
-    expect(fresh?.status).toBe('failed');
+    expect(fresh?.status).toBe('execution_failed');
     expect(fresh?.steps[1]?.status).toBe('skipped');
   });
 });
@@ -323,8 +323,8 @@ describe('PlanExecutorService — reject / cancel', () => {
     expect(after?.status).toBe('cancelled');
   });
 
-  it('cancel from completed throws', async () => {
-    const plan = await plansRepo.create(basePlan({ status: 'completed' }));
+  it('cancel from applied throws', async () => {
+    const plan = await plansRepo.create(basePlan({ status: 'applied' }));
     const svc = new PlanExecutorService({ plans: plansRepo, adapterFor: async () => fakeAdapter() });
     await expect(svc.cancel('org_main', plan.id, ID)).rejects.toThrow(/cannot cancel/);
   });
@@ -338,7 +338,7 @@ describe('PlanExecutorService — retryStep', () => {
     plansRepo = new SqliteRemediationPlanRepository(db);
   });
 
-  it('retries a single failed step and continues; plan goes from failed → completed', async () => {
+  it('retries a single failed step and continues; plan goes from execution_failed → applied', async () => {
     const plan = await plansRepo.create(basePlan());
     const succeedSecondTry = (() => {
       let called = 0;
@@ -349,7 +349,7 @@ describe('PlanExecutorService — retryStep', () => {
     const first = await svc.approve('org_main', plan.id, true, ID);
     expect(first.kind).toBe('failed');
     let snapshot = await plansRepo.findByIdInOrg('org_main', plan.id);
-    expect(snapshot?.status).toBe('failed');
+    expect(snapshot?.status).toBe('execution_failed');
     expect(snapshot?.steps[1]?.status).toBe('failed');
 
     // First retry: still fails (succeedSecondTry returns false on call #2)
@@ -360,7 +360,7 @@ describe('PlanExecutorService — retryStep', () => {
     const retry2 = await svc.retryStep('org_main', plan.id, 1);
     expect(retry2).toEqual({ kind: 'completed' });
     snapshot = await plansRepo.findByIdInOrg('org_main', plan.id);
-    expect(snapshot?.status).toBe('completed');
+    expect(snapshot?.status).toBe('applied');
     expect(snapshot?.steps[1]?.status).toBe('done');
   });
 

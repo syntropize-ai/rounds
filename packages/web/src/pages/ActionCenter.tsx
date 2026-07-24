@@ -116,6 +116,16 @@ function commandTarget(plan: RemediationPlan): string {
   return match ? `${match[1]} ${match[2]}` : `${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}`;
 }
 
+function planCtaLabel(plan: RemediationPlan): string {
+  if (plan.status === 'pending_approval') return 'Review';
+  if (plan.verificationStatus === 'waiting') return 'Verifying';
+  if (plan.verificationStatus === 'passed') return 'Fixed';
+  if (plan.verificationStatus === 'failed') return 'Ineffective';
+  if (plan.verificationStatus === 'inconclusive') return 'Needs review';
+  if (plan.status === 'execution_failed' || plan.status === 'failed') return 'Failed';
+  return 'Open';
+}
+
 // Status pill tones for ApprovalStatus values that need a coloured chip;
 // `expired` falls back to a neutral surface chip.
 const APPROVAL_STATUS_TONE: Record<ApprovalStatus, 'pending' | 'resolved' | 'firing' | null> = {
@@ -261,7 +271,7 @@ function PlanCard({
             <span>expires {relativeTime(plan.expiresAt)}</span>
           </div>
         </div>
-        <span className="shrink-0 text-xs font-semibold text-[var(--color-primary)]">Review</span>
+        <span className="shrink-0 text-xs font-semibold text-[var(--color-primary)]">{planCtaLabel(plan)}</span>
       </div>
     </Link>
   );

@@ -26,6 +26,7 @@ import type {
 } from '../types.js';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary } from './_shared.js';
+import { validateRemediationPlanEvidence } from '../evidence-gate.js';
 
 interface RawStepInput {
   kind?: unknown;
@@ -144,6 +145,8 @@ async function createPlanCommon(
   const rawInvestigationId = String(args['investigationId'] ?? '').trim();
   const investigationId = ctx.completedInvestigationAliases?.get(rawInvestigationId) ?? rawInvestigationId;
   const summary = String(args['summary'] ?? '').trim();
+  const targetObject = String(args['targetObject'] ?? '').trim();
+  const validationMethod = String(args['validationMethod'] ?? '').trim();
   const stepsRaw = args['steps'];
   if (!summary) return 'Error: "summary" is required.';
   if (!Array.isArray(stepsRaw) || stepsRaw.length === 0) {
@@ -168,11 +171,29 @@ async function createPlanCommon(
   if (!investigationId) {
     return 'Error: "investigationId" is required. Direct-request remediation plans are not supported; interactive chat writes use user confirmation instead.';
   }
+  if (!ctx.investigationReportStore.findByDashboard) {
+    return 'Error: remediation plans require a saved investigation report with verified root-cause evidence.';
+  }
+  const reports = await ctx.investigationReportStore.findByDashboard(investigationId);
+  const planEvidenceGate = validateRemediationPlanEvidence(reports, { targetObject, validationMethod });
+  if (planEvidenceGate.status !== 'passed') {
+    return `Error: remediation plan rejected because investigation evidence is insufficient: ${planEvidenceGate.reasons.join('; ')}`;
+  }
 
   const expiresInMs = typeof args['expiresInMs'] === 'number' ? args['expiresInMs'] : undefined;
   const expiresAt = typeof expiresInMs === 'number'
     ? new Date(Date.now() + expiresInMs).toISOString()
     : undefined;
+  let linkedAlertRuleId: string | null = null;
+  if (ctx.alertRuleStore.findAll) {
+    try {
+      const rules = await ctx.alertRuleStore.findAll();
+      const linked = rules.find((rule) => rule.investigationId === investigationId);
+      linkedAlertRuleId = linked?.id ?? null;
+    } catch {
+      linkedAlertRuleId = null;
+    }
+  }
 
   const tool = rescueForPlanId === null ? 'remediation_plan_create' : 'remediation_plan_create_rescue';
   const displayText = rescueForPlanId === null
@@ -191,6 +212,9 @@ async function createPlanCommon(
         investigationId,
         rescueForPlanId,
         summary,
+        linkedAlertRuleId,
+        targetObject: targetObject || null,
+        validationMethod: validationMethod || null,
         createdBy: 'agent',
         ...(expiresAt ? { expiresAt } : {}),
         steps: parsed.map((p) => {
@@ -236,7 +260,7 @@ async function createPlanCommon(
           action: {
             type: 'plan',
             targetService: 'remediation-plan',
-            params: { planId: plan.id, summary, stepCount: plan.steps.length },
+            params: { planId: plan.id, summary, stepCount: plan.steps.length, targetObject, validationMethod },
           },
           context: {
             investigationId,

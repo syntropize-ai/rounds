@@ -64,6 +64,7 @@ export function applySchema(db: SqliteClient): void {
   // step is idempotent and inspects sqlite_master / pragma first.
   addProvenanceColumnIfMissing(db);
   addAlertInvestigationStateColumnsIfMissing(db);
+  addRemediationVerificationColumnsIfMissing(db);
   dropLegacyConnectorTeamPoliciesTable(db);
 }
 
@@ -136,4 +137,28 @@ function addAlertInvestigationStateColumnsIfMissing(db: SqliteClient): void {
   if (!names.has('investigation_failure_reason')) {
     db.run(sql.raw('ALTER TABLE alert_rules ADD COLUMN investigation_failure_reason TEXT'));
   }
+}
+
+function addRemediationVerificationColumnsIfMissing(db: SqliteClient): void {
+  const cols = db.all<{ name: string }>(
+    sql`PRAGMA table_info('remediation_plan')`,
+  );
+  if (cols.length === 0) return;
+  const names = new Set(cols.map((c) => c.name));
+  const additions: Array<[string, string]> = [
+    ['linked_alert_rule_id', 'ALTER TABLE remediation_plan ADD COLUMN linked_alert_rule_id TEXT'],
+    ['target_object', 'ALTER TABLE remediation_plan ADD COLUMN target_object TEXT'],
+    ['validation_method', 'ALTER TABLE remediation_plan ADD COLUMN validation_method TEXT'],
+    ['verification_status', "ALTER TABLE remediation_plan ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'not_started'"],
+    ['verification_started_at', 'ALTER TABLE remediation_plan ADD COLUMN verification_started_at TEXT'],
+    ['verification_deadline_at', 'ALTER TABLE remediation_plan ADD COLUMN verification_deadline_at TEXT'],
+    ['verification_evidence_json', 'ALTER TABLE remediation_plan ADD COLUMN verification_evidence_json TEXT'],
+    ['continuation_investigation_id', 'ALTER TABLE remediation_plan ADD COLUMN continuation_investigation_id TEXT'],
+  ];
+  for (const [name, statement] of additions) {
+    if (!names.has(name)) db.run(sql.raw(statement));
+  }
+  db.run(sql.raw(
+    'CREATE INDEX IF NOT EXISTS ix_remediation_plan_verification ON remediation_plan(verification_status, verification_deadline_at)',
+  ));
 }

@@ -22,6 +22,7 @@ import type {
   RemediationPlanStepPatch,
   RemediationPlanStepStatus,
   RemediationPlanStatus,
+  RemediationPlanVerificationStatus,
 } from '../types/remediation-plan.js';
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -33,6 +34,14 @@ interface PlanRow {
   rescue_for_plan_id: string | null;
   summary: string;
   status: string;
+  linked_alert_rule_id: string | null;
+  target_object: string | null;
+  validation_method: string | null;
+  verification_status: string;
+  verification_started_at: string | null;
+  verification_deadline_at: string | null;
+  verification_evidence_json: string | Record<string, unknown> | null;
+  continuation_investigation_id: string | null;
   auto_edit: boolean;
   approval_request_id: string | null;
   created_by: string;
@@ -74,6 +83,21 @@ function parseParams(raw: string | Record<string, unknown> | null | undefined): 
   }
 }
 
+function parseNullableObject(
+  raw: string | Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    throw new Error(`[RemediationPlanRepository] verification_evidence_json parse failed: ${raw.slice(0, 64)}`);
+  }
+}
+
 function rowToStep(row: StepRow): RemediationPlanStep {
   return {
     id: row.id,
@@ -101,6 +125,14 @@ function rowToPlan(row: PlanRow, steps: RemediationPlanStep[]): RemediationPlan 
     rescueForPlanId: row.rescue_for_plan_id,
     summary: row.summary,
     status: row.status as RemediationPlanStatus,
+    linkedAlertRuleId: row.linked_alert_rule_id,
+    targetObject: row.target_object,
+    validationMethod: row.validation_method,
+    verificationStatus: row.verification_status as RemediationPlanVerificationStatus,
+    verificationStartedAt: row.verification_started_at,
+    verificationDeadlineAt: row.verification_deadline_at,
+    verificationEvidenceJson: parseNullableObject(row.verification_evidence_json),
+    continuationInvestigationId: row.continuation_investigation_id,
     autoEdit: Boolean(row.auto_edit),
     approvalRequestId: row.approval_request_id,
     createdBy: row.created_by,
@@ -121,11 +153,15 @@ export class PostgresRemediationPlanRepository implements IRemediationPlanReposi
     const expiresAt =
       input.expiresAt ?? new Date(Date.now() + DEFAULT_TTL_MS).toISOString();
     const status = input.status ?? 'pending_approval';
+    const verificationStatus = input.verificationStatus ?? 'not_started';
 
     return this.db.withTransaction(async (tx) => {
       await tx.run(sql`
         INSERT INTO remediation_plan (
           id, org_id, investigation_id, rescue_for_plan_id, summary, status,
+          linked_alert_rule_id, target_object, validation_method,
+          verification_status, verification_started_at, verification_deadline_at,
+          verification_evidence_json, continuation_investigation_id,
           auto_edit, approval_request_id, created_by, created_at, expires_at,
           resolved_at, resolved_by
         ) VALUES (
@@ -135,6 +171,14 @@ export class PostgresRemediationPlanRepository implements IRemediationPlanReposi
           ${input.rescueForPlanId ?? null},
           ${input.summary},
           ${status},
+          ${input.linkedAlertRuleId ?? null},
+          ${input.targetObject ?? null},
+          ${input.validationMethod ?? null},
+          ${verificationStatus},
+          ${input.verificationStartedAt ?? null},
+          ${input.verificationDeadlineAt ?? null},
+          ${input.verificationEvidenceJson ? JSON.stringify(input.verificationEvidenceJson) : null},
+          ${input.continuationInvestigationId ?? null},
           ${input.autoEdit ?? false},
           ${input.approvalRequestId ?? null},
           ${input.createdBy},
@@ -233,6 +277,13 @@ export class PostgresRemediationPlanRepository implements IRemediationPlanReposi
         wheres.push(sql`status IN (${list})`);
       }
     }
+    if (opts.verificationStatus) {
+      const statuses = Array.isArray(opts.verificationStatus) ? opts.verificationStatus : [opts.verificationStatus];
+      if (statuses.length > 0) {
+        const list = sql.join(statuses.map((s) => sql`${s}`), sql`, `);
+        wheres.push(sql`verification_status IN (${list})`);
+      }
+    }
     if (opts.investigationId) {
       wheres.push(sql`investigation_id = ${opts.investigationId}`);
     }
@@ -269,6 +320,31 @@ export class PostgresRemediationPlanRepository implements IRemediationPlanReposi
     return planRows.map((pr) => rowToPlan(pr, stepsByPlan.get(pr.id) ?? []));
   }
 
+  async listWaitingVerification(limit = 100): Promise<RemediationPlan[]> {
+    const planRows = await pgAll<PlanRow>(this.db, sql`
+      SELECT * FROM remediation_plan
+      WHERE verification_status = 'waiting'
+      ORDER BY verification_deadline_at ASC, created_at ASC
+      LIMIT ${limit}
+    `);
+    if (planRows.length === 0) return [];
+
+    const planIds = planRows.map((p) => p.id);
+    const idList = sql.join(planIds.map((p) => sql`${p}`), sql`, `);
+    const stepRows = await pgAll<StepRow>(this.db, sql`
+      SELECT * FROM remediation_plan_step
+      WHERE plan_id IN (${idList})
+      ORDER BY plan_id, ordinal
+    `);
+    const stepsByPlan = new Map<string, RemediationPlanStep[]>();
+    for (const sr of stepRows) {
+      const arr = stepsByPlan.get(sr.plan_id) ?? [];
+      arr.push(rowToStep(sr));
+      stepsByPlan.set(sr.plan_id, arr);
+    }
+    return planRows.map((pr) => rowToPlan(pr, stepsByPlan.get(pr.id) ?? []));
+  }
+
   async updatePlan(
     orgId: string,
     id: string,
@@ -279,6 +355,25 @@ export class PostgresRemediationPlanRepository implements IRemediationPlanReposi
 
     const next = {
       status: patch.status ?? existing.status,
+      linkedAlertRuleId:
+        patch.linkedAlertRuleId !== undefined ? patch.linkedAlertRuleId : existing.linkedAlertRuleId,
+      targetObject: patch.targetObject !== undefined ? patch.targetObject : existing.targetObject,
+      validationMethod:
+        patch.validationMethod !== undefined ? patch.validationMethod : existing.validationMethod,
+      verificationStatus:
+        patch.verificationStatus !== undefined ? patch.verificationStatus : existing.verificationStatus,
+      verificationStartedAt:
+        patch.verificationStartedAt !== undefined ? patch.verificationStartedAt : existing.verificationStartedAt,
+      verificationDeadlineAt:
+        patch.verificationDeadlineAt !== undefined ? patch.verificationDeadlineAt : existing.verificationDeadlineAt,
+      verificationEvidenceJson:
+        patch.verificationEvidenceJson !== undefined
+          ? patch.verificationEvidenceJson
+          : existing.verificationEvidenceJson,
+      continuationInvestigationId:
+        patch.continuationInvestigationId !== undefined
+          ? patch.continuationInvestigationId
+          : existing.continuationInvestigationId,
       autoEdit: patch.autoEdit !== undefined ? patch.autoEdit : existing.autoEdit,
       approvalRequestId:
         patch.approvalRequestId !== undefined ? patch.approvalRequestId : existing.approvalRequestId,
@@ -289,6 +384,14 @@ export class PostgresRemediationPlanRepository implements IRemediationPlanReposi
     await pgRun(this.db, sql`
       UPDATE remediation_plan
       SET status = ${next.status},
+          linked_alert_rule_id = ${next.linkedAlertRuleId},
+          target_object = ${next.targetObject},
+          validation_method = ${next.validationMethod},
+          verification_status = ${next.verificationStatus},
+          verification_started_at = ${next.verificationStartedAt},
+          verification_deadline_at = ${next.verificationDeadlineAt},
+          verification_evidence_json = ${next.verificationEvidenceJson ? JSON.stringify(next.verificationEvidenceJson) : null},
+          continuation_investigation_id = ${next.continuationInvestigationId},
           auto_edit = ${next.autoEdit},
           approval_request_id = ${next.approvalRequestId},
           resolved_at = ${next.resolvedAt},

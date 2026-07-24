@@ -16,6 +16,7 @@ import { createLogger } from '@agentic-obs/server-utils/logging';
 import { KubectlExecutionAdapter, ClusterShellExecutionAdapter } from '@agentic-obs/adapters';
 import type {
   IApprovalRequestRepository,
+  IAlertRuleRepository,
   IConnectorRepository,
   IRemediationPlanRepository,
   RemediationPlan,
@@ -27,6 +28,7 @@ import {
   type OpsSecretRefResolver,
 } from '../services/ops-secret-ref-resolver.js';
 import { PlanExecutorService } from '../services/plan-executor-service.js';
+import { PlanVerificationService } from '../services/plan-verification-service.js';
 import { createPlansRouter } from '../routes/plans.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 
@@ -35,6 +37,7 @@ const log = createLogger('plans-boot');
 export interface MountPlansDeps {
   app: Application;
   plans: IRemediationPlanRepository;
+  alertRules: IAlertRuleRepository;
   approvals: IApprovalRequestRepository;
   approvalEventStore: EventEmittingApprovalRepository;
   connectors: IConnectorRepository;
@@ -127,10 +130,16 @@ export function mountPlans(deps: MountPlansDeps): void {
     ...(deps.audit ? { audit: deps.audit } : {}),
     ...(deps.resolveRequesterTeamId ? { resolveRequesterTeamId: deps.resolveRequesterTeamId } : {}),
   });
+  const verifier = new PlanVerificationService({
+    plans: deps.plans,
+    alertRules: deps.alertRules,
+  });
+  verifier.start();
 
   deps.app.use('/api/plans', createPlansRouter({
     plans: deps.plans,
     executor,
+    verifier,
     ac: deps.ac,
   }));
 
@@ -142,7 +151,7 @@ export function mountPlans(deps: MountPlansDeps): void {
     const ctx = approval.context as { planId?: unknown; stepOrdinal?: unknown };
     if (typeof ctx.planId !== 'string' || typeof ctx.stepOrdinal !== 'number') return;
     if (approval.action.type !== 'ops.run_command') return;
-    void resumeExecutor(executor, approval, deps.plans);
+    void resumeExecutor(executor, verifier, approval, deps.plans);
   });
 
   // Expiry sweeper. Once per minute, mark `pending_approval` plans whose
@@ -165,6 +174,7 @@ export function mountPlans(deps: MountPlansDeps): void {
 
 async function resumeExecutor(
   executor: PlanExecutorService,
+  verifier: PlanVerificationService,
   approval: { id: string; status: string; context: unknown },
   plans: IRemediationPlanRepository,
 ): Promise<void> {
@@ -178,7 +188,8 @@ async function resumeExecutor(
   }
   try {
     if (approval.status === 'approved') {
-      await executor.onStepApproved(plan.orgId, approval.id);
+      const outcome = await executor.onStepApproved(plan.orgId, approval.id);
+      await verifier.onExecutionOutcome(plan.orgId, plan.id, outcome);
     } else if (approval.status === 'rejected') {
       await executor.onStepRejected(plan.orgId, approval.id);
     }

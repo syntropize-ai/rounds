@@ -46,6 +46,38 @@ function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
   } as ActionContext;
 }
 
+function verifiedReportStore(status: 'passed' | 'unresolved' = 'passed'): ActionContext['investigationReportStore'] {
+  return {
+    save: vi.fn(),
+    findByDashboard: vi.fn(async (dashboardId: string) => dashboardId === 'inv-1'
+      ? [{
+        id: 'report-1',
+        dashboardId: 'inv-1',
+        goal: 'why',
+        summary: 'Deployment/web has the wrong replica target.',
+        sections: [],
+        createdAt: '2026-04-26T00:00:00.000Z',
+        provenance: {
+          rootCauseGate: {
+            status,
+            reasons: status === 'passed' ? [] : ['missing direct proof'],
+            rootCause: {
+              status: status === 'passed' ? 'confirmed' : 'unresolved',
+              object: 'deploy/web',
+              field: 'replicas',
+              cause: 'replica target is below the required capacity',
+            },
+            confidence: status === 'passed' ? 0.9 : 0.4,
+            evidenceRefs: ['check_1', 'check_2'],
+            ruledOut: ['traffic spike'],
+            evaluatedAt: '2026-04-26T00:00:00.000Z',
+          },
+        },
+      }]
+      : []),
+  } as ActionContext['investigationReportStore'];
+}
+
 const STD_CONNECTOR = {
   id: 'k8s-prod',
   name: 'k8s-prod',
@@ -145,6 +177,30 @@ describe('remediation_plan_create — error cases', () => {
     const list = await plansRepo.listByOrg('org_main');
     expect(list).toHaveLength(0);
   });
+
+  it('rejects when the latest investigation report has no passed evidence gate', async () => {
+    const ctx = makeCtx({
+      remediationPlans: plansRepo,
+      approvalRequests: approvalsRepo,
+      opsConnectors: [STD_CONNECTOR],
+      investigationReportStore: verifiedReportStore('unresolved'),
+    });
+    const r = await handleRemediationPlanCreate(ctx, {
+      investigationId: 'inv-1',
+      summary: 'Scale deploy/web and verify rollout status',
+      targetObject: 'deploy/web replicas',
+      validationMethod: 'verify rollout status and replica count',
+      steps: [
+        validStep(),
+        validStep({
+          commandText: 'kubectl rollout status deploy/web -n app',
+          paramsJson: { argv: ['rollout', 'status', 'deploy/web', '-n', 'app'], connectorId: 'k8s-prod' },
+        }),
+      ],
+    });
+    expect(r).toMatch(/evidence is insufficient/);
+    expect(await plansRepo.listByOrg('org_main')).toHaveLength(0);
+  });
 });
 
 describe('remediation_plan_create — happy path', () => {
@@ -159,10 +215,17 @@ describe('remediation_plan_create — happy path', () => {
   });
 
   it('persists plan + steps + an ApprovalRequest, all linked', async () => {
-    const ctx = makeCtx({ remediationPlans: plansRepo, approvalRequests: approvalsRepo, opsConnectors: [STD_CONNECTOR] });
+    const ctx = makeCtx({
+      remediationPlans: plansRepo,
+      approvalRequests: approvalsRepo,
+      opsConnectors: [STD_CONNECTOR],
+      investigationReportStore: verifiedReportStore(),
+    });
     const observation = await handleRemediationPlanCreate(ctx, {
       investigationId: 'inv-1',
-      summary: 'Scale web',
+      summary: 'Scale deploy/web replicas and verify rollout status',
+      targetObject: 'deploy/web replicas',
+      validationMethod: 'verify rollout status and replica count',
       steps: [
         validStep(),
         validStep({
@@ -190,10 +253,17 @@ describe('remediation_plan_create — happy path', () => {
   });
 
   it('honors expiresInMs', async () => {
-    const ctx = makeCtx({ remediationPlans: plansRepo, approvalRequests: approvalsRepo, opsConnectors: [STD_CONNECTOR] });
+    const ctx = makeCtx({ remediationPlans: plansRepo, approvalRequests: approvalsRepo, opsConnectors: [STD_CONNECTOR], investigationReportStore: verifiedReportStore() });
     const before = Date.now();
     await handleRemediationPlanCreate(ctx, {
-      investigationId: 'inv-1', summary: 'x', steps: [validStep()],
+      investigationId: 'inv-1',
+      summary: 'Scale deploy/web replicas and verify rollout status',
+      targetObject: 'deploy/web replicas',
+      validationMethod: 'verify rollout status and replica count',
+      steps: [validStep(), validStep({
+        commandText: 'kubectl rollout status deploy/web -n app',
+        paramsJson: { argv: ['rollout', 'status', 'deploy/web', '-n', 'app'], connectorId: 'k8s-prod' },
+      })],
       expiresInMs: 60_000,
     });
     const plan = (await plansRepo.listByOrg('org_main'))[0]!;
@@ -203,13 +273,19 @@ describe('remediation_plan_create — happy path', () => {
   });
 
   it('persists riskNote, dryRunText, continueOnError on individual steps', async () => {
-    const ctx = makeCtx({ remediationPlans: plansRepo, approvalRequests: approvalsRepo, opsConnectors: [STD_CONNECTOR] });
+    const ctx = makeCtx({ remediationPlans: plansRepo, approvalRequests: approvalsRepo, opsConnectors: [STD_CONNECTOR], investigationReportStore: verifiedReportStore() });
     await handleRemediationPlanCreate(ctx, {
-      investigationId: 'inv-1', summary: 'x',
+      investigationId: 'inv-1',
+      summary: 'Scale deploy/web replicas and verify rollout status',
+      targetObject: 'deploy/web replicas',
+      validationMethod: 'verify rollout status and replica count',
       steps: [validStep({
         riskNote: 'pods will restart',
         dryRunText: '+1 replica',
         continueOnError: true,
+      }), validStep({
+        commandText: 'kubectl rollout status deploy/web -n app',
+        paramsJson: { argv: ['rollout', 'status', 'deploy/web', '-n', 'app'], connectorId: 'k8s-prod' },
       })],
     });
     const plan = (await plansRepo.listByOrg('org_main'))[0]!;
@@ -219,9 +295,16 @@ describe('remediation_plan_create — happy path', () => {
   });
 
   it('persists plan even when approvalRequests is unset (no auto-approval)', async () => {
-    const ctx = makeCtx({ remediationPlans: plansRepo, opsConnectors: [STD_CONNECTOR] });
+    const ctx = makeCtx({ remediationPlans: plansRepo, opsConnectors: [STD_CONNECTOR], investigationReportStore: verifiedReportStore() });
     await handleRemediationPlanCreate(ctx, {
-      investigationId: 'inv-1', summary: 'x', steps: [validStep()],
+      investigationId: 'inv-1',
+      summary: 'Scale deploy/web replicas and verify rollout status',
+      targetObject: 'deploy/web replicas',
+      validationMethod: 'verify rollout status and replica count',
+      steps: [validStep(), validStep({
+        commandText: 'kubectl rollout status deploy/web -n app',
+        paramsJson: { argv: ['rollout', 'status', 'deploy/web', '-n', 'app'], connectorId: 'k8s-prod' },
+      })],
     });
     const plan = (await plansRepo.listByOrg('org_main'))[0]!;
     expect(plan.status).toBe('pending_approval');
@@ -258,21 +341,33 @@ describe('remediation_plan_create_rescue', () => {
   });
 
   it('persists rescue plan but does NOT create an ApprovalRequest', async () => {
-    const ctx = makeCtx({ remediationPlans: plansRepo, approvalRequests: approvalsRepo, opsConnectors: [STD_CONNECTOR] });
+    const ctx = makeCtx({ remediationPlans: plansRepo, approvalRequests: approvalsRepo, opsConnectors: [STD_CONNECTOR], investigationReportStore: verifiedReportStore() });
     // 1) primary plan
     await handleRemediationPlanCreate(ctx, {
-      investigationId: 'inv-1', summary: 'primary', steps: [validStep()],
+      investigationId: 'inv-1',
+      summary: 'Scale deploy/web replicas and verify rollout status',
+      targetObject: 'deploy/web replicas',
+      validationMethod: 'verify rollout status and replica count',
+      steps: [validStep(), validStep({
+        commandText: 'kubectl rollout status deploy/web -n app',
+        paramsJson: { argv: ['rollout', 'status', 'deploy/web', '-n', 'app'], connectorId: 'k8s-prod' },
+      })],
     });
     const primary = (await plansRepo.listByOrg('org_main'))[0]!;
 
     // 2) rescue
     const observation = await handleRemediationPlanCreateRescue(ctx, {
       investigationId: 'inv-1',
-      summary: 'rollback',
+      summary: 'Rollback deploy/web replicas and verify rollout status',
+      targetObject: 'deploy/web replicas',
+      validationMethod: 'verify rollout status and replica count',
       rescueForPlanId: primary.id,
       steps: [validStep({
         commandText: 'kubectl scale deploy/web -n app --replicas=1',
         paramsJson: { argv: ['scale', 'deploy/web', '-n', 'app', '--replicas=1'], connectorId: 'k8s-prod' },
+      }), validStep({
+        commandText: 'kubectl rollout status deploy/web -n app',
+        paramsJson: { argv: ['rollout', 'status', 'deploy/web', '-n', 'app'], connectorId: 'k8s-prod' },
       })],
     });
     expect(observation).toMatch(/Created rescue plan/);

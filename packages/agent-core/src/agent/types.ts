@@ -88,7 +88,7 @@ export interface IInvestigationStore {
 export interface IAlertRuleStore {
   create(data: Record<string, unknown>): { name: string, severity: string, evaluationIntervalSec: number, condition: { query: string, operator: string, threshold: number, forDurationSec: number }, id?: string } | Promise<{ name: string, severity: string, evaluationIntervalSec: number, condition: { query: string, operator: string, threshold: number, forDurationSec: number }, id?: string }>
   update?(id: string, patch: Record<string, unknown>): unknown
-  findAll?(): { id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[] | Promise<{ id: string, name: string, severity: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }[]>
+  findAll?(): Array<{ id: string, name: string, severity: string, investigationId?: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }> | Promise<Array<{ id: string, name: string, severity: string, investigationId?: string, condition: { query: string, operator: string, threshold: number, forDurationSec: number } }>>
   /** Workspace-scoped listing — used by handlers to scope upsert lookups
    *  to the caller's workspace so a rule with a duplicate name in another
    *  workspace doesn't get clobbered. Optional; falls back to findAll. */
@@ -189,6 +189,14 @@ export interface AgentRemediationPlan {
   rescueForPlanId: string | null
   summary: string
   status: string
+  linkedAlertRuleId?: string | null
+  targetObject?: string | null
+  validationMethod?: string | null
+  verificationStatus?: string
+  verificationStartedAt?: string | null
+  verificationDeadlineAt?: string | null
+  verificationEvidenceJson?: Record<string, unknown> | null
+  continuationInvestigationId?: string | null
   approvalRequestId: string | null
   steps: Array<{ id?: string; ordinal?: number; [key: string]: unknown }>
 }
@@ -201,6 +209,14 @@ export interface RemediationPlanStore {
     rescueForPlanId?: string | null
     summary: string
     status?: string
+    linkedAlertRuleId?: string | null
+    targetObject?: string | null
+    validationMethod?: string | null
+    verificationStatus?: string
+    verificationStartedAt?: string | null
+    verificationDeadlineAt?: string | null
+    verificationEvidenceJson?: Record<string, unknown> | null
+    continuationInvestigationId?: string | null
     autoEdit?: boolean
     approvalRequestId?: string | null
     createdBy: string

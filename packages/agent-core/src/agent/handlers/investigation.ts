@@ -21,6 +21,7 @@ import {
   type InvestigationCompletionClaim,
   type InvestigationSignalType,
 } from '../investigation-state.js';
+import { evaluateInvestigationEvidenceGate } from '../evidence-gate.js';
 
 const log = createLogger('investigation-provenance');
 
@@ -490,24 +491,56 @@ export async function handleInvestigationComplete(
         });
       }
 
-      if (claim.rootCause.status === 'unresolved') {
-        sections.push({
-          type: 'text',
-          content: `## Unresolved\n\nThe available evidence did not reach an 80% root-cause confidence threshold. Next check: ${claim.rootCause.nextCheck ?? claim.nextAction ?? 'not specified'}.`,
-        });
-      }
-
       const state = ctx.investigationStates.get(persistedInvestigationId)
         ?? ctx.investigationStates.get(investigationId);
       const provState = ctx.investigationProvenance.get(persistedInvestigationId);
+      // Reopened follow-up with no new checks this session: the working ledger
+      // starts empty (historical checks are never persisted in structured
+      // form), so re-running the gate would downgrade an already-verified
+      // report. Reuse the prior passed gate carried over from the saved
+      // report's provenance instead. If new checks were recorded, or the model
+      // now claims unresolved, evaluate normally.
+      const priorGate = provState?.rootCauseGate;
+      const gate = priorGate?.status === 'passed'
+        && (state?.checks.length ?? 0) === 0
+        && claim.rootCause.status !== 'unresolved'
+        ? priorGate
+        : evaluateInvestigationEvidenceGate(state, claim);
+      const effectiveClaim: InvestigationCompletionClaim = gate.status === 'unresolved' && claim.rootCause.status !== 'unresolved'
+        ? {
+          ...claim,
+          confidence: Math.min(claim.confidence, 0.79),
+          rootCause: {
+            status: 'unresolved',
+            object: claim.rootCause.object,
+            field: claim.rootCause.field,
+            cause: claim.rootCause.cause,
+            nextCheck: `Collect more evidence before declaring a root cause: ${gate.reasons.join('; ')}`,
+          },
+          nextAction: `Collect more evidence before remediation: ${gate.reasons.join('; ')}`,
+        }
+        : claim;
+
+      if (effectiveClaim.rootCause.status === 'unresolved') {
+        sections.push({
+          type: 'text',
+          content: [
+            '## Unresolved',
+            '',
+            `The available evidence is not sufficient to create an approvable remediation plan. Next check: ${effectiveClaim.rootCause.nextCheck ?? effectiveClaim.nextAction ?? 'not specified'}.`,
+            ...(gate.reasons.length ? ['', `Evidence gate: ${gate.reasons.join('; ')}.`] : []),
+          ].join('\n'),
+        });
+      }
+
       if (state?.checks.length) {
-        appendLedgerSections(sections, state, claim, provState);
+        appendLedgerSections(sections, state, effectiveClaim, provState);
       }
 
       // Finalise provenance: copy out a clean Provenance (drop `startedAt`
       // bookkeeping field) and compute end-to-end latency. Cost is left
       // undefined — UI will fall back to "—" or fetch from llm_audit.
-      let finalProvenance: Provenance | undefined;
+      let finalProvenance: (Provenance & { rootCauseGate: ReturnType<typeof evaluateInvestigationEvidenceGate> }) | undefined;
       if (provState) {
         if (provState.citations?.length) {
           provState.evidenceCount = Math.max(
@@ -533,32 +566,46 @@ export async function handleInvestigationComplete(
         void logReadCalls;
         void opsReadCalls;
         void changeReadCalls;
-        finalProvenance = {
+        const builtProvenance = {
           ...rest,
+          rootCauseGate: gate,
           ...(startedAt ? { latencyMs: Date.now() - startedAt } : {}),
         };
+        finalProvenance = builtProvenance;
         // Citation-rate warning scaffold (Task 10): we do NOT enforce a
         // threshold yet — that destabilises generation and the roadmap
         // explicitly defers it. Just log when the model produced evidence
         // sections without inline references so we have a metric trail.
-        const evCount = finalProvenance.evidenceCount ?? 0;
-        const citCount = finalProvenance.citations?.length ?? 0;
+        const evCount = builtProvenance.evidenceCount ?? 0;
+        const citCount = builtProvenance.citations?.length ?? 0;
         if (evCount > 0 && citCount === 0) {
           log.warn(
             { investigationId: persistedInvestigationId, evidenceCount: evCount, citationCount: citCount },
             'investigation has evidence sections but no inline citations',
           );
         }
+      } else {
+        finalProvenance = { rootCauseGate: gate };
       }
 
       // Save the report. When this investigation was reopened, reuse the prior
       // report's id so the store upserts the SAME row in place; otherwise a
       // fresh id inserts a new report.
+      // The model wrote `summary` while believing its root cause would stand.
+      // When the gate downgrades the claim, saving that text unqualified leaves
+      // the report header asserting a cause the body marks unresolved — and the
+      // header is what remediation flows read first. Keep the model's findings,
+      // but lead with the verdict that actually applies.
+      const persistedSummary = effectiveClaim.rootCause.status === 'unresolved'
+        && claim.rootCause.status !== 'unresolved'
+        ? `Unresolved — the evidence does not verify a root cause. ${summary}`
+        : summary;
+
       await ctx.investigationReportStore.save({
         id: provState?.reportId ?? randomUUID(),
         dashboardId: persistedInvestigationId,
-        goal: summary,
-        summary,
+        goal: persistedSummary,
+        summary: persistedSummary,
         sections,
         createdAt: new Date().toISOString(),
         ...(finalProvenance ? { provenance: finalProvenance } : {}),
@@ -599,6 +646,9 @@ export async function handleInvestigationComplete(
       ctx.sendEvent({ type: 'navigate', path: `/investigations/${persistedInvestigationId}` });
       ctx.recordCreatedResource('investigation', persistedInvestigationId);
 
+      if (gate.status === 'unresolved' && claim.rootCause.status !== 'unresolved') {
+        return `Investigation saved as unresolved; evidence is insufficient for a verified root cause (${gate.reasons.join('; ')}). Summary: ${summary}`;
+      }
       return `Investigation completed and report saved with ${sections.length} sections. Summary: ${summary}`;
     },
   );
@@ -756,6 +806,7 @@ function parseCompletionClaim(args: Record<string, unknown>): InvestigationCompl
     evidenceRefs: stringArray(args.evidenceRefs),
     ruledOut: stringArray(args.ruledOut),
     nextAction: stringOrUndefined(args.nextAction),
+    validationMethod: stringOrUndefined(args.validationMethod),
   };
 }
 

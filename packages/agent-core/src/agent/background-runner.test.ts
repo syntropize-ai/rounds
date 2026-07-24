@@ -55,4 +55,27 @@ describe('runBackgroundAgent', () => {
     expect(identityArg.serviceAccountId).toBe('sa-1');
     expect(identityArg.authenticatedBy).toBe('api_key');
   });
+
+  it('passes an explicit session id into the orchestrator factory', async () => {
+    const handleMessage = vi.fn().mockResolvedValue('ok');
+    const deps = {
+      saTokens: { validateAndLookup: vi.fn() },
+      makeOrchestrator: vi.fn().mockReturnValue({ handleMessage }),
+    };
+    await runBackgroundAgent(deps as any, {
+      identity: {
+        userId: 'sa-1',
+        orgId: 'org_main',
+        orgRole: 'Editor',
+        isServerAdmin: false,
+        authenticatedBy: 'api_key',
+      },
+      sessionId: 'auto-alert:rule-1:run-1',
+      message: 'go',
+    });
+
+    expect(deps.makeOrchestrator).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'auto-alert:rule-1:run-1',
+    }));
+  });
 });

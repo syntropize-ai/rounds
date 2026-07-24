@@ -43,6 +43,7 @@ export interface InvestigationCompletionClaim {
   evidenceRefs: string[];
   ruledOut: string[];
   nextAction?: string;
+  validationMethod?: string;
 }
 
 export interface InvestigationWorkingState {

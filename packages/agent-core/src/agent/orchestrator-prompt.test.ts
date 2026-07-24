@@ -139,8 +139,8 @@ describe('buildSystemPrompt — investigation fix quality', () => {
     const module = getTaskModule('investigate');
     expect(module).toContain('Fix quality: durable over current-value patches');
     expect(module).toContain('temporary mitigation');
-    expect(module).toContain('pod IP');
-    expect(module).toContain('ServiceEntry');
+    expect(module).toContain('ephemeral runtime value');
+    expect(module).toContain('stable control point');
     expect(module).toContain('primary remediation');
   });
 });

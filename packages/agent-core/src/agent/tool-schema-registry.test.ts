@@ -47,7 +47,7 @@ describe('tool-schema-registry', () => {
     { tool: 'investigation_record_check', mustContain: ['diagnostic check', 'main loop keeps its investigation state'] },
     { tool: 'investigation_add_text', mustContain: ['Interleave', 'short `## heading`'] },
     { tool: 'investigation_add_evidence', mustContain: ['Reuse the query', 'auto-captured snapshot'] },
-    { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded', '80% confidence', 'durable', 'ephemeral pod IP'] },
+    { tool: 'investigation_complete', mustContain: ['LAST tool call', 'every section is discarded', '80% confidence', 'durable', 'ephemeral runtime value'] },
     { tool: 'web_search', mustContain: ['Cheap read', 'Named-system dashboard', 'unfamiliar metric'] },
   ];
   for (const { tool, mustContain } of INLINED_GUIDANCE) {
@@ -58,6 +58,18 @@ describe('tool-schema-registry', () => {
       }
     });
   }
+
+  it('remediation_plan_create_rescue requires the evidence-gate fields', () => {
+    // The rescue handler runs the same evidence gate as the primary
+    // (createPlanCommon → validateRemediationPlanEvidence), which rejects
+    // plans without targetObject/validationMethod. The schema must demand
+    // them or every schema-conformant rescue plan is rejected at runtime.
+    const schema = TOOL_REGISTRY['remediation_plan_create_rescue']?.schema.input_schema;
+    expect(schema?.properties?.['targetObject']).toBeDefined();
+    expect(schema?.properties?.['validationMethod']).toBeDefined();
+    expect(schema?.required).toContain('targetObject');
+    expect(schema?.required).toContain('validationMethod');
+  });
 
   it('no entry carries the removed extendedPrompt field (drift guard)', () => {
     const offenders = Object.entries(TOOL_REGISTRY)

@@ -1,12 +1,12 @@
 /**
- * SSRF guard: with `OPENOBS_ALLOW_PRIVATE_URLS=false`, attempting to
- * register / probe a connector pointing at a private network address
- * should be refused.
+ * SSRF guard: blocking private network addresses is the default, so
+ * registering / probing a connector pointing at one is refused unless the
+ * deployment opts out with `OPENOBS_ALLOW_PRIVATE_URLS=true`.
  *
- * Skipped: the e2e harness deploys with the default (relaxed) URL
- * policy because every test connector lives on the cluster's private
- * network. Re-running this scenario requires a separate harness deploy
- * with the strict env var; documented below.
+ * Skipped: the e2e harness pins the opt-out to "true" (see
+ * tests/e2e/fixtures/helm/values.test.yaml) because every test connector
+ * lives on the cluster's private network. Re-running this scenario requires
+ * a separate harness deploy without it; documented below.
  */
 import { describe, it } from 'vitest';
 

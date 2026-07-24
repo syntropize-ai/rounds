@@ -167,7 +167,7 @@ export default function Teams(): React.ReactElement {
               })}
             </tbody>
           </table>
-          {items.length === 0 && <EmptyState label="No teams yet." />}
+          {!error && items.length === 0 && <EmptyState label="No teams yet." />}
         </div>
       )}
 
@@ -526,7 +526,7 @@ function MembersTab({
                 </button>
               </div>
             ))}
-            {members.length === 0 && <EmptyState label="No members yet." />}
+            {!error && members.length === 0 && <EmptyState label="No members yet." />}
           </div>
 
           {!disabled && candidates.length > 0 && (
@@ -643,7 +643,7 @@ function TeamRolesTab({
                 </button>
               </div>
             ))}
-            {assigned.length === 0 && <EmptyState label="No roles assigned." />}
+            {!error && assigned.length === 0 && <EmptyState label="No roles assigned." />}
           </div>
 
           {!disabled && available.length > 0 && (

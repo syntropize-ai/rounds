@@ -142,7 +142,7 @@ export default function Orgs(): React.ReactElement {
               ))}
             </tbody>
           </table>
-          {items.length === 0 && <EmptyState label="No organizations match your filters." />}
+          {!error && items.length === 0 && <EmptyState label="No organizations match your filters." />}
         </div>
       )}
 

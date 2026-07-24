@@ -424,6 +424,35 @@ export function shouldProcessSubscriptionEventDuringPost(
   );
 }
 
+/**
+ * Inputs for {@link shouldStopGenerationOnEscape}. DOM-free on purpose so the
+ * scoping rule is unit-testable (the web package has no jsdom).
+ */
+export interface EscapeStopContext {
+  isGenerating: boolean;
+  /** A dialog, popover or menu is open — Escape belongs to it, not to us. */
+  overlayOpen: boolean;
+  /** Escape came from a queued-message editor, where it cancels the edit. */
+  editingQueuedMessage: boolean;
+  /** Escape came from the chat surface, or from no widget at all (body). */
+  chatSurfaceActive: boolean;
+}
+
+/**
+ * Escape stops the running agent only when it is unambiguously meant for the
+ * chat: nothing else on the page is currently consuming Escape. Without this
+ * scoping, dismissing any popover with Escape killed a background agent.
+ */
+export function shouldStopGenerationOnEscape(context: EscapeStopContext): boolean {
+  if (!context.isGenerating) return false;
+  if (context.overlayOpen) return false;
+  if (context.editingQueuedMessage) return false;
+  return context.chatSurfaceActive;
+}
+
+/** Overlays that own Escape while they are mounted. */
+const OVERLAY_SELECTOR = '[role="dialog"], [role="listbox"], [role="menu"]';
+
 // withChatQuery used to append `?chat=<id>` to agent-emitted navigation paths
 // so the destination page could rebind the same chat. That's now redundant:
 // currentSessionId lives in ChatProvider's React state and persists across
@@ -1183,9 +1212,18 @@ export function useChat(): UseChatResult {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !isGenerating) return;
+      if (event.key !== 'Escape') return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest('[data-queue-editing="true"]')) return;
+      const stop = shouldStopGenerationOnEscape({
+        isGenerating,
+        overlayOpen: document.querySelector(OVERLAY_SELECTOR) !== null,
+        editingQueuedMessage: Boolean(target?.closest('[data-queue-editing="true"]')),
+        chatSurfaceActive:
+          !target ||
+          target === document.body ||
+          Boolean(target.closest('[data-chat-surface="true"]')),
+      });
+      if (!stop) return;
       event.preventDefault();
       stopGeneration();
     };

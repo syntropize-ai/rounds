@@ -163,7 +163,12 @@ function UserMenu({ user, expanded, canSeeAdmin, onLogout }: UserMenuProps) {
       }
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
+      // stopPropagation so the menu consumes Escape — the global chat shortcut
+      // listens on window and would otherwise stop a running agent.
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setOpen(false);
+      }
     }
     document.addEventListener('mousedown', onDocMouseDown);
     document.addEventListener('keydown', onKey);

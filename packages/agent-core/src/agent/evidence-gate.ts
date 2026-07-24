@@ -177,7 +177,10 @@ function planMatchesRootCause(targetObject: string, rootCause: InvestigationRoot
   const rootTokens = significantTokens([rootCause.object ?? '', rootCause.field ?? ''].join(' '));
   if (rootTokens.length === 0) return false;
   const targetTokens = new Set(significantTokens(targetObject));
-  return rootTokens.some((token) => targetTokens.has(token));
+  // Same two-token bar as hasDirectSupport. A single shared token is too weak:
+  // it lets a plan against deploy/api clear a root cause proven on deploy/web.
+  const overlap = rootTokens.filter((token) => targetTokens.has(token));
+  return overlap.length >= Math.min(2, rootTokens.length);
 }
 
 function checkText(check: InvestigationCheck): string {

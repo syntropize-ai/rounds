@@ -591,11 +591,21 @@ export async function handleInvestigationComplete(
       // Save the report. When this investigation was reopened, reuse the prior
       // report's id so the store upserts the SAME row in place; otherwise a
       // fresh id inserts a new report.
+      // The model wrote `summary` while believing its root cause would stand.
+      // When the gate downgrades the claim, saving that text unqualified leaves
+      // the report header asserting a cause the body marks unresolved — and the
+      // header is what remediation flows read first. Keep the model's findings,
+      // but lead with the verdict that actually applies.
+      const persistedSummary = effectiveClaim.rootCause.status === 'unresolved'
+        && claim.rootCause.status !== 'unresolved'
+        ? `Unresolved — the evidence does not verify a root cause. ${summary}`
+        : summary;
+
       await ctx.investigationReportStore.save({
         id: provState?.reportId ?? randomUUID(),
         dashboardId: persistedInvestigationId,
-        goal: summary,
-        summary,
+        goal: persistedSummary,
+        summary: persistedSummary,
         sections,
         createdAt: new Date().toISOString(),
         ...(finalProvenance ? { provenance: finalProvenance } : {}),

@@ -1112,7 +1112,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             items: { type: 'string' },
             description: 'Plausible alternative hypotheses ruled out, e.g. ["no traffic", "scrape issue"].',
           },
-          validationMethod: { type: 'string', description: 'How to verify the root cause or fix. Required for confirmed/likely root causes; name the metric/log/check/result to observe.' },
+          validationMethod: { type: 'string', description: 'How to verify the root cause or fix — name the metric/log/check/result to observe. Confirmed/likely claims must state this either here or as validation wording inside nextAction / rootCause.nextCheck.' },
           nextAction: { type: 'string', description: 'Durable fix or next operator action plus how to validate it. If a short-term workaround is useful, label it as temporary mitigation and still include the durable remediation or prevention.' },
         },
         required: ['summary', 'rootCause', 'confidence', 'evidenceRefs', 'ruledOut'],

@@ -450,7 +450,11 @@ describe('KubectlOpsCommandRunner.runCommand — connector policy gate', () => {
     expect(r.observation).toContain('rejected');
   });
 
-  it('background bypass skips confirmation for read-safe runtime.exec when policy is allow', async () => {
+  // Bypassing the confirmation is the point of this case, so the runner goes
+  // on to spawn a real kubectl that has no cluster to reach. The default 5s
+  // budget covers that on a warm machine but not under coverage instrumentation
+  // in CI, where this timed out.
+  it('background bypass skips confirmation for read-safe runtime.exec when policy is allow', { timeout: 30_000 }, async () => {
     const runner = new KubectlOpsCommandRunner({
       connectors: fakeConnectorRepo({
         connectors: [

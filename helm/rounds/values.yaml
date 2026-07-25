@@ -108,8 +108,15 @@ existingSecret: ""
 # (`helm install`, `istioctl install`, `curl | sh`) as one-shot Jobs in
 # the cluster. Each Job is gated by the connector policy table — nothing
 # runs until an operator approves the plan in the UI.
+#
+# OFF by default. Enabling it binds a ServiceAccount to `cluster-admin`
+# (see clusterRole below), and that grant exists from install time whether
+# or not anyone ever uses cluster shell — an evaluator who just wants to
+# ask "why is checkout slow" should not have to accept it to find out.
+# Turn it on when you actually want the agent to install operators or
+# charts for you, and read docs/operations/auto-remediation.md first.
 clusterShell:
-  enabled: true
+  enabled: false
   serviceAccount: rounds-bootstrap
   # Where the SA + Jobs live. The chart creates this namespace when enabled.
   namespace: rounds-system

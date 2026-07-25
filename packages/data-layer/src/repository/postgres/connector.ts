@@ -186,7 +186,7 @@ export class PostgresConnectorRepository implements IConnectorRepository {
           ${input.lastVerifiedAt ?? null},
           ${input.lastVerifyError ?? null},
           ${input.isDefault ?? false},
-          ${input.createdBy},
+          ${input.createdBy ?? null},
           ${now},
           ${now}
         )

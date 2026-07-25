@@ -56,12 +56,19 @@ export default defineConfig({
           { text: 'Permissions & RBAC', link: '/auth#built-in-roles-permission-summary' },
           { text: 'Service accounts & tokens', link: '/auth#service-accounts-and-api-tokens' },
           { text: 'Production checklist', link: '/auth#production-security-checklist' },
+          { text: 'Change control & audit', link: '/compliance/change-control' },
         ],
       },
       {
         text: 'Operations',
         items: [
           { text: 'Auto-remediation', link: '/operations/auto-remediation' },
+        ],
+      },
+      {
+        text: 'In practice',
+        items: [
+          { text: 'A real investigation', link: '/investigations/bookinfo-reviews-v2' },
         ],
       },
       {

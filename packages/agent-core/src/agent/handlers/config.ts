@@ -6,6 +6,7 @@
  * allowlisted settings surface through setting_* tools.
  */
 
+import { getErrorMessage } from '@agentic-obs/common';
 import type { ActionContext } from './_context.js';
 import { withToolEventBoundary } from './_shared.js';
 
@@ -180,7 +181,25 @@ export async function handleConnectorApply(ctx: ActionContext, args: Record<stri
         draftId,
         actorUserId: ctx.identity.userId ?? null,
       });
-      return `Applied connector draft ${draftId}. connectorId=${applied.connectorId}, status=${applied.status}, capabilities=${applied.capabilities.join(', ') || 'none'}.`;
+
+      // Reach the backend before calling this done. A connector row proves
+      // nothing: the address can be unroutable from where the server runs, or
+      // wrong, and the user would only find out on their next question — after
+      // being told the setup succeeded. Verifying here lets the model report
+      // "created and reachable" or "created but I cannot reach it" in the same
+      // breath. A failed check is information, not a failed apply: the row
+      // stays and the user can fix the URL.
+      let reachability = '';
+      try {
+        const probe = await ctx.configService.testConnector(applied.connectorId, ctx.identity.orgId);
+        reachability = probe.ok
+          ? ' Connection verified.'
+          : ` WARNING: created, but the backend is not reachable — ${probe.error ?? 'connection failed'}. Check the URL and any network policy; the connector will not answer queries until this is fixed.`;
+      } catch (err) {
+        reachability = ` WARNING: created, but the connection test could not run — ${getErrorMessage(err)}.`;
+      }
+
+      return `Applied connector draft ${draftId}. connectorId=${applied.connectorId}, status=${applied.status}, capabilities=${applied.capabilities.join(', ') || 'none'}.${reachability}`;
     },
   );
 }

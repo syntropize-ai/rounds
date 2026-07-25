@@ -6,7 +6,7 @@ Thanks for your interest. Contributions of any size are welcome — typo fixes, 
 
 The `main` branch is protected — direct pushes are blocked, all changes flow through pull requests.
 
-1. **Fork** the repo: <https://github.com/syntropize/rounds/fork>
+1. **Fork** the repo: <https://github.com/syntropize-ai/rounds/fork>
 2. **Clone** your fork and create a topic branch:
    ```bash
    git clone https://github.com/<you>/rounds.git
@@ -21,14 +21,14 @@ The `main` branch is protected — direct pushes are blocked, all changes flow t
    npm test
    npm run build
    ```
-5. **Commit, push, open a PR** against `syntropize/rounds:main`. Fill out the PR template.
+5. **Commit, push, open a PR** against `syntropize-ai/rounds:main`. Fill out the PR template.
 6. **Wait for review.** A maintainer will leave comments or approve. PRs need ≥1 approval and green CI before merge.
 
 If you're tackling something non-trivial, open an issue first to align on the approach — saves rework if the design needs adjusting.
 
 ## Reporting bugs
 
-Open an issue at <https://github.com/syntropize/rounds/issues> with: what you expected, what happened, steps to reproduce, and your `rounds --version` / Node version / OS.
+Open an issue at <https://github.com/syntropize-ai/rounds/issues> with: what you expected, what happened, steps to reproduce, and your `rounds --version` / Node version / OS.
 
 ## Reporting security issues
 

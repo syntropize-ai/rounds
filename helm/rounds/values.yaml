@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/syntropize/rounds
+  repository: ghcr.io/syntropize-ai/rounds
   # Empty defaults to .Chart.AppVersion.
   tag: ""
   pullPolicy: IfNotPresent

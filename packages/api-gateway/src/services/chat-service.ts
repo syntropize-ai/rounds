@@ -30,7 +30,7 @@ import { DuckDuckGoSearchAdapter } from '@agentic-obs/adapters';
 // backend, so a single shared instance per process is fine.
 const sharedWebSearchAdapter = new DuckDuckGoSearchAdapter();
 import type { AccessControlSurface } from './accesscontrol-holder.js';
-import type { AuditWriter } from '../auth/audit-writer.js';
+import type { AuditWriter, AuditLogInput } from '../auth/audit-writer.js';
 import type { SetupConfigService } from './setup-config-service.js';
 import type { IGatewayDashboardStore } from '../repositories/types.js';
 import type {
@@ -48,6 +48,9 @@ import type {
 } from '@agentic-obs/data-layer';
 import { KubectlOpsCommandRunner, connectorToOpsConfig } from './ops-command-runner.js';
 import { GithubToolRunner } from './github-tool-runner.js';
+import { AgentConfigServiceImpl } from './agent-config-service.js';
+import { ConnectorService } from './connector-service.js';
+import { testConnectorAgainstBackend } from './connector-test.js';
 import type { GithubAppTokenService } from './github-app-token-service.js';
 import type { OpsConnectorConfig } from '@agentic-obs/agent-core';
 
@@ -273,6 +276,9 @@ export interface ChatServiceDeps {
    * ops tool reports "no ops connectors configured".
    */
   connectorRepo?: IConnectorRepository;
+  /** Instance settings store for the agent's `setting_*` tools. Optional:
+   *  without it those tools report that settings are unavailable. */
+  instanceConfigRepo?: { getSetting(key: string): Promise<string | null>; setSetting(key: string, value: string): Promise<void> };
   /**
    * GitHub App installation-token service. When wired alongside
    * `connectorRepo`, the four `github_*` agent tools are usable.
@@ -549,6 +555,23 @@ export class ChatService {
           ...(this.deps.auditWriter ? { audit: this.deps.auditWriter } : {}),
         })
       : undefined;
+    // Connector/settings surface for the `connector_*` and `setting_*` tools.
+    // Built on the same ConnectorService the HTTP routes use, so chat cannot
+    // reach a write path the API does not already expose. Without the
+    // connector repo the tools keep reporting that configuration is
+    // unavailable, which is what they did everywhere before this was wired.
+    const configService = this.deps.connectorRepo
+      ? new AgentConfigServiceImpl({
+          connectors: new ConnectorService({
+            connectors: this.deps.connectorRepo,
+            testConnector: (connector) => testConnectorAgainstBackend(connector, null),
+          }),
+          ...(this.deps.instanceConfigRepo ? { settings: this.deps.instanceConfigRepo } : {}),
+          ...(this.deps.auditWriter
+            ? { audit: (entry) => this.deps.auditWriter?.log(entry as AuditLogInput) }
+            : {}),
+        })
+      : undefined;
     // GitHub tool runner: read-only VCS surface (github_list_repos /
     // github_list_prs / github_get_pr / github_get_diff). Requires both the
     // connector repo (for resolution + policy lookup) and the App token
@@ -676,6 +699,7 @@ export class ChatService {
         // Ops connector view derived from the connectors table — see filter above.
         opsConnectors,
         ...(opsCommandRunner ? { opsCommandRunner } : {}),
+        ...(configService ? { configService } : {}),
         ...(githubToolRunner ? { githubToolRunner } : {}),
         // Live pin bag for this session — the agent mutates it via
         // connectors.pin/unpin and we read it back across messages.

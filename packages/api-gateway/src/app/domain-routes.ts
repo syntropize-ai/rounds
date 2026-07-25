@@ -426,6 +426,9 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     // kubernetes connectors directly from the full data-layer repo (we want
     // `getSecret` here — the local `ConnectorRepository` view drops it).
     connectorRepo: repos.connectors,
+    // Backs the agent's `setting_*` tools. The service allowlists which keys
+    // chat may write; the repo itself is the same one the settings UI uses.
+    instanceConfigRepo: repos.instanceConfig,
     // GitHub agent tools (github_list_repos/_prs, github_get_pr/_diff).
     // The token service caches installation tokens in-process so each chat
     // turn doesn't pay a JWT-sign + 2x GitHub round-trip. Only wired when

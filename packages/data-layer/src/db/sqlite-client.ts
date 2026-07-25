@@ -32,24 +32,46 @@ export function createSqliteClient(opts: SqliteClientOptions): ReturnType<typeof
   sqlite.pragma('busy_timeout = 5000');
 
   const db = drizzle(sqlite, { schema });
+  // Serialises overlapping withTransaction calls on the single connection.
+  let transactionQueue: Promise<void> = Promise.resolve();
   return Object.assign(db, {
-    // better-sqlite3 is single-connection by design, so the same `db` is
-    // already pinned to one session. We just bracket the work with
-    // BEGIN/COMMIT and roll back on throw.
+    // better-sqlite3 is single-connection by design, so BEGIN/COMMIT here
+    // bracket the one session. That makes overlap the hazard rather than
+    // isolation: `fn` is async, so a second caller reaching BEGIN while the
+    // first is awaiting throws "cannot start a transaction within a
+    // transaction" on the shared connection.
+    //
+    // It stayed invisible while transactions came from HTTP handlers, which
+    // rarely overlap. An agent turn breaks that: chat_session_event rows are
+    // written continuously as the model streams, so any tool that writes in a
+    // transaction — creating a connector, say — lands inside someone else's
+    // BEGIN and fails. Serialising is enough; the queue is FIFO and a failed
+    // transaction does not poison the ones behind it.
+    //
+    // Callers must not nest `withTransaction` (no sqlite repository does):
+    // an inner call would wait on the outer one and deadlock.
     async withTransaction<T>(fn: (tx: QueryClient) => Promise<T>): Promise<T> {
-      sqlite.exec('BEGIN');
-      try {
-        const result = await fn(db as unknown as QueryClient);
-        sqlite.exec('COMMIT');
-        return result;
-      } catch (err) {
+      const run = async (): Promise<T> => {
+        sqlite.exec('BEGIN');
         try {
-          sqlite.exec('ROLLBACK');
-        } catch {
-          /* swallow rollback failure; surface the original error */
+          const result = await fn(db as unknown as QueryClient);
+          sqlite.exec('COMMIT');
+          return result;
+        } catch (err) {
+          try {
+            sqlite.exec('ROLLBACK');
+          } catch {
+            /* swallow rollback failure; surface the original error */
+          }
+          throw err;
         }
-        throw err;
-      }
+      };
+      const queued = transactionQueue.then(run, run);
+      transactionQueue = queued.then(
+        () => undefined,
+        () => undefined,
+      );
+      return queued;
     },
   });
 }

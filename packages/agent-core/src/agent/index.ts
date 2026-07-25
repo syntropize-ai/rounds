@@ -62,6 +62,9 @@ export type {
   RemediationPlanStepKind,
   RemediationPlanStore,
   AgentConfigService,
+  AgentConnectorSummary,
+  AgentConnectorTemplateSummary,
+  AgentConnectorCandidate,
 } from './types.js'
 
 // Context compaction

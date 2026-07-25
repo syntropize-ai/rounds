@@ -183,7 +183,7 @@ export class SqliteConnectorRepository implements IConnectorRepository {
           ${input.lastVerifiedAt ?? null},
           ${input.lastVerifyError ?? null},
           ${fromBool(input.isDefault)},
-          ${input.createdBy},
+          ${input.createdBy ?? null},
           ${now},
           ${now}
         )

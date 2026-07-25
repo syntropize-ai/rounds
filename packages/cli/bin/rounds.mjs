@@ -114,6 +114,17 @@ if (!existsSync(serverBundle)) {
   process.exit(1);
 }
 
+// Print where to go before the server's JSON logs start scrolling. Opening a
+// browser is best-effort — it does nothing over SSH, in a container, on a
+// headless box, or with --no-open — and without this the only thing on screen
+// is pino output that never mentions a URL.
+process.stdout.write(
+  `\n[rounds] Rounds is starting on http://localhost:${port}\n` +
+  `[rounds] Data directory: ${process.env.DATA_DIR}\n` +
+  `[rounds] First run opens a setup wizard; have an LLM provider API key ready.\n` +
+  `[rounds] Press Ctrl+C to stop.\n\n`,
+);
+
 // Windows: dynamic import of an absolute path needs a file:// URL. macOS /
 // Linux accept the plain path too, but pathToFileURL is safe on every OS.
 await import(pathToFileURL(serverBundle).href);

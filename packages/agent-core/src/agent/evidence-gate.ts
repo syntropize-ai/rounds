@@ -221,3 +221,45 @@ function cjkTokens(value: string): string[] {
   }
   return tokens;
 }
+
+/**
+ * Translate gate reasons into something a reader who has never seen this
+ * codebase can act on. The raw reasons name fields and thresholds because the
+ * model consumes them as instructions; rendered verbatim in a report they read
+ * as an internal rule dump ("referenced evidence must include at least two
+ * independent signal types") next to a summary that confidently names a cause,
+ * which looks like the report contradicting itself.
+ *
+ * Unmapped reasons pass through unchanged — a slightly technical sentence beats
+ * dropping the explanation entirely.
+ */
+export function explainGateReasons(reasons: readonly string[]): string[] {
+  return reasons.map((reason) => GATE_REASON_PLAIN[reason] ?? reason);
+}
+
+const GATE_REASON_PLAIN: Readonly<Record<string, string>> = {
+  'referenced evidence must include at least two independent signal types':
+    'the supporting evidence all came from one kind of data — connecting logs or Kubernetes state would let me confirm it',
+  'at least two recorded checks must be referenced':
+    'only one check backs this conclusion, which is not enough to be sure',
+  'at least one referenced supported check must directly support the root-cause object and cause':
+    'no single check directly demonstrates the cause I suspect',
+  'ruledOut must include plausible competing explanations':
+    'I did not rule out other explanations for what you are seeing',
+  'at least one competing explanation must be recorded as ruled_out':
+    'I did not rule out other explanations for what you are seeing',
+  'at least one referenced check must record scope.timeWindow or scope.affected':
+    'the evidence does not pin down when this started or which parts are affected',
+  'validationMethod must state how to validate the fix or next finding':
+    'I could not state how you would confirm a fix actually worked',
+  'rootCause.object must name the specific repair target':
+    'I could not name the specific thing that needs changing',
+  'rootCause.cause must describe the causal mechanism':
+    'I could not explain the mechanism behind the failure',
+  'evidenceRefs must point to recorded investigation checks':
+    'the conclusion is not tied to any recorded check',
+  'all evidenceRefs must match recorded check ids':
+    'the conclusion cites checks that were not recorded',
+  [`root-cause confidence must be at least ${MIN_CONFIDENCE}`]:
+    'I am not confident enough in this conclusion to call it the root cause',
+};

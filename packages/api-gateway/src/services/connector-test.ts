@@ -51,7 +51,7 @@ export async function testConnectorAgainstBackend(
     case 'humio-query':
       return testHumioQuery(connector, secret);
     case 'none':
-      return { ok: true };
+      return { ok: true, message: 'Connected successfully' };
     default: {
       const kind = (verify as { kind: string }).kind;
       return { ok: false, message: `Verify strategy "${kind}" not implemented yet` };
@@ -89,7 +89,7 @@ async function testHumioQuery(
       }),
       signal: controller.signal,
     });
-    if (res.ok) return { ok: true };
+    if (res.ok) return { ok: true, message: 'Connected successfully' };
     const body = await safeReadBody(res);
     return {
       ok: false,
@@ -163,7 +163,7 @@ async function testGithubApi(
       },
       signal: controller.signal,
     });
-    if (res.ok) return { ok: true };
+    if (res.ok) return { ok: true, message: 'Connected successfully' };
     const body = await safeReadBody(res);
     if (res.status === 401) {
       return { ok: false, message: 'GitHub rejected the token. Re-install via Connect to GitHub.' };
@@ -202,7 +202,7 @@ async function testHttpGet(
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   try {
     const res = await fetch(target, { method: 'GET', headers, signal: controller.signal });
-    if (res.ok) return { ok: true };
+    if (res.ok) return { ok: true, message: 'Connected successfully' };
     const body = await safeReadBody(res);
     const message = isPromCompat
       ? `Could not run a Prometheus query against this URL (HTTP ${res.status} from ${target}). Check that the URL is the Prometheus API root or proxy root, not a full query path, and that any token has query permission.`
@@ -446,7 +446,7 @@ async function runK8sVersionHttpsRequest(
         res.on('end', () => {
           const status = res.statusCode ?? 0;
           if (status >= 200 && status < 300) {
-            resolve({ ok: true });
+            resolve({ ok: true, message: 'Connected successfully' });
             return;
           }
           const body = Buffer.concat(chunks).toString('utf8');
@@ -479,7 +479,7 @@ async function runK8sVersionFetch(
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   try {
     const res = await fetch(url, { method: 'GET', headers, signal: controller.signal });
-    if (res.ok) return { ok: true };
+    if (res.ok) return { ok: true, message: 'Connected successfully' };
     const body = await safeReadBody(res);
     return { ok: false, message: `HTTP ${res.status}`, ...(body ? { detail: body } : {}) };
   } catch (err) {

@@ -217,7 +217,7 @@ export default function Feed() {
           </div>
         )}
 
-        {!loading && items.length === 0 && (
+        {!loading && !error && items.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-12 h-12 rounded-2xl bg-[var(--color-surface-highest)] border border-[var(--color-outline-variant)] flex items-center justify-center mb-3">
               <svg className="w-6 h-6 text-[var(--color-outline)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

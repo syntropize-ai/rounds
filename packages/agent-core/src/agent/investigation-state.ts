@@ -11,6 +11,18 @@ export type InvestigationSignalType =
 
 export type HypothesisStatus = 'supported' | 'ruled_out' | 'inconclusive';
 
+/**
+ * What the check actually covers. Recorded as structured fields because the
+ * evidence gate has to know it without reading the narrative: prose is written
+ * in the user's language, so any keyword match over `result`/`interpretation`
+ * is both English-only and trivially satisfiable. At least one of the two is
+ * required at record time (`handleInvestigationRecordCheck`).
+ */
+export interface InvestigationCheckScope {
+  timeWindow?: string;
+  affected?: string;
+}
+
 export interface InvestigationCheck {
   id: string;
   hypothesis: string;
@@ -20,6 +32,7 @@ export interface InvestigationCheck {
   result: string;
   interpretation: string;
   status: HypothesisStatus;
+  scope: InvestigationCheckScope;
   nextCheck?: string;
 }
 

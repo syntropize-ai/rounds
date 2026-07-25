@@ -55,6 +55,7 @@ import {
   SetupLlmService,
   SetupLlmServiceError,
 } from '../services/setup-llm-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('setup');
 
@@ -187,7 +188,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
   //   `configured = hasAdmin && hasLLM`.
   // `configuredAt` is a best-effort breadcrumb stamped when all three
   // pieces first align — purely informational, not a gate.
-  router.get('/status', async (_req: Request, res: Response) => {
+  router.get('/status', asyncHandler(async (_req: Request, res: Response) => {
     let hasAdmin = false;
     try {
       // Exclude service accounts: seed-auto-investigation-sa inserts a
@@ -226,11 +227,11 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
         error: { code: 'INTERNAL_ERROR', message: 'setup status unavailable' },
       });
     }
-  });
+  }));
 
   // POST /api/setup/admin — first-admin bootstrap. Writes the `bootstrapped_at`
   // marker on success (T2.7), which permanently closes the setup gate.
-  router.post('/admin', loginRateLimiter, async (req: Request, res: Response) => {
+  router.post('/admin', loginRateLimiter, asyncHandler(async (req: Request, res: Response) => {
     try {
       const body = (req.body ?? {}) as {
         email?: string;
@@ -271,12 +272,12 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
       }
       throw err;
     }
-  });
+  }));
 
   router.use(requireSetupAccess);
 
   // GET /api/setup/config — returns current config (secrets masked).
-  router.get('/config', requireConfigRead, async (_req: Request, res: Response) => {
+  router.get('/config', requireConfigRead, asyncHandler(async (_req: Request, res: Response) => {
     try {
       const [llm, connectors, notifications] = await Promise.all([
         setupConfig.getLlm({ masked: true }),
@@ -294,10 +295,10 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
         error: { code: 'INTERNAL_ERROR', message: 'config read failed' },
       });
     }
-  });
+  }));
 
   // POST /api/setup/llm/test — test-only, no persistence.
-  router.post('/llm/test', requireConfigWrite, async (req: Request, res: Response) => {
+  router.post('/llm/test', requireConfigWrite, asyncHandler(async (req: Request, res: Response) => {
     const cfg = req.body as LlmConfigWire;
     if (!cfg?.provider || !cfg?.model) {
       res.status(400).json({
@@ -307,10 +308,10 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
     }
     const result = await llmService.testConnection(await withSavedLlmSecret(setupConfig, cfg));
     res.status(result.ok ? 200 : 400).json(result);
-  });
+  }));
 
   // POST /api/setup/llm/models — list available models.
-  router.post('/llm/models', requireConfigWrite, async (req: Request, res: Response) => {
+  router.post('/llm/models', requireConfigWrite, asyncHandler(async (req: Request, res: Response) => {
     const cfg = req.body as LlmConfigWire;
     if (!cfg?.provider) {
       res.status(400).json({
@@ -343,7 +344,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
       throw err;
     }
     res.json({ models });
-  });
+  }));
 
   // Save endpoints for connectors / notifications / llm moved to
   // `/api/connectors`, `/api/system/notifications`, and `/api/system/llm`
@@ -358,7 +359,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
   router.post(
     '/reset',
     requirePermission(() => ac.eval(ACTIONS.InstanceConfigWrite)),
-    async (_req: Request, res: Response) => {
+    asyncHandler(async (_req: Request, res: Response) => {
       await setupConfig.clearLlm({ userId: null });
       const connectors = await setupConfig.listConnectors({ orgId: 'org_main' });
       for (const connector of connectors) {
@@ -369,7 +370,7 @@ export function createSetupRouter(deps: SetupRouterDeps): Router {
         await setupConfig.deleteNotificationChannel(c.id, { userId: null });
       }
       res.json({ ok: true });
-    },
+    }),
   );
 
   return router;

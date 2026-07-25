@@ -171,7 +171,7 @@ export default function ServiceAccounts(): React.ReactElement {
               ))}
             </tbody>
           </table>
-          {items.length === 0 && <EmptyState label="No service accounts yet." />}
+          {!error && items.length === 0 && <EmptyState label="No service accounts yet." />}
         </div>
       )}
 
@@ -405,7 +405,7 @@ function TokensDrawer({
 
       {loading ? (
         <LoadingRow />
-      ) : tokens.length === 0 ? (
+      ) : !error && tokens.length === 0 ? (
         <EmptyState label="No tokens for this service account." />
       ) : (
         <table className="w-full text-sm">

@@ -25,6 +25,7 @@ import type {
   IUserRoleRepository,
   ITeamRoleRepository,
 } from '@agentic-obs/common';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface AccessControlRouterDeps {
   ac: AccessControlService;
@@ -123,7 +124,7 @@ export function createAccessControlRouter(
       // globally — basic:server_admin satisfies it by virtue of ALL_ACTIONS.
       return ac.eval(ACTIONS.RolesWrite, 'roles:*');
     }),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const result = await roleFacade.seed(req.auth!.orgId);
         res.json(result);
@@ -139,14 +140,14 @@ export function createAccessControlRouter(
         }
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- Roles: list + create ------------------------------------------------
   router.get(
     '/roles',
     requirePermission(ac.eval(ACTIONS.RolesRead, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const includeHidden = req.query['includeHidden'] === 'true';
         const roles = await service.listRoles({
@@ -164,13 +165,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.post(
     '/roles',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = req.body as {
           name?: string;
@@ -210,14 +211,14 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- Roles: get / put / delete ------------------------------------------
   router.get(
     '/roles/:roleUid',
     requirePermission(ac.eval(ACTIONS.RolesRead, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const result = await service.getRole(
           req.auth!.orgId,
@@ -238,13 +239,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.put(
     '/roles/:roleUid',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = req.body as {
           version?: number;
@@ -279,13 +280,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.delete(
     '/roles/:roleUid',
     requirePermission(ac.eval(ACTIONS.RolesDelete, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const ok = await service.deleteRole(
           req.auth!.orgId,
@@ -301,14 +302,14 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- User role assignments ----------------------------------------------
   router.get(
     '/users/:userId/roles',
     requirePermission(ac.eval(ACTIONS.RolesRead, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const roles = await service.listUserRoles(
           req.auth!.orgId,
@@ -318,13 +319,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.post(
     '/users/:userId/roles',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = req.body as { roleUid?: string };
         if (!body.roleUid) {
@@ -342,13 +343,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.delete(
     '/users/:userId/roles/:roleUid',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const ok = await service.unassignRoleFromUser(
           req.auth!.orgId,
@@ -365,13 +366,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.put(
     '/users/:userId/roles',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = req.body as { roleUids?: string[] };
         if (!Array.isArray(body.roleUids)) {
@@ -389,14 +390,14 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- Team role assignments ----------------------------------------------
   router.get(
     '/teams/:teamId/roles',
     requirePermission(ac.eval(ACTIONS.RolesRead, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const roles = await service.listTeamRoles(
           req.auth!.orgId,
@@ -406,13 +407,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.post(
     '/teams/:teamId/roles',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = req.body as { roleUid?: string };
         if (!body.roleUid) {
@@ -430,13 +431,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.delete(
     '/teams/:teamId/roles/:roleUid',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const ok = await service.unassignRoleFromTeam(
           req.auth!.orgId,
@@ -453,13 +454,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.put(
     '/teams/:teamId/roles',
     requirePermission(ac.eval(ACTIONS.RolesWrite, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = req.body as { roleUids?: string[] };
         if (!Array.isArray(body.roleUids)) {
@@ -477,14 +478,14 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- User permissions inspect (admin-scoped lookups for a specific user) -
   router.get(
     '/users/:userId/permissions',
     requirePermission(ac.eval(ACTIONS.RolesRead, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         // Resolve permissions for the target user by constructing an identity
         // shim — we re-use the service's resolver rather than duplicating it.
@@ -500,13 +501,13 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.get(
     '/users/permissions/search',
     requirePermission(ac.eval(ACTIONS.RolesRead, 'roles:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const action = req.query['action'];
         if (typeof action !== 'string') {
@@ -523,7 +524,7 @@ export function createAccessControlRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- Error handler bound to router ---------------------------------------

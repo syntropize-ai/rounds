@@ -71,6 +71,18 @@ describe('tool-schema-registry', () => {
     expect(schema?.required).toContain('validationMethod');
   });
 
+  it('investigation_record_check requires the structured scope the evidence gate reads', () => {
+    // The gate no longer infers time window / affected scope from the check
+    // narrative — it reads scope.timeWindow / scope.affected. If the schema
+    // stops demanding `scope`, the handler rejects every schema-conformant
+    // call and the agent loops.
+    const schema = TOOL_REGISTRY['investigation_record_check']?.schema.input_schema;
+    const scope = schema?.properties?.['scope'] as { properties?: Record<string, unknown> } | undefined;
+    expect(scope?.properties?.['timeWindow']).toBeDefined();
+    expect(scope?.properties?.['affected']).toBeDefined();
+    expect(schema?.required).toContain('scope');
+  });
+
   it('no entry carries the removed extendedPrompt field (drift guard)', () => {
     const offenders = Object.entries(TOOL_REGISTRY)
       .filter(([, entry]) => 'extendedPrompt' in entry)

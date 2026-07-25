@@ -106,7 +106,7 @@ export function StepNotifications({
             <div>
               <label className="block text-xs font-medium text-[var(--color-on-surface-variant)] mb-1">Password</label>
               <input
-                type="text"
+                type="password"
                 value={config.emailPass}
                 onChange={(e) => onChange({ emailPass: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg border border-[var(--color-outline-variant)] bg-[var(--color-surface-high)] text-[var(--color-on-surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30 focus:border-[var(--color-primary)]"

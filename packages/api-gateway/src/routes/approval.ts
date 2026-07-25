@@ -31,6 +31,7 @@ import type { IApprovalRequestRepository, IGatewayApprovalStore, ApprovalScopeFi
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 /**
  * Stamp the caller's org role onto the approval record for audit. We keep the
@@ -156,7 +157,7 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
   router.get(
     '/',
     authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const auth = authOr401(req, res);
         if (!auth) return;
@@ -169,7 +170,7 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         logRouteError('list', err, { userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
-    },
+    }),
   );
 
   // GET /api/approvals/:id — detail with per-row scope check. Deny → 404
@@ -177,7 +178,7 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
   router.get(
     '/:id',
     authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const auth = authOr401(req, res);
         if (!auth) return;
@@ -201,14 +202,14 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         logRouteError('get', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
-    },
+    }),
   );
 
   // POST /api/approvals/:id/approve — Editor+ via per-row `approvals:approve`.
   router.post(
     '/:id/approve',
     authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const auth = authOr401(req, res);
         if (!auth) return;
@@ -244,14 +245,14 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         logRouteError('approve', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
-    },
+    }),
   );
 
   // POST /api/approvals/:id/reject — symmetric `approvals:approve` gate.
   router.post(
     '/:id/reject',
     authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const auth = authOr401(req, res);
         if (!auth) return;
@@ -287,14 +288,14 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         logRouteError('reject', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
-    },
+    }),
   );
 
   // POST /api/approvals/:id/override — Admin force-approve via `approvals:override`.
   router.post(
     '/:id/override',
     authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const auth = authOr401(req, res);
         if (!auth) return;
@@ -326,7 +327,7 @@ export function createApprovalRouter(deps: ApprovalRouterDeps): Router {
         logRouteError('override', err, { requestId, userId: auth?.userId, orgId: auth?.orgId });
         next(err);
       }
-    },
+    }),
   );
 
   return router;

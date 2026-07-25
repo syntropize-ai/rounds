@@ -203,7 +203,7 @@ export default function AuditLog(): React.ReactElement {
               ))}
             </tbody>
           </table>
-          {items.length === 0 && <EmptyState label="No audit entries match your filters." />}
+          {!error && items.length === 0 && <EmptyState label="No audit entries match your filters." />}
         </div>
       )}
 

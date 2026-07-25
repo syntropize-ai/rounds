@@ -27,6 +27,7 @@ import {
 } from '../services/serviceaccount-service.js';
 import { ApiKeyService } from '../services/apikey-service.js';
 import { AppError } from '@agentic-obs/common';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface ServiceAccountsRouterDeps {
   serviceAccounts: ServiceAccountService;
@@ -100,7 +101,7 @@ export function createServiceAccountsRouter(
   router.post(
     '/',
     requirePermission(ac.eval(ACTIONS.ServiceAccountsCreate)),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as {
           name?: string;
@@ -135,7 +136,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- POST /api/serviceaccounts/migrate ----------------------------------
@@ -143,7 +144,7 @@ export function createServiceAccountsRouter(
   router.post(
     '/migrate',
     requirePermission(ac.eval(ACTIONS.ServiceAccountsCreate)),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const legacyKeys = deps.apiKeys.parseLegacyEnv();
         const mappings: Array<{
@@ -192,14 +193,14 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- GET /api/serviceaccounts/search ------------------------------------
   router.get(
     '/search',
     requirePermission(ac.eval(ACTIONS.ServiceAccountsRead, 'serviceaccounts:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const opts = parseListOpts(req);
         const page = await deps.serviceAccounts.list(req.auth!.orgId, opts);
@@ -212,7 +213,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- GET /api/serviceaccounts/:id ---------------------------------------
@@ -224,7 +225,7 @@ export function createServiceAccountsRouter(
         `serviceaccounts:id:${req.params['id']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const sa = await deps.serviceAccounts.getById(
           req.auth!.orgId,
@@ -240,7 +241,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- PATCH /api/serviceaccounts/:id -------------------------------------
@@ -252,7 +253,7 @@ export function createServiceAccountsRouter(
         `serviceaccounts:id:${req.params['id']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as {
           name?: string;
@@ -285,7 +286,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- DELETE /api/serviceaccounts/:id ------------------------------------
@@ -297,7 +298,7 @@ export function createServiceAccountsRouter(
         `serviceaccounts:id:${req.params['id']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         await deps.serviceAccounts.delete(
           req.auth!.orgId,
@@ -308,7 +309,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- GET /api/serviceaccounts/:id/tokens --------------------------------
@@ -320,7 +321,7 @@ export function createServiceAccountsRouter(
         `serviceaccounts:id:${req.params['id']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const saId = req.params['id']!;
         const sa = await deps.serviceAccounts.getById(req.auth!.orgId, saId);
@@ -350,7 +351,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- POST /api/serviceaccounts/:id/tokens -------------------------------
@@ -366,7 +367,7 @@ export function createServiceAccountsRouter(
         `serviceaccounts:id:${req.params['id']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as {
           name?: string;
@@ -397,7 +398,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- DELETE /api/serviceaccounts/:id/tokens/:tokenId --------------------
@@ -409,7 +410,7 @@ export function createServiceAccountsRouter(
         `serviceaccounts:id:${req.params['id']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const token = await deps.apiKeys.getById(
           req.auth!.orgId,
@@ -430,7 +431,7 @@ export function createServiceAccountsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

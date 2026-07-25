@@ -1,7 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { createSqliteClient } from './sqlite-client.js';
+import { createSqliteClient, type SqliteClient } from './sqlite-client.js';
 import { applySchema, splitSqlStatements } from './schema-applier.js';
+import { SqliteConnectorRepository } from '../repository/sqlite/connector.js';
+
+/** Read a connector_secrets row without the repository's decryption. */
+function readSecret(
+  db: SqliteClient,
+  connectorId: string,
+): { ciphertext: Uint8Array; key_version: number } {
+  return db.all<{ ciphertext: Uint8Array; key_version: number }>(
+    sql`SELECT ciphertext, key_version FROM connector_secrets WHERE connector_id = ${connectorId}`,
+  )[0]!;
+}
 
 describe('applySchema()', () => {
   it('creates every expected table on a fresh in-memory DB', () => {
@@ -129,6 +140,47 @@ describe('applySchema()', () => {
     // Idempotent.
     applySchema(db);
     expect(db.all<{ n: number }>(sql`SELECT COUNT(*) AS n FROM connector_policies`)[0]!.n).toBe(0);
+  });
+
+  it('encrypts pre-existing plaintext connector secrets, idempotently', async () => {
+    const prevSecret = process.env['SECRET_KEY'];
+    process.env['SECRET_KEY'] =
+      prevSecret ?? 'test-secret-key-for-connector-secret-migration-xx';
+    try {
+      const db = createSqliteClient({ path: ':memory:', wal: false });
+      applySchema(db);
+      db.run(sql`
+        INSERT INTO connectors (
+          id, org_id, type, name, config, status, is_default, created_by, created_at, updated_at
+        ) VALUES ('c1', 'org_main', 'kubernetes', 'prod', '{}', 'active', 0, 'u1', 'now', 'now')
+      `);
+      // A row exactly as the pre-encryption code wrote it: raw bytes at key_version 1.
+      const plaintext = 'kubeconfig-with-sup3r-s3cret-token';
+      db.run(sql`
+        INSERT INTO connector_secrets (connector_id, ciphertext, key_version, created_at, updated_at)
+        VALUES ('c1', ${Buffer.from(plaintext, 'utf8')}, 1, 'now', 'now')
+      `);
+
+      applySchema(db);
+
+      const migrated = readSecret(db, 'c1');
+      expect(migrated.key_version).toBe(2);
+      expect(Buffer.from(migrated.ciphertext).toString('utf8')).not.toContain('sup3r-s3cret-token');
+      // The migrated envelope still decrypts to the original credential.
+      const viaRepo = await new SqliteConnectorRepository(db).getSecret('c1');
+      expect(Buffer.from(viaRepo!.ciphertext).toString('utf8')).toBe(plaintext);
+
+      // Second boot must not double-encrypt.
+      applySchema(db);
+      const after = readSecret(db, 'c1');
+      expect(Buffer.from(after.ciphertext).toString('utf8')).toBe(
+        Buffer.from(migrated.ciphertext).toString('utf8'),
+      );
+      expect(after.key_version).toBe(2);
+    } finally {
+      if (prevSecret === undefined) delete process.env['SECRET_KEY'];
+      else process.env['SECRET_KEY'] = prevSecret;
+    }
   });
 
   it('is idempotent — second applySchema() is a no-op', () => {

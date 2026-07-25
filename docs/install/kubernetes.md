@@ -70,7 +70,7 @@ Point DNS for `rounds.example.com` at your Ingress controller.
 The Helm chart can run with either local SQLite or external Postgres.
 
 SQLite is the default for evaluation and small single-pod installs. The database
-file lives at `/var/lib/syntropize/rounds.db` inside the container and is stored on
+file lives at `/var/lib/rounds/rounds.db` inside the container and is stored on
 the chart's persistent volume claim when `persistence.enabled=true`. Do not run
 multiple Rounds replicas against the SQLite PVC.
 

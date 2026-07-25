@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import type { DbClient } from '../../db/client.js';
 import { splitSqlStatements } from '../../db/schema-applier.js';
+import {
+  CONNECTOR_SECRET_KEY_VERSION,
+  CONNECTOR_SECRET_PLAINTEXT_KEY_VERSION,
+  sealConnectorSecret,
+} from '../connector-shared.js';
 
 /**
  * Locate `schema.sql` next to this module. In dev (tsx, src tree) the file
@@ -46,7 +51,34 @@ export async function applyPostgresSchema(db: DbClient): Promise<void> {
     // alter existing columns, so retrofit type-by-type.
     await fixLegacyBooleanColumns(tx);
     await addRemediationVerificationColumns(tx);
+    // Re-encrypt connector credentials stored before they were encrypted at
+    // rest. Mirrors `encryptLegacyConnectorSecrets` in the SQLite applier.
+    await encryptLegacyConnectorSecrets(tx);
   });
+}
+
+/**
+ * Wrap `connector_secrets` rows still at the plaintext key version in an
+ * AES-256-GCM envelope. Idempotent — after the first run no row matches.
+ * SECRET_KEY is only resolved when there is a row to convert, and a failure
+ * rolls the whole schema transaction back rather than leaving half the
+ * credentials readable.
+ */
+async function encryptLegacyConnectorSecrets(tx: {
+  execute: (q: ReturnType<typeof sql>) => Promise<unknown>;
+}): Promise<void> {
+  const result = (await tx.execute(sql`
+    SELECT connector_id, ciphertext FROM connector_secrets
+    WHERE key_version = ${CONNECTOR_SECRET_PLAINTEXT_KEY_VERSION}
+  `)) as { rows: Array<{ connector_id: string; ciphertext: Uint8Array }> };
+  for (const row of result.rows) {
+    await tx.execute(sql`
+      UPDATE connector_secrets
+      SET ciphertext = ${sealConnectorSecret(row.ciphertext)},
+          key_version = ${CONNECTOR_SECRET_KEY_VERSION}
+      WHERE connector_id = ${row.connector_id}
+    `);
+  }
 }
 
 async function fixLegacyBooleanColumns(tx: {

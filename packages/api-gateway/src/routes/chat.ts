@@ -24,6 +24,7 @@ import type {
 import type { AgentRunRegistry } from '../services/agent-run-registry.js';
 import { RunAlreadyActiveError } from '../services/agent-run-registry.js';
 import type { SessionEventBus, SessionBusEvent } from '../services/session-event-bus.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('chat-router');
 
@@ -547,7 +548,7 @@ export function createChatRouter(
   router.post(
     '/',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         const body = req.body as {
           message?: string;
@@ -587,14 +588,14 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // GET /chat/sessions — list recent chat sessions
   router.get(
     '/sessions',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         if (!deps.chatSessionStore) {
           res.json({ sessions: [] });
@@ -621,14 +622,14 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // DELETE /chat/sessions/:id — remove an idle owned chat session from history.
   router.delete(
     '/sessions/:id',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         if (!deps.chatSessionStore) {
           res.status(501).json({ error: { code: 'NOT_IMPLEMENTED', message: 'chat sessions not configured' } });
@@ -661,7 +662,7 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // GET /chat/sessions/by-context?resourceType=dashboard&resourceId=X&limit=1
@@ -671,7 +672,7 @@ export function createChatRouter(
   router.get(
     '/sessions/by-context',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         if (!deps.chatSessionContextStore || !deps.chatSessionStore) {
           res.json({ sessions: [] });
@@ -715,7 +716,7 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // GET /chat/sessions/:id/messages — get messages + persisted step events for
@@ -725,7 +726,7 @@ export function createChatRouter(
   router.get(
     '/sessions/:id/messages',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const sessionId = req.params['id'] ?? '';
         if (!sessionId) {
@@ -772,13 +773,13 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   router.patch(
     '/sessions/:id/queue/:queueItemId',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const auth = (req as AuthenticatedRequest).auth;
         if (!auth) {
@@ -823,13 +824,13 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   router.delete(
     '/sessions/:id/queue/:queueItemId',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const auth = (req as AuthenticatedRequest).auth;
         if (!auth) {
@@ -872,7 +873,7 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // GET /chat/sessions/:id/events/stream?since=N — open-ended SSE that
@@ -889,7 +890,7 @@ export function createChatRouter(
   router.get(
     '/sessions/:id/events/stream',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const sessionId = req.params['id'] ?? '';
         if (!sessionId) {
@@ -1001,7 +1002,7 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // POST /chat/sessions/:id/cancel-active — cancel whichever run is
@@ -1016,7 +1017,7 @@ export function createChatRouter(
   router.post(
     '/sessions/:id/cancel-active',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         if (!runRegistry) {
           res.status(501).json({
@@ -1053,7 +1054,7 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // POST /chat/runs/:runId/cancel — explicit cancel for a detached agent
@@ -1064,7 +1065,7 @@ export function createChatRouter(
   router.post(
     '/runs/:runId/cancel',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         if (!runRegistry) {
           res.status(501).json({
@@ -1095,7 +1096,7 @@ export function createChatRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   return router;

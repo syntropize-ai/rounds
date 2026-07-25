@@ -8,6 +8,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { ensureSafeUrl } from '../utils/url-validator.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('webhooks');
 
@@ -233,7 +234,7 @@ export function createWebhookRouter(deps: WebhookRouterDeps): Router {
   router.post(
     '/webhooks/:source',
     expressRaw({ type: () => true }),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       const source = req.params['source'] as string;
       const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? ''));
 
@@ -292,7 +293,7 @@ export function createWebhookRouter(deps: WebhookRouterDeps): Router {
       log.debug({ source, eventType }, 'inbound webhook received');
 
       res.json({ received: true, eventId: evt.id, eventType });
-    },
+    }),
   );
 
   // Webhook subscription CRUD (authenticated + admin permission)
@@ -300,7 +301,7 @@ export function createWebhookRouter(deps: WebhookRouterDeps): Router {
     res.json([...subscriptions.values()].map(maskSubscription));
   });
 
-  router.post('/webhook-subscriptions', authMiddleware, requireAdmin, async (req: AuthenticatedRequest, res) => {
+  router.post('/webhook-subscriptions', authMiddleware, requireAdmin, asyncHandler(async (req: AuthenticatedRequest, res) => {
     const { url, events, secret, active = true, description } = req.body as {
       url?: string;
       events?: string[];
@@ -336,7 +337,7 @@ export function createWebhookRouter(deps: WebhookRouterDeps): Router {
     log.info({ id: sub.id, url }, 'webhook subscription created');
     // Return full secret only on creation so the caller can store it
     res.status(201).json(sub);
-  });
+  }));
 
   router.get('/webhook-subscriptions/:id', authMiddleware, requireAdmin, (req, res) => {
     const sub = subscriptions.get(req.params['id'] as string);
@@ -347,7 +348,7 @@ export function createWebhookRouter(deps: WebhookRouterDeps): Router {
     res.json(maskSubscription(sub));
   });
 
-  router.put('/webhook-subscriptions/:id', authMiddleware, requireAdmin, async (req, res) => {
+  router.put('/webhook-subscriptions/:id', authMiddleware, requireAdmin, asyncHandler(async (req, res) => {
     const sub = subscriptions.get(req.params['id'] as string);
     if (!sub) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Subscription not found' } });
@@ -377,7 +378,7 @@ export function createWebhookRouter(deps: WebhookRouterDeps): Router {
 
     subscriptions.set(sub.id, updated);
     res.json(maskSubscription(updated));
-  });
+  }));
 
   router.delete('/webhook-subscriptions/:id', authMiddleware, requireAdmin, (req, res) => {
     const id = req.params['id'] as string;

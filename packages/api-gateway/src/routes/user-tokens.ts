@@ -20,6 +20,7 @@ import { Router, type Response } from 'express';
 import { AppError } from '@agentic-obs/common';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { ApiKeyService } from '../services/apikey-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface UserTokensRouterDeps {
   apiKeys: ApiKeyService;
@@ -52,7 +53,7 @@ export function createUserTokensRouter(deps: UserTokensRouterDeps): Router {
   // Lists PATs owned by the authenticated user in their current org.
   router.get(
     '/access-tokens',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!req.auth) {
         res.status(401).json({
           error: { code: 'UNAUTHORIZED', message: 'authentication required' },
@@ -79,13 +80,13 @@ export function createUserTokensRouter(deps: UserTokensRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- POST /api/user/access-tokens ---------------------------------------
   router.post(
     '/access-tokens',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!req.auth) {
         res.status(401).json({
           error: { code: 'UNAUTHORIZED', message: 'authentication required' },
@@ -120,13 +121,13 @@ export function createUserTokensRouter(deps: UserTokensRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // -- DELETE /api/user/access-tokens/:id ---------------------------------
   router.delete(
     '/access-tokens/:id',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!req.auth) {
         res.status(401).json({
           error: { code: 'UNAUTHORIZED', message: 'authentication required' },
@@ -155,7 +156,7 @@ export function createUserTokensRouter(deps: UserTokensRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

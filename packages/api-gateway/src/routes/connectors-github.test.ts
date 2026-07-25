@@ -70,7 +70,7 @@ interface MakeAppOpts {
   listInstallations?: typeof import('../services/github-app.js').listGithubAppInstallations;
   convertManifest?: typeof import('../services/github-app.js').convertAppManifest;
   createConnector?: (input: NewConnector) => Promise<Connector>;
-  upsertSecret?: (input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }) => Promise<unknown>;
+  upsertSecret?: (input: { connectorId: string; ciphertext: Uint8Array }) => Promise<unknown>;
   authed?: boolean;
   repo?: MemoryGithubAppConfigRepo;
 }

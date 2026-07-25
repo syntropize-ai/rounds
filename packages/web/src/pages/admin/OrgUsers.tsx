@@ -237,7 +237,7 @@ export default function OrgUsers(): React.ReactElement {
               ))}
             </tbody>
           </table>
-          {rows.length === 0 && <EmptyState label="No members match your filters." />}
+          {!error && rows.length === 0 && <EmptyState label="No members match your filters." />}
         </div>
       )}
 

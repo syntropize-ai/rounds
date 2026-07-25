@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import StatusPill from './StatusPill.js';
+import { relativeTime } from '../utils/time.js';
 
 export type FeedEventType = 'investigation_complete' | 'anomaly_detected' | 'change_impact';
 export type FeedSeverity = 'low' | 'medium' | 'high' | 'critical';
@@ -47,16 +48,6 @@ const TYPE_LABELS: Record<FeedEventType, string> = {
   change_impact: 'Change',
 };
 
-function formatRelativeTime(isoString: string): string {
-  const diffMs = Date.now() - new Date(isoString).getTime();
-  if (diffMs < 60 * 1000) return 'just now';
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return `${Math.floor(diffHr / 24)}d ago`;
-}
-
 export default function FeedItem({ item, onMarkRead }: FeedItemProps) {
   const navigate = useNavigate();
   const isUnread = item.status === 'unread';
@@ -89,7 +80,7 @@ export default function FeedItem({ item, onMarkRead }: FeedItemProps) {
 
             <div className="flex items-center gap-3 text-xs">
               <span className="text-[var(--color-outline)]">{TYPE_LABELS[item.type]}</span>
-              <span className="text-[var(--color-outline)]">{formatRelativeTime(item.createdAt)}</span>
+              <span className="text-[var(--color-outline)]">{relativeTime(item.createdAt)}</span>
 
               {item.investigationId && (
                 <button

@@ -42,6 +42,7 @@ import {
   loginRateLimiter as defaultLoginRateLimiter,
   type RateLimiterMiddleware,
 } from '../middleware/rate-limiter.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('auth-routes');
 
@@ -125,7 +126,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   //   1. `loginRateLimiter` — 10 req/min per IP, HTTP-level.
   //   2. LocalProvider's per-(ip, login) 5/5min lockout, surfaced here as
   //      429 ACCOUNT_LOCKED + Retry-After when tripped.
-  router.post('/login', loginRateLimiter, async (req: Request, res: Response) => {
+  router.post('/login', loginRateLimiter, asyncHandler(async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { user?: string; password?: string };
     const user = body.user;
     const password = body.password;
@@ -295,7 +296,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
         error: { code: 'INTERNAL_ERROR', message: 'internal auth error' },
       });
     }
-  });
+  }));
 
   // GET /api/login/:provider — start OAuth flow.
   router.get('/login/:provider', (req: Request, res: Response) => {
@@ -336,7 +337,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
   });
 
   // GET /api/login/:provider/callback — OAuth callback.
-  router.get('/login/:provider/callback', async (req: Request, res: Response) => {
+  router.get('/login/:provider/callback', asyncHandler(async (req: Request, res: Response) => {
     const provider = req.params['provider'];
     const code = req.query['code'];
     const state = req.query['state'];
@@ -402,7 +403,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
         error: { code: 'INTERNAL_ERROR', message: 'internal auth error' },
       });
     }
-  });
+  }));
 
   // POST /api/logout and GET /api/logout.
   const logoutHandler = async (req: Request, res: Response) => {
@@ -428,11 +429,11 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     }
     res.status(200).json({ message: 'Logged out' });
   };
-  router.post('/logout', logoutHandler);
-  router.get('/logout', logoutHandler);
+  router.post('/logout', asyncHandler(logoutHandler));
+  router.get('/logout', asyncHandler(logoutHandler));
 
   // SAML endpoints (501 when not configured).
-  router.get('/saml/metadata', async (_req: Request, res: Response) => {
+  router.get('/saml/metadata', asyncHandler(async (_req: Request, res: Response) => {
     if (!deps.saml) {
       res.status(501).json({
         error: { code: 'SAML_NOT_CONFIGURED', message: 'SAML not configured' },
@@ -451,9 +452,9 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     }
     res.setHeader('Content-Type', 'application/xml');
     res.send(xml);
-  });
+  }));
 
-  router.get('/saml/login', async (req: Request, res: Response) => {
+  router.get('/saml/login', asyncHandler(async (req: Request, res: Response) => {
     if (!deps.saml) {
       res.status(501).json({
         error: { code: 'SAML_NOT_CONFIGURED', message: 'SAML not configured' },
@@ -475,9 +476,9 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
       return;
     }
     res.redirect(url);
-  });
+  }));
 
-  router.post('/saml/acs', async (req: Request, res: Response) => {
+  router.post('/saml/acs', asyncHandler(async (req: Request, res: Response) => {
     if (!deps.saml) {
       res.status(501).json({
         error: { code: 'SAML_NOT_CONFIGURED', message: 'SAML not configured' },
@@ -530,9 +531,9 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
         error: { code: 'INTERNAL_ERROR', message: 'internal auth error' },
       });
     }
-  });
+  }));
 
-  router.get('/saml/slo', async (_req: Request, res: Response) => {
+  router.get('/saml/slo', asyncHandler(async (_req: Request, res: Response) => {
     if (!deps.saml) {
       res.status(501).json({
         error: { code: 'SAML_NOT_CONFIGURED', message: 'SAML not configured' },
@@ -545,7 +546,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
         message: 'SAML SLO requires per-session context',
       },
     });
-  });
+  }));
 
   router.post('/saml/slo/callback', (_req: Request, res: Response) => {
     res.status(200).json({ message: 'slo callback' });

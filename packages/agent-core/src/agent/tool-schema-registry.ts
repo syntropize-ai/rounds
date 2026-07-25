@@ -998,7 +998,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
       name: 'investigation_record_check',
       description:
         'Record one load-bearing diagnostic check in the active investigation ledger. This is the investigation control plane: call it after every important metrics/logs/ops/changes/web/kb read before you move on or complete.\n\n' +
-        'Use it to say which hypothesis the read tested, what signal type it was, what came back, whether that supports/rules out/is inconclusive, and the next best check. This is how the main loop keeps its investigation state current while it follows the evidence.\n\n' +
+        'Use it to say which hypothesis the read tested, what signal type it was, what came back, whether that supports/rules out/is inconclusive, the scope it covers (time window and/or affected objects), and the next best check. This is how the main loop keeps its investigation state current while it follows the evidence.\n\n' +
         'Do not use this for prose. Use investigation_add_text for the human-facing report; use investigation_record_check for the structured reasoning state.',
       input_schema: {
         type: 'object',
@@ -1018,9 +1018,17 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             enum: ['supported', 'ruled_out', 'inconclusive'],
             description: 'Whether this check supports, rules out, or leaves the hypothesis inconclusive.',
           },
+          scope: {
+            type: 'object',
+            description: 'What this check actually covers. Set at least one of the two fields — the evidence gate reads them as fields, not from your prose.',
+            properties: {
+              timeWindow: { type: 'string', description: 'Time range this observation covers, e.g. "2026-07-20T10:00Z..11:00Z" or "last 30m".' },
+              affected: { type: 'string', description: 'Objects/namespace/service/tenant the observation is scoped to, e.g. "deploy/reviews-v2 in namespace prod".' },
+            },
+          },
           nextCheck: { type: 'string', description: 'The next best uncertainty-reducing check, if any.' },
         },
-        required: ['hypothesis', 'signalType', 'tool', 'result', 'interpretation', 'status'],
+        required: ['hypothesis', 'signalType', 'tool', 'result', 'interpretation', 'status', 'scope'],
       },
     },
   },
@@ -1079,7 +1087,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
         'Finalize the active investigation, save the report, and navigate to it. Implicitly targets the investigation_create record from this session. Call this only after the same main loop has already followed the evidence, recorded the load-bearing checks, and written the report sections.\n\n' +
         'MUST be the LAST tool call of any investigation turn. If you end with plain text without calling investigation_complete, every section is discarded and the user sees nothing — this is the single most common investigation failure.\n\n' +
         'The summary is the executive summary shown above the report. One paragraph stating the conclusion + the most likely cause. Do not duplicate the section bodies.\n\n' +
-        'For confirmed/likely root causes: use at least 80% confidence (confidence >= 0.8), rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to at least two recorded check ids across at least two signal types, and ruledOut must include plausible alternatives you eliminated. The server evidence gate also requires: direct proof for the root-cause object/cause, recorded handling of competing explanations, time-window or affected-scope relevance, a repair target consistent with the proven root cause, and an explicit validationMethod (or validation wording in nextAction/rootCause.nextCheck). If any of these are missing, the report is saved as unresolved and cannot back an approvable remediation plan. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
+        'For confirmed/likely root causes: use at least 80% confidence (confidence >= 0.8), rootCause.object and rootCause.cause must name the specific changeable object/value/config/rollout, evidenceRefs must point to at least two recorded check ids across at least two signal types, and ruledOut must include plausible alternatives you eliminated. The server evidence gate also requires: direct proof for the root-cause object/cause, recorded handling of competing explanations, at least one referenced check carrying a `scope.timeWindow` or `scope.affected` value, a repair target consistent with the proven root cause, and a non-empty `validationMethod` on this call (validation wording buried in nextAction/rootCause.nextCheck does NOT count). If any of these are missing, the report is saved as unresolved and cannot back an approvable remediation plan. For unresolved investigations: set rootCause.status="unresolved" and provide rootCause.nextCheck.\n\n' +
         'The nextAction must be durable: it should fix the bad pattern or lifecycle issue, not just substitute the current observed value. If an emergency workaround exists, label it as temporary mitigation and still name the durable fix or prevention. Never recommend hardcoding an ephemeral runtime value, generated identifier, transient endpoint, or one-off observed value as the primary remediation.\n\n' +
         'Order: investigation_complete FIRST, then (optionally) remediation_plan_create, then your final plain-text reply.',
       input_schema: {
@@ -1112,7 +1120,7 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
             items: { type: 'string' },
             description: 'Plausible alternative hypotheses ruled out, e.g. ["no traffic", "scrape issue"].',
           },
-          validationMethod: { type: 'string', description: 'How to verify the root cause or fix — name the metric/log/check/result to observe. Confirmed/likely claims must state this either here or as validation wording inside nextAction / rootCause.nextCheck.' },
+          validationMethod: { type: 'string', description: 'How to verify the root cause or fix — name the metric/log/check/result to observe. Required for confirmed/likely claims: the gate reads this field only, not nextAction / rootCause.nextCheck.' },
           nextAction: { type: 'string', description: 'Durable fix or next operator action plus how to validate it. If a short-term workaround is useful, label it as temporary mitigation and still include the durable remediation or prevention.' },
         },
         required: ['summary', 'rootCause', 'confidence', 'evidenceRefs', 'ruledOut'],

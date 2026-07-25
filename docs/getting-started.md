@@ -14,7 +14,7 @@ npx @syntropize/rounds
 
 ```bash [Helm (Kubernetes)]
 helm upgrade --install rounds \
-  oci://ghcr.io/syntropize/charts/rounds \
+  oci://ghcr.io/syntropize-ai/charts/rounds \
   --namespace observability \
   --create-namespace
 ```

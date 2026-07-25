@@ -8,8 +8,10 @@
 </h1>
 
 <p align="center">
-  <strong>AI does rounds on your production.</strong><br />
-  Self-hosted AI SRE — investigate incidents, build dashboards, manage alerts, and approve remediations from natural language.
+  <strong>The AI SRE your change-management process can accept.</strong><br />
+  It cannot close an incident without evidence, and cannot touch production
+  without an approval trail.<br />
+  Open source, self-hosted, your own model.
 </p>
 
 <p align="center">
@@ -26,6 +28,29 @@
 </p>
 
 ---
+
+Every pod reported `2/2 Running`. `kubectl` said the cluster was healthy.
+47% of requests to one service were failing.
+
+Asked *"what is wrong with my system?"*, Rounds found it in 83 seconds — and
+showed its work:
+
+```
+Found: reviews service returns 503 on ~24% of requests (0.84/s, sustained)
+       reviews-v2: 0.91 req/s OK + 0.80 req/s 503  (~47% error)
+       reviews-v3: 1.72 req/s OK, no errors
+       → v2 calls ratings, v3 does not — but ratings itself answers 200 at 5ms.
+         The fault is inside v2, not in its dependency.
+
+Ruled out, each with a query:
+  ✗ CPU saturation      sum(rate(container_cpu_usage_seconds_total[5m])) → 0.66 cores
+  ✗ Network failure     sum(rate(container_network_receive_errors_total[5m])) → 0
+  ✗ Timeouts            histogram_quantile(0.99, ...) → p99 9.9ms
+  ✗ Memory pressure     failures come from the load client, not reviews
+```
+
+Every number above was independently verified against Prometheus.
+[Read the full investigation, including what it got wrong →](./docs/investigations/bookinfo-reviews-v2.md)
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=sykQjRaLEN8">
@@ -80,15 +105,35 @@ npx @syntropize/rounds
 Then open **http://localhost:3000**. Single-node and unauthenticated by
 default — fine for evaluation, not for production.
 
-## What can it do?
+## Why this one
 
-- **Observe** — create, edit, clone, explain, and delete dashboards from natural language.
-- **Detect** — create and tune alert rules through chat, with preview and backtest before save.
-- **Investigate** — correlate metrics, logs, recent changes, and (when connected) Kubernetes state, with citations on every claim.
-- **Remediate safely** — propose fixes; user-driven actions confirm in chat (Run / Confirm / Apply), background-agent actions go through formal approval (Approve / Reject / Modify) with owner / on-call notification.
-- **Configure by chat** — add datasources, ops connectors, and low-risk org settings through the agent (gated by RBAC and the GuardedAction risk model).
+Plenty of tools will now investigate an incident for you. Three things here are
+harder to find.
+
+**Evidence, not vibes.** A root cause is only recorded as *resolved* when at
+least two independent signal types support it, at least one competing
+explanation was tested and recorded as ruled out, and a validation method is
+named. Otherwise the report ships as `unresolved` with the next check to run —
+and an unresolved investigation cannot back a remediation plan. The agent does
+not get to talk its way past this; the server enforces it.
+
+**Every production change leaves a paper trail.** Plan → attributed approval →
+one audit row per step → paired rollback plan → post-execution verification
+against the alert that triggered it. If your auditor asks who authorised a
+change an AI made, at 3am, and how you knew it worked, that question has an
+answer. See [change control](./docs/compliance/change-control.md).
+
+**Nothing leaves your perimeter.** Your cluster, your Prometheus, your LLM key.
+Works with Anthropic, OpenAI, Gemini, DeepSeek, Azure OpenAI, or a local Ollama
+endpoint — including air-gapped.
 
 Kubernetes is the first deep production workflow. Planned integrations include Prometheus alerting rules, Loki log routing, GitHub deploys, Jira / PagerDuty incident sync, CI/CD systems, and database read connectors — these are clearly marked as PLANNED in the docs and not promised by the current release.
+
+### What it also does
+
+Builds and edits dashboards from natural language, creates and tunes alert
+rules with preview and backtest, and adds datasources through chat. These are
+table stakes in 2026 — useful, but not why you would choose this.
 
 ## Deploy with Helm
 

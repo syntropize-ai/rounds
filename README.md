@@ -36,7 +36,10 @@
 
 ## Quick Start
 
-Rounds ships as a Helm chart — that's the supported way to install and upgrade.
+You'll need a Kubernetes cluster and an API key for an LLM provider (Anthropic,
+OpenAI, Gemini, DeepSeek, Azure OpenAI, or a local Ollama endpoint). Rounds
+cannot investigate anything without a model, so have the key ready before you
+start — the setup wizard asks for it and won't let you past that step.
 
 ```bash
 helm install rounds oci://ghcr.io/syntropize-ai/charts/rounds \
@@ -49,15 +52,33 @@ The chart creates a private `ClusterIP` service. To open it locally:
 kubectl -n observability port-forward svc/rounds 3000:80
 ```
 
-Then open **http://127.0.0.1:3000** and follow the setup wizard.
+Then open **http://127.0.0.1:3000**. The setup wizard walks through six steps:
+create an admin account, paste your LLM key, and connect a datasource. The
+connector and notification steps can be skipped and done later in Settings.
 
-Try:
+Once you're in, try:
 
 - `Create a dashboard for HTTP latency`
 - `Alert me when p95 latency is above 500ms for 10 minutes`
 - `Why is checkout latency high right now?`
 
+Questions about your own systems need a datasource connected — point Rounds at
+your Prometheus in the wizard's Connectors step, or later under
+Settings → Connectors.
+
 For shared access, expose Rounds with Ingress or `service.type=LoadBalancer` — see [docs/install/kubernetes.md](./docs/install/kubernetes.md).
+
+### Try it without a cluster
+
+To see the product before committing to an install, the npm package runs the
+same binary on a laptop with SQLite under `~/.rounds/`:
+
+```bash
+npx @syntropize/rounds
+```
+
+Then open **http://localhost:3000**. Single-node and unauthenticated by
+default — fine for evaluation, not for production.
 
 ## What can it do?
 
@@ -100,14 +121,9 @@ helm template rounds ./helm/rounds   # render manifests locally
 
 ## Run without Kubernetes
 
-For local evaluation on a laptop, the npm package runs the same binary with a single-node SQLite store under `~/.rounds/rounds.db`:
-
-```bash
-npm install -g @syntropize/rounds
-rounds
-```
-
-Then open **http://localhost:3000**. Not recommended for production.
+See [Try it without a cluster](#try-it-without-a-cluster) above, or the
+[npm install guide](./docs/install/npm.md) for persistent installs, upgrades,
+and where data lives.
 
 ## Build from source
 

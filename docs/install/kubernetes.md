@@ -5,7 +5,7 @@ Rounds includes a first-party Helm chart in this repository at `helm/rounds`.
 ## Basic install
 
 ```bash
-helm upgrade --install rounds oci://ghcr.io/syntropize/charts/rounds \
+helm upgrade --install rounds oci://ghcr.io/syntropize-ai/charts/rounds \
   --namespace observability \
   --create-namespace
 ```
@@ -36,7 +36,7 @@ shared access, use one of the options below instead.
 Use this when your Kubernetes environment can provision external load balancers:
 
 ```bash
-helm upgrade --install rounds oci://ghcr.io/syntropize/charts/rounds \
+helm upgrade --install rounds oci://ghcr.io/syntropize-ai/charts/rounds \
   --namespace observability \
   --create-namespace \
   --set service.type=LoadBalancer
@@ -54,7 +54,7 @@ Use this when your cluster already has an Ingress controller such as nginx,
 Traefik, or a cloud provider ingress controller:
 
 ```bash
-helm upgrade --install rounds oci://ghcr.io/syntropize/charts/rounds \
+helm upgrade --install rounds oci://ghcr.io/syntropize-ai/charts/rounds \
   --namespace observability \
   --create-namespace \
   --set ingress.enabled=true \
@@ -78,7 +78,7 @@ For production Kubernetes and any multi-replica deployment, use Postgres. Set
 `secretEnv.DATABASE_URL` before the first Rounds pod starts:
 
 ```bash
-helm install rounds oci://ghcr.io/syntropize/charts/rounds \
+helm install rounds oci://ghcr.io/syntropize-ai/charts/rounds \
   --namespace observability --create-namespace \
   --set secretEnv.DATABASE_URL='postgresql://rounds:password@postgres.example.com:5432/rounds' \
   --set env.DATABASE_SSL=true

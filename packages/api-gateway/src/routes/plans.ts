@@ -51,6 +51,7 @@ import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import type { PlanExecutorService } from '../services/plan-executor-service.js';
 import type { PlanVerificationService } from '../services/plan-verification-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface PlansRouterDeps {
   plans: IRemediationPlanRepository;
@@ -95,7 +96,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
     '/',
     authMiddleware,
     requirePermission(() => ac.eval(ACTIONS.PlansRead, 'plans:*')),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
         const orgId = authReq.auth?.orgId;
@@ -113,7 +114,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
         });
         res.json(list);
       } catch (err) { next(err); }
-    },
+    }),
   );
 
   // ---------------------------------------------------------------------
@@ -123,7 +124,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
     '/:id',
     authMiddleware,
     requirePermission((req) => ac.eval(ACTIONS.PlansRead, `plans:uid:${req.params['id'] ?? ''}`)),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
         const orgId = authReq.auth?.orgId;
@@ -139,7 +140,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
         }
         res.json(plan);
       } catch (err) { next(err); }
-    },
+    }),
   );
 
   // ---------------------------------------------------------------------
@@ -158,7 +159,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
     '/:id/confirmation',
     authMiddleware,
     requirePermission((req) => ac.eval(ACTIONS.PlansRead, `plans:uid:${req.params['id'] ?? ''}`)),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
         const orgId = authReq.auth?.orgId;
@@ -198,7 +199,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
           requiresApprovalRequest: confirmationMode === 'formal_approval',
         });
       } catch (err) { next(err); }
-    },
+    }),
   );
 
   // ---------------------------------------------------------------------
@@ -208,7 +209,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
     '/:id/approve',
     authMiddleware,
     requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
         const auth = authReq.auth;
@@ -225,7 +226,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
         const plan = await deps.verifier.onExecutionOutcome(auth.orgId, req.params['id'] ?? '', outcome);
         res.json({ outcome, plan });
       } catch (err) { next(err); }
-    },
+    }),
   );
 
   // ---------------------------------------------------------------------
@@ -235,7 +236,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
     '/:id/reject',
     authMiddleware,
     requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
         const auth = authReq.auth;
@@ -250,7 +251,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
         );
         res.json(plan);
       } catch (err) { next(err); }
-    },
+    }),
   );
 
   // ---------------------------------------------------------------------
@@ -260,7 +261,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
     '/:id/cancel',
     authMiddleware,
     requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
         const auth = authReq.auth;
@@ -275,7 +276,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
         );
         res.json(plan);
       } catch (err) { next(err); }
-    },
+    }),
   );
 
   // ---------------------------------------------------------------------
@@ -285,7 +286,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
     '/:id/steps/:ordinal/retry',
     authMiddleware,
     requirePermission((req) => ac.eval(ACTIONS.PlansApprove, `plans:uid:${req.params['id'] ?? ''}`)),
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const authReq = req as AuthenticatedRequest;
         const auth = authReq.auth;
@@ -303,7 +304,7 @@ export function createPlansRouter(deps: PlansRouterDeps): Router {
         const plan = await deps.verifier.onExecutionOutcome(auth.orgId, req.params['id'] ?? '', outcome);
         res.json({ outcome, plan });
       } catch (err) { next(err); }
-    },
+    }),
   );
 
   return router;

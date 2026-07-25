@@ -14,6 +14,7 @@ import { investigationOpenApiSpec } from './openapi.js';
 import type { SharePermission, IGatewayInvestigationStore, IGatewayFeedStore, IGatewayShareStore, IInvestigationReportRepository } from '@agentic-obs/data-layer';
 import type { CreateInvestigationBody, FollowUpBody, FeedbackBody } from './types.js';
 import { getOrgId } from '../../middleware/workspace-context.js';
+import { asyncHandler } from '../../middleware/async-handler.js';
 
 /**
  * Resolve the current request's org id. Prefers `req.auth.orgId` populated by
@@ -59,7 +60,7 @@ export function createInvestigationRouter(
   router.post(
     '/',
     requirePermission(() => ac.eval(ACTIONS.InvestigationsCreate)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const body = req.body as CreateInvestigationBody;
 
@@ -84,7 +85,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations/archived
@@ -93,14 +94,14 @@ export function createInvestigationRouter(
   router.get(
     '/archived',
     requirePermission(() => ac.eval(ACTIONS.InvestigationsRead, 'investigations:*')),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const workspaceId = resolveOrgId(req);
         res.json(await workspaceService.listArchived(workspaceId));
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- POST /investigations/archived/:id/restore
@@ -110,7 +111,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsWrite, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const workspaceId = resolveOrgId(req);
         const inv = await workspaceService.restoreArchived(req.params['id'] ?? '', workspaceId);
@@ -122,7 +123,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations
@@ -130,14 +131,14 @@ export function createInvestigationRouter(
   router.get(
     '/',
     requirePermission(() => ac.eval(ACTIONS.InvestigationsRead, 'investigations:*')),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const workspaceId = resolveOrgId(req);
         res.json(await workspaceService.listSummaries(workspaceId));
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations/:id
@@ -147,7 +148,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsRead, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const workspaceId = resolveOrgId(req);
         const inv = await workspaceService.findByIdInWorkspace(req.params['id'] ?? '', workspaceId);
@@ -159,7 +160,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- DELETE /investigations/:id
@@ -169,7 +170,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsDelete, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const workspaceId = resolveOrgId(req);
@@ -182,7 +183,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations/:id/report
@@ -192,7 +193,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsRead, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const workspaceId = resolveOrgId(req);
@@ -209,7 +210,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations/:id/plan
@@ -219,7 +220,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsRead, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const workspaceId = resolveOrgId(req);
         const plan = await workspaceService.getPlan(req.params['id'] ?? '', workspaceId);
@@ -231,7 +232,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- POST /investigations/:id/follow-up
@@ -241,7 +242,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsWrite, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const body = req.body as FollowUpBody;
@@ -260,7 +261,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- POST /investigations/:id/feedback
@@ -270,7 +271,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsRead, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const body = req.body as FeedbackBody;
@@ -289,7 +290,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations/:id/conclusion
@@ -299,7 +300,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsRead, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const workspaceId = resolveOrgId(req);
@@ -317,7 +318,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- POST /investigations/:id/share
@@ -327,7 +328,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsWrite, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const authReq = req as AuthenticatedRequest;
         const id = req.params['id'] ?? '';
@@ -355,7 +356,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations/:id/shares
@@ -365,7 +366,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsRead, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const workspaceId = resolveOrgId(req);
@@ -380,7 +381,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // -- GET /investigations/:id/stream (SSE)
@@ -390,7 +391,7 @@ export function createInvestigationRouter(
     requirePermission((req) =>
       ac.eval(ACTIONS.InvestigationsRead, `investigations:uid:${req.params['id'] ?? ''}`),
     ),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const workspaceId = resolveOrgId(req);
@@ -402,7 +403,7 @@ export function createInvestigationRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   return router;

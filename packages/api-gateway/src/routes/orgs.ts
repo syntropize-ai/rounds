@@ -16,6 +16,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import { OrgService, OrgServiceError } from '../services/org-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface OrgsRouterDeps {
   orgs: OrgService;
@@ -66,7 +67,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
   router.get(
     '/',
     requirePermission(ac.eval(ACTIONS.OrgsRead, 'orgs:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const opts = parseListOpts(req);
         const page = await deps.orgs.list(opts);
@@ -89,14 +90,14 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/orgs --------------------------------------------------------
   router.post(
     '/',
     requirePermission(ac.eval(ACTIONS.OrgsCreate)),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as { name?: string };
         if (!body.name) {
@@ -113,7 +114,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/orgs/:id -----------------------------------------------------
@@ -122,7 +123,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgsRead, `orgs:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const org = await deps.orgs.getById(req.params['id']!);
         if (!org) {
@@ -135,14 +136,14 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/orgs/name/:name ---------------------------------------------
   router.get(
     '/name/:name',
     requirePermission(ac.eval(ACTIONS.OrgsRead, 'orgs:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const org = await deps.orgs.getByName(req.params['name']!);
         if (!org) {
@@ -155,7 +156,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PUT /api/orgs/:id -----------------------------------------------------
@@ -164,7 +165,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgsWrite, `orgs:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as Record<string, unknown>;
         const patch = {
@@ -187,21 +188,21 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — DELETE /api/orgs/:id --------------------------------------------------
   router.delete(
     '/:id',
     requirePermission(ac.eval(ACTIONS.OrgsDelete)),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         await deps.orgs.delete(req.params['id']!, req.auth!.userId);
         res.json({ message: 'Organization deleted' });
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/orgs/:id/users ----------------------------------------------
@@ -210,7 +211,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersRead, `orgs:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const opts = parseListOpts(req);
         const page = await deps.orgs.listUsers(req.params['id']!, opts);
@@ -231,7 +232,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/orgs/:id/users ----------------------------------------------
@@ -240,7 +241,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersAdd, `orgs:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as {
           loginOrEmail?: string;
@@ -271,7 +272,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PATCH /api/orgs/:id/users/:userId -------------------------------------
@@ -280,7 +281,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersWrite, `orgs:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as { role?: string };
         if (!body.role || !(ORG_ROLES as readonly string[]).includes(body.role)) {
@@ -299,7 +300,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — DELETE /api/orgs/:id/users/:userId ------------------------------------
@@ -308,7 +309,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.OrgUsersRemove, `orgs:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         await deps.orgs.removeUser(
           req.params['id']!,
@@ -319,7 +320,7 @@ export function createOrgsRouter(deps: OrgsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

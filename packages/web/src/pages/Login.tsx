@@ -25,10 +25,10 @@ export function formatLoginError(err: unknown): string {
         ? `Too many attempts. Try again in ${minutes} minutes.`
         : 'Too many attempts. Try again later.';
     }
-    if (err.status >= 500) return 'Unable to log in right now. Please retry.';
-    return err.message || 'Unable to log in right now. Please retry.';
+    if (err.status >= 500) return 'Unable to sign in right now. Please retry.';
+    return err.message || 'Unable to sign in right now. Please retry.';
   }
-  return 'Unable to log in right now. Please retry.';
+  return 'Unable to sign in right now. Please retry.';
 }
 
 const SSO_FALLBACK_ICON = '↗';
@@ -224,7 +224,7 @@ export default function Login() {
                 disabled={submitting || !userField || !password}
                 className="w-full py-3 rounded-xl bg-primary text-on-primary-fixed font-semibold text-sm hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-md"
               >
-                {submitting ? 'Signing in...' : 'Log in'}
+                {submitting ? 'Signing in...' : 'Sign in'}
               </button>
 
               <div className="text-center">

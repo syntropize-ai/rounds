@@ -13,6 +13,7 @@ import { normalizePrometheusBaseUrl } from '../../utils/prometheus-url.js'
 import { hydrateConnectorSecrets, type ConnectorSecretReader } from '../../utils/connector-secrets.js'
 import type { SetupConfigService } from '../../services/setup-config-service.js'
 import type { AccessControlSurface } from '../../services/accesscontrol-holder.js'
+import { asyncHandler } from '../../middleware/async-handler.js'
 
 export interface QueryRouterDeps {
   setupConfig: SetupConfigService
@@ -146,7 +147,7 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
   }
 
   // POST /api/query/range
-  router.post('/range', authMiddleware, async (req: Request, res: Response) => {
+  router.post('/range', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
     const { query, start, end, step = '30s', datasourceId, environment, cluster, variableValues } = req.body as {
       query?: string
       start?: string
@@ -186,10 +187,10 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     } catch (err) {
       res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
-  })
+  }))
 
   // POST /api/query/instant
-  router.post('/instant', authMiddleware, async (req: Request, res: Response) => {
+  router.post('/instant', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
     const { query, time, datasourceId, environment, cluster, variableValues } = req.body as {
       query?: string
       time?: string
@@ -224,10 +225,10 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     } catch (err) {
       res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
-  })
+  }))
 
   // GET /api/query/metadata?match={pattern}&datasourceId=xxx
-  router.get('/metadata', authMiddleware, async (req: Request, res: Response) => {
+  router.get('/metadata', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
     const { match, datasourceId } = req.query as {
       match?: string
       datasourceId?: string
@@ -279,10 +280,10 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     } catch (err) {
       res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
-  })
+  }))
 
   // GET /api/query/labels?metric={name}&datasourceId=xxx
-  router.get('/labels', authMiddleware, async (req: Request, res: Response) => {
+  router.get('/labels', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
     const { metric, datasourceId } = req.query as {
       metric?: string
       datasourceId?: string
@@ -321,10 +322,10 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     } catch (err) {
       res.status(502).json({ error: { code: 'PROMETHEUS_ERROR', message: getErrorMessage(err) } })
     }
-  })
+  }))
 
   // POST /api/query/batch
-  router.post('/batch', authMiddleware, async (req: Request, res: Response) => {
+  router.post('/batch', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
     const { queries, start, end, step = '30s', variableValues } = req.body as {
       queries?: Array<{ refId: string, expr: string, instant?: boolean, datasourceId?: string }>
       start?: string
@@ -402,7 +403,7 @@ export function createQueryRouter(deps: QueryRouterDeps): Router {
     })
 
     res.json({ results })
-  })
+  }))
 
   return router
 }

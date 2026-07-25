@@ -32,6 +32,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface KbEntriesRouterDeps {
   knowledge: IKnowledgeRepository;
@@ -173,7 +174,7 @@ export function createKbEntriesRouter(deps: KbEntriesRouterDeps): ExpressRouter 
   router.get(
     '/',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const parsed = parseListQuery(req);
         if (!parsed.ok) {
@@ -186,14 +187,14 @@ export function createKbEntriesRouter(deps: KbEntriesRouterDeps): ExpressRouter 
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // GET /api/kb/entries/:id — get
   router.get(
     '/:id',
     requirePermission(() => ac.eval(ACTIONS.ChatUse)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const orgId = resolveOrgId(req);
         const entry = await deps.knowledge.getById(orgId, req.params['id']!);
@@ -205,14 +206,14 @@ export function createKbEntriesRouter(deps: KbEntriesRouterDeps): ExpressRouter 
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // POST /api/kb/entries — create (source forced to 'saved')
   router.post(
     '/',
     requirePermission(() => ac.eval(ACTIONS.DashboardsCreate, 'folders:*')),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const parsed = validateCreate(req.body);
         if (!parsed.ok) {
@@ -247,14 +248,14 @@ export function createKbEntriesRouter(deps: KbEntriesRouterDeps): ExpressRouter 
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // PUT /api/kb/entries/:id — update
   router.put(
     '/:id',
     requirePermission(() => ac.eval(ACTIONS.DashboardsCreate, 'folders:*')),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const parsed = validatePatch(req.body);
         if (!parsed.ok) {
@@ -283,14 +284,14 @@ export function createKbEntriesRouter(deps: KbEntriesRouterDeps): ExpressRouter 
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // DELETE /api/kb/entries/:id
   router.delete(
     '/:id',
     requirePermission(() => ac.eval(ACTIONS.DashboardsCreate, 'folders:*')),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const orgId = resolveOrgId(req);
         const existing: KnowledgeEntry | null = await deps.knowledge.getById(orgId, req.params['id']!);
@@ -309,7 +310,7 @@ export function createKbEntriesRouter(deps: KbEntriesRouterDeps): ExpressRouter 
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   return router;

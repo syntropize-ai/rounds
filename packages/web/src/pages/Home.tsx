@@ -228,7 +228,7 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════════════
   if (!hasMessages) {
     return (
-      <div className="relative h-full bg-surface-lowest overflow-y-auto">
+      <div data-chat-surface="true" className="relative h-full bg-surface-lowest overflow-y-auto">
         <div className="relative min-h-full flex flex-col items-center justify-center px-6 py-16">
           <div className="w-full max-w-4xl">
             {/* Hero */}
@@ -290,7 +290,7 @@ export default function Home() {
   // MODE 2: Conversation state — messages fill screen, input at bottom
   // ═══════════════════════════════════════════════════════════════
   return (
-    <div className="h-full bg-surface-lowest flex flex-col">
+    <div data-chat-surface="true" className="h-full bg-surface-lowest flex flex-col">
       {/* Scrollable messages area */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 w-full pt-8 pb-4">

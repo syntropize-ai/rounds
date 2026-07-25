@@ -118,6 +118,10 @@ export function buildBackgroundOrchestratorFactory(
     const opsCommandRunner = new KubectlOpsCommandRunner({
       connectors: deps.persistence.repos.connectors,
       orgId: identity.orgId,
+      // Unattended runs never get to mutate the cluster directly: they must
+      // route writes through a remediation plan, so the kubectl allowlist
+      // here is the read-verb set.
+      commandPolicy: { mode: 'read' },
       readOnlyAgentBypass: effectiveAgentType === 'background_orchestrator',
       ...(deps.audit ? { audit: deps.audit } : {}),
     });

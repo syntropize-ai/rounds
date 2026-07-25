@@ -24,6 +24,63 @@ function isActive(status: string) {
   return status !== 'completed' && status !== 'failed';
 }
 
+/**
+ * The three mutually exclusive pre-list states: still loading, the fetch
+ * failed, or the list is genuinely empty. Rendering a failed fetch as
+ * "No investigations yet" reads as "all clear", which is exactly the wrong
+ * message on an alerting product. Exported so the states can be asserted with
+ * renderToStaticMarkup (the web package has no jsdom).
+ */
+export function InvestigationsListState({ loading, loadError, count, onRetry }: {
+  loading: boolean;
+  loadError: string | null;
+  count: number;
+  onRetry: () => void;
+}): React.ReactElement | null {
+  if (loading) {
+    return (
+      <div className="space-y-2.5" data-testid="investigations-loading">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} variant="row" />
+        ))}
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="investigations-load-error">
+        <p className="text-sm text-error mb-2">Failed to load investigations</p>
+        <p className="text-xs text-on-surface-variant mb-4">{loadError}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="bg-primary text-on-primary-fixed px-4 py-2 font-semibold text-sm"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (count === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-surface-high">
+          <svg className="h-7 w-7 text-on-surface-variant" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <circle cx="12" cy="12" r="9" />
+            <polygon points="16.24,7.76 14.12,14.12 7.76,16.24 9.88,9.88" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <p className="mb-1 text-sm text-on-surface-variant">No investigations yet</p>
+        <p className="text-xs text-[var(--color-outline)]">Investigations from chats and alerts will appear here.</p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // Main
 
 export default function Investigations() {
@@ -35,6 +92,7 @@ export default function Investigations() {
       || hasPermission('investigations:write'));
   const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -43,8 +101,11 @@ export default function Investigations() {
     const invRes = await apiClient.get<InvestigationSummary[]>('/investigations');
     if (!invRes.error && invRes.data) {
       setInvestigations(invRes.data);
+      setLoadError(null);
     } else {
-      setInvestigations([]);
+      // Do NOT clear the list on failure — a failed refresh must not look like
+      // "there are no investigations". Surface the failure instead.
+      setLoadError(invRes.error?.message ?? 'Could not load investigations');
     }
     setLoading(false);
   }, []);
@@ -128,26 +189,12 @@ export default function Investigations() {
           </div>
         </div>
 
-        {loading && (
-          <div className="space-y-2.5" data-testid="investigations-loading">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} variant="row" />
-            ))}
-          </div>
-        )}
-
-        {!loading && investigations.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-surface-high">
-              <svg className="h-7 w-7 text-on-surface-variant" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <circle cx="12" cy="12" r="9" />
-                <polygon points="16.24,7.76 14.12,14.12 7.76,16.24 9.88,9.88" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <p className="mb-1 text-sm text-on-surface-variant">No investigations yet</p>
-            <p className="text-xs text-[var(--color-outline)]">Investigations from chats and alerts will appear here.</p>
-          </div>
-        )}
+        <InvestigationsListState
+          loading={loading}
+          loadError={loadError}
+          count={investigations.length}
+          onRetry={() => { setLoading(true); void load(); }}
+        />
 
         {!loading && investigations.length > 0 && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center border border-outline-variant bg-surface-highest py-16 text-center">

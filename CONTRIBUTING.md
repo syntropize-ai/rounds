@@ -39,15 +39,14 @@ Open an issue at <https://github.com/syntropize/rounds/issues> with: what you ex
 ```
 packages/
   common/          # shared types, errors, utilities
-  llm-gateway/     # LLM provider abstraction
-  data-layer/      # SQLite persistence (Drizzle ORM)
+  server-utils/    # Node-only server primitives (logging, crypto, events)
   adapters/        # observability backend adapters
-  adapter-sdk/     # SDK for building custom adapters
-  guardrails/      # safety guards (cost, rate, policy)
+  llm-gateway/     # LLM provider abstraction
+  data-layer/      # SQLite / Postgres persistence (Drizzle ORM)
   agent-core/      # AI agent logic
   api-gateway/     # Express HTTP server (entry point)
   web/             # React SPA (Vite + Tailwind)
-config/            # default configuration (YAML)
+  cli/             # published npm package (@syntropize/rounds) — bundles the above
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the dependency graph and design decisions.
@@ -57,7 +56,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the dependency graph and design dec
 ```bash
 git clone <repo-url> && cd rounds
 npm install
-cp .env.example .env     # configure JWT_SECRET (min 32 chars) and LLM keys
+cp .env.example .env      # optional — dev secrets are generated on first boot
 npm run build             # required before first run
 npm run start             # starts api-gateway on :3000 + web on :5173
 ```
@@ -66,10 +65,10 @@ npm run start             # starts api-gateway on :3000 + web on :5173
 
 | What you're building | Where it goes |
 |---------------------|---------------|
-| New AI agent or phase | `packages/agent-core/src/` |
+| New agent tool | `packages/agent-core/src/agent/handlers/` + schema in `tool-schema-registry.ts` + allowlist in `agent-registry.ts` + permission in `tool-permissions.ts` |
 | New REST endpoint | `packages/api-gateway/src/routes/` |
-| New database table | `packages/data-layer/src/db/migrate.ts` (schema) + `sqlite-schema.ts` (Drizzle) |
-| New store interface | `packages/data-layer/src/stores/` |
+| New database table | `packages/data-layer/src/db/sqlite-schema.sql` (DDL) + `sqlite-schema.ts` (Drizzle) + `packages/data-layer/src/repository/postgres/schema.sql` and `schema.ts` for the Postgres backend |
+| New repository | `packages/data-layer/src/repository/` (interface + `sqlite/`, `postgres/`, `memory/` implementations) |
 | New UI page | `packages/web/src/pages/` |
 | New UI component | `packages/web/src/components/` |
 | New LLM provider | `packages/llm-gateway/src/providers/` |
@@ -82,11 +81,13 @@ npm run start             # starts api-gateway on :3000 + web on :5173
 3. Export from `packages/adapters/src/index.ts`
 4. Register in `packages/adapters/src/registry.ts` if using the adapter registry
 
-For **execution adapters** (actions like restart, scale, create ticket):
+For **execution adapters** (actions like restart, scale, run a script):
 
-1. Use `packages/adapter-sdk/` — extend `BaseAdapter`
-2. Define capabilities and action schemas
-3. See `packages/adapters/src/execution/` for examples
+1. Add a module under `packages/adapters/src/execution/` and implement the
+   `ExecutionAdapter` interface from `packages/adapters/src/execution/types.ts`
+2. Declare the capabilities and validate every action before executing it
+3. Export it from `packages/adapters/src/execution/index.ts`
+4. See `kubectl-adapter.ts` and `cluster-shell-adapter.ts` for examples
 
 ## Testing
 

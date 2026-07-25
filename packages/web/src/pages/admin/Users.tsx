@@ -293,7 +293,7 @@ export default function Users(): React.ReactElement {
               ))}
             </tbody>
           </table>
-          {rows.length === 0 && <EmptyState label="No users match your filters." />}
+          {!error && rows.length === 0 && <EmptyState label="No users match your filters." />}
         </div>
       )}
 

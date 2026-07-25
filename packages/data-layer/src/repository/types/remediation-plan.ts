@@ -187,6 +187,15 @@ export interface IRemediationPlanRepository {
   /** List plans currently awaiting verification. Used by the verifier sweeper. */
   listWaitingVerification(limit?: number): Promise<RemediationPlan[]>;
 
+  /**
+   * List plans that finished executing but never had verification started —
+   * `status='applied'` and `verificationStatus='not_started'`. Those two
+   * fields are written by two different services in two statements, so a
+   * crash in between strands the plan here. Used by the verifier's startup
+   * recovery sweep.
+   */
+  listAppliedAwaitingVerification(limit?: number): Promise<RemediationPlan[]>;
+
   /** Update plan-level fields. Steps are not touched. */
   updatePlan(orgId: string, id: string, patch: RemediationPlanPatch): Promise<RemediationPlan | null>;
 

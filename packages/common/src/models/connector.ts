@@ -61,7 +61,12 @@ export interface ConnectorLookupOptions {
 
 export interface ConnectorSecret {
   connectorId: string;
+  /**
+   * Decrypted secret bytes. The repository encrypts on write and decrypts on
+   * read (AES-256-GCM under SECRET_KEY); only the DB column is ciphertext.
+   */
   ciphertext: Uint8Array;
+  /** Envelope version of the stored row. Owned by the repository. */
   keyVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -69,8 +74,8 @@ export interface ConnectorSecret {
 
 export interface UpsertConnectorSecret {
   connectorId: string;
+  /** Plaintext secret bytes — the repository encrypts them before storing. */
   ciphertext: Uint8Array;
-  keyVersion: number;
 }
 
 export interface ConnectorPolicy {

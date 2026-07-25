@@ -6,6 +6,7 @@ import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { IGatewayShareStore, IGatewayInvestigationStore } from '@agentic-obs/data-layer';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('shared-route');
 
@@ -21,7 +22,7 @@ export function createSharedRouter(deps: SharedRouterDeps): Router {
   const router = Router();
 
   // GET /shared/:token - access a shared investigation (no auth required)
-  router.get('/:token', async (req: Request, res: Response, next: NextFunction) => {
+  router.get('/:token', asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const token = req.params['token'] ?? '';
       const lookup = await shareRepo.findByTokenStatus(token);
@@ -71,10 +72,10 @@ export function createSharedRouter(deps: SharedRouterDeps): Router {
     } catch (err) {
       next(err);
     }
-  });
+  }));
 
   // DELETE /shared/:token - revoke a share link (only the creator may revoke)
-  router.delete('/:token', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  router.delete('/:token', authMiddleware, asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const authReq = req as AuthenticatedRequest;
       const token = req.params['token'] ?? '';
@@ -102,7 +103,7 @@ export function createSharedRouter(deps: SharedRouterDeps): Router {
     } catch (err) {
       next(err);
     }
-  });
+  }));
 
   return router;
 }

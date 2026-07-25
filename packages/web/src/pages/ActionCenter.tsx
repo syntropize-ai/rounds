@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, plansApi } from '../api/client.js';
-import type { RemediationPlan } from '../api/client.js';
+import type { RemediationPlan, RemediationPlanStatus } from '../api/client.js';
 import { opsApi, type OpsConnector } from '../api/ops-api.js';
-import { relativeTime } from '../utils/time.js';
+import { relativeTime, expiryLabel } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
 import {
   applyFilters,
@@ -77,15 +77,6 @@ interface InvestigationLite {
 
 // Helpers
 
-function expiresIn(iso: string): string {
-  const diff = new Date(iso).getTime() - Date.now();
-  if (diff <= 0) return 'expired';
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h`;
-}
-
 /** Derive a display risk level from the action type */
 function actionRisk(type: string): RiskLevel {
   const t = type.toLowerCase();
@@ -116,7 +107,19 @@ function commandTarget(plan: RemediationPlan): string {
   return match ? `${match[1]} ${match[2]}` : `${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}`;
 }
 
-function planCtaLabel(plan: RemediationPlan): string {
+// Plan states the operator can still act on. `completed`, `rejected`, `expired`
+// and `cancelled` are terminal and stay out of the queue; `draft` was never
+// submitted.
+export const ACTIONABLE_PLAN_STATUSES = [
+  'pending_approval',
+  'approved',
+  'executing',
+  'applied',
+  'execution_failed',
+  'failed',
+] as const satisfies readonly RemediationPlanStatus[];
+
+export function planCtaLabel(plan: RemediationPlan): string {
   if (plan.status === 'pending_approval') return 'Review';
   if (plan.verificationStatus === 'waiting') return 'Verifying';
   if (plan.verificationStatus === 'passed') return 'Fixed';
@@ -196,7 +199,7 @@ function ActionCard({ request, processing, onApprove, onReject, canApprove }: Ac
           {request.context.investigationId && (
             <span>Context: {request.context.investigationId.slice(0, 8)}…</span>
           )}
-          {request.expiresAt && <span>expires in {expiresIn(request.expiresAt)}</span>}
+          {request.expiresAt && <span>{expiryLabel(request.expiresAt)}</span>}
           {request.resolvedBy && <span>resolved by {request.resolvedBy}</span>}
         </div>
 
@@ -268,7 +271,7 @@ function PlanCard({
             {!alert && investigation?.status && <span>{investigation.status}</span>}
             <span>{plan.steps.length} step{plan.steps.length === 1 ? '' : 's'}</span>
             <span>created {relativeTime(plan.createdAt)}</span>
-            <span>expires {relativeTime(plan.expiresAt)}</span>
+            <span>{expiryLabel(plan.expiresAt)}</span>
           </div>
         </div>
         <span className="shrink-0 text-xs font-semibold text-[var(--color-primary)]">{planCtaLabel(plan)}</span>
@@ -443,7 +446,18 @@ export default function ActionCenter() {
 
   const loadPlans = useCallback(async () => {
     try {
-      const { data } = await plansApi.list({ status: 'pending_approval' });
+      // The tab shows the plans an operator still has something to do about:
+      // ones awaiting approval, ones running or being verified, and ones that
+      // failed. Fetching only `pending_approval` made every lifecycle label in
+      // `planCtaLabel` unreachable and hid failed remediations entirely.
+      const responses = await Promise.all(
+        ACTIONABLE_PLAN_STATUSES.map((status) => plansApi.list({ status })),
+      );
+      const byId = new Map<string, RemediationPlan>();
+      for (const { data: page } of responses) {
+        for (const plan of page) byId.set(plan.id, plan);
+      }
+      const data = [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setPlans(data);
       const investigationIds = Array.from(new Set(data.map((plan) => plan.investigationId).filter(Boolean)));
       const investigations = await Promise.all(
@@ -663,7 +677,7 @@ export default function ActionCenter() {
         </div>
       ) : tab === 'plans' ? (
         plans.length === 0 ? (
-          <div className="text-center py-16 text-[var(--color-outline)] text-sm">No plans pending approval</div>
+          <div className="text-center py-16 text-[var(--color-outline)] text-sm">No plans need attention</div>
         ) : (
           <div className="space-y-3">
             {plans.map((plan) => (

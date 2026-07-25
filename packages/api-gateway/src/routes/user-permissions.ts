@@ -16,11 +16,12 @@ import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
 import { permissionsAsMap } from './access-control.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export function createUserPermissionsRouter(ac: AccessControlService): Router {
   const router = Router();
 
-  router.get('/permissions', async (req: AuthenticatedRequest, res: Response) => {
+  router.get('/permissions', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.auth) {
       res.status(401).json({
         error: { code: 'UNAUTHORIZED', message: 'authentication required' },
@@ -38,7 +39,7 @@ export function createUserPermissionsRouter(ac: AccessControlService): Router {
         },
       });
     }
-  });
+  }));
 
   return router;
 }

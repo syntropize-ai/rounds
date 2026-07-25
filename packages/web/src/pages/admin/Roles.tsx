@@ -174,7 +174,7 @@ export default function Roles(): React.ReactElement {
               ))}
             </tbody>
           </table>
-          {filtered.length === 0 && <EmptyState label={`No ${bucket} roles.`} />}
+          {!error && filtered.length === 0 && <EmptyState label={`No ${bucket} roles.`} />}
         </div>
       )}
 
@@ -435,7 +435,7 @@ function RolePermissions({
             )}
           </div>
         ))}
-        {perms.length === 0 && <EmptyState label="No permissions." />}
+        {!error && perms.length === 0 && <EmptyState label="No permissions." />}
       </div>
 
       {canWrite && (
@@ -511,7 +511,7 @@ function RoleUsedBy({ role }: { role: RoleDTO }): React.ReactElement {
   return (
     <div>
       <ErrorBanner message={error} />
-      {assignments.length === 0 ? (
+      {!error && assignments.length === 0 ? (
         <EmptyState label="No users or teams have this role." />
       ) : (
         <div className="space-y-1">

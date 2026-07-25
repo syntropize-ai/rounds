@@ -70,6 +70,9 @@ export class PlanVerificationService {
 
   start(): void {
     if (this.timer) return;
+    void this.recoverInterrupted().catch((err) => {
+      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'plan-verification: startup recovery sweep failed');
+    });
     const intervalMs = this.opts.sweepIntervalMs
       ?? (Number(process.env['PLAN_VERIFICATION_SWEEP_MS']) || 15_000);
     this.timer = setInterval(() => {
@@ -140,6 +143,34 @@ export class PlanVerificationService {
         waitMs,
       },
     });
+  }
+
+  /**
+   * Startup recovery. Marking a plan `applied` (executor) and starting its
+   * verification (this service) are two independent writes, so a crash or
+   * restart in between leaves the plan applied with `verification_status`
+   * still `not_started` — and nothing picks that up, because the periodic
+   * sweeper only looks at rows already marked `waiting`. Those plans hang
+   * forever. Resume them here, then run one sweep so plans that blew past
+   * their deadline while the process was down get finalized instead of
+   * sitting in `waiting`.
+   *
+   * Called once from `start()`, before the periodic timer, so it never races
+   * an in-flight `beginVerification` in this process.
+   */
+  async recoverInterrupted(limit = 100): Promise<number> {
+    const stranded = await this.opts.plans.listAppliedAwaitingVerification(limit);
+    let recovered = 0;
+    for (const plan of stranded) {
+      const after = await this.beginVerification(plan);
+      if (!after || after.verificationStatus === 'not_started') continue;
+      recovered += 1;
+      log.warn(
+        { planId: plan.id, orgId: plan.orgId, verificationStatus: after.verificationStatus },
+        'plan-verification: resumed verification interrupted before this API process started',
+      );
+    }
+    return recovered + await this.sweep(limit);
   }
 
   async sweep(limit = 100): Promise<number> {

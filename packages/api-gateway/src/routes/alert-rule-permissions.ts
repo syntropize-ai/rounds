@@ -17,6 +17,7 @@ import {
   ResourcePermissionServiceError,
 } from '../services/resource-permission-service.js';
 import type { ResourcePermissionSetItem } from '@agentic-obs/common';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface AlertRulePermissionsRouterDeps {
   permissionService: ResourcePermissionService;
@@ -57,7 +58,7 @@ export function createAlertRulePermissionsRouter(
         `folders:uid:${req.params['folderUid']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const folderUid = req.params['folderUid']!;
         // We target the folder UID directly — alert-rule permissions in
@@ -72,7 +73,7 @@ export function createAlertRulePermissionsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   router.post(
@@ -83,7 +84,7 @@ export function createAlertRulePermissionsRouter(
         `folders:uid:${req.params['folderUid']}`,
       ),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const folderUid = req.params['folderUid']!;
         const body = req.body as { items?: ResourcePermissionSetItem[] };
@@ -103,7 +104,7 @@ export function createAlertRulePermissionsRouter(
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

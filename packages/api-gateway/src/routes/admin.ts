@@ -28,6 +28,7 @@ import type { AuditWriter } from '../auth/audit-writer.js';
 import type { SessionService } from '../auth/session-service.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { hashPassword, passwordMinLength } from '../auth/local-provider.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface AdminRouterDeps {
   users: IUserRepository;
@@ -90,7 +91,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
   const defaultOrgId = deps.defaultOrgId ?? 'org_main';
 
   // GET /api/admin/users — list + search + paginate.
-  router.get('/users', async (req: AuthenticatedRequest, res: Response) => {
+  router.get('/users', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!requireServerAdmin(req, res)) return;
     const perpage = Math.min(
       parseInt((req.query['perpage'] as string | undefined) ?? '100', 10),
@@ -126,10 +127,10 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       page,
       perPage: perpage,
     });
-  });
+  }));
 
   // POST /api/admin/users — create a new local user. Enforces quota.
-  router.post('/users', async (req: AuthenticatedRequest, res: Response) => {
+  router.post('/users', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!requireServerAdmin(req, res)) return;
     const body = (req.body ?? {}) as {
       email?: string;
@@ -253,12 +254,12 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       orgId,
       role,
     });
-  });
+  }));
 
   // PATCH /api/admin/users/:id — update profile fields.
   router.patch(
     '/users/:id',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const id = req.params['id'] ?? '';
       const body = (req.body ?? {}) as {
@@ -308,13 +309,13 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         metadata: patch,
       });
       res.json({ message: 'user updated', id });
-    },
+    }),
   );
 
   // DELETE /api/admin/users/:id — hard delete + revoke sessions.
   router.delete(
     '/users/:id',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const id = req.params['id'] ?? '';
       const existing = await deps.users.findById(id);
@@ -350,13 +351,13 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         outcome: 'success',
       });
       res.json({ message: 'user deleted' });
-    },
+    }),
   );
 
   // POST /api/admin/users/:id/password — reset password.
   router.post(
     '/users/:id/password',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const id = req.params['id'] ?? '';
       const body = (req.body ?? {}) as { password?: string };
@@ -391,13 +392,13 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         outcome: 'success',
       });
       res.json({ message: 'password reset' });
-    },
+    }),
   );
 
   // POST /api/admin/users/:id/permissions — toggle server-admin flag.
   router.post(
     '/users/:id/permissions',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const id = req.params['id'] ?? '';
       const body = (req.body ?? {}) as { isServerAdmin?: boolean };
@@ -442,12 +443,12 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         metadata: { isServerAdmin: body.isServerAdmin },
       });
       res.json({ message: 'permissions updated', isServerAdmin: body.isServerAdmin });
-    },
+    }),
   );
 
   router.post(
     '/users/:userId/disable',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const id = req.params['userId'] ?? '';
       await deps.users.setDisabled(id, true);
@@ -461,12 +462,12 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         outcome: 'success',
       });
       res.json({ message: 'user disabled' });
-    },
+    }),
   );
 
   router.post(
     '/users/:userId/enable',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const id = req.params['userId'] ?? '';
       await deps.users.setDisabled(id, false);
@@ -479,12 +480,12 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         outcome: 'success',
       });
       res.json({ message: 'user enabled' });
-    },
+    }),
   );
 
   router.post(
     '/users/:userId/logout',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const id = req.params['userId'] ?? '';
       const n = await deps.sessions.revokeAllForUser(id);
@@ -498,12 +499,12 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         metadata: { revoked: n },
       });
       res.json({ message: 'sessions revoked', revoked: n });
-    },
+    }),
   );
 
   router.get(
     '/audit-log',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireServerAdmin(req, res)) return;
       const perpage = Math.min(
         parseInt((req.query['perpage'] as string | undefined) ?? '100', 10),
@@ -524,14 +525,14 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         to: req.query['to'] as string | undefined,
       });
       res.json({ items, total, page, perpage });
-    },
+    }),
   );
 
-  router.get('/stats', async (req: AuthenticatedRequest, res: Response) => {
+  router.get('/stats', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!requireServerAdmin(req, res)) return;
     const { total: userCount } = await deps.users.list({ limit: 1 });
     res.json({ userCount });
-  });
+  }));
 
   // Catch-all. Left in for discoverability but now only catches genuinely
   // unimplemented paths — none of the Wave 8/9 UI pages hit this.

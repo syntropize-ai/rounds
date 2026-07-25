@@ -1,6 +1,6 @@
 # Architecture
 
-Rounds is an open-source AI SRE: an LLM-driven agent that investigates incidents, builds dashboards, manages alert rules, and (with approval) remediates. Kubernetes is the first deep ops connector; Prometheus alerting rules, Loki routing, GitHub PR-based fixes, Jira / PagerDuty incident sync, CI/CD systems, and database read connectors are planned. It is structured as a TypeScript monorepo with 9 packages.
+Rounds is an open-source AI SRE: an LLM-driven agent that investigates incidents, builds dashboards, manages alert rules, and (with approval) remediates. Kubernetes is the first deep ops connector; Prometheus alerting rules, Loki routing, GitHub PR-based fixes, Jira / PagerDuty incident sync, CI/CD systems, and database read connectors are planned. It is structured as a TypeScript monorepo with 9 packages under `packages/`.
 
 ## Layer Diagram
 
@@ -8,72 +8,94 @@ Rounds is an open-source AI SRE: an LLM-driven agent that investigates incidents
                   +-----------+
                   |    web    |  React SPA (Vite)
                   +-----+-----+
-                        |
-                  +-----v-----+
-                  | api-gateway|  Express HTTP server
-                  +-----+-----+
+                        |  HTTP / SSE / socket.io
+                  +-----v------+
+                  | api-gateway |  Express HTTP server
+                  +-----+------+
                         |
           +-------------+-------------+
           |             |             |
-    +-----v-----+ +----v----+ +------v------+
-    | agent-core | |data-layer| | llm-gateway |
-    +-----+------+ +----+----+ +-------------+
-          |              |
-    +-----v-----+  +-----v-----+
-    | adapters   |  |  common   |
-    +-----+------+  +-----------+
-          |
-    +-----v------+
-    | adapter-sdk |  (for building custom adapters)
-    +------------+
+    +-----v-----+ +-----v-----+ +-----v-----+
+    | agent-core | | data-layer | | llm-gateway |
+    +-----+-----+ +-----+-----+ +-----+-----+
+          |             |             |
+          +------+------+------+------+
+                 |             |
+           +-----v-----+ +-----v-------+
+           |  adapters  | | server-utils |
+           +-----+-----+ +-----+-------+
+                 |             |
+                 +------+------+
+                        |
+                  +-----v-----+
+                  |  common   |
+                  +-----------+
+
+    cli — packaging only: esbuild-bundles api-gateway + web into
+          the publishable `@syntropize/rounds` npm package.
 ```
 
 ## Package Responsibilities
 
-| Package | Purpose |
-|---------|---------|
-| **common** | Shared types, error classes, constants, and utilities used by every package. Zero dependencies on other `@agentic-obs/*` packages. |
-| **llm-gateway** | Unified interface for calling LLMs (Anthropic, OpenAI, Gemini, Ollama, Azure, Bedrock). Provider-agnostic completion API. |
-| **data-layer** | Persistence: SQLite schema, Drizzle ORM, repository implementations, and gateway store interfaces. |
-| **adapters** | Data adapters for observability backends: Prometheus (metrics), log aggregation, distributed tracing, change events, web search, and execution adapters (k8s, CI/CD, tickets, notifications). |
-| **adapter-sdk** | SDK for building custom execution adapters. Provides `BaseAdapter`, validation utilities, and a scaffold generator. |
-| **guardrails** | Safety guards: cost tracking, query rate limiting, confidence thresholds, action policy enforcement, and credential resolution. |
-| **agent-core** | AI agent logic: dashboard generation, investigation, alert rule creation, panel editing, verification, and the ReAct orchestration loop. |
-| **api-gateway** | Express HTTP server: REST routes, auth middleware, SSE streaming, and service orchestration. The main entry point. |
-| **web** | React SPA: dashboard workspace, investigation views, setup wizard, settings, and admin pages. Built with Vite + Tailwind CSS. |
+| Package | npm name | Purpose |
+|---------|----------|---------|
+| **common** | `@agentic-obs/common` | Shared types, error classes, constants, model/config types, queue + event abstractions. Depends on no other `@agentic-obs/*` package. |
+| **server-utils** | `@agentic-obs/server-utils` | Node-only server primitives: pino logging + request correlation, crypto (`secret-box`), Redis event bus, process lifecycle. Split out of `common` so browser-facing code never pulls in Node built-ins. |
+| **adapters** | `@agentic-obs/adapters` | Data adapters for observability backends: Prometheus (metrics), Loki and Humio (logs), change events, web search, and execution adapters (kubectl, cluster shell, generic shell). Also owns the canonical `AdapterError` taxonomy. |
+| **llm-gateway** | `@agentic-obs/llm-gateway` | Provider-agnostic completion API. Implemented providers: Anthropic, OpenAI, OpenAI-compatible (Azure OpenAI, DeepSeek, corporate gateways), Gemini, Ollama. Also token accounting, pricing, and `apiKeyHelper` resolution. |
+| **data-layer** | `@agentic-obs/data-layer` | Persistence: repository interfaces with SQLite (better-sqlite3 + Drizzle), Postgres, and in-memory implementations; schema application; Redis cache. |
+| **agent-core** | `@agentic-obs/agent-core` | Agent logic: the orchestrator, the ReAct loop, the tool schema registry, per-tool handlers, permission gate, and audit reporting. |
+| **api-gateway** | `@agentic-obs/api-gateway` | Express HTTP server: REST routes, auth (local / OAuth / SAML / LDAP), RBAC, SSE + socket.io streaming, background workers, and service orchestration. The main entry point (`dist/main.js`). |
+| **web** | `@agentic-obs/web` | React SPA: dashboard workspace, investigation views, chat, setup wizard, settings, admin pages. Vite + Tailwind CSS. |
+| **cli** | `@syntropize/rounds` | The published npm package. `bin/rounds.mjs` sets `DATA_DIR` defaults and boots the bundled server built by `scripts/build-cli.mjs`. No `src/` — it has no logic of its own. |
 
 ## Dependency Rules
 
-1. **common** is the foundation. Every package may depend on it. It depends on nothing.
-2. **llm-gateway** depends only on common.
-3. **data-layer** depends only on common.
-4. **adapters** depends on common.
-5. **adapter-sdk** depends on common (shared adapter types live in common).
-6. **guardrails** depends on common, adapters, and llm-gateway.
-7. **agent-core** depends on common, llm-gateway, data-layer, adapters, and guardrails.
-8. **api-gateway** depends on everything except web and adapter-sdk.
-9. **web** depends on common (types only, no server packages).
+Actual `@agentic-obs/*` edges, as declared in each `package.json` and mirrored
+by the TypeScript project references in each `tsconfig.json`:
+
+1. **common** depends on no other workspace package. Every package may depend on it.
+2. **server-utils** depends on common.
+3. **adapters** depends on common and server-utils.
+4. **llm-gateway** depends on adapters (for `AdapterError` / `classifyHttpError`), common, and server-utils.
+5. **data-layer** depends on common and server-utils.
+6. **agent-core** depends on adapters, common, llm-gateway, and server-utils. It also imports a few repository *types* from data-layer, which is therefore a `devDependency` plus a build reference — no value imports, so the runtime edge does not exist.
+7. **api-gateway** depends on adapters, agent-core, common, data-layer, llm-gateway, and server-utils.
+8. **web** depends on common only (shared types; no server packages).
+9. **cli** declares no workspace dependencies — the build bundles workspace source into `dist/server.mjs`.
 
 **Do not** introduce dependencies from lower layers to higher ones (e.g., common must never import from agent-core).
 
 ## Key Patterns
 
-### Store vs Repository (data-layer)
+### Repositories (data-layer)
 
-- **Repository** (`data-layer/src/repository/`) — data access abstraction. One interface per entity, with SQLite implementations. Handles SQL, serialization, and caching.
-- **Store** (`data-layer/src/stores/`) — business-layer convenience interfaces. Used by api-gateway routes and agent-core agents. Wraps repositories with pagination, filtering, and domain logic.
+- **Repository** (`data-layer/src/repository/`) — the data access abstraction. One interface per entity (`interfaces.ts`, `gateway-interfaces.ts`) with `sqlite/`, `postgres/`, and `memory/` implementations selected by `repository/factory.ts` at boot. Handles SQL, serialization, and caching.
+- `data-layer/src/stores/` is a remnant of the store→repository migration (ADR-001, Sprint 4). Only the in-memory notification store and the dirty-tracking persistence primitives still live there. New entities get a repository, not a store.
 
 ### Agent Architecture (agent-core)
 
-Agents follow a delegation model:
+There is a single agent class, `OrchestratorAgent` (`agent/orchestrator-agent.ts`).
+It does not delegate to sub-agent classes. Behaviour is composed from:
 
-- **OrchestratorAgent** classifies user intent and dispatches to sub-agents
-- **DashboardGeneratorAgent** creates dashboards via research → plan → build phases
-- **InvestigationAgent** runs plan → query → analyze → report pipeline
-- **OrchestratorAgent** creates alert rules by discovering metrics, validating queries, and passing structured specs to `alert_rule_write`
-- **VerifierAgent** validates generated artifacts before applying them
+- **Agent definitions** (`agent/agent-registry.ts`) — three registered `AgentType`s, each a
+  configuration (allowed tool names, permission mode, iteration ceiling), not a class:
+  `orchestrator` (interactive chat), `background_orchestrator` (alert-triggered runs; adds the
+  `remediation_plan_*` tools), and `verification`. The orchestrator picks one at construction
+  time via `OrchestratorDeps.agentType`.
+- **ReAct loop** (`agent/react-loop.ts`) — reason → act → observe, bounded by an iteration
+  ceiling and a token budget, with observation truncation and context compaction.
+- **Tool handlers** (`agent/handlers/`) — one module per domain (dashboard, investigation,
+  alert, metrics, logs, ops, connectors, kb, github, remediation-plan, …). Tool schemas live in
+  `agent/tool-schema-registry.ts`; `tool_search` fetches deferred schemas on demand.
+- **Permission gate + audit** (`agent/permission-gate.ts`, `agent/tool-permissions.ts`,
+  `agent/orchestrator-audit-reporter.ts`) — every dispatch is checked against the caller's
+  identity and written to the audit log.
+- **Factory** (`agent/factory.ts`) — `createAgentRunner()` is the only supported construction
+  path; api-gateway never instantiates `OrchestratorAgent` directly.
 
-The orchestrator uses a **ReAct loop** (reason → act → observe) for multi-step conversations.
+Dashboard verification is a handler-level gate (`agent/handlers/verify-gate.ts`, toggled by
+`DASHBOARD_VERIFY_GATE`), not a separate agent process.
 
 ### Error Handling
 
@@ -91,7 +113,7 @@ The api-gateway error handler middleware maps `AppError` subclasses to HTTP resp
 
 ```bash
 npm install          # install all dependencies
-npm run build        # TypeScript build (all packages)
+npm run build        # TypeScript build (all packages) + web bundle
 npm test             # vitest (all packages)
 npm run start        # start api-gateway + web dev server
 ```

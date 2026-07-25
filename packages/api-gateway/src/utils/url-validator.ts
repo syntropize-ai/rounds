@@ -11,31 +11,81 @@ const DNS_LOOKUP_TIMEOUT_MS = 2_500;
  *  - **Self-hosted / single-host** (npm install -g @syntropize/rounds, docker run, helm
  *    chart on a workload cluster with Prometheus sidecar). Operators
  *    routinely point at http://localhost:9090 / http://prometheus.monitoring
- *    — blocking RFC1918 or loopback here is a bug, not a feature.
+ *    — these deployments need RFC1918 and loopback to be reachable.
  *
  *  - **Multi-tenant / public-facing** (hosted SaaS, shared gateway in a
  *    corporate network). Blocking private / loopback / link-local is
  *    mandatory or a tenant can pivot through the gateway to hit
  *    internal services.
  *
- * We gate on `OPENOBS_ALLOW_PRIVATE_URLS` / `NODE_ENV=production`:
+ * Blocking is the default: an install that never sets anything gets the safe
+ * behaviour, because a deploy that is accidentally reachable is far more
+ * common than an operator who cannot read an error message telling them
+ * which knob to turn.
  *
- *   production mode → block private ranges (matches Grafana Enterprise's
- *                     `data_source_security` default).
- *   any other mode  → allow them (matches OSS Grafana, which permits
- *                     loopback/private URLs in its datasource config UI).
- *
- * Operators running a hardened self-hosted install can still opt into
- * strict mode with `OPENOBS_ALLOW_PRIVATE_URLS=false`; operators running
- * a multi-tenant Rounds who need to reach an internal service from a
- * public deploy can opt out with `OPENOBS_ALLOW_PRIVATE_URLS=true`.
+ * Operators who genuinely target in-cluster or localhost services opt out
+ * with `OPENOBS_ALLOW_PRIVATE_URLS=true`. The helm chart sets exactly that
+ * (see helm/rounds/values.yaml) because it deploys next to an in-cluster
+ * Prometheus; multi-tenant / public-facing deploys must leave it unset.
  */
 
 function privateUrlsAllowed(): boolean {
-  const explicit = process.env['OPENOBS_ALLOW_PRIVATE_URLS'];
-  if (explicit === 'true') return true;
-  if (explicit === 'false') return false;
-  return process.env['NODE_ENV'] !== 'production';
+  return process.env['OPENOBS_ALLOW_PRIVATE_URLS'] === 'true';
+}
+
+/**
+ * Expands an IPv6 literal into its eight 16-bit groups, folding any trailing
+ * dotted-quad (`::ffff:10.0.0.1`) into the last two groups.
+ * Only valid IPv6 literals may be passed.
+ */
+function expandIpv6(address: string): number[] {
+  let head = address;
+  const embedded: number[] = [];
+
+  const dotted = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(head);
+  if (dotted) {
+    const [a, b, c, d] = dotted[1]!.split('.').map((part) => Number.parseInt(part, 10));
+    embedded.push((a! << 8) | b!, (c! << 8) | d!);
+    head = head.slice(0, dotted.index);
+  }
+
+  const [left, right] = head.split('::');
+  const parse = (part: string) => part
+    .split(':')
+    .filter((group) => group !== '')
+    .map((group) => Number.parseInt(group, 16));
+
+  const leading = parse(left!);
+  const trailing = right === undefined ? [] : parse(right);
+  const missing = 8 - embedded.length - leading.length - trailing.length;
+  const zeros = right === undefined ? [] : new Array<number>(missing).fill(0);
+
+  const groups = [...leading, ...zeros, ...trailing, ...embedded];
+  if (groups.length !== 8) {
+    throw new Error(`Unparsable IPv6 address: ${address}`);
+  }
+  return groups;
+}
+
+/**
+ * Strips brackets/case, and rewrites IPv6 forms that carry an IPv4 address in
+ * their low 32 bits (`::ffff:10.0.0.1`, its hex spelling `::ffff:a00:1`,
+ * `0:0:0:0:0:ffff:10.0.0.1`, and the deprecated IPv4-compatible `::10.0.0.1`)
+ * into that IPv4 address. Without this, `::ffff:10.0.0.1` reaches the same
+ * host as `10.0.0.1` while walking straight past the RFC1918 check.
+ *
+ * `::` and `::1` normalize into 0.0.0.0/8, which the IPv4 check blocks.
+ */
+function normalizeHost(hostname: string): string {
+  const stripped = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (isIP(stripped) !== 6) return stripped;
+
+  const groups = expandIpv6(stripped);
+  const highBitsZero = groups.slice(0, 5).every((group) => group === 0);
+  if (!highBitsZero || (groups[5] !== 0 && groups[5] !== 0xffff)) return stripped;
+
+  const [high, low] = [groups[6]!, groups[7]!];
+  return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
 }
 
 /**
@@ -43,16 +93,12 @@ function privateUrlsAllowed(): boolean {
  * or link-local address.
  *
  * Blocks: 127.x.x.x, 10.x.x.x, 172.16-31.x.x, 192.168.x.x,
- *         169.254.x.x, 0.0.0.0, ::1, fc/fd (ULA), fe80 (link-local).
+ *         169.254.x.x, 0.x.x.x, ::/::1, fc/fd (ULA), fe80 (link-local),
+ *         and the IPv4-mapped IPv6 spelling of any of the above.
  */
 export function isPrivateHost(hostname: string): boolean {
-  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  if (
-    normalized === 'localhost'
-    || normalized === '0.0.0.0'
-    || normalized === '::1'
-    || normalized.endsWith('.localhost')
-  ) {
+  const normalized = normalizeHost(hostname);
+  if (normalized === 'localhost' || normalized.endsWith('.localhost')) {
     return true;
   }
 
@@ -61,7 +107,8 @@ export function isPrivateHost(hostname: string): boolean {
     const octets = normalized.split('.').map((part) => Number.parseInt(part, 10));
     const [a, b] = octets;
     return (
-      a === 10
+      a === 0
+      || a === 10
       || a === 127
       || (a === 169 && b === 254)
       || (a === 172 && b !== undefined && b >= 16 && b <= 31)
@@ -121,7 +168,7 @@ export async function ensureSafeUrl(rawUrl: string): Promise<URL> {
   }
 
   // DNS-rebinding check: even if the hostname itself is public, resolved
-  // IPs may be private. Only enforced in strict mode.
+  // IPs may be private. Skipped only when private URLs are allowed.
   if (!allowPrivate && !isIP(parsed.hostname)) {
     try {
       const address = await lookupHostname(parsed.hostname);

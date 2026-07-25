@@ -7,6 +7,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js'
 import { createOrgContextMiddleware } from '../middleware/org-context.js'
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js'
 import type { IAlertRuleRepository } from '@agentic-obs/data-layer'
+import { asyncHandler } from '../middleware/async-handler.js'
 
 export interface SearchResult {
   type: 'dashboard' | 'investigation' | 'alert' | 'folder' | 'panel'
@@ -40,7 +41,7 @@ export function createSearchRouter(deps: SearchRouterDeps): Router {
   router.use(createOrgContextMiddleware({ orgUsers: deps.orgUsers }))
 
   // GET /api/search?q=redis&limit=20
-  router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+  router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const q = (req.query['q'] as string ?? '').toLowerCase().trim()
     const limit = Math.min(parseInt(req.query['limit'] as string ?? '20', 10), 50)
     const orgId = req.auth!.orgId
@@ -134,7 +135,7 @@ export function createSearchRouter(deps: SearchRouterDeps): Router {
     }
 
     res.json({ results })
-  })
+  }))
 
   return router
 }

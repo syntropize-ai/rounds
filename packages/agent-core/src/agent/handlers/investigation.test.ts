@@ -76,6 +76,7 @@ function completionArgs(overrides: Record<string, unknown> = {}) {
     evidenceRefs: ['check_1', 'check_2'],
     ruledOut: ['no traffic'],
     nextAction: 'Raise the memory limit or roll back the deployment, then verify restarts and error rate return to baseline.',
+    validationMethod: 'watch OOMKilled restarts for reviews-v2 drop to zero after the limit change',
     ...overrides,
   };
 }
@@ -89,6 +90,7 @@ async function seedReadyLedger(ctx: FakeActionContext) {
     result: 'reviews-v2 last state terminated: OOMKilled during the last 30m in the affected service scope',
     interpretation: 'Supports a workload-level memory failure caused by a low memory limit.',
     status: 'supported',
+    scope: { timeWindow: 'last 30m', affected: 'Deployment/reviews-v2 in namespace prod' },
     nextCheck: 'Check traffic is present.',
   });
   await handleInvestigationRecordCheck(ctx, {
@@ -99,6 +101,7 @@ async function seedReadyLedger(ctx: FakeActionContext) {
     result: 'traffic is present during the last 30m and 5xx appears only for reviews-v2',
     interpretation: 'Rules out no traffic and points at reviews-v2.',
     status: 'ruled_out',
+    scope: { timeWindow: 'last 30m', affected: 'namespace prod' },
   });
 }
 
@@ -114,11 +117,30 @@ describe('investigation handlers', () => {
       result: 'last state terminated: OOMKilled',
       interpretation: 'Supports a workload memory failure.',
       status: 'supported',
+      scope: { timeWindow: 'last 30m', affected: 'Deployment/reviews-v2' },
     });
 
     expect(result).toContain('Recorded check_1');
     expect(ctx.investigationStates.get('inv_1')?.checks).toHaveLength(1);
     expect(ctx.investigationStates.get('inv_1')?.hypotheses[0]?.status).toBe('supported');
+  });
+
+  it('rejects a check that records neither a time window nor an affected scope', async () => {
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      hypothesis: 'reviews-v2 is OOMKilled',
+      signalType: 'kubernetes',
+      tool: 'ops_run_command',
+      query: 'kubectl describe pod reviews-v2',
+      result: 'last state terminated: OOMKilled',
+      interpretation: 'Supports a workload memory failure.',
+      status: 'supported',
+      scope: { timeWindow: '  ' },
+    });
+
+    expect(result).toContain('Error: "scope"');
+    expect(ctx.investigationStates.get('inv_1')).toBeUndefined();
   });
 
   it('does not save or navigate when completing without an active investigation', async () => {
@@ -605,12 +627,14 @@ describe('investigation handlers', () => {
         result: 'error rate is 12%',
         interpretation: 'Confirms the symptom but not the cause.',
         status: 'supported',
+        scope: { timeWindow: 'last 30m' },
       });
 
       const result = await handleInvestigationComplete(ctx, completionArgs({
         evidenceRefs: ['check_1'],
         ruledOut: [],
         nextAction: 'Raise the memory limit.',
+        validationMethod: undefined,
       }));
 
       expect(result).toContain('saved as unresolved');

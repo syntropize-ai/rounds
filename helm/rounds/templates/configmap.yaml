@@ -6,21 +6,12 @@ metadata:
     {{- include "rounds.labels" . | nindent 4 }}
 data:
   NODE_ENV: {{ .Values.env.NODE_ENV | quote }}
-  HOST: {{ .Values.env.HOST | quote }}
   PORT: {{ .Values.env.PORT | quote }}
   DATA_DIR: {{ .Values.env.DATA_DIR | quote }}
   LOG_LEVEL: {{ .Values.env.LOG_LEVEL | quote }}
-  LOG_FORMAT: {{ .Values.env.LOG_FORMAT | quote }}
   CORS_ORIGINS: {{ include "rounds.corsOrigins" . | quote }}
-  LLM_PROVIDER: {{ .Values.env.LLM_PROVIDER | quote }}
-  LLM_MODEL: {{ .Values.env.LLM_MODEL | quote }}
   DATABASE_POOL_SIZE: {{ .Values.env.DATABASE_POOL_SIZE | quote }}
   DATABASE_SSL: {{ .Values.env.DATABASE_SSL | quote }}
-  REDIS_PREFIX: {{ .Values.env.REDIS_PREFIX | quote }}
-  API_KEY_HEADER: {{ .Values.env.API_KEY_HEADER | quote }}
-  SESSION_TTL: {{ .Values.env.SESSION_TTL | quote }}
-  PROACTIVE_CHECK_INTERVAL_MS: {{ .Values.env.PROACTIVE_CHECK_INTERVAL_MS | quote }}
-  PROACTIVE_HISTORY_SIZE: {{ .Values.env.PROACTIVE_HISTORY_SIZE | quote }}
   OPENOBS_ALLOW_PRIVATE_URLS: {{ .Values.env.OPENOBS_ALLOW_PRIVATE_URLS | quote }}
   {{- if .Values.clusterShell.enabled }}
   ROUNDS_CLUSTER_SHELL_SA: {{ .Values.clusterShell.serviceAccount | quote }}
@@ -28,9 +19,6 @@ data:
   {{- if .Values.clusterShell.image }}
   ROUNDS_CLUSTER_SHELL_IMAGE: {{ .Values.clusterShell.image | quote }}
   {{- end }}
-  {{- end }}
-  {{- if .Values.env.LLM_FALLBACK_PROVIDER }}
-  LLM_FALLBACK_PROVIDER: {{ .Values.env.LLM_FALLBACK_PROVIDER | quote }}
   {{- end }}
   {{- range $key, $value := .Values.env.extra }}
   {{ $key }}: {{ $value | quote }}

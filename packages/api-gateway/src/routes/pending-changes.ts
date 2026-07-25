@@ -30,6 +30,7 @@ import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { getOrgId } from '../middleware/workspace-context.js';
 import { createLogger } from '@agentic-obs/server-utils/logging';
 import type { SessionEventBus } from '../services/session-event-bus.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('pending-changes-routes');
 const PANEL_VISUALIZATION_VALUES = new Set([
@@ -203,7 +204,7 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
   router.get(
     '/dashboards/:id/pending-changes',
     requirePermission((req) => ac.eval(ACTIONS.DashboardsRead, `dashboards:uid:${req.params['id']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const orgId = resolveOrgId(req);
@@ -217,14 +218,14 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // GET /api/pending-changes/count
   // Returns total + per-dashboard counts for the global nav badge. Caller's
   // read permission is checked per-dashboard via filterByPermission so the
   // count reflects only dashboards the user can see.
-  router.get('/pending-changes/count', async (req: Request, res: Response, next: NextFunction) => {
+  router.get('/pending-changes/count', asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const orgId = resolveOrgId(req);
       const grouped = await deps.pendingChanges.countByOrgGrouped(orgId, 'pending');
@@ -270,13 +271,13 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
     } catch (err) {
       next(err);
     }
-  });
+  }));
 
   // POST /api/dashboards/:id/pending-changes/:changeId/accept
   router.post(
     '/dashboards/:id/pending-changes/:changeId/accept',
     requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const changeId = req.params['changeId'] ?? '';
@@ -340,14 +341,14 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // POST /api/dashboards/:id/pending-changes/:changeId/reject
   router.post(
     '/dashboards/:id/pending-changes/:changeId/reject',
     requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const changeId = req.params['changeId'] ?? '';
@@ -367,14 +368,14 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // POST /api/dashboards/:id/pending-changes/accept-all
   router.post(
     '/dashboards/:id/pending-changes/accept-all',
     requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const orgId = resolveOrgId(req);
@@ -416,14 +417,14 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   // POST /api/dashboards/:id/pending-changes/reject-all
   router.post(
     '/dashboards/:id/pending-changes/reject-all',
     requirePermission((req) => ac.eval(ACTIONS.DashboardsWrite, `dashboards:uid:${req.params['id']}`)),
-    async (req: Request, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
       try {
         const id = req.params['id'] ?? '';
         const orgId = resolveOrgId(req);
@@ -452,7 +453,7 @@ export function createPendingChangesRouter(deps: PendingChangesRouterDeps): Expr
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   return router;

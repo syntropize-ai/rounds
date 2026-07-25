@@ -3,6 +3,7 @@ import { resolvePanelDisplayUnit } from '@agentic-obs/common';
 import { apiClient } from '../api/client.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import { useMeasure } from '../hooks/useMeasure.js';
+import { relativeTimeFromElapsed } from '../utils/time.js';
 import { useDatasourceLookup, type InstanceDatasource } from '../hooks/useDatasourceLookup.js';
 import TimeSeriesViz from './viz/TimeSeriesViz.js';
 import StatViz from './viz/StatViz.js';
@@ -683,13 +684,7 @@ export default function DashboardPanelCard({
    *  refresh failed but we're still showing the previously-fetched values. */
   function StaleIndicator() {
     if (staleSinceMs === null) return null;
-    const ageSec = Math.max(0, Math.floor((Date.now() - staleSinceMs) / 1000));
-    const label =
-      ageSec < 60
-        ? `${ageSec}s ago`
-        : ageSec < 3600
-          ? `${Math.floor(ageSec / 60)}m ago`
-          : `${Math.floor(ageSec / 3600)}h ago`;
+    const label = relativeTimeFromElapsed(Math.max(0, Date.now() - staleSinceMs));
     return (
       <div
         className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-chart-yellow/15 text-chart-yellow px-1.5 py-0.5 text-[10px] font-medium pointer-events-auto"

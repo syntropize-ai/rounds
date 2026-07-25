@@ -21,9 +21,17 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { posix as posixPath } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { createLogger } from '@agentic-obs/server-utils/logging';
-import { ClusterShellExecutionAdapter, ShellExecutionAdapter } from '@agentic-obs/adapters';
+import {
+  ClusterShellExecutionAdapter,
+  ShellExecutionAdapter,
+  checkKubectl,
+  parseKubectlArgv,
+  type AllowlistDecision,
+  type KubectlMode,
+} from '@agentic-obs/adapters';
 import type {
   OpsCommandIntent,
   OpsCommandRunner,
@@ -48,10 +56,30 @@ import type { AuditWriter } from '../auth/audit-writer.js';
 
 const log = createLogger('ops-command-runner');
 
+/**
+ * kubectl allowlist policy for a runner instance. REQUIRED — the runner
+ * throws without it, so no call site can execute ops commands with the
+ * allowlist silently switched off.
+ *
+ * `mode` selects which `checkKubectl` verb allowlist applies:
+ *   - `read`  — unattended background investigation runs. Read verbs only.
+ *   - `write` — interactive chat, where a human sees the confirmation card
+ *               before any mutation runs. Read verbs plus the write verbs.
+ *
+ * The namespace half of the allowlist is not part of this policy on purpose:
+ * it comes from the connector row (`config.allowedNamespaces`) that the
+ * runner already loads, so it cannot be forgotten by a call site either.
+ */
+export interface OpsCommandPolicy {
+  mode: KubectlMode;
+}
+
 export interface KubectlOpsCommandRunnerDeps {
   connectors: IConnectorRepository;
   /** Caller's org — scopes every connector lookup. */
   orgId: string;
+  /** kubectl allowlist policy applied to every command this runner runs. */
+  commandPolicy: OpsCommandPolicy;
   /** Override for tests; defaults to env/file/vault-backed resolver. */
   secretResolver?: OpsSecretRefResolver;
   /**
@@ -169,6 +197,17 @@ function assertNoUnauthorizedExec(kubeconfigYaml: string): void {
 const PENDING_CONFIRMATIONS = new Map<string, OpsCommandConfirmation>();
 const CONFIRMATION_WAITERS = new Map<string, (status: OpsCommandConfirmation['status']) => void>();
 const CONFIRMATION_TTL_MS = 10 * 60 * 1000;
+/**
+ * How long a settled card stays readable after it reaches a terminal status.
+ * It cannot be dropped the instant it settles: `/execute` reads it back to
+ * build its response, `runCommand` reads the approver fields back once the
+ * waiter wakes, and a decision that lands before the waiter registers is only
+ * observable through the store. Once the window passes the row is pruned —
+ * without pruning the map grows for the whole life of the process.
+ */
+const CONFIRMATION_RETENTION_MS = 60 * 1000;
+/** id → epoch ms after which the row may be dropped. Parallel to PENDING_CONFIRMATIONS. */
+const CONFIRMATION_PRUNE_AT = new Map<string, number>();
 
 function clusterShellRisk(scope: 'cluster' | 'namespace'): OpsCommandConfirmation['risk'] {
   return scope === 'cluster' ? 'critical' : 'high';
@@ -248,6 +287,196 @@ export function isAgentReadSafeCommand(command: string): boolean {
   return true;
 }
 
+/**
+ * kubectl verbs that `checkKubectl` permanently denies (they are lateral
+ * movement for the unattended plan executor) but that the INTERACTIVE chat
+ * path is built around: agents inspect sidecars with
+ * `kubectl exec -- ps/cat/curl` and pull files with `kubectl cp`.
+ *
+ * The exemption applies to `mode: 'write'` (chat) only. `mode: 'read'`
+ * (unattended background runs) gets no exemption and falls through to
+ * `checkKubectl`, which denies both verbs: with nobody at the keyboard,
+ * `kubectl exec … -- cat /var/run/secrets/…/token` reads a service-account
+ * token exactly as `kubectl get secret` does, and that is the read this gate
+ * exists to stop.
+ *
+ * Honest statement of what actually gates exec/cp on the chat path: NOT the
+ * confirmation card, not reliably. `readOnlyAgentBypass` (chat sets it)
+ * skips the card whenever the connector has no explicit `ask`/`block` row for
+ * `runtime.exec` and `isAgentReadSafeCommand` calls the shape read-safe — and
+ * it does call `kubectl exec` read-safe. So on chat an unconfirmed
+ * `kubectl exec … -- cat <secret file>` inside an allowed namespace still
+ * runs. Tightening that would break sidecar probing, so it is left as a known
+ * open risk for a product decision rather than silently changed here.
+ *
+ * `port-forward`, `proxy` and `attach` stay permanently denied in both modes.
+ * The namespace allowlist below still applies to the exempted verbs.
+ */
+const POLICY_GATED_KUBECTL_VERBS: ReadonlySet<string> = new Set(['exec', 'cp']);
+
+const SHELL_SEGMENT_SEPARATORS: ReadonlySet<string> = new Set([
+  '|', '&', ';', '\n', '(', ')', '`',
+]);
+
+/**
+ * Split a shell command string into token runs, cut at unquoted shell
+ * separators (`|`, `&&`, `;`, newline, `$( … )`, backticks) so each run holds
+ * at most one command invocation. Quotes are honored, so a separator inside
+ * an argument does not split the run.
+ */
+function shellSegments(command: string): string[][] {
+  const segments: string[][] = [];
+  let tokens: string[] = [];
+  let buf = '';
+  let quote: string | null = null;
+  const flushToken = (): void => {
+    if (buf) {
+      tokens.push(buf);
+      buf = '';
+    }
+  };
+  const flushSegment = (): void => {
+    flushToken();
+    if (tokens.length > 0) segments.push(tokens);
+    tokens = [];
+  };
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else buf += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === ' ' || ch === '\t' || ch === '\r') {
+      flushToken();
+      continue;
+    }
+    if (SHELL_SEGMENT_SEPARATORS.has(ch)) {
+      flushSegment();
+      continue;
+    }
+    buf += ch;
+  }
+  flushSegment();
+  return segments;
+}
+
+/**
+ * True when a token names the kubectl binary however it is spelled —
+ * `kubectl`, `/usr/bin/kubectl`, `./kubectl`. Matching the bare word only
+ * would let an absolute path walk straight past the whole allowlist.
+ */
+function isKubectlToken(token: string): boolean {
+  return posixPath.basename(token) === 'kubectl';
+}
+
+/** Shells whose `-c <body>` argument is another command line to be gated. */
+const SHELL_BINARIES: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'ash', 'zsh', 'ksh']);
+
+/**
+ * Depth cap for re-entering `sh -c` bodies. Real commands nest at most once
+ * or twice; the cap only exists so a pathological `sh -c "sh -c \"…\""` chain
+ * cannot spin.
+ */
+const MAX_SHELL_NESTING = 8;
+
+/**
+ * `kubectl cp` carries its namespace inside the operand rather than in `-n`:
+ * `kubectl cp kube-system/etcd-0:/etc/…/ca.key ./ca.key`. Pull every namespace
+ * that appears that way so the allowlist sees them.
+ */
+function namespacesInCpOperands(argv: readonly string[]): string[] {
+  const found: string[] = [];
+  for (const tok of argv) {
+    if (tok.startsWith('-')) continue;
+    // `<namespace>/<pod>:<path>` — the colon is what distinguishes a remote
+    // operand from a local path like `./dir/file`.
+    const match = /^([^/:\s]+)\/[^/:\s]+:/.exec(tok);
+    if (match?.[1]) found.push(match[1]);
+  }
+  return found;
+}
+
+/**
+ * Structural allowlist gate for the shell path. Every `kubectl` invocation
+ * inside the command string — behind a pipe, `&&`, `$(…)`, `xargs`, spelled
+ * with a path (`/usr/bin/kubectl`), or re-entered through `sh -c "…"` — is
+ * checked against the same `checkKubectl` allowlist the plan executor uses,
+ * with the connector's `allowedNamespaces`.
+ *
+ * The gate fails closed: when a namespace-gated verb runs against a connector
+ * that restricts namespaces and the namespace cannot be determined, the
+ * command is denied rather than allowed.
+ *
+ * KNOWN BOUNDARIES — this is defense in depth, not a sandbox. The connector
+ * capability policy and the confirmation card remain the gate for:
+ *   - indirection through a variable or alias: `K=kubectl; $K get secret …`.
+ *   - a differently-named binary on PATH that execs kubectl.
+ *
+ * Non-kubectl segments (`curl`, `jq`, `grep`) are not kubectl and carry no
+ * namespace of their own; the confirmation card and the connector capability
+ * policy remain their gate.
+ */
+export function checkShellCommandAllowlist(
+  command: string,
+  policy: OpsCommandPolicy,
+  allowedNamespaces: readonly string[],
+  depth = 0,
+): AllowlistDecision {
+  for (const tokens of shellSegments(command)) {
+    // `sh -c "<body>"` — the quoted body survives tokenization as one token.
+    // Re-enter the gate on it, otherwise wrapping any command in a shell
+    // walks straight past every check below.
+    const shellAt = tokens.findIndex((t) => SHELL_BINARIES.has(posixPath.basename(t)));
+    if (shellAt !== -1) {
+      const flagAt = tokens.indexOf('-c', shellAt + 1);
+      const body = flagAt === -1 ? undefined : tokens[flagAt + 1];
+      if (body !== undefined) {
+        if (depth >= MAX_SHELL_NESTING) {
+          return { allow: false, reason: 'shell nesting is too deep to inspect' };
+        }
+        const nested = checkShellCommandAllowlist(body, policy, allowedNamespaces, depth + 1);
+        if (!nested.allow) return nested;
+      }
+    }
+
+    const at = tokens.findIndex(isKubectlToken);
+    if (at === -1) continue;
+    const argv = tokens.slice(at + 1);
+    // Nothing after the token: it is a literal argument to another command
+    // (`ps aux | grep kubectl`), not an invocation. A genuine bare `kubectl`
+    // only prints usage, so skipping the segment costs nothing.
+    if (argv.length === 0) continue;
+    const parsed = parseKubectlArgv(argv);
+    if (policy.mode === 'write' && POLICY_GATED_KUBECTL_VERBS.has(parsed.verb)) {
+      if (allowedNamespaces.length === 0) continue;
+      const namespaces = parsed.namespace !== null
+        ? [parsed.namespace]
+        : namespacesInCpOperands(argv);
+      if (namespaces.length === 0) {
+        return {
+          allow: false,
+          reason: `'kubectl ${parsed.verb}' must name a namespace from the connector's allowed namespaces`,
+        };
+      }
+      const outside = namespaces.find((ns) => !allowedNamespaces.includes(ns));
+      if (outside !== undefined) {
+        return {
+          allow: false,
+          reason: `namespace '${outside}' is not in the connector's allowed namespaces`,
+        };
+      }
+      continue;
+    }
+    const decision = checkKubectl(argv, policy.mode, allowedNamespaces);
+    if (!decision.allow) return decision;
+  }
+  return { allow: true };
+}
+
 function createConfirmation(params: {
   orgId: string;
   userId: string;
@@ -270,6 +499,7 @@ function createConfirmation(params: {
     expiresAt: new Date(Date.now() + CONFIRMATION_TTL_MS).toISOString(),
     status: 'pending',
   };
+  sweepConfirmations();
   PENDING_CONFIRMATIONS.set(confirmation.id, confirmation);
   return confirmation;
 }
@@ -302,17 +532,42 @@ function createClusterShellConfirmation(params: {
     expiresAt: new Date(Date.now() + CONFIRMATION_TTL_MS).toISOString(),
     status: 'pending',
   };
+  sweepConfirmations();
   PENDING_CONFIRMATIONS.set(confirmation.id, confirmation);
   return confirmation;
 }
 
-export function getOpsCommandConfirmation(id: string): OpsCommandConfirmation | undefined {
-  const confirmation = PENDING_CONFIRMATIONS.get(id);
-  if (!confirmation) return undefined;
-  if (confirmation.status === 'pending' && Date.parse(confirmation.expiresAt) <= Date.now()) {
-    confirmation.status = 'expired';
+function settleConfirmation(
+  confirmation: OpsCommandConfirmation,
+  status: Exclude<OpsCommandConfirmation['status'], 'pending'>,
+): void {
+  confirmation.status = status;
+  CONFIRMATION_PRUNE_AT.set(confirmation.id, Date.now() + CONFIRMATION_RETENTION_MS);
+}
+
+/**
+ * Flip pending rows whose TTL elapsed to `expired`, then drop every row past
+ * its prune deadline. Runs on each insert and each lookup, so the store stays
+ * bounded by the confirmations actually in flight instead of accumulating one
+ * row per command for the life of the process.
+ */
+function sweepConfirmations(): void {
+  const now = Date.now();
+  for (const [id, confirmation] of PENDING_CONFIRMATIONS) {
+    if (confirmation.status === 'pending' && Date.parse(confirmation.expiresAt) <= now) {
+      settleConfirmation(confirmation, 'expired');
+    }
+    const pruneAt = CONFIRMATION_PRUNE_AT.get(id);
+    if (pruneAt !== undefined && pruneAt <= now) {
+      PENDING_CONFIRMATIONS.delete(id);
+      CONFIRMATION_PRUNE_AT.delete(id);
+    }
   }
-  return confirmation;
+}
+
+export function getOpsCommandConfirmation(id: string): OpsCommandConfirmation | undefined {
+  sweepConfirmations();
+  return PENDING_CONFIRMATIONS.get(id);
 }
 
 export function resolveOpsCommandConfirmation(
@@ -322,7 +577,7 @@ export function resolveOpsCommandConfirmation(
 ): OpsCommandConfirmation | undefined {
   const confirmation = getOpsCommandConfirmation(id);
   if (!confirmation || confirmation.status !== 'pending') return confirmation;
-  confirmation.status = status;
+  settleConfirmation(confirmation, status);
   if (approver) {
     confirmation.approvedByUserId = approver.userId;
     confirmation.approvedAt = new Date().toISOString();
@@ -339,12 +594,25 @@ async function waitForConfirmationDecision(
   confirmation: OpsCommandConfirmation,
 ): Promise<OpsCommandConfirmation['status']> {
   const current = getOpsCommandConfirmation(confirmation.id);
-  if (!current || current.status !== 'pending') return current?.status ?? 'expired';
+  // No row at all means this process has no record of the card — it was
+  // pruned, or the api-gateway restarted since it was created. We cannot tell
+  // an approval from a rejection from silence, so fail loudly instead of
+  // reporting a decision the user never made (and instead of waiting on a
+  // card nobody can ever resolve).
+  if (!current) {
+    throw new Error(
+      `Ops confirmation ${confirmation.id} is no longer tracked by this api-gateway process ` +
+        `(it expired and was pruned, or the process restarted). Re-run the command to get a new confirmation.`,
+    );
+  }
+  if (current.status !== 'pending') return current.status;
   const expiresInMs = Math.max(0, Date.parse(current.expiresAt) - Date.now());
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      const latest = getOpsCommandConfirmation(confirmation.id);
-      if (latest?.status === 'pending') latest.status = 'expired';
+      // Our own deadline fired, so `expired` is a fact rather than a guess —
+      // report it even if the row was already swept away.
+      const latest = PENDING_CONFIRMATIONS.get(confirmation.id);
+      if (latest?.status === 'pending') settleConfirmation(latest, 'expired');
       CONFIRMATION_WAITERS.delete(confirmation.id);
       resolve('expired');
     }, expiresInMs);
@@ -359,6 +627,13 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
   private readonly secretResolver: OpsSecretRefResolver;
 
   constructor(private readonly deps: KubectlOpsCommandRunnerDeps) {
+    // Structural gate: a runner without an allowlist policy must not exist.
+    // A missing policy is a wiring bug, never an implicit "allow".
+    if (deps.commandPolicy?.mode !== 'read' && deps.commandPolicy?.mode !== 'write') {
+      throw new Error(
+        'KubectlOpsCommandRunner requires commandPolicy.mode ("read" or "write") — refusing to run ops commands without a kubectl allowlist policy.',
+      );
+    }
     this.secretResolver = deps.secretResolver ?? new DefaultOpsSecretRefResolver();
   }
 
@@ -399,6 +674,23 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     const command = params.command.trim();
     if (!command) {
       return { observation: 'ops_run_command requires a non-empty command.' };
+    }
+
+    // kubectl allowlist gate. Same `checkKubectl` policy the plan executor
+    // runs, applied here so the chat and background paths can't reach the
+    // cluster with a verb or namespace the connector never allowed.
+    const allowlist = checkShellCommandAllowlist(
+      command,
+      this.deps.commandPolicy,
+      readAllowedNamespaces(connector),
+    );
+    if (!allowlist.allow) {
+      return {
+        observation:
+          `Blocked by the ops command allowlist: ${allowlist.reason}. ` +
+          `Propose a remediation plan for changes that need approval, or widen the connector's allowed namespaces in Settings → Connectors → ${connector.name}.`,
+        success: false,
+      };
     }
 
     // Confirmation gating. The `intent` parameter is the model's
@@ -507,10 +799,10 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
 
     // Real shell semantics. The command runs as `sh -c <command>` with the
     // connector's kubeconfig exported as KUBECONFIG. Pipes, redirects, `&&`,
-    // `$(...)`, quoting, heredocs all work as the model wrote them. There's
-    // no argv-based gate here — confirmation already covered that — but
-    // common tools (kubectl, jq, curl, grep, awk, sed) need to exist on the
-    // api-gateway host's PATH.
+    // `$(...)`, quoting, heredocs all work as the model wrote them. Every
+    // kubectl invocation in the string already passed the allowlist gate
+    // above; common tools (kubectl, jq, curl, grep, awk, sed) still need to
+    // exist on the api-gateway host's PATH.
     const adapter = new ShellExecutionAdapter({
       resolveKubeconfig: async () => this.resolveKubeconfig(connector),
     });
@@ -599,6 +891,25 @@ export class KubectlOpsCommandRunner implements OpsCommandRunner {
     }
     if (params.scope === 'namespace' && !params.namespace?.trim()) {
       return { observation: 'ops_cluster_shell requires namespace when scope="namespace".' };
+    }
+
+    // Namespace half of the allowlist. The script itself is opaque (that's
+    // the point of cluster shell) but its target namespace is structured,
+    // so the connector's allowedNamespaces still binds it.
+    const allowedNamespaces = readAllowedNamespaces(connector);
+    const targetNamespace = params.namespace?.trim();
+    if (
+      params.scope === 'namespace' &&
+      targetNamespace &&
+      allowedNamespaces.length > 0 &&
+      !allowedNamespaces.includes(targetNamespace)
+    ) {
+      return {
+        observation:
+          `Blocked by the ops command allowlist: namespace '${targetNamespace}' is not in the connector's allowed namespaces. ` +
+          `Widen them in Settings → Connectors → ${connector.name}.`,
+        success: false,
+      };
     }
 
     // Policy gate (same precedence as runCommand). Cluster shell always

@@ -23,6 +23,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlService } from '../services/accesscontrol-service.js';
 import { TeamService, TeamServiceError } from '../services/team-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface TeamsRouterDeps {
   teams: TeamService;
@@ -79,7 +80,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
   router.get(
     '/search',
     requirePermission(ac.eval(ACTIONS.TeamsRead, 'teams:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const opts = parseListOpts(req);
         const page = await deps.teams.list(req.auth!.orgId, opts);
@@ -101,14 +102,14 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/teams ------------------------------------------------------
   router.post(
     '/',
     requirePermission(ac.eval(ACTIONS.TeamsCreate)),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as { name?: string; email?: string };
         if (!body.name || typeof body.name !== 'string') {
@@ -128,7 +129,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/teams/:id ---------------------------------------------------
@@ -137,7 +138,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsRead, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const team = await deps.teams.getById(req.auth!.orgId, req.params['id']!);
         if (!team) {
@@ -158,7 +159,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PUT /api/teams/:id ---------------------------------------------------
@@ -167,7 +168,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsWrite, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as { name?: string; email?: string };
         await deps.teams.update(
@@ -180,7 +181,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — DELETE /api/teams/:id ------------------------------------------------
@@ -189,7 +190,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsDelete, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         await deps.teams.delete(
           req.auth!.orgId,
@@ -200,7 +201,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/teams/:id/members ------------------------------------------
@@ -209,7 +210,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsPermissionsRead, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const members = await deps.teams.listMembers(
           req.auth!.orgId,
@@ -235,7 +236,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/teams/:id/members -----------------------------------------
@@ -244,7 +245,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsPermissionsWrite, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as { userId?: string; permission?: unknown };
         if (!body.userId || typeof body.userId !== 'string') {
@@ -274,7 +275,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PUT /api/teams/:id/members/:userId ----------------------------------
@@ -283,7 +284,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsPermissionsWrite, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as { permission?: unknown };
         const perm = parseMemberPermission(body.permission);
@@ -304,7 +305,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — DELETE /api/teams/:id/members/:userId -------------------------------
@@ -313,7 +314,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsPermissionsWrite, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         await deps.teams.removeMember(
           req.auth!.orgId,
@@ -325,7 +326,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/teams/:id/preferences --------------------------------------
@@ -334,7 +335,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsRead, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const prefs = await deps.teams.getTeamPreferences(
           req.auth!.orgId,
@@ -362,7 +363,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PUT /api/teams/:id/preferences --------------------------------------
@@ -371,7 +372,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.TeamsWrite, `teams:id:${req.params['id']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = (req.body ?? {}) as Record<string, unknown>;
         await deps.teams.setTeamPreferences(req.auth!.orgId, req.params['id']!, {
@@ -400,7 +401,7 @@ export function createTeamsRouter(deps: TeamsRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

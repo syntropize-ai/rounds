@@ -24,6 +24,7 @@ import {
   passwordMinLength,
   verifyPassword,
 } from '../auth/local-provider.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface UserRouterDeps {
   users: IUserRepository;
@@ -48,7 +49,7 @@ export function createUserRouter(deps: UserRouterDeps): Router {
   const router = Router();
 
   // GET /api/user — current user profile + org memberships.
-  router.get('/', async (req: AuthenticatedRequest, res: Response) => {
+  router.get('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!requireAuth(req, res)) return;
     const user = await deps.users.findById(req.auth!.userId);
     if (!user) {
@@ -80,10 +81,10 @@ export function createUserRouter(deps: UserRouterDeps): Router {
       authLabels: auths.map((a) => a.authModule),
       orgs,
     });
-  });
+  }));
 
   // PUT /api/user — update name/email/login.
-  router.put('/', async (req: AuthenticatedRequest, res: Response) => {
+  router.put('/', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!requireAuth(req, res)) return;
     const body = (req.body ?? {}) as {
       name?: string;
@@ -111,12 +112,12 @@ export function createUserRouter(deps: UserRouterDeps): Router {
       outcome: 'success',
     });
     res.json({ message: 'user updated' });
-  });
+  }));
 
   // PUT /api/user/password
   router.put(
     '/password',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireAuth(req, res)) return;
       const body = (req.body ?? {}) as {
         oldPassword?: string;
@@ -170,13 +171,13 @@ export function createUserRouter(deps: UserRouterDeps): Router {
         outcome: 'success',
       });
       res.json({ message: 'password changed' });
-    },
+    }),
   );
 
   // GET/PUT /api/user/preferences
   router.get(
     '/preferences',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireAuth(req, res)) return;
       if (!deps.preferences) {
         res.json({});
@@ -193,12 +194,12 @@ export function createUserRouter(deps: UserRouterDeps): Router {
         weekStart: prefs?.weekStart ?? '',
         locale: prefs?.locale ?? '',
       });
-    },
+    }),
   );
 
   router.put(
     '/preferences',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireAuth(req, res)) return;
       if (!deps.preferences) {
         res.status(501).json({
@@ -226,13 +227,13 @@ export function createUserRouter(deps: UserRouterDeps): Router {
         locale: body.locale ?? null,
       });
       res.json({ message: 'preferences updated' });
-    },
+    }),
   );
 
   // GET /api/user/auth-tokens — external logins (OAuth/SAML/LDAP linkages).
   router.get(
     '/auth-tokens',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireAuth(req, res)) return;
       const auths = await deps.userAuth.listByUser(req.auth!.userId);
       res.json(
@@ -243,12 +244,12 @@ export function createUserRouter(deps: UserRouterDeps): Router {
           created: a.created,
         })),
       );
-    },
+    }),
   );
 
   router.delete(
     '/auth-tokens/:id',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireAuth(req, res)) return;
       const id = req.params['id'] ?? '';
       const row = await deps.userAuth.findById(id);
@@ -269,11 +270,11 @@ export function createUserRouter(deps: UserRouterDeps): Router {
         metadata: { module: row.authModule },
       });
       res.status(204).send();
-    },
+    }),
   );
 
   // GET /api/user/tokens — cookie sessions.
-  router.get('/tokens', async (req: AuthenticatedRequest, res: Response) => {
+  router.get('/tokens', asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!requireAuth(req, res)) return;
     const rows = await deps.sessions.listForUser(req.auth!.userId);
     res.json(
@@ -287,12 +288,12 @@ export function createUserRouter(deps: UserRouterDeps): Router {
         isActive: r.id === req.auth!.sessionId,
       })),
     );
-  });
+  }));
 
   // POST /api/user/revoke-auth-token.
   router.post(
     '/revoke-auth-token',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireAuth(req, res)) return;
       const body = (req.body ?? {}) as { authTokenId?: string };
       if (!body.authTokenId) {
@@ -311,13 +312,13 @@ export function createUserRouter(deps: UserRouterDeps): Router {
         outcome: 'success',
       });
       res.json({ message: 'session revoked' });
-    },
+    }),
   );
 
   // POST /api/user/using/:orgId — switch default org.
   router.post(
     '/using/:orgId',
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       if (!requireAuth(req, res)) return;
       const newOrgId = req.params['orgId'] ?? '';
       const membership = await deps.orgUsers.findMembership(
@@ -332,7 +333,7 @@ export function createUserRouter(deps: UserRouterDeps): Router {
       }
       await deps.users.update(req.auth!.userId, { orgId: newOrgId });
       res.json({ message: 'active organization changed' });
-    },
+    }),
   );
 
   return router;

@@ -16,8 +16,7 @@ npx @syntropize/rounds
 helm upgrade --install rounds \
   oci://ghcr.io/syntropize/charts/rounds \
   --namespace observability \
-  --create-namespace \
-  --set secretEnv.LLM_API_KEY='replace-with-your-provider-key'
+  --create-namespace
 ```
 
 :::

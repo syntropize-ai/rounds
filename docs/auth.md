@@ -129,15 +129,16 @@ Subsequent visits to `/setup` skip the admin step if a user already exists.
 Set before first start:
 
 ```sh
-export SEED_ADMIN=true
 export SEED_ADMIN_EMAIL=admin@example.com
-export SEED_ADMIN_LOGIN=admin
 export SEED_ADMIN_PASSWORD='at-least-12-chars'
+export SEED_ADMIN_LOGIN=admin        # optional, defaults to "admin"
+export SEED_ADMIN_NAME='Server Admin' # optional
 ```
 
-On boot, if the `user` table is empty and `SEED_ADMIN_PASSWORD` meets the
-min-length requirement, Rounds creates the user and prints
-`seed admin created` to the log. Subsequent boots are no-ops.
+On boot, if the `user` table is empty (service accounts excluded) and both
+`SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` are set, with the password meeting
+the min-length requirement, Rounds creates the user and logs the seed.
+Subsequent boots are no-ops.
 
 ## Authentication methods
 

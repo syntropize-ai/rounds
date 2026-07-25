@@ -206,16 +206,25 @@ export default function Dashboards() {
   // Backend search results
   interface SearchHit { type: string; id: string; title: string; subtitle?: string; matchField?: string; navigateTo: string }
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
-    if (!search.trim()) { setSearchResults([]); return; }
+    if (!search.trim()) { setSearchResults([]); setSearchError(null); return; }
     setSearching(true);
     clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       void apiClient.get<{ results: SearchHit[] }>(`/search?q=${encodeURIComponent(search.trim())}&limit=20`).then((res) => {
-        if (!res.error) setSearchResults(res.data.results);
+        if (res.error) {
+          // Drop the previous term's hits — keeping them would label stale
+          // results with the new query.
+          setSearchResults([]);
+          setSearchError(res.error.message);
+        } else {
+          setSearchResults(res.data.results);
+          setSearchError(null);
+        }
         setSearching(false);
       });
     }, 200);
@@ -382,7 +391,13 @@ export default function Dashboards() {
                 <span className="inline-block w-5 h-5 border-2 border-outline border-t-primary rounded-full animate-spin" />
               </div>
             )}
-            {!searching && searchResults.length === 0 && (
+            {!searching && searchError && (
+              <div className="py-8 text-center" data-testid="dashboards-search-error">
+                <p className="text-sm text-error mb-2">Failed to search</p>
+                <p className="text-xs text-on-surface-variant">{searchError}</p>
+              </div>
+            )}
+            {!searching && !searchError && searchResults.length === 0 && (
               <div className="py-8 text-center">
                 <p className="text-sm text-on-surface-variant">No results for "<span className="text-primary">{search}</span>"</p>
               </div>

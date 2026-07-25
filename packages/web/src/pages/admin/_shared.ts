@@ -9,6 +9,8 @@
  * operator-facing interface vocabulary (see §99 license hygiene).
  */
 
+import { relativeTime } from '../../utils/time.js';
+
 // ────────────────────────────────────────────────────────────────────────────
 // DTO shapes — intentionally a subset of the full Grafana DTO. We type the
 // fields the admin UI actually reads; unknown fields are tolerated.
@@ -287,19 +289,6 @@ export function authMethodLabel(labels?: string[]): string {
  */
 export function formatLastSeen(iso?: string | null, now: Date = new Date()): string {
   if (!iso) return 'never';
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return 'unknown';
-  const diffMs = now.getTime() - then;
-  if (diffMs < 0) return 'just now';
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  const years = Math.floor(days / 365);
-  return `${years}y ago`;
+  if (Number.isNaN(new Date(iso).getTime())) return 'unknown';
+  return relativeTime(iso, now.getTime());
 }

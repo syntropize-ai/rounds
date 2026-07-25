@@ -31,6 +31,7 @@ import type { SetupConfigService } from '../services/setup-config-service.js';
 import { normalizePrometheusBaseUrl } from '../utils/prometheus-url.js';
 import { hydrateConnectorSecrets, type ConnectorSecretReader } from '../utils/connector-secrets.js';
 import type { AuditWriter } from '../auth/audit-writer.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface MetricsQueryRouterDeps {
   setupConfig: SetupConfigService;
@@ -243,7 +244,7 @@ export function createMetricsQueryRouter(deps: MetricsQueryRouterDeps): Router {
   router.post(
     '/query',
     authMiddleware,
-    async (req: Request, res: Response, next) => {
+    asyncHandler(async (req: Request, res: Response, next) => {
       const auth = (req as AuthenticatedRequest).auth;
       if (!auth) {
         res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'authentication required' } });
@@ -382,7 +383,7 @@ export function createMetricsQueryRouter(deps: MetricsQueryRouterDeps): Router {
           error: { code: 'INTERNAL_ERROR', message: getErrorMessage(err) },
         });
       }
-    },
+    }),
   );
 
   // Reference unused middleware factory so eslint doesn't flag the import

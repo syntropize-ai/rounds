@@ -100,6 +100,9 @@ export function ModelCombobox({
       commit(filtered[highlight].id);
       e.preventDefault();
     } else if (e.key === 'Escape') {
+      // stopPropagation so the listbox consumes Escape — the global chat
+      // shortcut listens on window and would otherwise stop a running agent.
+      e.stopPropagation();
       setOpen(false);
     }
   }

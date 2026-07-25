@@ -27,6 +27,7 @@ import {
   listGithubAppInstallations,
 } from '../services/github-app.js';
 import { createLogger } from '@agentic-obs/server-utils/logging';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const log = createLogger('connectors-github');
 
@@ -40,7 +41,7 @@ interface StateEntry {
 
 export interface ConnectorsGithubDeps {
   createConnector: (input: NewConnector) => Promise<Connector>;
-  upsertSecret: (input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }) => Promise<unknown>;
+  upsertSecret: (input: { connectorId: string; ciphertext: Uint8Array }) => Promise<unknown>;
   githubAppConfig: IGithubAppConfigRepository;
   /** Base URL operator uses to reach this instance. Used for redirect/hook URLs. */
   appBaseUrl: string;
@@ -94,7 +95,7 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
     return entry;
   }
 
-  router.get('/registration-status', async (req, res) => {
+  router.get('/registration-status', asyncHandler(async (req, res) => {
     const orgId = (req as AuthenticatedRequest).auth?.orgId;
     if (!orgId) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'org context is required' } });
@@ -111,7 +112,7 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
       appId: cfg.appId,
       registeredAt: cfg.registeredAt,
     });
-  });
+  }));
 
   router.get('/manifest', (req: Request, res: Response) => {
     const auth = (req as AuthenticatedRequest).auth;
@@ -187,7 +188,7 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
     });
   });
 
-  router.get('/manifest-callback', async (req: Request, res: Response) => {
+  router.get('/manifest-callback', asyncHandler(async (req: Request, res: Response) => {
     const code = strParam(req.query['code']);
     const state = strParam(req.query['state']);
     if (!code || !state) {
@@ -216,9 +217,9 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
       log.warn({ err: message }, 'github manifest-callback failed');
       redirectErr(res, resolveSettingsUrl(req), message);
     }
-  });
+  }));
 
-  router.post('/unregister', async (req, res) => {
+  router.post('/unregister', asyncHandler(async (req, res) => {
     const orgId = (req as AuthenticatedRequest).auth?.orgId;
     if (!orgId) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'org context is required' } });
@@ -226,9 +227,9 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
     }
     const ok = await deps.githubAppConfig.delete(orgId);
     res.json({ ok });
-  });
+  }));
 
-  router.get('/install-url', async (req: Request, res: Response) => {
+  router.get('/install-url', asyncHandler(async (req: Request, res: Response) => {
     const orgId = (req as AuthenticatedRequest).auth?.orgId;
     if (!orgId) {
       res.status(403).json({ error: { code: 'FORBIDDEN', message: 'org context is required' } });
@@ -244,9 +245,9 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
       return;
     }
     res.json({ url: buildInstallUrl(cfg, orgId) });
-  });
+  }));
 
-  router.post('/sync-installations', async (req: Request, res: Response) => {
+  router.post('/sync-installations', asyncHandler(async (req: Request, res: Response) => {
     const auth = (req as AuthenticatedRequest).auth;
     const orgId = auth?.orgId;
     const userId = auth?.userId ?? 'system:github-sync';
@@ -285,7 +286,6 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
           await deps.upsertSecret({
             connectorId: connector.id,
             ciphertext: new TextEncoder().encode(JSON.stringify({ token, expiresAt })),
-            keyVersion: 1,
           });
           created.push({ connectorId: connector.id, owner, installationId: installation.id });
         } catch (err) {
@@ -296,7 +296,6 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
               await deps.upsertSecret({
                 connectorId,
                 ciphertext: new TextEncoder().encode(JSON.stringify({ token, expiresAt })),
-                keyVersion: 1,
               });
               refreshed.push({ connectorId, owner, installationId: installation.id });
               continue;
@@ -318,9 +317,9 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
       log.warn({ err: message }, 'github sync-installations failed');
       res.status(502).json({ ok: false, error: { code: 'GITHUB_SYNC_FAILED', message } });
     }
-  });
+  }));
 
-  router.get('/callback', async (req: Request, res: Response) => {
+  router.get('/callback', asyncHandler(async (req: Request, res: Response) => {
     const installationId = strParam(req.query['installation_id']);
     const state = strParam(req.query['state']);
     const setupAction = strParam(req.query['setup_action']);
@@ -351,7 +350,6 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
       await deps.upsertSecret({
         connectorId: connector.id,
         ciphertext: new TextEncoder().encode(JSON.stringify({ token, expiresAt })),
-        keyVersion: 1,
       });
       res.redirect(`${resolveSettingsUrl(req)}?github=connected`);
     } catch (err) {
@@ -359,7 +357,7 @@ export function createConnectorsGithubRouter(deps: ConnectorsGithubDeps): Router
       log.warn({ err: message, installationId }, 'github callback failed');
       redirectErr(res, resolveSettingsUrl(req), message);
     }
-  });
+  }));
 
   return router;
 }

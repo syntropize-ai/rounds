@@ -39,7 +39,9 @@ export default function TimeRangePicker({ value, onChange }: {
       if (btnRef.current?.contains(e.target as Node)) return;
       setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    // stopPropagation so the popover consumes Escape — the global chat
+    // shortcut listens on window and would otherwise stop a running agent.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
     document.addEventListener('mousedown', onMouse);
     document.addEventListener('keydown', onKey);
     return () => {

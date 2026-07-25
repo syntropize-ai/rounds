@@ -482,6 +482,60 @@ function AlertRuleRow({
   );
 }
 
+/**
+ * The three mutually exclusive pre-list states: still loading, the fetch
+ * failed, or there really are no rules. Rendering a failed fetch as "No alert
+ * rules yet" reads as "all clear" while the backend is down — the single most
+ * dangerous thing an alerting UI can say. Exported so the states can be
+ * asserted with renderToStaticMarkup (the web package has no jsdom).
+ */
+export function AlertsListState({ loading, loadError, ruleCount, onRetry }: {
+  loading: boolean;
+  loadError: string | null;
+  ruleCount: number;
+  onRetry: () => void;
+}): React.ReactElement | null {
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <span className="inline-block w-5 h-5 border-2 border-[var(--color-outline-variant)] border-t-[var(--color-primary)] rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="alerts-load-error">
+        <p className="text-sm text-error mb-2">Failed to load alert rules</p>
+        <p className="text-xs text-on-surface-variant mb-4">{loadError}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="bg-primary text-on-primary-fixed px-4 py-2 font-semibold text-sm"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (ruleCount === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="w-12 h-12 rounded-full bg-[var(--color-surface-highest)] border border-[var(--color-outline-variant)] flex items-center justify-center mb-4">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-7.1 12.3A2 2 0 004.92 19h14.16a2 2 0 001.73-2.84l-7.1-12.3a2 2 0 00-3.46 0z" stroke="var(--color-primary)" strokeWidth="1.8"/>
+          </svg>
+        </div>
+        <div className="text-sm text-[var(--color-on-surface-variant)] mb-1">No alert rules yet</div>
+        <p className="text-xs text-[var(--color-outline)]">Create your first alert rule using the + Create Rule button above</p>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export default function Alerts() {
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
@@ -501,6 +555,7 @@ export default function Alerts() {
       || hasPermission('alert.rules:write'));
   const [rules, setRules] = useState<AlertRule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState<AlertRuleState | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -535,7 +590,14 @@ export default function Alerts() {
     if (stateFilter !== 'all') params.set('state', stateFilter);
     const qs = params.toString() ? `?${params.toString()}` : '';
     const res = await apiClient.get<{ list: AlertRule[]; total: number }>(`/alert-rules${qs}`);
-    if (!res.error) setRules(res.data.list ?? []);
+    if (res.error) {
+      // Keep whatever was already on screen — a failed poll must not read as
+      // "no alert rules". The failure is surfaced by <AlertsListState>.
+      setLoadError(res.error.message);
+    } else {
+      setRules(res.data.list ?? []);
+      setLoadError(null);
+    }
     setLoading(false);
   }, [stateFilter]);
 
@@ -758,25 +820,13 @@ export default function Alerts() {
           </div>
         </div>
 
-        {/* Loading */}
-        {loading && (
-          <div className="flex justify-center py-16">
-            <span className="inline-block w-5 h-5 border-2 border-[var(--color-outline-variant)] border-t-[var(--color-primary)] rounded-full animate-spin" />
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!loading && !rules.length && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-12 h-12 rounded-full bg-[var(--color-surface-highest)] border border-[var(--color-outline-variant)] flex items-center justify-center mb-4">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-7.1 12.3A2 2 0 004.92 19h14.16a2 2 0 001.73-2.84l-7.1-12.3a2 2 0 00-3.46 0z" stroke="var(--color-primary)" strokeWidth="1.8"/>
-              </svg>
-            </div>
-            <div className="text-sm text-[var(--color-on-surface-variant)] mb-1">No alert rules yet</div>
-            <p className="text-xs text-[var(--color-outline)]">Create your first alert rule using the + Create Rule button above</p>
-          </div>
-        )}
+        {/* Loading / load failure / empty */}
+        <AlertsListState
+          loading={loading}
+          loadError={loadError}
+          ruleCount={rules.length}
+          onRetry={() => { setLoading(true); void loadRules(); }}
+        />
 
         {/* No search results */}
         {!loading && rules.length > 0 && !filteredRules.length && (

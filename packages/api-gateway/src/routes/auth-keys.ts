@@ -33,6 +33,7 @@ import {
   ServiceAccountServiceError,
 } from '../services/serviceaccount-service.js';
 import { ApiKeyService } from '../services/apikey-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface AuthKeysRouterDeps {
   serviceAccounts: ServiceAccountService;
@@ -73,7 +74,7 @@ export function createAuthKeysRouter(deps: AuthKeysRouterDeps): Router {
   router.get(
     '/',
     requirePermission(ac.eval(ACTIONS.ApiKeysRead, 'apikeys:*')),
-    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         // All SA tokens + all PATs in the current org. Shape matches
         // Grafana's legacy list response (id/name/role/expiration).
@@ -105,7 +106,7 @@ export function createAuthKeysRouter(deps: AuthKeysRouterDeps): Router {
       } catch (err) {
         forwardError(err, next);
       }
-    },
+    }),
   );
 
   // -- POST /api/auth/keys -------------------------------------------------
@@ -117,7 +118,7 @@ export function createAuthKeysRouter(deps: AuthKeysRouterDeps): Router {
     '/',
     tokenIssueRateLimiter,
     requirePermission(ac.eval(ACTIONS.ApiKeysCreate)),
-    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         const body = (req.body ?? {}) as {
           name?: string;
@@ -169,14 +170,14 @@ export function createAuthKeysRouter(deps: AuthKeysRouterDeps): Router {
       } catch (err) {
         forwardError(err, next);
       }
-    },
+    }),
   );
 
   // -- DELETE /api/auth/keys/:id ------------------------------------------
   router.delete(
     '/:id',
     requirePermission(ac.eval(ACTIONS.ApiKeysDelete)),
-    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         const token = await deps.apiKeys.getById(
           req.auth!.orgId,
@@ -197,7 +198,7 @@ export function createAuthKeysRouter(deps: AuthKeysRouterDeps): Router {
       } catch (err) {
         forwardError(err, next);
       }
-    },
+    }),
   );
 
   return router;

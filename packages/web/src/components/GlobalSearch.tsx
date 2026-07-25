@@ -63,10 +63,13 @@ export default function GlobalSearch() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setOpen(true); }
-      if (e.key === 'Escape' && open) setOpen(false);
+      // Bound on document (not window) and stopping propagation so the open
+      // palette consumes Escape — the global chat shortcut listens on window
+      // and would otherwise stop a running agent.
+      if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
   useEffect(() => {

@@ -10,6 +10,7 @@ import type {
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 const VALID_ASSET_TYPES: AssetType[] = ['dashboard', 'alert_rule', 'investigation_report'];
 
@@ -124,7 +125,7 @@ export function createVersionRouter(deps: VersionRouterDeps): Router {
   });
 
   // GET /api/versions/:assetType/:assetId - list version history
-  router.get('/:assetType/:assetId', async (req: Request, res: Response) => {
+  router.get('/:assetType/:assetId', asyncHandler(async (req: Request, res: Response) => {
     const assetType = req.params['assetType'] as string;
     const assetId = req.params['assetId'] as string;
     if (!isValidAssetType(assetType)) {
@@ -136,10 +137,10 @@ export function createVersionRouter(deps: VersionRouterDeps): Router {
     }
     const history = await store.getHistory(assetType, assetId);
     res.json({ versions: history });
-  });
+  }));
 
   // POST /api/versions/:assetType/:assetId/rollback - rollback to a version
-  router.post('/:assetType/:assetId/rollback', async (req: Request, res: Response) => {
+  router.post('/:assetType/:assetId/rollback', asyncHandler(async (req: Request, res: Response) => {
     const assetType = req.params['assetType'] as string;
     const assetId = req.params['assetId'] as string;
     if (!isValidAssetType(assetType)) {
@@ -160,10 +161,10 @@ export function createVersionRouter(deps: VersionRouterDeps): Router {
       return;
     }
     res.json({ snapshot });
-  });
+  }));
 
   // GET /api/versions/:assetType/:assetId/:version - get specific version
-  router.get('/:assetType/:assetId/:version', async (req: Request, res: Response) => {
+  router.get('/:assetType/:assetId/:version', asyncHandler(async (req: Request, res: Response) => {
     const assetType = req.params['assetType'] as string;
     const assetId = req.params['assetId'] as string;
     const versionStr = req.params['version'] as string;
@@ -185,7 +186,7 @@ export function createVersionRouter(deps: VersionRouterDeps): Router {
       return;
     }
     res.json(entry);
-  });
+  }));
 
   return router;
 }

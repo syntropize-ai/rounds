@@ -11,6 +11,7 @@ import {
   resolveOpsCommandConfirmation,
 } from '../services/ops-command-runner.js';
 import { capabilityForShellCommand } from '../services/ops-policy.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface OpsCommandConfirmationsRouterDeps {
   connectors: IConnectorRepository;
@@ -34,7 +35,7 @@ export function createOpsCommandConfirmationsRouter(
   router.post(
     '/:id/execute',
     authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const auth = (req as AuthenticatedRequest).auth;
         if (!auth) {
@@ -116,13 +117,13 @@ export function createOpsCommandConfirmationsRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   router.post(
     '/:id/reject',
     authMiddleware,
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const auth = (req as AuthenticatedRequest).auth;
         if (!auth) {
@@ -145,7 +146,7 @@ export function createOpsCommandConfirmationsRouter(
       } catch (err) {
         next(err);
       }
-    },
+    }),
   );
 
   return router;

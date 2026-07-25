@@ -19,7 +19,15 @@ interface Props {
   investigationId: string;
 }
 
-const URGENT_STATUSES: ReadonlySet<RemediationPlan['status']> = new Set(['pending_approval', 'failed']);
+const URGENT_STATUSES: ReadonlySet<RemediationPlan['status']> = new Set([
+  'pending_approval',
+  'execution_failed',
+  'failed',
+]);
+
+function hasFailed(status: RemediationPlan['status']): boolean {
+  return status === 'execution_failed' || status === 'failed';
+}
 
 export default function InvestigationPlanBanner({ investigationId }: Props) {
   const [plans, setPlans] = useState<RemediationPlan[]>([]);
@@ -58,7 +66,7 @@ export default function InvestigationPlanBanner({ investigationId }: Props) {
         className={`shrink-0 w-2 h-2 rounded-full ${
           headline.status === 'pending_approval'
             ? 'bg-primary animate-pulse'
-            : headline.status === 'failed'
+            : hasFailed(headline.status)
             ? 'bg-error'
             : 'bg-on-surface-variant'
         }`}
@@ -67,7 +75,7 @@ export default function InvestigationPlanBanner({ investigationId }: Props) {
         <div className={`text-sm font-semibold ${isUrgent ? 'text-primary' : 'text-on-surface'}`}>
           {headline.status === 'pending_approval'
             ? 'Remediation plan ready for review'
-            : headline.status === 'failed'
+            : hasFailed(headline.status)
             ? 'Remediation plan failed'
             : `Remediation plan (${headline.status.replace(/_/g, ' ')})`}
         </div>

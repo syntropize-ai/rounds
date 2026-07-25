@@ -15,6 +15,7 @@ import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
 import { postWebhook, buildTestWebhookBody } from '../services/notification-senders/index.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface NotificationsRouterDeps {
   notificationStore?: INotificationRepository;
@@ -43,22 +44,22 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
   // -- Contact Points
 
   // GET /api/notifications/contact-points
-  router.get('/contact-points', requireDashboardRead, async (_req: Request, res: Response) => {
+  router.get('/contact-points', requireDashboardRead, asyncHandler(async (_req: Request, res: Response) => {
     res.json(await notifStore.findAllContactPoints());
-  });
+  }));
 
   // GET /api/notifications/contact-points/:id
-  router.get('/contact-points/:id', requireDashboardRead, async (req: Request, res: Response) => {
+  router.get('/contact-points/:id', requireDashboardRead, asyncHandler(async (req: Request, res: Response) => {
     const cp = await notifStore.findContactPointById(req.params['id'] ?? '');
     if (!cp) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contact point not found' } });
       return;
     }
     res.json(cp);
-  });
+  }));
 
   // POST /api/notifications/contact-points
-  router.post('/contact-points', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.post('/contact-points', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as Partial<ContactPoint>;
     if (!body?.name) {
       res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'name is required' } });
@@ -70,10 +71,10 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
       integrations: body.integrations ?? [],
     });
     res.status(201).json(cp);
-  });
+  }));
 
   // PUT /api/notifications/contact-points/:id
-  router.put('/contact-points/:id', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.put('/contact-points/:id', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const updated = await notifStore.updateContactPoint(
       req.params['id'] ?? '',
       req.body as Partial<Omit<ContactPoint, 'id' | 'createdAt'>>,
@@ -83,20 +84,20 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
       return;
     }
     res.json(updated);
-  });
+  }));
 
   // DELETE /api/notifications/contact-points/:id
-  router.delete('/contact-points/:id', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.delete('/contact-points/:id', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const deleted = await notifStore.deleteContactPoint(req.params['id'] ?? '');
     if (!deleted) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Contact point not found' } });
       return;
     }
     res.status(204).end();
-  });
+  }));
 
   // POST /api/notifications/contact-points/:id/test
-  router.post('/contact-points/:id/test', requireDashboardWrite, async (req: Request, res: Response, next: NextFunction) => {
+  router.post('/contact-points/:id/test', requireDashboardWrite, asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     try {
       const cp = await notifStore.findContactPointById(req.params['id'] ?? '');
       if (!cp) {
@@ -141,17 +142,17 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
     } catch (err) {
       next(err);
     }
-  });
+  }));
 
   // -- Policy Tree
 
   // GET /api/notifications/policies
-  router.get('/policies', requireDashboardRead, async (_req: Request, res: Response) => {
+  router.get('/policies', requireDashboardRead, asyncHandler(async (_req: Request, res: Response) => {
     res.json(await notifStore.getPolicyTree());
-  });
+  }));
 
   // PUT /api/notifications/policies - replace entire tree
-  router.put('/policies', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.put('/policies', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as NotificationPolicyNode;
     if (!body || !body.id) {
       res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Valid policy tree with id is required' } });
@@ -160,10 +161,10 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
 
     await notifStore.updatePolicyTree(body);
     res.json(await notifStore.getPolicyTree());
-  });
+  }));
 
   // POST /api/notifications/policies/:parentId/children
-  router.post('/policies/:parentId/children', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.post('/policies/:parentId/children', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as Partial<Omit<NotificationPolicyNode, 'id' | 'children' | 'createdAt' | 'updatedAt'>>;
     if (!body?.contactPointId) {
       res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'contactPointId is required' } });
@@ -188,10 +189,10 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
     }
 
     res.status(201).json(newNode);
-  });
+  }));
 
   // PUT /api/notifications/policies/:id
-  router.put('/policies/:id', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.put('/policies/:id', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const updated = await notifStore.updatePolicy(
       req.params['id'] ?? '',
       req.body as Partial<Omit<NotificationPolicyNode, 'id' | 'children' | 'createdAt'>>,
@@ -201,10 +202,10 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
       return;
     }
     res.json(updated);
-  });
+  }));
 
   // DELETE /api/notifications/policies/:id
-  router.delete('/policies/:id', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.delete('/policies/:id', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const id = req.params['id'] ?? '';
     if (id === 'root') {
       res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'Cannot delete root policy' } });
@@ -216,17 +217,17 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
       return;
     }
     res.status(204).end();
-  });
+  }));
 
   // -- Mute Timings
 
   // GET /api/notifications/mute-timings
-  router.get('/mute-timings', requireDashboardRead, async (_req: Request, res: Response) => {
+  router.get('/mute-timings', requireDashboardRead, asyncHandler(async (_req: Request, res: Response) => {
     res.json(await notifStore.findAllMuteTimings());
-  });
+  }));
 
   // POST /api/notifications/mute-timings
-  router.post('/mute-timings', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.post('/mute-timings', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as Partial<MuteTiming>;
     if (!body?.name) {
       res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'name is required' } });
@@ -239,10 +240,10 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
     });
 
     res.status(201).json(mt);
-  });
+  }));
 
   // PUT /api/notifications/mute-timings/:id
-  router.put('/mute-timings/:id', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.put('/mute-timings/:id', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const updated = await notifStore.updateMuteTiming(
       req.params['id'] ?? '',
       req.body as Partial<Omit<MuteTiming, 'id' | 'createdAt'>>,
@@ -252,10 +253,10 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
       return;
     }
     res.json(updated);
-  });
+  }));
 
   // DELETE /api/notifications/mute-timings/:id
-  router.delete('/mute-timings/:id', requireDashboardWrite, async (req: Request, res: Response) => {
+  router.delete('/mute-timings/:id', requireDashboardWrite, asyncHandler(async (req: Request, res: Response) => {
     const deleted = await notifStore.deleteMuteTiming(req.params['id'] ?? '');
     if (!deleted) {
       res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Mute timing not found' } });
@@ -263,12 +264,12 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
     }
 
     res.status(204).end();
-  });
+  }));
 
   // -- Alert Groups
 
   // GET /api/notifications/alert-groups
-  router.get('/alert-groups', requireDashboardRead, async (_req: Request, res: Response) => {
+  router.get('/alert-groups', requireDashboardRead, asyncHandler(async (_req: Request, res: Response) => {
     const rules = await alertStore.findAll({ state: undefined });
     const activeRules = rules.list.filter((r) => r.state === 'firing' || r.state === 'pending');
 
@@ -301,7 +302,7 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
     }
 
     res.json([...groupMap.values()]);
-  });
+  }));
 
   return router;
 }

@@ -36,7 +36,7 @@ describe('formatLoginError', () => {
 
   it('shows a retry-friendly message for 5xx responses', () => {
     const err = new AuthApiError(500, 'internal server error');
-    expect(formatLoginError(err)).toBe('Unable to log in right now. Please retry.');
+    expect(formatLoginError(err)).toBe('Unable to sign in right now. Please retry.');
   });
 
   it('shows a retry-friendly message for 502/503', () => {
@@ -46,7 +46,7 @@ describe('formatLoginError', () => {
 
   it('defaults to a generic message when the error is not an AuthApiError', () => {
     expect(formatLoginError(new Error('network boom'))).toBe(
-      'Unable to log in right now. Please retry.',
+      'Unable to sign in right now. Please retry.',
     );
   });
 });

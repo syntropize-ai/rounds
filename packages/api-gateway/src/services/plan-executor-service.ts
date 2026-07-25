@@ -387,6 +387,12 @@ export class PlanExecutorService {
 
     const next = plan.steps.find((s) => s.status === 'pending');
     if (!next) {
+      // This write and the verifier's `verificationStatus='waiting'` write are
+      // separate statements in separate services, so a crash in between leaves
+      // the plan applied with verification never started. That intermediate
+      // state is exactly what `PlanVerificationService.recoverInterrupted()`
+      // looks for on startup — do not stamp a verification status here, or the
+      // recovery sweep can no longer tell a stranded plan from a live one.
       await this.opts.plans.updatePlan(orgId, planId, { status: 'applied' });
       return { kind: 'completed' };
     }

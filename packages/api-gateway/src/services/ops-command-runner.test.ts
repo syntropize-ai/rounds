@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type {
   Connector,
   ConnectorLookupOptions,
@@ -10,7 +10,9 @@ import type {
 import type { IConnectorRepository } from '@agentic-obs/data-layer';
 import {
   KubectlOpsCommandRunner,
+  checkShellCommandAllowlist,
   connectorToOpsConfig,
+  getOpsCommandConfirmation,
   isAgentReadSafeCommand,
   resolveOpsCommandConfirmation,
   type OpsCommandConfirmation,
@@ -127,6 +129,7 @@ describe('KubectlOpsCommandRunner.listConnectors', () => {
     const runner = new KubectlOpsCommandRunner({
       connectors: fakeConnectorRepo(state),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     const list = await runner.listConnectors();
     expect(list.map((c) => c.id)).toEqual(['k1', 'k2']);
@@ -146,6 +149,7 @@ describe('KubectlOpsCommandRunner.runCommand — error paths', () => {
     const runner = new KubectlOpsCommandRunner({
       connectors: fakeConnectorRepo({ connectors: [], secrets: new Map() }),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     const result = await runner.runCommand({
       connectorId: 'missing',
@@ -165,6 +169,7 @@ describe('KubectlOpsCommandRunner.runCommand — error paths', () => {
     const runner = new KubectlOpsCommandRunner({
       connectors: fakeConnectorRepo(state),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     const result = await runner.runCommand({
       connectorId: 'prom1',
@@ -191,6 +196,7 @@ describe('KubectlOpsCommandRunner.runCommand — error paths', () => {
     const runner = new KubectlOpsCommandRunner({
       connectors: fakeConnectorRepo(state),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     const result = await runner.runCommand({
       connectorId: 'kube-prod',
@@ -217,6 +223,7 @@ describe('KubectlOpsCommandRunner.runCommand — error paths', () => {
     const runner = new KubectlOpsCommandRunner({
       connectors: fakeConnectorRepo(state),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     const result = await runner.runCommand({
       connectorId: 'kube-prod',
@@ -250,6 +257,7 @@ describe('KubectlOpsCommandRunner.runClusterShell — confirmation', () => {
         secrets: new Map(),
       }),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     const seen: string[] = [];
     const result = await runner.runClusterShell({
@@ -281,6 +289,7 @@ describe('KubectlOpsCommandRunner.runClusterShell — confirmation', () => {
         secrets: new Map(),
       }),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     let risk: string | undefined;
     const result = await runner.runClusterShell({
@@ -339,6 +348,7 @@ describe('KubectlOpsCommandRunner.runCommand — getSecret binding', () => {
     const runner = new KubectlOpsCommandRunner({
       connectors: repo,
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
 
     // We only exercise the resolveKubeconfig branch by reaching into the
@@ -399,6 +409,7 @@ describe('KubectlOpsCommandRunner.runCommand — connector policy gate', () => {
     return new KubectlOpsCommandRunner({
       connectors: fakeConnectorRepo(state),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
       ...(resolveUserTeams
         ? { resolveUserTeams: resolveUserTeams as never }
         : {}),
@@ -452,6 +463,7 @@ describe('KubectlOpsCommandRunner.runCommand — connector policy gate', () => {
         policies: [readPolicy('kube-prod', 'runtime.exec', 'allow')],
       }),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
       readOnlyAgentBypass: true,
     });
     let captured: OpsCommandConfirmation | undefined;
@@ -586,6 +598,7 @@ describe('resolveOpsCommandConfirmation — approver attribution', () => {
         secrets: new Map(),
       }),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     let captured: OpsCommandConfirmation | undefined;
     const pending = runner.runCommand({
@@ -629,6 +642,7 @@ describe('runCommand — onResolved resolution callback', () => {
         secrets: new Map(),
       }),
       orgId: 'org_a',
+      commandPolicy: { mode: 'write' },
     });
     const resolutions: Array<{ id: string; status: string; output?: string }> = [];
     const pending = runner.runCommand({
@@ -651,5 +665,462 @@ describe('runCommand — onResolved resolution callback', () => {
     expect(r.success).toBe(false);
     expect(resolutions).toHaveLength(1);
     expect(resolutions[0]?.status).toBe('rejected');
+  });
+});
+
+describe('KubectlOpsCommandRunner — kubectl allowlist gate', () => {
+  // The allowlist (`checkKubectl` verbs + the connector's allowedNamespaces)
+  // used to be enforced only by the plan executor's KubectlExecutionAdapter.
+  // The chat and background paths run through this runner, which shells out
+  // to `sh -c`, and had no argv/namespace gate at all. The gate now lives in
+  // the runner itself and the policy is a required dependency, so no call
+  // site can skip it.
+  const identity = {
+    userId: 'u1',
+    orgId: 'org_a',
+    orgRole: 'Admin' as const,
+    isServerAdmin: false,
+    authenticatedBy: 'session' as const,
+  };
+
+  function mkRunner(mode: 'read' | 'write'): KubectlOpsCommandRunner {
+    return new KubectlOpsCommandRunner({
+      connectors: fakeConnectorRepo({
+        connectors: [
+          mkConnector({
+            id: 'kube-prod',
+            config: {
+              kubeconfig: 'apiVersion: v1\nkind: Config',
+              allowedNamespaces: ['api', 'web'],
+            },
+          }),
+        ],
+        secrets: new Map(),
+        // Explicit allows so nothing below stalls on a confirmation card —
+        // the assertions are about the allowlist, not the policy table.
+        policies: [
+          readPolicy('kube-prod', 'runtime.get', 'allow'),
+          readPolicy('kube-prod', 'runtime.exec', 'allow'),
+          readPolicy('kube-prod', 'runtime.scale', 'allow'),
+          readPolicy('kube-prod', 'runtime.delete', 'allow'),
+        ],
+      }),
+      orgId: 'org_a',
+      commandPolicy: { mode },
+    });
+  }
+
+  it('throws when constructed without a command policy', () => {
+    expect(
+      () =>
+        new KubectlOpsCommandRunner({
+          connectors: fakeConnectorRepo({ connectors: [], secrets: new Map() }),
+          orgId: 'org_a',
+        } as unknown as ConstructorParameters<typeof KubectlOpsCommandRunner>[0]),
+    ).toThrow(/requires commandPolicy\.mode/);
+  });
+
+  it('throws when the command policy mode is not read or write', () => {
+    expect(
+      () =>
+        new KubectlOpsCommandRunner({
+          connectors: fakeConnectorRepo({ connectors: [], secrets: new Map() }),
+          orgId: 'org_a',
+          commandPolicy: { mode: 'anything' },
+        } as unknown as ConstructorParameters<typeof KubectlOpsCommandRunner>[0]),
+    ).toThrow(/requires commandPolicy\.mode/);
+  });
+
+  it('denies a chat-path command targeting a namespace outside allowedNamespaces', async () => {
+    const r = await mkRunner('write').runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl get pods -n kube-system',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by the ops command allowlist');
+    expect(r.observation).toContain("namespace 'kube-system'");
+  });
+
+  it('denies a chat-path exec into a namespace outside allowedNamespaces', async () => {
+    const r = await mkRunner('write').runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec -n kube-system etcd-0 -- cat /etc/passwd',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain("namespace 'kube-system'");
+  });
+
+  it('denies a background-agent kubectl exec even inside an allowed namespace', async () => {
+    // `kubectl exec … -- cat /var/run/secrets/…/token` reads a service-account
+    // token exactly as `kubectl get secret` does. On the unattended path there
+    // is no confirmation card to catch it (readOnlyAgentBypass opens the gate
+    // for read-shaped commands), so the exec/cp exemption is chat-only.
+    const r = await mkRunner('read').runCommand({
+      connectorId: 'kube-prod',
+      command:
+        'kubectl exec -n api api-0 -- cat /var/run/secrets/kubernetes.io/serviceaccount/token',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by the ops command allowlist');
+    expect(r.observation).toContain("kubectl verb 'exec' is permanently denied");
+  });
+
+  it('denies a chat-path kubectl spelled with an absolute path', async () => {
+    const r = await mkRunner('write').runCommand({
+      connectorId: 'kube-prod',
+      command: '/usr/bin/kubectl get secret db-creds -n api -o yaml',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by the ops command allowlist');
+    expect(r.observation).toContain('secret reads are denied');
+  });
+
+  it('denies a background-agent command outside the read argv allowlist', async () => {
+    const r = await mkRunner('read').runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl scale deployment web -n api --replicas=0',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by the ops command allowlist');
+    expect(r.observation).toContain('read-allowlist');
+  });
+
+  it('denies a kubectl write hidden behind a pipe', async () => {
+    const r = await mkRunner('read').runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl get cm -n api -o name | xargs -I{} kubectl delete {} -n api',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by the ops command allowlist');
+  });
+
+  it('denies a kubectl invocation hidden in a command substitution', async () => {
+    const r = await mkRunner('write').runCommand({
+      connectorId: 'kube-prod',
+      command: 'echo $(kubectl get secret db-creds -n api -o yaml)',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('secret reads are denied');
+  });
+
+  it('lets an in-allowlist write through to the confirmation card', async () => {
+    // Proves the gate does not over-deny: the command clears the allowlist
+    // and reaches the confirmation flow, where a human decides.
+    const runner = mkRunner('write');
+    let captured: OpsCommandConfirmation | undefined;
+    const r = await runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl scale deployment web -n api --replicas=3',
+      intent: 'write',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        captured = c;
+        resolveOpsCommandConfirmation(c.id, 'rejected');
+      },
+    });
+    expect(captured).toBeDefined();
+    expect(r.observation).toContain('rejected');
+    expect(r.observation).not.toContain('allowlist');
+  });
+
+  it('denies a cluster shell targeting a namespace outside allowedNamespaces', async () => {
+    const r = await mkRunner('write').runClusterShell({
+      connectorId: 'kube-prod',
+      script: 'helm upgrade --install foo ./chart',
+      scope: 'namespace',
+      namespace: 'kube-system',
+      identity,
+      sessionId: 's1',
+    });
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('Blocked by the ops command allowlist');
+    expect(r.observation).toContain("namespace 'kube-system'");
+  });
+});
+
+describe('checkShellCommandAllowlist — shell tokenization edge cases', () => {
+  // Direct unit tests for the gate the runner delegates to. The runner-level
+  // tests above cover the wiring; these pin the tokenizer's own behaviour,
+  // where both an under-block (a bypass) and an over-block (a false denial)
+  // are bugs.
+  const ns = ['api', 'web'];
+
+  it('matches kubectl by basename, so an absolute path cannot skip the gate', () => {
+    // Regression: matching the bare token `kubectl` let
+    // `/usr/bin/kubectl get secret …` walk past the whole allowlist.
+    for (const cmd of [
+      '/usr/bin/kubectl get secret db-creds -n api -o yaml',
+      './kubectl get secret db-creds -n api -o yaml',
+    ]) {
+      expect(checkShellCommandAllowlist(cmd, { mode: 'read' }, ns).allow).toBe(false);
+      expect(checkShellCommandAllowlist(cmd, { mode: 'write' }, ns).allow).toBe(false);
+    }
+  });
+
+  it('binds a path-spelled kubectl to the namespace allowlist too', () => {
+    const d = checkShellCommandAllowlist(
+      '/usr/local/bin/kubectl get pods -n kube-system',
+      { mode: 'read' },
+      ns,
+    );
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain("namespace 'kube-system'");
+  });
+
+  it('still catches a kubectl invocation handed to xargs', () => {
+    const d = checkShellCommandAllowlist(
+      'kubectl get cm -n api -o name | xargs -I{} kubectl delete {} -n api',
+      { mode: 'read' },
+      ns,
+    );
+    expect(d.allow).toBe(false);
+  });
+
+  it('does not deny a segment where kubectl is a literal argument', () => {
+    // Regression: `checkKubectl([])` answers "empty kubectl argv", which the
+    // gate reported as a denial — `ps aux | grep kubectl` was refused.
+    expect(checkShellCommandAllowlist('ps aux | grep kubectl', { mode: 'read' }, ns))
+      .toEqual({ allow: true });
+    expect(checkShellCommandAllowlist('echo kubectl', { mode: 'read' }, ns))
+      .toEqual({ allow: true });
+  });
+
+  it('exempts kubectl exec/cp on the chat path but not on the background path', () => {
+    const exec = 'kubectl exec -n api api-0 -- cat /var/run/secrets/token';
+    expect(checkShellCommandAllowlist(exec, { mode: 'write' }, ns)).toEqual({ allow: true });
+    const denied = checkShellCommandAllowlist(exec, { mode: 'read' }, ns);
+    expect(denied.allow).toBe(false);
+    expect(denied.reason).toContain("kubectl verb 'exec' is permanently denied");
+  });
+
+  it('binds the chat-path exec/cp exemption to the namespace allowlist', () => {
+    const d = checkShellCommandAllowlist(
+      'kubectl cp kube-system/etcd-0:/etc/passwd ./p -n kube-system',
+      { mode: 'write' },
+      ns,
+    );
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain("namespace 'kube-system'");
+  });
+
+  it('allows an in-allowlist read', () => {
+    expect(checkShellCommandAllowlist('kubectl get pods -n api', { mode: 'read' }, ns))
+      .toEqual({ allow: true });
+    expect(checkShellCommandAllowlist('curl http://prometheus:9090/-/healthy', { mode: 'read' }, ns))
+      .toEqual({ allow: true });
+  });
+});
+
+describe('checkShellCommandAllowlist — wrapper and operand bypasses', () => {
+  // A review probe drove real commands through the gate and found three shapes
+  // that walked straight past it. Each one is pinned below.
+  const ns = ['api', 'web'];
+
+  it('re-enters a shell wrapper instead of treating the body as one opaque token', () => {
+    // `sh -c "<body>"` survives tokenization as a single token, so before this
+    // the wrapper disabled the gate entirely for anything inside it.
+    for (const cmd of [
+      'sh -c "kubectl get secret db-creds -n kube-system -o yaml"',
+      "bash -c 'kubectl delete deploy web -n kube-system'",
+      '/bin/sh -c "kubectl get secret x -n api"',
+    ]) {
+      expect(checkShellCommandAllowlist(cmd, { mode: 'read' }, ns).allow).toBe(false);
+    }
+  });
+
+  it('lets a wrapped command through when its body is genuinely allowed', () => {
+    expect(checkShellCommandAllowlist('sh -c "kubectl get pods -n api"', { mode: 'read' }, ns))
+      .toEqual({ allow: true });
+  });
+
+  it('reads the namespace out of a kubectl cp operand', () => {
+    // `kubectl cp <ns>/<pod>:<path>` carries the namespace in the operand, not
+    // in -n, so the allowlist saw no namespace and allowed the copy.
+    const d = checkShellCommandAllowlist(
+      'kubectl cp kube-system/etcd-0:/etc/kubernetes/pki/ca.key ./ca.key',
+      { mode: 'write' },
+      ns,
+    );
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain('kube-system');
+
+    expect(checkShellCommandAllowlist('kubectl cp api/mypod:/tmp/log ./log', { mode: 'write' }, ns))
+      .toEqual({ allow: true });
+  });
+
+  it('denies a namespace-gated verb whose namespace cannot be determined', () => {
+    // Failing open here was the shared root of both bypasses above.
+    const d = checkShellCommandAllowlist('kubectl exec mypod -- ls', { mode: 'write' }, ns);
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain('must name a namespace');
+
+    // A connector with no namespace restriction is unaffected.
+    expect(checkShellCommandAllowlist('kubectl exec mypod -- ls', { mode: 'write' }, []))
+      .toEqual({ allow: true });
+  });
+});
+
+describe('confirmation store lifecycle', () => {
+  // The pending-confirmation store is process-local. Rows used to be inserted
+  // and never removed, so every confirmed command leaked one entry for the
+  // life of the api-gateway. These tests pin the pruning contract and the
+  // "never report a decision we do not have" rule.
+
+  // Mirrors CONFIRMATION_TTL_MS / CONFIRMATION_RETENTION_MS in the module.
+  const TTL_MS = 10 * 60 * 1000;
+  const RETENTION_MS = 60 * 1000;
+
+  const identity = {
+    userId: 'agent-sa',
+    orgId: 'org_a',
+    orgRole: 'Editor' as const,
+    isServerAdmin: false,
+    authenticatedBy: 'api_key' as const,
+  };
+
+  function mkRunner(): KubectlOpsCommandRunner {
+    return new KubectlOpsCommandRunner({
+      connectors: fakeConnectorRepo({
+        connectors: [
+          mkConnector({ id: 'kube-prod', config: { kubeconfig: 'apiVersion: v1\nkind: Config' } }),
+        ],
+        secrets: new Map(),
+      }),
+      orgId: 'org_a',
+      // The allowlist gate makes commandPolicy a required dependency; these
+      // tests are about the confirmation store, so use the permissive mode.
+      commandPolicy: { mode: 'write' },
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('drops a resolved confirmation once the retention window passes', async () => {
+    const runner = mkRunner();
+    let id = '';
+    const r = await runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux', // forces confirmation
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        id = c.id;
+        resolveOpsCommandConfirmation(c.id, 'rejected', { userId: 'operator-bob' });
+      },
+    });
+
+    expect(r.observation).toContain('rejected');
+    // Readable right after settling — /execute reads the row back to build
+    // its response and runCommand reads the approver fields off it.
+    expect(getOpsCommandConfirmation(id)?.status).toBe('rejected');
+
+    vi.advanceTimersByTime(RETENTION_MS + 1);
+    expect(getOpsCommandConfirmation(id)).toBeUndefined();
+  });
+
+  it('expires a pending confirmation, settles its waiter, then drops the row', async () => {
+    const runner = mkRunner();
+    let resolveId: (id: string) => void = () => {};
+    const shown = new Promise<string>((res) => {
+      resolveId = res;
+    });
+    const pending = runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => resolveId(c.id),
+    });
+    const id = await shown;
+
+    await vi.advanceTimersByTimeAsync(TTL_MS + 1);
+    const r = await pending;
+    expect(r.success).toBe(false);
+    expect(r.observation).toContain('expired');
+    expect(getOpsCommandConfirmation(id)?.status).toBe('expired');
+
+    vi.advanceTimersByTime(RETENTION_MS + 1);
+    expect(getOpsCommandConfirmation(id)).toBeUndefined();
+  });
+
+  it('fails the waiting call loudly when the store has no row for the card', async () => {
+    // The state a restart leaves behind: the store is process-local, so after
+    // a restart it holds nothing while the card the user is looking at still
+    // says "pending". A waiter that finds no row must not invent a decision
+    // (it used to report `expired`, i.e. "user did not approve") and must not
+    // sit on a card nobody can resolve.
+    const runner = mkRunner();
+    const pending = runner.runCommand({
+      connectorId: 'kube-prod',
+      command: 'kubectl exec foo -- ps aux',
+      intent: 'read',
+      identity,
+      sessionId: 's1',
+      onConfirmationRequired: (c) => {
+        // Drive the row out of the store before the waiter looks it up:
+        // one sweep past the TTL expires it, a second past retention prunes it.
+        vi.setSystemTime(Date.now() + TTL_MS + 1);
+        expect(getOpsCommandConfirmation(c.id)?.status).toBe('expired');
+        vi.setSystemTime(Date.now() + RETENTION_MS + 1);
+        expect(getOpsCommandConfirmation(c.id)).toBeUndefined();
+      },
+    });
+
+    await expect(pending).rejects.toThrow(/no longer tracked by this api-gateway process/);
+  });
+
+  it('prunes settled rows on insert so the store cannot grow unbounded', async () => {
+    const runner = mkRunner();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      await runner.runCommand({
+        connectorId: 'kube-prod',
+        command: 'kubectl exec foo -- ps aux',
+        intent: 'read',
+        identity,
+        sessionId: 's1',
+        onConfirmationRequired: (c) => {
+          ids.push(c.id);
+          resolveOpsCommandConfirmation(c.id, 'rejected');
+        },
+      });
+      vi.advanceTimersByTime(RETENTION_MS + 1);
+    }
+
+    // Each insert sweeps, so only the newest row can still be present — and it
+    // is itself past retention by now.
+    for (const id of ids) {
+      expect(getOpsCommandConfirmation(id)).toBeUndefined();
+    }
   });
 });

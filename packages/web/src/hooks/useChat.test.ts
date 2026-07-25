@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   rebuildChatEventsFromSession,
   shouldProcessSubscriptionEventDuringPost,
+  shouldStopGenerationOnEscape,
+  type EscapeStopContext,
   type PersistedChatSessionEvent,
 } from './useChat.js';
 import type { ChatMessage } from './useDashboardChat.js';
@@ -160,5 +162,38 @@ describe('shouldProcessSubscriptionEventDuringPost', () => {
     expect(shouldProcessSubscriptionEventDuringPost('message_queue_deleted', false)).toBe(true);
     expect(shouldProcessSubscriptionEventDuringPost('reply', true)).toBe(true);
     expect(shouldProcessSubscriptionEventDuringPost('done', true)).toBe(true);
+  });
+});
+
+describe('shouldStopGenerationOnEscape', () => {
+  const generatingInChat: EscapeStopContext = {
+    isGenerating: true,
+    overlayOpen: false,
+    editingQueuedMessage: false,
+    chatSurfaceActive: true,
+  };
+
+  it('stops the run when Escape comes from the chat with nothing else open', () => {
+    expect(shouldStopGenerationOnEscape(generatingInChat)).toBe(true);
+  });
+
+  it('leaves Escape to an open overlay instead of killing the run', () => {
+    expect(shouldStopGenerationOnEscape({ ...generatingInChat, overlayOpen: true })).toBe(false);
+  });
+
+  it('leaves Escape to the queued-message editor', () => {
+    expect(
+      shouldStopGenerationOnEscape({ ...generatingInChat, editingQueuedMessage: true }),
+    ).toBe(false);
+  });
+
+  it('ignores Escape pressed outside the chat surface', () => {
+    expect(shouldStopGenerationOnEscape({ ...generatingInChat, chatSurfaceActive: false })).toBe(
+      false,
+    );
+  });
+
+  it('does nothing when no run is in flight', () => {
+    expect(shouldStopGenerationOnEscape({ ...generatingInChat, isGenerating: false })).toBe(false);
   });
 });

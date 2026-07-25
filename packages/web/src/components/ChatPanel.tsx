@@ -8,6 +8,7 @@ import ChatTranscript from './chat/ChatTranscript.js';
 import type { PendingChangeStatus } from '../types/pending-changes.js';
 import { RoundsLogo } from './RoundsLogo.js';
 import ConfirmDialog from './ConfirmDialog.js';
+import { isAtBottom, shouldFollowNewOutput } from './chat/scroll-follow.js';
 
 // Types
 
@@ -57,24 +58,46 @@ export default function ChatPanel({
   const [unread, setUnread] = useState(0);
   const [chatWidth, setChatWidth] = useState(380);
   const [confirmNewOpen, setConfirmNewOpen] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [following, setFollowing] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const prevEventCountRef = useRef(events.length);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  // First mount jumps to the bottom instantly (no animated scroll-from-top
-  // when the page reloads with N existing messages). Subsequent length
-  // changes (new live events) smooth-scroll.
-  const didInitialScrollRef = useRef(false);
+  // Follow the newest output only while the reader is at the bottom. The jump
+  // is instant rather than smooth: a smooth animation's intermediate positions
+  // are indistinguishable from the user scrolling up, which would flip
+  // `following` off mid-stream.
   useEffect(() => {
-    if (events.length === 0) return;
-    const previousEventCount = prevEventCountRef.current;
-    const isLoadedHistory = previousEventCount === 0 || events.length < previousEventCount;
-    const behavior: ScrollBehavior =
-      didInitialScrollRef.current && !isLoadedHistory ? 'smooth' : 'instant';
-    bottomRef.current?.scrollIntoView({ behavior });
-    didInitialScrollRef.current = true;
-  }, [events.length]);
+    const shouldFollow = shouldFollowNewOutput({
+      eventCount: events.length,
+      previousEventCount: prevEventCountRef.current,
+      following,
+    });
+    if (!shouldFollow) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [events.length, following]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setFollowing(
+      isAtBottom({
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      }),
+    );
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setFollowing(true);
+  }, []);
 
   useEffect(() => {
     if (collapsed && events.length > prevEventCountRef.current) {
@@ -178,6 +201,7 @@ export default function ChatPanel({
       variants={slideIn}
       initial="hidden"
       animate="visible"
+      data-chat-surface="true"
       className="shrink-0 flex flex-col bg-surface-lowest border-l border-outline-variant h-full relative"
       style={{ width: chatWidth }}
     >
@@ -229,7 +253,11 @@ export default function ChatPanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 hide-scrollbar">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto overscroll-contain px-4 py-4"
+      >
         {/* Inline banner for transient load failures: events may still be
             present (e.g., a partially loaded session), so we show the
             banner above them rather than as a full-screen empty state. */}
@@ -311,7 +339,20 @@ export default function ChatPanel({
           proposalStatusOverlay={proposalStatusOverlay}
         />
 
-        <div ref={bottomRef} />
+        {!following && events.length > 0 && (
+          <div className="sticky bottom-0 flex justify-center pt-2">
+            <button
+              type="button"
+              onClick={jumpToLatest}
+              className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-xs text-on-surface shadow-sm hover:bg-surface-high transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 4v12M5 11l5 5 5-5" />
+              </svg>
+              Jump to latest
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="shrink-0 px-4 py-4 bg-surface-lowest border-t border-outline-variant space-y-4">

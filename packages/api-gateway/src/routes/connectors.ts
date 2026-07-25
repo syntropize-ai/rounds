@@ -16,6 +16,7 @@ import {
   type ConnectorPolicyRepository,
   type ConnectorTestResult,
 } from '../services/connector-service.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export const CONNECTOR_ACTIONS = {
   Read: 'connectors:read',
@@ -127,7 +128,7 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
   router.get(
     '/',
     requirePermission(() => ac.eval(CONNECTOR_ACTIONS.Read, connectorScope())),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const status = readStatus(req.query['status']);
@@ -139,13 +140,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         ...(status ? { status } : {}),
       });
       res.json({ connectors: connectors.map(maskForWire) });
-    },
+    }),
   );
 
   router.post(
     '/',
     requirePermission(() => ac.eval(CONNECTOR_ACTIONS.Create, connectorScope())),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const body = req.body as ConnectorBody;
@@ -200,13 +201,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         }
       }
       res.status(201).json({ connector: maskForWire(connector) });
-    },
+    }),
   );
 
   router.get(
     '/:id',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.Read, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const id = req.params['id'] ?? '';
@@ -216,13 +217,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.json({ connector: maskForWire(connector) });
-    },
+    }),
   );
 
   router.put(
     '/:id',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.Write, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const id = req.params['id'] ?? '';
@@ -238,13 +239,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.json({ connector: maskForWire(connector) });
-    },
+    }),
   );
 
   router.delete(
     '/:id',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.Delete, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const id = req.params['id'] ?? '';
@@ -254,13 +255,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.json({ ok: true });
-    },
+    }),
   );
 
   router.post(
     '/:id/test',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.Test, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const id = req.params['id'] ?? '';
@@ -270,13 +271,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.status(result.ok ? 200 : 400).json(result);
-    },
+    }),
   );
 
   router.post(
     '/:id/secret',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.Write, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const id = req.params['id'] ?? '';
@@ -291,13 +292,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.json({ ok: true });
-    },
+    }),
   );
 
   router.get(
     '/:id/policies',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.PermissionsRead, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const connectorId = req.params['id'] ?? '';
@@ -328,13 +329,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.json({ policies });
-    },
+    }),
   );
 
   router.put(
     '/:id/policies',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.PermissionsWrite, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const connectorId = req.params['id'] ?? '';
@@ -367,13 +368,13 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.json({ policy });
-    },
+    }),
   );
 
   router.delete(
     '/:id/policies/:subjectType/:subjectId/:capability',
     requirePermission((req) => ac.eval(CONNECTOR_ACTIONS.PermissionsWrite, connectorScope(req.params['id']))),
-    async (req: Request, res: Response) => {
+    asyncHandler(async (req: Request, res: Response) => {
       const orgId = requireOrg(req, res);
       if (!orgId) return;
       const connectorId = req.params['id'] ?? '';
@@ -397,7 +398,7 @@ export function createConnectorsRouter(deps: ConnectorsRouterDeps): Router {
         return;
       }
       res.json({ ok: true });
-    },
+    }),
   );
 
   return router;

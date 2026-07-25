@@ -19,10 +19,13 @@ import type {
 } from '@agentic-obs/common';
 import type { IConnectorRepository } from '../types/connector.js';
 import {
+  CONNECTOR_SECRET_KEY_VERSION,
   capabilitiesForType,
   fromBool,
   nowIso,
+  openConnectorSecret,
   parseJson,
+  sealConnectorSecret,
   stringifyJson,
   toBool,
   typeMatchesCategory,
@@ -88,7 +91,7 @@ function rowToConnector(row: ConnectorRow): Connector {
 function rowToSecret(row: ConnectorSecretRow): ConnectorSecret {
   return {
     connectorId: row.connector_id,
-    ciphertext: row.ciphertext,
+    ciphertext: openConnectorSecret(row.ciphertext, row.key_version),
     keyVersion: row.key_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -265,7 +268,7 @@ export class SqliteConnectorRepository implements IConnectorRepository {
     const now = nowIso();
     this.db.run(sql`
       INSERT INTO connector_secrets (connector_id, ciphertext, key_version, created_at, updated_at)
-      VALUES (${input.connectorId}, ${input.ciphertext}, ${input.keyVersion}, ${now}, ${now})
+      VALUES (${input.connectorId}, ${sealConnectorSecret(input.ciphertext)}, ${CONNECTOR_SECRET_KEY_VERSION}, ${now}, ${now})
       ON CONFLICT(connector_id) DO UPDATE SET
         ciphertext = excluded.ciphertext,
         key_version = excluded.key_version,

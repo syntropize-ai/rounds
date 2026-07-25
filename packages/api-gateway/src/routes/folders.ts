@@ -23,6 +23,7 @@ import {
   ResourcePermissionServiceError,
 } from '../services/resource-permission-service.js';
 import type { ResourcePermissionSetItem } from '@agentic-obs/common';
+import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface FolderRouterDeps {
   folderService: FolderService;
@@ -69,7 +70,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
   router.get(
     '/',
     requirePermission(ac.eval(ACTIONS.FoldersRead, 'folders:*')),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const parentQuery = req.query['parentUid'];
         const parentUid =
@@ -95,7 +96,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/folders -----------------------------------------------------
@@ -108,7 +109,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
         parentUid ? `folders:uid:${parentUid}` : 'folders:*',
       );
     }),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const body = req.body as {
           uid?: string;
@@ -138,7 +139,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/folders/:uid -------------------------------------------------
@@ -147,7 +148,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.FoldersRead, `folders:uid:${req.params['uid']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const folder = await deps.folderService.getByUid(
           req.auth!.orgId,
@@ -167,7 +168,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/folders/:uid/counts ------------------------------------------
@@ -176,7 +177,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.FoldersRead, `folders:uid:${req.params['uid']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const counts = await deps.folderService.getCounts(
           req.auth!.orgId,
@@ -186,7 +187,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — PUT /api/folders/:uid -------------------------------------------------
@@ -195,7 +196,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.FoldersWrite, `folders:uid:${req.params['uid']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const uid = req.params['uid']!;
         const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
@@ -233,7 +234,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — DELETE /api/folders/:uid ----------------------------------------------
@@ -242,7 +243,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.FoldersDelete, `folders:uid:${req.params['uid']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const uid = req.params['uid']!;
         const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
@@ -274,7 +275,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — GET /api/folders/:uid/permissions -------------------------------------
@@ -283,7 +284,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.FoldersPermissionsRead, `folders:uid:${req.params['uid']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const uid = req.params['uid']!;
         const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
@@ -302,7 +303,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   // — POST /api/folders/:uid/permissions ------------------------------------
@@ -311,7 +312,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
     requirePermission((req) =>
       ac.eval(ACTIONS.FoldersPermissionsWrite, `folders:uid:${req.params['uid']}`),
     ),
-    async (req: AuthenticatedRequest, res: Response) => {
+    asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       try {
         const uid = req.params['uid']!;
         const existing = await deps.folderService.getByUid(req.auth!.orgId, uid);
@@ -338,7 +339,7 @@ export function createFolderRouter(deps: FolderRouterDeps): Router {
       } catch (err) {
         handleServiceError(err, res);
       }
-    },
+    }),
   );
 
   return router;

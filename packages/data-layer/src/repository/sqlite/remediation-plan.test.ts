@@ -158,6 +158,25 @@ describe('SqliteRemediationPlanRepository', () => {
     expect(filtered.map((p) => p.id)).toEqual([plan.id]);
   });
 
+  it('listAppliedAwaitingVerification finds only applied plans with verification not started', async () => {
+    const stranded = await repo.create(basePlan({ linkedAlertRuleId: 'alert-1' }));
+    await repo.updatePlan('org_main', stranded.id, { status: 'applied' });
+
+    const verifying = await repo.create(basePlan({ linkedAlertRuleId: 'alert-1' }));
+    await repo.updatePlan('org_main', verifying.id, {
+      status: 'applied',
+      verificationStatus: 'waiting',
+    });
+
+    // Still executing — verification is legitimately not started yet.
+    const executing = await repo.create(basePlan({ linkedAlertRuleId: 'alert-1' }));
+    await repo.updatePlan('org_main', executing.id, { status: 'executing' });
+
+    const found = await repo.listAppliedAwaitingVerification();
+    expect(found.map((p) => p.id)).toEqual([stranded.id]);
+    expect(found[0]?.steps).toHaveLength(stranded.steps.length);
+  });
+
   it('updatePlan cross-org returns null and writes nothing', async () => {
     const plan = await repo.create(basePlan({ orgId: 'org_a' }));
     const result = await repo.updatePlan('org_b', plan.id, { status: 'approved' });

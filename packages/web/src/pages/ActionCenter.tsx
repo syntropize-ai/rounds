@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient, plansApi } from '../api/client.js';
 import type { RemediationPlan, RemediationPlanStatus } from '../api/client.js';
 import { opsApi, type OpsConnector } from '../api/ops-api.js';
-import { relativeTime } from '../utils/time.js';
+import { relativeTime, expiryLabel } from '../utils/time.js';
 import { useAuth } from '../contexts/AuthContext.js';
 import {
   applyFilters,
@@ -76,15 +76,6 @@ interface InvestigationLite {
 }
 
 // Helpers
-
-function expiresIn(iso: string): string {
-  const diff = new Date(iso).getTime() - Date.now();
-  if (diff <= 0) return 'expired';
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h`;
-}
 
 /** Derive a display risk level from the action type */
 function actionRisk(type: string): RiskLevel {
@@ -208,7 +199,7 @@ function ActionCard({ request, processing, onApprove, onReject, canApprove }: Ac
           {request.context.investigationId && (
             <span>Context: {request.context.investigationId.slice(0, 8)}…</span>
           )}
-          {request.expiresAt && <span>expires in {expiresIn(request.expiresAt)}</span>}
+          {request.expiresAt && <span>{expiryLabel(request.expiresAt)}</span>}
           {request.resolvedBy && <span>resolved by {request.resolvedBy}</span>}
         </div>
 
@@ -280,7 +271,7 @@ function PlanCard({
             {!alert && investigation?.status && <span>{investigation.status}</span>}
             <span>{plan.steps.length} step{plan.steps.length === 1 ? '' : 's'}</span>
             <span>created {relativeTime(plan.createdAt)}</span>
-            <span>expires {relativeTime(plan.expiresAt)}</span>
+            <span>{expiryLabel(plan.expiresAt)}</span>
           </div>
         </div>
         <span className="shrink-0 text-xs font-semibold text-[var(--color-primary)]">{planCtaLabel(plan)}</span>

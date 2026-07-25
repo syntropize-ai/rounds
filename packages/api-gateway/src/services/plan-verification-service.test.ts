@@ -104,6 +104,57 @@ describe('PlanVerificationService', () => {
     expect(after?.verificationStatus).toBe('failed');
   });
 
+  describe('recoverInterrupted', () => {
+    it('resumes a plan persisted as applied with verification never started', async () => {
+      // The executor's `status='applied'` write landed; the process died before
+      // the verifier wrote `verificationStatus='waiting'`.
+      const plan = await plans.create(basePlan({ status: 'applied', linkedAlertRuleId: 'alert-1' }));
+      expect(plan.verificationStatus).toBe('not_started');
+
+      expect(await service().recoverInterrupted()).toBe(1);
+
+      const after = await plans.findByIdInOrg('org_main', plan.id);
+      expect(after?.verificationStatus).toBe('waiting');
+      expect(after?.verificationStartedAt).toBe('2026-04-29T00:00:00.000Z');
+      expect(after?.verificationDeadlineAt).toBe('2026-04-29T00:00:30.000Z');
+    });
+
+    it('resolves a stranded plan that has no linked alert rule to verify', async () => {
+      const plan = await plans.create(basePlan({ status: 'applied' }));
+
+      expect(await service().recoverInterrupted()).toBe(1);
+
+      const after = await plans.findByIdInOrg('org_main', plan.id);
+      expect(after?.verificationStatus).toBe('skipped');
+    });
+
+    it('finalizes a waiting plan whose deadline passed while the process was down', async () => {
+      const plan = await plans.create(basePlan({ status: 'applied', linkedAlertRuleId: 'alert-1' }));
+      await service().beginVerification(plan);
+
+      // Restart: the in-memory timer is gone and the deadline is long past.
+      nowMs = Date.parse('2026-04-29T00:05:00.000Z');
+      currentRule = rule({ state: 'firing', lastEvaluatedAt: '2026-04-29T00:04:50.000Z' });
+      expect(await service().recoverInterrupted()).toBe(1);
+
+      const after = await plans.findByIdInOrg('org_main', plan.id);
+      expect(after?.verificationStatus).toBe('failed');
+    });
+
+    it('leaves a healthy in-flight verification untouched', async () => {
+      const plan = await plans.create(basePlan({ status: 'applied', linkedAlertRuleId: 'alert-1' }));
+      const started = await service().beginVerification(plan);
+
+      nowMs = Date.parse('2026-04-29T00:00:05.000Z');
+      expect(await service().recoverInterrupted()).toBe(0);
+
+      const after = await plans.findByIdInOrg('org_main', plan.id);
+      expect(after?.verificationStatus).toBe('waiting');
+      expect(after?.verificationDeadlineAt).toBe(started?.verificationDeadlineAt);
+      expect(after?.verificationStartedAt).toBe(started?.verificationStartedAt);
+    });
+  });
+
   it('marks inconclusive at deadline when the evaluator never ran after start', async () => {
     const svc = service();
     const plan = await plans.create(basePlan({ status: 'applied', linkedAlertRuleId: 'alert-1' }));

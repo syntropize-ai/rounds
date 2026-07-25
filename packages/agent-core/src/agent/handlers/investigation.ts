@@ -15,6 +15,7 @@ import {
   createInvestigationWorkingState,
   type HypothesisStatus,
   type InvestigationCheck,
+  type InvestigationCheckScope,
   type InvestigationWorkingState,
   normalizeConfidence,
   recordInvestigationCheck,
@@ -135,6 +136,10 @@ export async function handleInvestigationRecordCheck(
   if (!status) {
     return 'Error: "status" must be one of supported, ruled_out, inconclusive.';
   }
+  const scope = parseCheckScope(args.scope);
+  if (!scope) {
+    return 'Error: "scope" must set scope.timeWindow (the time range this check covers) or scope.affected (the objects, namespace, or service it covers).';
+  }
 
   return withToolEventBoundary(
     ctx.sendEvent,
@@ -152,6 +157,7 @@ export async function handleInvestigationRecordCheck(
         result,
         interpretation,
         status,
+        scope,
         nextCheck: typeof args.nextCheck === 'string' ? args.nextCheck : undefined,
       });
 
@@ -826,6 +832,23 @@ function parseSignalType(value: unknown): InvestigationSignalType | null {
     return raw;
   }
   return null;
+}
+
+/**
+ * The evidence gate reads time window / affected scope from these fields
+ * instead of pattern-matching the narrative, so a check that carries neither
+ * is rejected here rather than silently recorded as unusable evidence.
+ */
+function parseCheckScope(value: unknown): InvestigationCheckScope | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const timeWindow = stringOrUndefined(raw.timeWindow);
+  const affected = stringOrUndefined(raw.affected);
+  if (!timeWindow && !affected) return null;
+  return {
+    ...(timeWindow ? { timeWindow } : {}),
+    ...(affected ? { affected } : {}),
+  };
 }
 
 function parseHypothesisStatus(value: unknown): HypothesisStatus | null {

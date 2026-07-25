@@ -34,7 +34,7 @@ export interface ConnectorRepository {
   update(id: string, patch: ConnectorPatch, orgId: string): Promise<Connector | null>;
   delete(id: string, orgId: string): Promise<boolean>;
   test?(orgId: string, id: string): Promise<ConnectorTestResult>;
-  upsertSecret?(input: { connectorId: string; ciphertext: Uint8Array; keyVersion: number }): Promise<unknown>;
+  upsertSecret?(input: { connectorId: string; ciphertext: Uint8Array }): Promise<unknown>;
   listPolicies?(opts: ListPoliciesOptions): Promise<ConnectorPolicy[]>;
   upsertPolicy?(policy: UpsertConnectorPolicy): Promise<ConnectorPolicy>;
   deletePolicy?(
@@ -164,7 +164,6 @@ export class ConnectorService {
       await this.deps.connectors.upsertSecret!({
         connectorId: id,
         ciphertext: new TextEncoder().encode(plaintext),
-        keyVersion: 1,
       });
     }
     return true;

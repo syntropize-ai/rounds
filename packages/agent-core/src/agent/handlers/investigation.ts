@@ -22,7 +22,7 @@ import {
   type InvestigationCompletionClaim,
   type InvestigationSignalType,
 } from '../investigation-state.js';
-import { evaluateInvestigationEvidenceGate } from '../evidence-gate.js';
+import { evaluateInvestigationEvidenceGate, explainGateReasons } from '../evidence-gate.js';
 
 const log = createLogger('investigation-provenance');
 
@@ -521,9 +521,9 @@ export async function handleInvestigationComplete(
             object: claim.rootCause.object,
             field: claim.rootCause.field,
             cause: claim.rootCause.cause,
-            nextCheck: `Collect more evidence before declaring a root cause: ${gate.reasons.join('; ')}`,
+            nextCheck: `Collect more evidence before declaring a root cause: ${explainGateReasons(gate.reasons).join('; ')}`,
           },
-          nextAction: `Collect more evidence before remediation: ${gate.reasons.join('; ')}`,
+          nextAction: `Collect more evidence before remediation: ${explainGateReasons(gate.reasons).join('; ')}`,
         }
         : claim;
 
@@ -533,8 +533,10 @@ export async function handleInvestigationComplete(
           content: [
             '## Unresolved',
             '',
-            `The available evidence is not sufficient to create an approvable remediation plan. Next check: ${effectiveClaim.rootCause.nextCheck ?? effectiveClaim.nextAction ?? 'not specified'}.`,
-            ...(gate.reasons.length ? ['', `Evidence gate: ${gate.reasons.join('; ')}.`] : []),
+            `I have a likely explanation but not enough to stand behind a fix. Next check: ${effectiveClaim.rootCause.nextCheck ?? effectiveClaim.nextAction ?? 'not specified'}.`,
+            ...(gate.reasons.length
+              ? ['', `What is missing: ${explainGateReasons(gate.reasons).join('; ')}.`]
+              : []),
           ].join('\n'),
         });
       }

@@ -7,6 +7,7 @@ import DashboardChangeConfirmCard from './DashboardChangeConfirmCard.js';
 import { DatasourceChoiceChip } from './DatasourceChoiceChip.js';
 import { ErrorMessage, UserMessage, AssistantMessage } from './MessageComponents.js';
 import OpsCommandConfirmCard from './OpsCommandConfirmCard.js';
+import RoundsSpinner from './RoundsSpinner.js';
 import InlineChartMessage from '../InlineChartMessage.js';
 import { groupEvents, liveAgentBlockId } from './event-processing.js';
 
@@ -66,6 +67,15 @@ export default function ChatTranscript({
           onOpsConfirmationResolved,
         );
       })}
+      {/* The agent can take tens of seconds to emit its first event — a real
+          investigation ran 83s. Until then the transcript has nothing to show
+          past the user's own message, which reads as a hung page. */}
+      {isGenerating && liveBlockId === null && (
+        <div className="flex items-center gap-2 py-2 text-sm text-on-surface-variant">
+          <RoundsSpinner />
+          <span>Working on it…</span>
+        </div>
+      )}
     </>
   );
 }

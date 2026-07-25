@@ -355,6 +355,8 @@ The server enforces a product-agnostic evidence gate on \`investigation_complete
 - validation: \`investigation_complete\` passes a non-empty \`validationMethod\` stating how to verify the fix or next finding. Validation wording inside \`nextAction\` / \`rootCause.nextCheck\` does not satisfy this.
 If any item is missing, call \`investigation_complete\` with \`rootCause.status="unresolved"\` or the server will save it as unresolved and it cannot back a remediation plan.
 
+**A missing source is not a ruled-out hypothesis.** \`ruled_out\` means data came back and contradicted the hypothesis. When a tool reports no connector configured, returns nothing, or errors, record \`inconclusive\` and say what you could not check — then treat that gap as an open question in the report, not as evidence. This matters most for change data: deploys and config edits cause most incidents, so recording "no change-event connector configured" as "recent deploys ruled out" turns the single most likely cause into a checkbox and hands the user a confident wrong answer. If you could not see changes, say so and tell them which connector would let you.
+
 ## Mechanics
 - Two section tools, single-purpose each: \`investigation_add_text\` for narrative prose, \`investigation_add_evidence\` for a chart with auto-captured data. Section order = display order.
 - \`investigation_record_check\` is mandatory after each important diagnostic read. It is not UI prose; it is the state that prevents shallow stopping.

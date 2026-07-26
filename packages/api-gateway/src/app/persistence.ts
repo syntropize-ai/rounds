@@ -53,6 +53,8 @@ import type {
   IUserRoleRepository,
 } from '@agentic-obs/common';
 import { dbPath } from '../paths.js';
+import { sql } from 'drizzle-orm';
+import { setDatabaseProbe } from '../routes/health.js';
 
 export type PersistenceBackend = 'sqlite' | 'postgres';
 
@@ -198,8 +200,16 @@ export async function createPersistence(
     );
   }
 
-  if (isPostgresUrl(dbUrl)) {
-    return buildPostgres(dbUrl);
-  }
-  return buildSqlite();
+  const persistence = isPostgresUrl(dbUrl) ? await buildPostgres(dbUrl) : buildSqlite();
+
+  // Readiness has to be able to ask whether the database answers. Registered
+  // here because this is the one place that knows a database was built at all
+  // — the probe route previously hardcoded "No DB configured", which was left
+  // over from the in-memory era and made a pod with a dead database report
+  // itself ready.
+  setDatabaseProbe(async () => {
+    await persistence.db.all(sql`SELECT 1`);
+  });
+
+  return persistence;
 }

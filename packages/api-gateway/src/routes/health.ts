@@ -11,6 +11,41 @@ export function setPipelineRunning(value: boolean): void {
 
 const startedAt = Date.now();
 
+/**
+ * How readiness finds out whether the database answers.
+ *
+ * Registered by the persistence wiring rather than imported, so this router
+ * keeps its no-dependency shape — the same reason `setPipelineRunning` exists.
+ */
+let probeDatabase: (() => Promise<void>) | null = null;
+export function setDatabaseProbe(probe: () => Promise<void>): void {
+  probeDatabase = probe;
+}
+
+/** A hung database must not hold the probe open past the kubelet's patience. */
+const DB_PROBE_TIMEOUT_MS = 2_000;
+
+async function checkDb(): Promise<CheckResult> {
+  if (!probeDatabase) {
+    // Honest rather than reassuring: this used to claim "No DB configured",
+    // which was false — persistence always builds SQLite or Postgres — and
+    // resolved to healthy, so a pod with an unreachable database stayed in the
+    // Service and kept taking traffic.
+    return { status: 'skip', message: 'No database probe registered' };
+  }
+  try {
+    await Promise.race([
+      probeDatabase(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`no response in ${DB_PROBE_TIMEOUT_MS}ms`)), DB_PROBE_TIMEOUT_MS),
+      ),
+    ]);
+    return { status: 'ok' };
+  } catch (err) {
+    return { status: 'fail', message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 type CheckStatus = 'ok' | 'fail' | 'skip';
 
 interface CheckResult {
@@ -52,20 +87,28 @@ healthRouter.get('/startup', (_req: Request, res: Response) => {
 });
 
 // GET /api/health/ready - K8s readiness probe (deep dependency check)
-healthRouter.get('/ready', (_req: Request, res: Response) => {
-  // DB and Redis are not configured in this deployment (in-memory stores)
-  const db: CheckResult = { status: 'skip', message: 'No DB configured' };
+healthRouter.get('/ready', async (_req: Request, res: Response) => {
+  const db = await checkDb();
+  // Redis genuinely is optional and unconfigured; unlike the database, that
+  // claim is still true.
   const redis: CheckResult = { status: 'skip', message: 'No Redis configured' };
   const proactive = checkProactive();
 
   const checks = { db, redis, proactive };
 
-  // K8s readiness should answer "can this pod receive traffic?". LLM setup is
-  // handled by the login/setup flow, not by health checks.
+  // K8s readiness answers "can this pod serve requests?". A pod that cannot
+  // reach its database cannot, so it says so and Kubernetes takes it out of
+  // the Service — previously every answer was 200 and a pod with a dead
+  // database kept receiving traffic until someone noticed by hand.
+  //
+  // A failing proactive pipeline is different: the product still serves, it
+  // just is not running background work. That stays 200 and reports degraded.
   const status: ReadyResponse['status']
-    = proactive.status === 'fail' ? 'degraded' : 'healthy';
+    = db.status === 'fail' ? 'unhealthy'
+    : proactive.status === 'fail' || db.status === 'skip' ? 'degraded'
+    : 'healthy';
 
-  res.status(200).json({
+  res.status(status === 'unhealthy' ? 503 : 200).json({
     status,
     checks,
     timestamp: new Date().toISOString(),

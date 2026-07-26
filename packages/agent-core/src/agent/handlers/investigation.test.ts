@@ -751,3 +751,78 @@ describe('recorded checks must be backed by reads that happened', () => {
     ).resolves.toContain('Recorded check_1');
   });
 });
+
+describe('a source that could not be consulted rules nothing out', () => {
+  // Deploys and config edits trigger most incidents. An investigation with no
+  // change connector that records "no deploys found" as a ruled-out hypothesis
+  // retires the likeliest cause and satisfies the gate while doing it.
+  function ctxWithUnavailableChangeRead() {
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+    ctx.investigationReads.set('inv_1', [
+      { action: 'changes_list_recent', family: 'change', sourceAnswered: false, consumed: false },
+    ]);
+    return ctx;
+  }
+
+  const changeCheck = {
+    hypothesis: 'a recent deployment caused the regression',
+    signalType: 'change' as const,
+    tool: 'changes_list_recent',
+    query: 'api-gateway last 120m',
+    result: 'No change-event connector configured.',
+    interpretation: 'Rules out a recent rollout.',
+    status: 'ruled_out' as const,
+    scope: { timeWindow: 'last 120m', affected: 'api-gateway' },
+  };
+
+  it('refuses to rule a hypothesis out on a source that never answered', async () => {
+    const ctx = ctxWithUnavailableChangeRead();
+
+    const result = await handleInvestigationRecordCheck(ctx, changeCheck);
+
+    expect(result).toMatch(/inconclusive rather than/);
+    expect(result).toMatch(/Not being able to look/);
+    expect(ctx.investigationStates.get('inv_1')?.checks ?? []).toHaveLength(0);
+  });
+
+  it('refuses to call it supported either', async () => {
+    const ctx = ctxWithUnavailableChangeRead();
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      ...changeCheck,
+      status: 'supported',
+      interpretation: 'Confirms a rollout was involved.',
+    });
+
+    expect(result).toMatch(/inconclusive rather than/);
+  });
+
+  it('accepts inconclusive, so the gap can still be reported', async () => {
+    // The rule must not make an unavailable source unrecordable — the report
+    // should carry "I could not check this" as an open question.
+    const ctx = ctxWithUnavailableChangeRead();
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      ...changeCheck,
+      status: 'inconclusive',
+      interpretation: 'No change connector is configured, so deploys remain unchecked.',
+    });
+
+    expect(result).toContain('Recorded check_1');
+  });
+
+  it('leaves a source that answered with nothing alone', async () => {
+    // "I looked and there were no deploys" is real evidence and still rules out.
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+    ctx.investigationReads.set('inv_1', [
+      { action: 'changes_list_recent', family: 'change', sourceAnswered: true, consumed: false },
+    ]);
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      ...changeCheck,
+      result: 'No changes in the last 120 minutes.',
+    });
+
+    expect(result).toContain('Recorded check_1');
+  });
+});

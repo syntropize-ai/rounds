@@ -48,6 +48,8 @@ interface Trajectory {
   reads: { metric?: number; log?: number; ops?: number; change?: number };
   checks: Array<Record<string, unknown>>;
   claim: InvestigationCompletionClaim;
+  /** Read families whose source could not be consulted at all. */
+  unavailable?: Array<'metric' | 'log' | 'ops' | 'change'>;
   /** Present when the fixture pins behaviour we know to be wrong. */
   knownGap?: string;
 }
@@ -71,6 +73,17 @@ async function replay(t: Trajectory) {
     opsReadCalls: t.reads.ops ?? 0,
     changeReadCalls: t.reads.change ?? 0,
   } as never);
+
+  // Replay the reads themselves, marking the families whose source could not
+  // be consulted. This is what the orchestrator records as each read returns.
+  const unavailable = new Set(t.unavailable ?? []);
+  const ledger: Array<{ action: string; family: 'metric' | 'log' | 'ops' | 'change'; sourceAnswered: boolean; consumed: boolean }> = [];
+  for (const [family, count] of Object.entries(t.reads) as Array<['metric' | 'log' | 'ops' | 'change', number]>) {
+    for (let i = 0; i < count; i++) {
+      ledger.push({ action: `${family}_read`, family, sourceAnswered: !unavailable.has(family), consumed: false });
+    }
+  }
+  ctx.investigationReads.set(t.id, ledger);
 
   const refusals: string[] = [];
   for (const check of t.checks) {
@@ -132,6 +145,6 @@ describe('investigation quality — known gaps', () => {
   it('reports the current gap count', () => {
     // Not an assertion about the number — a place for it to be seen. Update
     // deliberately when a gap closes.
-    expect(gaps.map((g) => g.id).sort()).toEqual(['missing-source-as-ruled-out']);
+    expect(gaps.map((g) => g.id).sort()).toEqual([]);
   });
 });

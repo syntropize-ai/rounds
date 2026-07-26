@@ -41,6 +41,7 @@ import { createInvestigationWorkingState, type InvestigationWorkingState } from 
 import { getStructuredAlertRuleContext } from './orchestrator-alert-helpers.js'
 import { buildSystemPrompt } from './orchestrator-prompt.js'
 import { buildActionContext } from './orchestrator-action-context.js'
+import { isSourceUnavailable, stripSourceMark } from './handlers/_shared.js'
 import { ToolAuditReporter } from './orchestrator-audit-reporter.js'
 import { PermissionWrappedActionRunner } from './orchestrator-action-runner.js'
 
@@ -186,6 +187,8 @@ export class OrchestratorAgent {
     changeReadCalls?: number;
   }>()
   private readonly investigationStates = new Map<string, InvestigationWorkingState>()
+  /** Reads that actually ran, per investigation. See ActionContext.investigationReads. */
+  private readonly investigationReads = new Map<string, Array<{ action: string; family: 'metric' | 'log' | 'ops' | 'change'; sourceAnswered: boolean; consumed: boolean }>>()
   private readonly pendingDashboardCreates = new Map<string, import('./handlers/_context.js').PendingDashboardCreate>()
   private readonly pendingInvestigationCreates = new Map<string, import('./handlers/_context.js').PendingInvestigationCreate>()
   private readonly completedInvestigationAliases = new Map<string, string>()
@@ -451,6 +454,7 @@ export class OrchestratorAgent {
       investigationSections: this.investigationSections,
       investigationProvenance: this.investigationProvenance,
       investigationStates: this.investigationStates,
+      investigationReads: this.investigationReads,
       pendingDashboardCreates: this.pendingDashboardCreates,
       pendingInvestigationCreates: this.pendingInvestigationCreates,
       completedInvestigationAliases: this.completedInvestigationAliases,
@@ -461,7 +465,8 @@ export class OrchestratorAgent {
     })
     let result = await this.actionRunner.execute(step, ctx)
     if (result !== null) {
-      if (this.recordInvestigationRead(step.action)) {
+      if (this.recordInvestigationRead(step.action, result)) {
+        result = stripSourceMark(result)
         result += '\n\n<system-reminder>For this investigation, record the diagnostic meaning of the read you just performed with investigation_record_check before moving to the next major check. Ignore this only if the read was irrelevant noise.</system-reminder>'
       }
     }
@@ -471,20 +476,37 @@ export class OrchestratorAgent {
     return result
   }
 
-  private recordInvestigationRead(action: string): boolean {
+  private recordInvestigationRead(action: string, observation: string): boolean {
     const investigationId = this.activeInvestigationIdRef.current
     if (!investigationId || !INVESTIGATION_READ_ACTIONS.has(action)) return false
     const prov = this.investigationProvenance.get(investigationId)
     if (!prov) return false
     prov.readToolCalls = (prov.readToolCalls ?? 0) + 1
+    let family: 'metric' | 'log' | 'ops' | 'change' | null = null
     if (action.startsWith('metrics_')) {
       prov.metricReadCalls = (prov.metricReadCalls ?? 0) + 1
+      family = 'metric'
     } else if (action.startsWith('logs_')) {
       prov.logReadCalls = (prov.logReadCalls ?? 0) + 1
+      family = 'log'
     } else if (action === 'ops_run_command') {
       prov.opsReadCalls = (prov.opsReadCalls ?? 0) + 1
+      family = 'ops'
     } else if (action === 'changes_list_recent') {
       prov.changeReadCalls = (prov.changeReadCalls ?? 0) + 1
+      family = 'change'
+    }
+    if (family) {
+      // Keep the read itself, not just a tally: record_check consumes one of
+      // these, and needs to know whether the source actually answered.
+      const reads = this.investigationReads.get(investigationId) ?? []
+      reads.push({
+        action,
+        family,
+        sourceAnswered: !isSourceUnavailable(observation),
+        consumed: false,
+      })
+      this.investigationReads.set(investigationId, reads)
     }
     return true
   }

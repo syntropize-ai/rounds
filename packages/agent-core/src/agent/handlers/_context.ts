@@ -216,6 +216,21 @@ export interface ActionContext {
    */
   investigationStates: Map<string, InvestigationWorkingState>;
   /**
+   * Reads that actually executed during an investigation, oldest first.
+   *
+   * `record_check` consumes one of these per recorded check, which is what
+   * stops the ledger from filling up with checks describing work that never
+   * happened. `sourceAnswered` distinguishes a source that reported nothing
+   * from one that could not be consulted at all — only the former can rule a
+   * hypothesis out.
+   */
+  investigationReads: Map<string, Array<{
+    action: string;
+    family: 'metric' | 'log' | 'ops' | 'change';
+    sourceAnswered: boolean;
+    consumed: boolean;
+  }>>;
+  /**
    * Dashboard create requests held in memory until the first panel write.
    * This avoids showing an empty dashboard shell while the agent is still
    * researching and validating the content.

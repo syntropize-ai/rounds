@@ -98,13 +98,21 @@ types, at least one competing explanation recorded as ruled out, an explicit
 time window or affected scope, a named validation method, and a repair target
 consistent with the proven cause.
 
-**It does not prove the stated result is what came back.** The check records
-what the agent says the query returned. That text is not currently compared
-against the raw tool output. An agent that ran a real query and then
-mis-summarised it would pass.
+**It proves a source that could not be consulted rules nothing out.** Read
+tools tag their observation when the source was unreachable or unconfigured,
+and a check consuming such a read may only be recorded as `inconclusive`. This
+closes the most expensive shape of wrong answer available: an investigation
+with no change-event connector recording "no deploys found" as an eliminated
+hypothesis, which retires the likeliest cause of most incidents while
+satisfying the gate's competing-explanation requirement.
 
-Closing that gap means retaining raw tool output and diffing it against the
-recorded result, which is the next piece of work here. Until then: the gate is
+**It does not prove the stated result is what came back.** The check records
+what the agent says the query returned. That text is not compared against the
+raw tool output. An agent that ran a real query and then mis-summarised it
+would pass.
+
+Closing that remaining gap means diffing the recorded result against the raw
+output, which is the next piece of work here. Until then: the gate is
 a strong filter against unfounded conclusions and fabricated work, and a weak
 one against honest misreading. Treat a `passed` gate as "this was investigated
 properly", not as "this conclusion is certainly true" — which is also why a

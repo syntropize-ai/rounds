@@ -156,7 +156,7 @@ export async function handleInvestigationRecordCheck(
   // stated result matches what came back — that needs the raw output kept and
   // compared, which is worth doing next — but it does close the path where
   // nothing was read at all.
-  const backingErr = checkHasBackingRead(ctx, investigationId, tool, signalType);
+  const backingErr = checkHasBackingRead(ctx, investigationId, tool, signalType, status);
   if (backingErr) return backingErr;
 
   return withToolEventBoundary(
@@ -873,9 +873,36 @@ function checkHasBackingRead(
   investigationId: string,
   tool: string,
   signalType: InvestigationSignalType,
+  status: HypothesisStatus,
 ): string | null {
   const family = readFamilyForTool(tool, signalType);
   if (!family) return null;
+
+  // Prefer the ledger, which knows whether each source actually answered.
+  // Fall back to the counters when no ledger exists (older sessions, and
+  // harnesses that drive handlers directly).
+  const reads = ctx.investigationReads?.get(investigationId);
+  if (reads) {
+    const next = reads.find((r) => r.family === family && !r.consumed);
+    if (!next) {
+      const ran = reads.filter((r) => r.family === family).length;
+      return (
+        `Error: cannot record this check. It cites a ${READ_FAMILY_LABEL[family]}, and all ${ran} of those `
+        + 'this investigation has run are already accounted for by earlier checks. '
+        + 'Run the read first, then record what it returned.'
+      );
+    }
+    if (!next.sourceAnswered && status !== 'inconclusive') {
+      next.consumed = true;
+      return (
+        `Error: '${next.action}' could not consult its source, so this hypothesis is inconclusive rather than `
+        + `'${status}'. Not being able to look is not the same as having looked and found nothing — record it as `
+        + 'inconclusive, say which source is missing, and carry the gap into the report as an open question.'
+      );
+    }
+    next.consumed = true;
+    return null;
+  }
 
   const prov = ctx.investigationProvenance.get(investigationId);
   const performed =
@@ -892,7 +919,7 @@ function checkHasBackingRead(
   if (performed > alreadyRecorded) return null;
 
   return (
-    `Error: cannot record this check — it cites a ${READ_FAMILY_LABEL[family]}, but this investigation has run `
+    `Error: cannot record this check. It cites a ${READ_FAMILY_LABEL[family]}, but this investigation has run `
     + `${performed} of those and already recorded ${alreadyRecorded} check(s) against them. `
     + 'Run the read first, then record what it returned. Record only what you actually observed.'
   );

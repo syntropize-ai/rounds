@@ -94,6 +94,7 @@ export interface OrchestratorActionRuntime {
   investigationSections: Map<string, InvestigationReportSection[]>;
   investigationProvenance: Map<string, Provenance & { startedAt?: number; reportId?: string }>;
   investigationStates: Map<string, InvestigationWorkingState>;
+  investigationReads: Map<string, Array<{ action: string; family: 'metric' | 'log' | 'ops' | 'change'; sourceAnswered: boolean; consumed: boolean }>>;
   pendingDashboardCreates: ActionContext['pendingDashboardCreates'];
   pendingInvestigationCreates: ActionContext['pendingInvestigationCreates'];
   completedInvestigationAliases: ActionContext['completedInvestigationAliases'];
@@ -153,6 +154,7 @@ export function buildActionContext(
     investigationSections: runtime.investigationSections,
     investigationProvenance: runtime.investigationProvenance,
     investigationStates: runtime.investigationStates,
+    investigationReads: runtime.investigationReads,
     pendingDashboardCreates: runtime.pendingDashboardCreates,
     pendingInvestigationCreates: runtime.pendingInvestigationCreates,
     completedInvestigationAliases: runtime.completedInvestigationAliases,

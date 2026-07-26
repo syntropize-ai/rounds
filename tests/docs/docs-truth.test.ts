@@ -375,3 +375,51 @@ describe('the configure-by-chat page matches the service', () => {
     expect(page, `drafts expire after ${minutes} minutes`).toContain(`${minutes} minutes`);
   });
 });
+
+/**
+ * The one table that tells a user what they can ask for.
+ *
+ * The existing tool-name guard checks only names carrying a handful of
+ * prefixes, so it never looked at this table — where 21 of 36 names were not
+ * callable. They were shortened (`add_panels` for `dashboard_add_panels`,
+ * `complete` for `investigation_complete`) or invented outright
+ * (`datasources.list`, `validate`, `metadata`). Shortened names are the worse
+ * kind: they read as real and a user retyping one gets nothing.
+ *
+ * This guard is unconditional — every backticked name in the table must be in
+ * the registry — which is why the page no longer quotes the old wrong names as
+ * examples.
+ */
+describe('the chat page tool table is callable', () => {
+  function toolTable(): string {
+    const page = readFileSync(join(ROOT, 'docs/features/chat.md'), 'utf8');
+    const start = page.indexOf('### Available tools');
+    const end = page.indexOf('## How to use it');
+    expect(start, 'the tool table moved — update this guard').toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return page.slice(start, end);
+  }
+
+  function registered(): Set<string> {
+    const registry = read('packages/agent-core/src/agent/tool-schema-registry.ts');
+    return new Set([...registry.matchAll(/name:\s*'([a-z][a-z0-9_]*)'/g)].map((m) => m[1]!));
+  }
+
+  it('names only tools that exist', () => {
+    const real = registered();
+    const named = [...new Set([...toolTable().matchAll(/`([a-z][a-z0-9_.]*)`/g)].map((m) => m[1]!))];
+    expect(named.length, 'the table lost its entries').toBeGreaterThan(20);
+    const missing = named.filter((n) => !real.has(n));
+    expect(missing, `not callable: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('covers the tools a user would actually ask for', () => {
+    // Not every tool — `tool_search` and `load_task_context` are plumbing and
+    // the page says so. But a capability absent from this table is a
+    // capability nobody discovers.
+    const table = toolTable();
+    const PLUMBING = new Set(['tool_search', 'load_task_context']);
+    const undocumented = [...registered()].filter((t) => !PLUMBING.has(t) && !table.includes(t));
+    expect(undocumented, `missing from the table: ${undocumented.join(', ')}`).toEqual([]);
+  });
+});

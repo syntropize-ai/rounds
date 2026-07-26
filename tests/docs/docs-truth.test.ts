@@ -306,3 +306,29 @@ describe('the documented health-probe contract is real', () => {
     }
   });
 });
+
+/**
+ * The documented sign-in flow has to include the check that guards it.
+ *
+ * `docs/auth.md` described step 4 as "if email matches an existing user,
+ * auto-link" with no condition — which is exactly the account-takeover path
+ * that was fixed on this branch. Leaving it that way would also strand anyone
+ * whose OIDC provider omits `email_verified`: their linking now fails and the
+ * docs would give no reason.
+ */
+describe('the documented OAuth link step matches the code', () => {
+  it('says linking needs a verified address', () => {
+    const page = readFileSync(join(ROOT, 'docs/auth.md'), 'utf8');
+    expect(page).toMatch(/provider verified that address/);
+    // And the error an operator will actually see, so it is searchable.
+    expect(page).toContain('invalid_credentials');
+  });
+
+  it('the guard it describes is still in the code', () => {
+    const base = readFileSync(
+      join(ROOT, 'packages/api-gateway/src/auth/oauth/base.ts'), 'utf8',
+    );
+    // The link branch must remain gated. If this moves, the doc is stale.
+    expect(base).toMatch(/if \(!info\.emailVerified\)[\s\S]{0,80}invalidCredentials/);
+  });
+});

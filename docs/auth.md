@@ -194,11 +194,36 @@ Identity flow:
 3. GitHub redirects back with `code`. Rounds validates state, exchanges
    code, fetches userinfo.
 4. Lookup `user_auth WHERE auth_module='oauth_github' AND auth_id=<sub>`.
-   If found, use the linked user. Otherwise: if email matches an existing
-   user, auto-link; otherwise create (if `ALLOW_SIGN_UP=true`).
+   If found, use the linked user. Otherwise: if the email matches an existing
+   user **and the provider verified that address**, link to it; otherwise
+   create a new user (if `ALLOW_SIGN_UP=true`).
 5. OAuth tokens (access/refresh/id) are encrypted with `SECRET_KEY`
    (AES-256-GCM) and stored in `user_auth`.
 6. Session cookie issued; user redirected to `/` or `?redirect=<path>`.
+
+#### Why linking requires a verified address
+
+Step 4 is the only path where signing in through an identity provider grants
+access to an account that already exists. Without the verification check, any
+provider that lets a user choose or edit their own email claim hands over every
+account on the instance: register there as your admin's address, sign in here,
+and the link step returns their account. `ALLOW_SIGN_UP=false` does not help —
+that check runs after the link.
+
+What each provider counts as verified:
+
+| Provider | Verified when |
+|---|---|
+| GitHub | always — it only ever reads addresses GitHub has verified |
+| Google | `email_verified` is true; sign-in is rejected otherwise |
+| Generic OIDC | `email_verified` is true. Explicitly `false` is rejected outright |
+
+**If your OIDC provider omits `email_verified` entirely**, its users can still
+sign in and still get an account created — they just cannot take over an
+existing one, and an operator who already has a local account will get an
+`invalid_credentials` error instead of being linked. Fix it by configuring the
+provider to emit the claim, or by deleting the local account first so the
+provider creates a fresh one.
 
 ### SAML
 

@@ -46,3 +46,20 @@ describe('unrecognised investigation status', () => {
     expect(isActive('failed')).toBe(false);
   });
 });
+
+describe('every surface agrees on what "still running" means', () => {
+  it('the detail page and the list page share one definition', async () => {
+    // These drifted before: the list page was fixed with an allowlist and the
+    // detail page kept its denylist, so the same investigation stopped being
+    // polled in one place and was polled forever in the other — under the
+    // animated "in progress" chrome.
+    const { isInvestigationActive } = await import('@agentic-obs/common');
+    expect(isActive).toBe(isInvestigationActive);
+  });
+
+  it('an unrecognised status is terminal, not perpetually in flight', async () => {
+    const { isInvestigationActive } = await import('@agentic-obs/common');
+    expect(isInvestigationActive('cancelled_by_operator')).toBe(false);
+    expect(isInvestigationActive('verifying')).toBe(true);
+  });
+});

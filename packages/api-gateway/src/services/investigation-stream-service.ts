@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { isInvestigationActive } from '@agentic-obs/common';
 import type { Investigation } from '@agentic-obs/common';
 import type { IGatewayInvestigationStore } from '@agentic-obs/data-layer';
 import { closeSse, initSse, sendSseEvent, sendSseKeepAlive } from '../routes/investigation/sse.js';
@@ -75,7 +76,9 @@ export class InvestigationStreamService {
   }
 
   private isTerminal(investigation: Investigation): boolean {
-    return investigation.status === 'completed' || investigation.status === 'failed';
+    // Shared definition: an unrecognised status must end the stream rather
+    // than hold it open indefinitely reporting progress that is not happening.
+    return !isInvestigationActive(investigation.status);
   }
 
   private belongsToWorkspace(investigation: Investigation, workspaceId: string): boolean {

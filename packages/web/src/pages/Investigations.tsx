@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isInvestigationActive } from '@agentic-obs/common';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
@@ -20,22 +21,9 @@ interface InvestigationSummary {
 
 // Helpers
 
-/**
- * Statuses that mean work is still happening, listed rather than excluded.
- *
- * The predicate used to be "not completed and not failed", so any status this
- * build did not know counted as in-flight and the list polled it every five
- * seconds forever. An allowlist fails the other way: something unrecognised
- * stops being refreshed, which is visible and cheap, instead of becoming a
- * permanent background request nobody can explain.
- */
-const ACTIVE_STATUSES = new Set([
-  'planning', 'investigating', 'evidencing', 'explaining', 'acting', 'verifying',
-]);
-
-export function isActive(status: string) {
-  return ACTIVE_STATUSES.has(status);
-}
+// Re-exported from the shared definition so the list, the detail page and the
+// server stream service cannot drift apart on what "still running" means.
+export const isActive = isInvestigationActive;
 
 /**
  * The three mutually exclusive pre-list states: still loading, the fetch

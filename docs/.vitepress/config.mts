@@ -57,6 +57,7 @@ export default defineConfig({
           { text: 'Service accounts & tokens', link: '/auth#service-accounts-and-api-tokens' },
           { text: 'Production checklist', link: '/auth#production-security-checklist' },
           { text: 'Change control & audit', link: '/compliance/change-control' },
+          { text: 'Risk model', link: '/reference/risk-model' },
         ],
       },
       {

@@ -102,3 +102,44 @@ describe('a source that answered stays unmarked', () => {
     expect(isSourceUnavailable(out)).toBe(false);
   });
 });
+
+describe('an incomplete log search is not proof that nothing was logged', () => {
+  function ctxWithLogs(result: unknown) {
+    const ctx = makeFakeActionContext({});
+    ctx.adapters.register({
+      info: { id: 'lg-1', name: 'loki', type: 'loki', signalType: 'logs' },
+      logs: { query: async () => result },
+    } as never);
+    return ctx;
+  }
+
+  it('says so, and cannot rule anything out, when the backend truncated the search', async () => {
+    // `partial` and `warnings` were rendered only on the non-empty path, so
+    // the one case where the caveat decides the meaning was the one case that
+    // dropped it.
+    const out = await handleLogsQuery(
+      ctxWithLogs({ entries: [], partial: true, warnings: [] }),
+      { sourceId: 'lg-1', query: '{app="checkout"}', start: '2026-07-26T00:00:00Z', end: '2026-07-26T01:00:00Z' },
+    );
+    expect(out).toContain('not evidence that nothing was logged');
+    expect(isSourceUnavailable(out)).toBe(true);
+  });
+
+  it('passes a backend warning through', async () => {
+    const out = await handleLogsQuery(
+      ctxWithLogs({ entries: [], partial: false, warnings: ['query did not finish within the deadline'] }),
+      { sourceId: 'lg-1', query: '{app="checkout"}', start: '2026-07-26T00:00:00Z', end: '2026-07-26T01:00:00Z' },
+    );
+    expect(out).toContain('did not finish within the deadline');
+    expect(isSourceUnavailable(out)).toBe(true);
+  });
+
+  it('a complete search that found nothing still rules things out', async () => {
+    const out = await handleLogsQuery(
+      ctxWithLogs({ entries: [], partial: false, warnings: [] }),
+      { sourceId: 'lg-1', query: '{app="checkout"}', start: '2026-07-26T00:00:00Z', end: '2026-07-26T01:00:00Z' },
+    );
+    expect(out).toBe('Logs query returned no entries.');
+    expect(isSourceUnavailable(out)).toBe(false);
+  });
+});

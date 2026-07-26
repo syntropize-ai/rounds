@@ -41,9 +41,22 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
   try {
     const result = await adapter.query({ query, start, end, ...(limit !== undefined ? { limit } : {}) });
     if (result.entries.length === 0) {
-      const msg = 'Logs query returned no entries.';
+      // The backend's own caveats matter most here, and this path used to drop
+      // them: `partial` and `warnings` were rendered only when entries came
+      // back. A truncated or timed-out search that found nothing yet is not
+      // the same finding as a complete search that found nothing, and only the
+      // second one rules anything out.
+      const caveats = [
+        ...(result.partial ? ['the backend reported the search was incomplete'] : []),
+        ...(result.warnings ?? []),
+      ];
+      const msg = caveats.length > 0
+        ? `Logs query returned no entries, but ${caveats.join('; ')} — this is not evidence that nothing was logged.`
+        : 'Logs query returned no entries.';
       ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg });
-      return msg;
+      // An incomplete search did not consult the whole window, so it must not
+      // be able to rule a hypothesis out downstream.
+      return caveats.length > 0 ? sourceUnavailable(msg) : msg;
     }
     // Format: `[ts] {k=v, k=v} message` — truncate the whole blob to keep the
     // observation reasonable even when the backend returns many rows.

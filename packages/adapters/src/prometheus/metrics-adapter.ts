@@ -67,6 +67,30 @@ async function parseJson<T>(res: Response, op: string): Promise<T> {
   }
 }
 
+/**
+ * Prometheus answers `200 OK` with `{"status":"error"}` for a query it
+ * understood but could not run — a bad matcher, a series limit, a partially
+ * unavailable federated backend.
+ *
+ * The query paths always checked this and threw. The discovery paths did not,
+ * and returned `[]` instead, so "I could not look this up" and "this server
+ * has no metrics" arrived at the agent as the same answer. Discovery is where
+ * an investigation decides what exists, so the wrong one of those sends it off
+ * to conclude the metric it needs is not collected.
+ */
+function assertQuerySucceeded(
+  body: { status?: string; error?: string },
+  op: string,
+): void {
+  if (body.status !== undefined && body.status !== 'success') {
+    throw new AdapterError(
+      'bad_request',
+      `Prometheus ${op} returned status=${body.status}: ${body.error ?? 'no error field'}`,
+      { adapterId: ADAPTER_ID, operation: op, providerCode: body.error },
+    );
+  }
+}
+
 export class PrometheusMetricsAdapter implements IMetricsAdapter {
   constructor(
     private baseUrl: string,
@@ -89,6 +113,7 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
       throw httpError(op, res.status);
     }
     const body = await parseJson<PrometheusApiResponse<string[]>>(res, op);
+    assertQuerySucceeded(body, op);
     return Array.isArray(body.data) ? body.data : [];
   }
 
@@ -109,6 +134,7 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
       throw httpError(op, res.status);
     }
     const body = await parseJson<PrometheusApiResponse<string[]>>(res, op);
+    assertQuerySucceeded(body, op);
     const labels = Array.isArray(body.data) ? body.data : [];
     return labels.filter((l) => l !== '__name__');
   }
@@ -128,6 +154,7 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
       throw httpError(op, res.status);
     }
     const body = await parseJson<PrometheusApiResponse<string[]>>(res, op);
+    assertQuerySucceeded(body, op);
     return Array.isArray(body.data) ? body.data : [];
   }
 
@@ -153,6 +180,7 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
       throw httpError(op, res.status);
     }
     const body = await parseJson<PrometheusApiResponse<Array<Record<string, string>>>>(res, op);
+    assertQuerySucceeded(body, op);
     const names = new Set<string>();
     for (const series of body.data ?? []) {
       if (series['__name__']) names.add(series['__name__']);
@@ -190,6 +218,7 @@ export class PrometheusMetricsAdapter implements IMetricsAdapter {
       throw httpError(op, res.status);
     }
     const body = await parseJson<PrometheusApiResponse<Array<Record<string, string>>>>(res, op);
+    assertQuerySucceeded(body, op);
     return Array.isArray(body.data) ? body.data : [];
   }
 

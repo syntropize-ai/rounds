@@ -86,6 +86,13 @@ ROUNDS_EVAL_JUDGE_KEY=... \
 npx tsx tests/eval/tier1/run.ts --repeats 7
 ```
 
+**The judge is optional.** Omit `ROUNDS_EVAL_JUDGE_MODEL` and the run still
+measures answer rate, traps, and false alarms on a healthy cluster — none of
+those ever consulted a judge. Only the mechanism verdict is lost, so no run can
+reach `CORRECT` and precision is *withheld* rather than printed as 0%. Requiring
+two vendors' keys before anyone can learn the answer rate was a barrier with no
+safety value.
+
 It drives the product through `POST /api/chat` — the same path a person uses.
 There is an internal entry point that would be faster and far less flaky, and
 using it would stop measuring the product: whether the agent decides to open an

@@ -420,7 +420,19 @@ function macroAverage(runs: RunOutcome[], numerator: (r: RunOutcome[]) => number
  * beside it gets quoted without the caveat. If the run cannot support a rate,
  * this returns null and says why, and the report prints counts instead.
  */
-export function summarize(runs: RunOutcome[], thresholds: PublishThresholds = DEFAULT_THRESHOLDS): Summary {
+export function summarize(
+  runs: RunOutcome[],
+  thresholds: PublishThresholds = DEFAULT_THRESHOLDS,
+  /**
+   * False when the run had no mechanism judge.
+   *
+   * Without one no run can reach CORRECT, so precision computes to 0 — and
+   * "0% precision" reads as "it is always wrong" when it means "we did not
+   * grade that". Withholding it is the same rule applied to ourselves as to
+   * every other number here.
+   */
+  mechanismsGraded = true,
+): Summary {
   const graded = runs.filter((r) => r.outcome !== 'INVALID');
   const invalidRate = runs.length === 0 ? 0 : runs.filter((r) => r.outcome === 'INVALID').length / runs.length;
 
@@ -454,6 +466,13 @@ export function summarize(runs: RunOutcome[], thresholds: PublishThresholds = DE
   if (answerRate !== null && answerRate < thresholds.minAnswerRate) {
     withheld.push(
       `the gate declined on ${((1 - answerRate) * 100).toFixed(0)}% of real faults; precision over the remainder describes a product that mostly does not answer`,
+    );
+  }
+
+  if (!mechanismsGraded) {
+    withheld.push(
+      'mechanisms were not graded (no judge configured), so no run can be correct and precision '
+      + 'would read as 0% rather than as unmeasured',
     );
   }
 

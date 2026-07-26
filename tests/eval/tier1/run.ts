@@ -46,6 +46,23 @@ const INVESTIGATION_BUDGET_MS = 15 * 60 * 1000;
 const MODEL = process.env['ROUNDS_EVAL_MODEL'] ?? '';
 const JUDGE_MODEL = process.env['ROUNDS_EVAL_JUDGE_MODEL'] ?? '';
 
+/**
+ * Running without a mechanism judge.
+ *
+ * The judge is only ever consulted on a run that already named the right
+ * object, and it only moves PARTIAL to CORRECT or to WRONG. Everything decided
+ * before it is deterministic: whether the product committed to a cause at all,
+ * whether it took the trap the fault invites, whether it invented a cause on a
+ * healthy cluster. Those are the numbers a reader most needs and the ones the
+ * PR gate watches.
+ *
+ * So a judge-free run is not a degraded run, it is a narrower one — and
+ * `summarize` already withholds any rate it cannot support rather than
+ * estimating it. Requiring a second vendor's key just to learn the answer rate
+ * would mean nobody measures anything until they have two accounts.
+ */
+const NO_JUDGE = JUDGE_MODEL === '';
+
 async function callJudgeModel(prompt: string): Promise<string> {
   const url = process.env['ROUNDS_EVAL_JUDGE_URL'];
   const key = process.env['ROUNDS_EVAL_JUDGE_KEY'];
@@ -126,7 +143,12 @@ async function runOnce(s: Scenario, attempt: number): Promise<RunRecord> {
     const scored = toScoredReport(report as SavedReportShape | null);
     let result = score(scored, s.truth);
 
-    if (result.needsJudge) {
+    // The judge only ever decides PARTIAL -> CORRECT or -> WRONG. Everything
+    // that matters most — whether it committed at all, whether it took the
+    // trap, whether it invented a cause on a healthy cluster — is settled
+    // before this point, deterministically. So a run without a judge is not a
+    // broken run; it is a run that measures less, and says so.
+    if (result.needsJudge && !NO_JUDGE) {
       const anchors: JudgeAnchors = s.truth.judgeAnchors
         ?? { matches: [s.truth.mechanism], contradicts: [] };
       result = applyJudge(result, await judge(
@@ -160,14 +182,18 @@ async function runOnce(s: Scenario, attempt: number): Promise<RunRecord> {
 const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(0)}%`);
 
 function render(records: RunRecord[], repeats: number, scenarios: Scenario[]): string {
-  const s = summarize(records);
+  const s = summarize(records, undefined, !NO_JUDGE);
   const injected = scenarios.filter((x) => x.kind === 'injected');
   const notK8s = injected.filter((x) => x.rootCauseIsNotK8sObject);
 
   const lines: string[] = [
     '# Tier-1 live-fault results',
     '',
-    `Model under test: \`${MODEL}\` · judge: \`${JUDGE_MODEL}\``,
+    NO_JUDGE
+      ? `Model under test: \`${MODEL}\` · **no judge** — mechanisms were not graded, so `
+        + 'no run can reach CORRECT and precision is withheld. Answer rate, traps and false '
+        + 'alarms are unaffected: they never used the judge.'
+      : `Model under test: \`${MODEL}\` · judge: \`${JUDGE_MODEL}\``,
     `${scenarios.length} scenarios × ${repeats} runs · ` +
       `${s.injected.graded} graded on real faults, ${s.control.graded} on a healthy cluster, ` +
       `${s.injected.invalid + s.control.invalid} excluded`,
@@ -239,8 +265,14 @@ function selectedScenarios(): Scenario[] {
 async function main(): Promise<void> {
   const repeatsArg = process.argv.indexOf('--repeats');
   const repeats = repeatsArg > 0 ? Number(process.argv[repeatsArg + 1]) : 1;
-  if (!MODEL || !JUDGE_MODEL) throw new Error('ROUNDS_EVAL_MODEL and ROUNDS_EVAL_JUDGE_MODEL are required');
-  assertDifferentVendors(MODEL, JUDGE_MODEL);
+  if (!MODEL) throw new Error('ROUNDS_EVAL_MODEL is required');
+  // Without a judge the run still produces the numbers that never needed one.
+  // See `NO_JUDGE` for what is and is not measurable that way.
+  if (JUDGE_MODEL) assertDifferentVendors(MODEL, JUDGE_MODEL);
+  else process.stderr.write(
+    'no ROUNDS_EVAL_JUDGE_MODEL — running judge-free: answer rate, false alarms and traps '
+    + 'are measured; precision is not, and is withheld rather than estimated.\n',
+  );
 
   const scenarios = selectedScenarios();
   const records: RunRecord[] = [];

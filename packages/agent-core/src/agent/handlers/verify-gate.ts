@@ -92,6 +92,17 @@ export interface VerifyGateInput {
 export interface VerifyGateReport {
   /** True when nothing blocks the save (no preview errors, no lint errors). */
   ok: boolean;
+  /**
+   * Panels whose queries were never actually run, because no metrics
+   * connector is configured.
+   *
+   * Not rejecting the save in that case is deliberate — it would block
+   * offline and pre-deployment authoring. Reporting `ok` without saying so is
+   * not: with every panel skipped, `ok` is computed from an empty issue list
+   * and comes back true, which reads as "these panels were checked and are
+   * fine" when nothing was checked at all.
+   */
+  previewSkippedPanels: number;
   /** Per-panel preview issues, flattened with panel index. */
   previewIssues: Array<PanelPreviewIssue & { panelIndex: number; panelTitle: string }>;
   /** Lint issues from `dashboard_lint` (or stub). */
@@ -140,6 +151,7 @@ export async function runDashboardVerifyGate(
   input: VerifyGateInput,
 ): Promise<VerifyGateReport> {
   const previewIssues: VerifyGateReport['previewIssues'] = [];
+  let previewSkippedPanels = 0;
 
   // Degrade gracefully when no metrics datasource is configured at all —
   // a session with no backends can't be verified, and rejecting the save
@@ -153,7 +165,7 @@ export async function runDashboardVerifyGate(
     const spec = toPreviewSpec(input.panels[i]!);
     // Panels with no queries (header rows, text-only) skip preview cleanly.
     if (!spec) continue;
-    if (!hasAnyMetricsConnector) continue;
+    if (!hasAnyMetricsConnector) { previewSkippedPanels++; continue; }
     const args: PanelPreviewArgs = {
       panel: spec,
       ...(input.datasourceId ? { datasourceId: input.datasourceId } : {}),
@@ -179,7 +191,7 @@ export async function runDashboardVerifyGate(
     previewIssues.every((i) => i.severity !== 'error') &&
     lint.issues.every((i) => i.severity !== 'error');
 
-  return { ok, previewIssues, lintIssues: lint.issues };
+  return { ok, previewSkippedPanels, previewIssues, lintIssues: lint.issues };
 }
 
 /**

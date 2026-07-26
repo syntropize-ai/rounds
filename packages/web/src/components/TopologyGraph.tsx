@@ -28,13 +28,19 @@ function parseDepNodes(evidence: Evidence[]): DepNode[] {
   const rawData = result.rawData;
   if (!Array.isArray(rawData)) return [];
 
+  // What this can actually tell: whether the investigation's own summary named
+  // a dependency next to a problem word. It cannot tell whether a dependency is
+  // healthy — the summary is free text written by a model, in whatever language
+  // the user asked in, so "elevated latency in cart-svc" contains neither
+  // keyword and an empty summary contains nothing at all. Both used to render
+  // as "All N downstream services appear healthy", which is a positive claim
+  // this component has no way to support.
   const summary = result.summary ?? '';
-  const hasIssues = summary.toLowerCase().includes('issue') || summary.toLowerCase().includes('anomal');
+  const mentionsAProblem = summary.toLowerCase().includes('issue') || summary.toLowerCase().includes('anomal');
 
   return rawData.map((name) => ({
     name: String(name),
-    // Mark as having issue if the summary mentions the dep name and anomaly keywords
-    hasIssue: hasIssues && summary.toLowerCase().includes(String(name).toLowerCase()),
+    hasIssue: mentionsAProblem && summary.toLowerCase().includes(String(name).toLowerCase()),
   }));
 }
 
@@ -96,8 +102,8 @@ export default function TopologyGraph({ entity, evidence }: Props) {
       {deps.length > 0 && (
         <p className="text-xs text-slate-400 mt-3 text-center">
           {anomalousDeps.length === 0
-            ? `All ${deps.length} downstream service${deps.length === 1 ? '' : 's'} appear healthy`
-            : `Issues detected in: ${anomalousDeps.map((d) => d.name).join(', ')}`}
+            ? `${deps.length} downstream service${deps.length === 1 ? '' : 's'}; none named as a problem in this investigation's summary`
+            : `Named as a problem in the summary: ${anomalousDeps.map((d) => d.name).join(', ')}`}
         </p>
       )}
     </div>

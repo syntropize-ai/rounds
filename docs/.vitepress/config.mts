@@ -77,7 +77,7 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Configuration env vars', link: '/configuration' },
-          { text: 'REST API', link: '/api-reference' },
+          { text: 'REST API (auth & admin)', link: '/api-reference' },
           { text: 'Architecture', link: '/architecture' },
         ],
       },

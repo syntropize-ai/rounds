@@ -423,3 +423,41 @@ describe('the chat page tool table is callable', () => {
     expect(undocumented, `missing from the table: ${undocumented.join(', ')}`).toEqual([]);
   });
 });
+
+/**
+ * The API reference states its own scope, so the scope has to be true.
+ *
+ * The page covers auth, users, orgs, teams, roles and admin — 82 endpoints —
+ * and none of the product surface. Its title and its sidebar entry both said
+ * "API Reference" / "REST API", so a reader arrived expecting everything and
+ * had no way to tell whether `/api/investigations` was undocumented or absent
+ * from the product.
+ *
+ * The claim it now makes is "every endpoint in those areas is listed here".
+ * That is checkable, and this checks it — an auth route added without a row
+ * turns the page into the same kind of quiet lie it was written to end.
+ */
+describe('the API reference covers what it claims to cover', () => {
+  it('documents every auth and admin route group that is mounted', () => {
+    const domain = read('packages/api-gateway/src/app/domain-routes.ts');
+    const mounted = new Set(
+      [...domain.matchAll(/app\.use\('(\/api\/[a-z-]+)'/g)].map((m) => m[1]!),
+    );
+    expect(mounted.size, 'the mount pattern moved — update this guard').toBeGreaterThan(10);
+
+    // The scope the page declares for itself.
+    const IN_SCOPE = ['/api/login', '/api/logout', '/api/user', '/api/users', '/api/orgs',
+      '/api/teams', '/api/roles', '/api/serviceaccounts', '/api/admin', '/api/saml'];
+    const page = readFileSync(join(ROOT, 'docs/api-reference.md'), 'utf8');
+    const missing = IN_SCOPE.filter((r) => mounted.has(r) && !page.includes(r));
+    expect(missing, `in scope but undocumented: ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it('says plainly that the product surface is out of scope', () => {
+    const page = readFileSync(join(ROOT, 'docs/api-reference.md'), 'utf8');
+    expect(page).toMatch(/Scope:/);
+    expect(page).toContain('/api/openapi.json');
+    // The sentence that stops a reader inferring the endpoint does not exist.
+    expect(page).toMatch(/not written up yet/);
+  });
+});

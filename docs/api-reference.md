@@ -1,6 +1,20 @@
 # API Reference
 
-Complete list of Rounds authentication and authorization endpoints.
+**Scope: authentication, users, orgs, teams, roles, service accounts and admin.**
+Every endpoint in those areas is listed here.
+
+The product surface is not — investigations, chat, alert rules, dashboards,
+plans, approvals and notifications all have REST endpoints that this page does
+not cover. Two ways to reach them today:
+
+- `GET /api/openapi.json` — a machine-readable spec, currently investigations
+  only (6 paths). Served by the running instance; no auth needed to read it.
+- The route sources under `packages/api-gateway/src/routes/`, which are the
+  authority either way.
+
+Stated rather than left to inference: an endpoint missing from this page has
+not been judged internal or unsupported. It is simply not written up yet, and
+a reader should not read absence here as absence in the product.
 
 ## Conventions
 

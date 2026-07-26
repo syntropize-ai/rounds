@@ -47,6 +47,7 @@ export default defineConfig({
           { text: 'Alert rules', link: '/features/alerts' },
           { text: 'Datasources', link: '/features/datasources' },
           { text: 'Chat & agents', link: '/features/chat' },
+          { text: 'Configure by chat', link: '/features/configure-by-chat' },
         ],
       },
       {

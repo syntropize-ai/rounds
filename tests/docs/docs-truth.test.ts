@@ -332,3 +332,46 @@ describe('the documented OAuth link step matches the code', () => {
     expect(base).toMatch(/if \(!info\.emailVerified\)[\s\S]{0,80}invalidCredentials/);
   });
 });
+
+/**
+ * The configure-by-chat page states a security boundary, so it has to be the
+ * real one.
+ *
+ * "The agent may change exactly these three settings" is the kind of sentence
+ * a reader relies on and nobody re-checks. Widening `AGENT_WRITABLE_SETTINGS`
+ * without updating the page would leave the docs understating what chat can
+ * reach — and understating a boundary is the direction that matters.
+ */
+describe('the configure-by-chat page matches the service', () => {
+  const SERVICE = 'packages/api-gateway/src/services/agent-config-service.ts';
+
+  it('lists exactly the settings the agent may write', () => {
+    const src = read(SERVICE);
+    const block = src.match(/AGENT_WRITABLE_SETTINGS[^=]*=\s*new Set\(\[([\s\S]*?)\]\)/);
+    expect(block, 'the allowlist moved — update this guard').toBeTruthy();
+    const keys = [...block![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
+    expect(keys.length).toBeGreaterThan(0);
+
+    const page = readFileSync(join(ROOT, 'docs/features/configure-by-chat.md'), 'utf8');
+    for (const key of keys) {
+      expect(page, `${key} is writable but undocumented`).toContain(key);
+    }
+    // And the table claims nothing that is not writable. Read the table rows
+    // only — an earlier version scanned the whole page and skipped anything
+    // starting with `auth.`, which blinded it to the exact key used as the
+    // worked refusal example. Adding that key to the allowlist then passed
+    // both directions, so the guard proved nothing.
+    const tableKeys = [...page.matchAll(/^\| `([a-z]+\.[a-z_]+)` \|/gm)].map((m) => m[1]!);
+    expect(tableKeys.length, 'the settings table moved — update this guard').toBeGreaterThan(0);
+    expect([...tableKeys].sort()).toEqual([...keys].sort());
+  });
+
+  it('states the draft lifetime the code enforces', () => {
+    const src = read(SERVICE);
+    const ttl = src.match(/DRAFT_TTL_MS\s*=\s*(\d+)\s*\*\s*(\d+)\s*\*\s*(\d+)/);
+    expect(ttl, 'the TTL moved — update this guard').toBeTruthy();
+    const minutes = Number(ttl![1]);
+    const page = readFileSync(join(ROOT, 'docs/features/configure-by-chat.md'), 'utf8');
+    expect(page, `drafts expire after ${minutes} minutes`).toContain(`${minutes} minutes`);
+  });
+});

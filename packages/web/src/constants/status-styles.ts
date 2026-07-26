@@ -84,8 +84,27 @@ export const INVESTIGATION_STATUS_STYLES: Record<string, InvestigationStatusStyl
   },
 };
 
-export const DEFAULT_INVESTIGATION_STATUS: InvestigationStatusStyle =
-  INVESTIGATION_STATUS_STYLES['planning']!;
+/**
+ * What an unrecognised status looks like.
+ *
+ * This used to fall back to `planning`, so anything the web build did not know
+ * — an API newer or older than the bundle, a status added without updating this
+ * map, a truncated value — rendered as a blue "Planning" pill saying
+ * "Planning investigation steps…". A stuck or cancelled investigation was
+ * displayed as actively working, and the list polls anything in-progress every
+ * five seconds, so it kept saying so forever.
+ *
+ * "I do not recognise this" must never render as "it is fine, it is working".
+ * Neutral, and it shows the raw status so whoever sees it can report something
+ * useful.
+ */
+export const DEFAULT_INVESTIGATION_STATUS: InvestigationStatusStyle = {
+  bg: 'bg-slate-500/15',
+  text: 'text-slate-500',
+  dot: 'bg-slate-500',
+  label: 'Unknown',
+  description: 'This version of the UI does not recognise this status.',
+};
 
 export function getInvestigationStatusStyle(status: string): InvestigationStatusStyle {
   return INVESTIGATION_STATUS_STYLES[status] ?? DEFAULT_INVESTIGATION_STATUS;

@@ -20,8 +20,21 @@ interface InvestigationSummary {
 
 // Helpers
 
-function isActive(status: string) {
-  return status !== 'completed' && status !== 'failed';
+/**
+ * Statuses that mean work is still happening, listed rather than excluded.
+ *
+ * The predicate used to be "not completed and not failed", so any status this
+ * build did not know counted as in-flight and the list polled it every five
+ * seconds forever. An allowlist fails the other way: something unrecognised
+ * stops being refreshed, which is visible and cheap, instead of becoming a
+ * permanent background request nobody can explain.
+ */
+const ACTIVE_STATUSES = new Set([
+  'planning', 'investigating', 'evidencing', 'explaining', 'acting', 'verifying',
+]);
+
+export function isActive(status: string) {
+  return ACTIVE_STATUSES.has(status);
 }
 
 /**

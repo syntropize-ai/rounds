@@ -1,0 +1,412 @@
+# orders-api holds a connection pool against a Postgres whose max_connections is
+# too small for the number of replicas. Nothing here is a broken Kubernetes
+# object: the Deployments are well-formed, every probe passes, and the fault
+# lives entirely in one number inside the database process.
+#
+# The health endpoint deliberately does not touch the pool. That is what keeps
+# every pod Ready while a third of the traffic fails, and it is also the most
+# common real-world reason an operator's first look at the cluster says nothing
+# is wrong.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rounds-eval
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-db-init
+  namespace: rounds-eval
+data:
+  # The app connects as a non-superuser so that superuser_reserved_connections
+  # still protects the exporter's slot. Without this the exporter is locked out
+  # by the very saturation it is supposed to report, and the only evidence of
+  # the cause disappears at the moment the fault becomes interesting.
+  10-app-role.sql: |
+    CREATE ROLE orders_app LOGIN NOSUPERUSER;
+    GRANT CONNECT ON DATABASE orders TO orders_app;
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-db-exporter
+  namespace: rounds-eval
+data:
+  serve.py: |
+    """Serve whatever the psql sidecar last wrote, in Prometheus text format."""
+    import pathlib
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    METRICS = pathlib.Path("/shared/metrics")
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = METRICS.read_bytes() if METRICS.exists() else b""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+
+    ThreadingHTTPServer(("", 9187), Handler).serve_forever()
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-api-app
+  namespace: rounds-eval
+data:
+  app.py: |
+    """An order API that needs a pooled database connection to serve a request.
+
+    The pool speaks enough of the Postgres wire protocol to open a real backend
+    and hold it. Holding is the point: a pool that reconnected per request would
+    never exhaust anything, and the fault would not reproduce.
+    """
+    import os
+    import select
+    import socket
+    import struct
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    HOST = os.environ["DB_HOST"]
+    PORT = int(os.environ["DB_PORT"])
+    USER = os.environ["DB_USER"]
+    NAME = os.environ["DB_NAME"]
+    POOL_SIZE = int(os.environ["POOL_SIZE"])
+
+    lock = threading.Lock()
+    pool = []
+    requests = {"ok": 0, "db_unavailable": 0}
+    connect_failures = {}
+
+
+    def startup_packet():
+        body = b"".join(
+            part + b"\0" for part in (b"user", USER.encode(), b"database", NAME.encode())
+        ) + b"\0"
+        return struct.pack("!ii", len(body) + 8, 196608) + body
+
+
+    class Refused(OSError):
+        def __init__(self, sqlstate, message):
+            super().__init__(f"{sqlstate} {message}")
+            self.sqlstate = sqlstate
+
+
+    def read_exactly(sock, count):
+        buf = b""
+        while len(buf) < count:
+            chunk = sock.recv(count - len(buf))
+            if not chunk:
+                raise OSError("server closed the connection during startup")
+            buf += chunk
+        return buf
+
+
+    def open_backend():
+        """Open one backend, or raise with the SQLSTATE the server refused with.
+
+        The handshake has to be read to ReadyForQuery. Postgres answers
+        AuthenticationOk first and only then refuses on the connection limit, so
+        a client that stops at the first message counts a rejected connection as
+        a live one — which is exactly how a pool ends up lying about its size.
+        """
+        sock = socket.create_connection((HOST, PORT), timeout=5)
+        sock.sendall(startup_packet())
+        while True:
+            kind = read_exactly(sock, 1)
+            length = struct.unpack("!i", read_exactly(sock, 4))[0]
+            body = read_exactly(sock, length - 4) if length > 4 else b""
+            if kind == b"Z":
+                return sock
+            if kind == b"E":
+                fields = {
+                    field[:1].decode(): field[1:].decode(errors="replace")
+                    for field in body.split(b"\0")
+                    if field
+                }
+                sock.close()
+                raise Refused(fields.get("C", "unknown"), fields.get("M", ""))
+
+
+    def alive(sock):
+        readable, _, _ = select.select([sock], [], [], 0)
+        if not readable:
+            return True
+        return sock.recv(1, socket.MSG_PEEK) != b""
+
+
+    def refill():
+        while True:
+            with lock:
+                pool[:] = [sock for sock in pool if alive(sock)]
+                wanted = POOL_SIZE - len(pool)
+            for _ in range(wanted):
+                try:
+                    sock = open_backend()
+                except OSError as err:
+                    sqlstate = getattr(err, "sqlstate", "network")
+                    with lock:
+                        connect_failures[sqlstate] = connect_failures.get(sqlstate, 0) + 1
+                    print(f"pool: could not open a database connection: {err}", flush=True)
+                else:
+                    with lock:
+                        pool.append(sock)
+            time.sleep(10)
+
+
+    def render():
+        with lock:
+            lines = [
+                "# HELP orders_requests_total Order submissions by outcome.",
+                "# TYPE orders_requests_total counter",
+                *(f'orders_requests_total{{result="{k}"}} {v}' for k, v in requests.items()),
+                "# HELP db_pool_connections_open Backends this replica currently holds.",
+                "# TYPE db_pool_connections_open gauge",
+                f"db_pool_connections_open {len(pool)}",
+                "# HELP db_pool_size_target Backends this replica is configured to hold.",
+                "# TYPE db_pool_size_target gauge",
+                f"db_pool_size_target {POOL_SIZE}",
+                "# HELP db_connect_failures_total Refused connection attempts by SQLSTATE.",
+                "# TYPE db_connect_failures_total counter",
+                *(
+                    f'db_connect_failures_total{{sqlstate="{k}"}} {v}'
+                    for k, v in connect_failures.items()
+                ),
+            ]
+        return ("\n".join(lines) + "\n").encode()
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, code, body):
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path == "/metrics":
+                self.reply(200, render())
+                return
+            if self.path == "/healthz":
+                # Says nothing about the pool, so the pod stays Ready throughout.
+                self.reply(200, b"ok\n")
+                return
+            with lock:
+                held = len(pool)
+                requests["ok" if held else "db_unavailable"] += 1
+            if held:
+                self.reply(200, b"order accepted\n")
+            else:
+                print("orders: rejecting request, this replica holds no connections", flush=True)
+                self.reply(503, b"order storage unavailable\n")
+
+        def log_message(self, *args):
+            pass
+
+
+    threading.Thread(target=refill, daemon=True).start()
+    ThreadingHTTPServer(("", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-db
+  namespace: rounds-eval
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orders-db
+  template:
+    metadata:
+      labels:
+        app: orders-db
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          # The fault. Everything else in this file is a healthy workload.
+          args: ["postgres", "-c", "max_connections=10"]
+          env:
+            - name: POSTGRES_USER
+              value: orders
+            - name: POSTGRES_DB
+              value: orders
+            - name: POSTGRES_HOST_AUTH_METHOD
+              value: trust
+          ports:
+            - containerPort: 5432
+              name: tcp-postgres
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "orders"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+        - name: exporter
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              while true; do
+                psql -h 127.0.0.1 -U orders -d orders -tAX -F' ' -c "
+                  select 'pg_settings_max_connections ' || setting from pg_settings where name = 'max_connections'
+                  union all
+                  select 'pg_settings_superuser_reserved_connections ' || setting from pg_settings where name = 'superuser_reserved_connections'
+                  union all
+                  select 'pg_stat_activity_count{usename=\"' || usename || '\"} ' || count(*)::text
+                    from pg_stat_activity where backend_type = 'client backend' group by usename
+                " > /shared/metrics.next && mv /shared/metrics.next /shared/metrics
+                sleep 10
+              done
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+        - name: metrics
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/app/serve.py"]
+          ports:
+            - containerPort: 9187
+              name: http-metrics
+          volumeMounts:
+            - name: exporter
+              mountPath: /app
+            - name: shared
+              mountPath: /shared
+      volumes:
+        - name: init
+          configMap:
+            name: orders-db-init
+        - name: exporter
+          configMap:
+            name: orders-db-exporter
+        - name: shared
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-db
+  namespace: rounds-eval
+spec:
+  selector:
+    app: orders-db
+  ports:
+    - name: tcp-postgres
+      port: 5432
+      targetPort: 5432
+    - name: http-metrics
+      port: 9187
+      targetPort: 9187
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+  namespace: rounds-eval
+spec:
+  # 8 replicas x 2 held connections = 16 demanded against 10 - 3 reserved.
+  replicas: 8
+  selector:
+    matchLabels:
+      app: orders-api
+  template:
+    metadata:
+      labels:
+        app: orders-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: api
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/app/app.py"]
+          env:
+            - name: DB_HOST
+              value: orders-db
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: orders_app
+            - name: DB_NAME
+              value: orders
+            - name: POOL_SIZE
+              value: "2"
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          volumeMounts:
+            - name: app
+              mountPath: /app
+      volumes:
+        - name: app
+          configMap:
+            name: orders-api-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+  namespace: rounds-eval
+spec:
+  selector:
+    app: orders-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-load
+  namespace: rounds-eval
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orders-load
+  template:
+    metadata:
+      labels:
+        app: orders-load
+    spec:
+      containers:
+        - name: load
+          image: curlimages/curl:8.10.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - while true; do curl -s -o /dev/null -m 5 http://orders-api:8080/orders; sleep 0.2; done

@@ -4,7 +4,9 @@ import type {
   InvestigationCompletionClaim,
   InvestigationRootCause,
   InvestigationWorkingState,
+  ReadFamily,
 } from './investigation-state.js';
+import { readFamilyForTool } from './investigation-state.js';
 
 export interface RootCauseEvidenceGateResult {
   status: 'passed' | 'unresolved';
@@ -88,10 +90,20 @@ export function evaluateInvestigationEvidenceGate(
   if (referenced.length < 2) {
     reasons.push('at least two recorded checks must be referenced');
   }
-  if (new Set(referenced.map((check) => check.signalType)).size < 2) {
-    reasons.push('referenced evidence must include at least two independent signal types');
+  // Independence is counted in read families, not in the signal-type label the
+  // model wrote. Two things went wrong when it was counted by label: checks
+  // citing no real tool at all counted as evidence, and two calls to the same
+  // metrics tool counted as two independent signals if they were tagged
+  // differently. A family is a distinct place the answer could have come from.
+  const backed = referenced
+    .map((check) => ({ check, family: readFamilyForTool(check.tool, check.signalType) }))
+    .filter((entry): entry is { check: InvestigationCheck; family: ReadFamily } => entry.family !== null);
+  if (new Set(backed.map((entry) => entry.family)).size < 2) {
+    reasons.push(
+      'referenced evidence must include at least two independent signal types from metrics, logs, Kubernetes state or change events',
+    );
   }
-  if (!hasDirectSupport(referenced, claim.rootCause)) {
+  if (!hasDirectSupport(backed.map((entry) => entry.check), claim.rootCause)) {
     reasons.push('at least one referenced supported check must directly support the root-cause object and cause');
   }
   if (claim.ruledOut.length === 0) {
@@ -238,8 +250,8 @@ export function explainGateReasons(reasons: readonly string[]): string[] {
 }
 
 const GATE_REASON_PLAIN: Readonly<Record<string, string>> = {
-  'referenced evidence must include at least two independent signal types':
-    'the supporting evidence all came from one kind of data — connecting logs or Kubernetes state would let me confirm it',
+  'referenced evidence must include at least two independent signal types from metrics, logs, Kubernetes state or change events':
+    'the supporting evidence all came from one kind of data I can verify I actually queried — connecting logs or Kubernetes state would let me confirm it',
   'at least two recorded checks must be referenced':
     'only one check backs this conclusion, which is not enough to be sure',
   'at least one referenced supported check must directly support the root-cause object and cause':

@@ -93,10 +93,19 @@ tool that actually executed in that investigation, and one execution backs one
 check. An agent cannot satisfy the gate by describing queries it never ran, and
 cannot run one query and write up five findings from it.
 
-**It proves the shape of the reasoning.** At least two independent signal
-types, at least one competing explanation recorded as ruled out, an explicit
-time window or affected scope, a named validation method, and a repair target
-consistent with the proven cause.
+**It proves the two signal types are two reads.** Independence is counted in
+the four read families the ledger can vouch for — metrics, logs, Kubernetes
+state, change events — resolved from the tool the check cites, not from the
+label the model chose for it. This closes two ways of manufacturing
+independence on paper: citing a trace, a config inspection or a runbook, none
+of which the product can confirm ever happened; and querying metrics twice
+while tagging one call `metric` and the other `kubernetes`. Checks of the other
+kinds are still recorded and still shown to a reader — they just cannot be what
+makes a root cause verified.
+
+**It proves the shape of the reasoning.** At least one competing explanation
+recorded as ruled out, an explicit time window or affected scope, a named
+validation method, and a repair target consistent with the proven cause.
 
 **It proves a source that could not be consulted rules nothing out.** Read
 tools tag their observation when the source was unreachable or unconfigured,

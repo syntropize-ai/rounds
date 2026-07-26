@@ -21,6 +21,8 @@ import {
   recordInvestigationCheck,
   type InvestigationCompletionClaim,
   type InvestigationSignalType,
+  type ReadFamily,
+  readFamilyForTool,
 } from '../investigation-state.js';
 import { evaluateInvestigationEvidenceGate, explainGateReasons } from '../evidence-gate.js';
 
@@ -834,31 +836,6 @@ function parseCompletionClaim(args: Record<string, unknown>): InvestigationCompl
     nextAction: stringOrUndefined(args.nextAction),
     validationMethod: stringOrUndefined(args.validationMethod),
   };
-}
-
-/**
- * Which provenance counter a cited tool draws from. Families mirror the
- * increments in `recordInvestigationRead` (orchestrator-agent.ts): metrics_*,
- * logs_*, ops_run_command, changes_list_recent. Tools outside those families
- * (web search, knowledge base) are not counted there, so checks citing them
- * are not held to this rule.
- */
-type ReadFamily = 'metric' | 'log' | 'ops' | 'change';
-
-function readFamilyForTool(tool: string, signalType: InvestigationSignalType): ReadFamily | null {
-  const t = tool.trim().toLowerCase();
-  if (t.startsWith('metrics_')) return 'metric';
-  if (t.startsWith('logs_')) return 'log';
-  if (t === 'ops_run_command' || t === 'ops_cluster_shell') return 'ops';
-  if (t === 'changes_list_recent') return 'change';
-  // A tool name the agent invented rather than called. Fall back to the
-  // declared signal type so a check claiming metric evidence still needs a
-  // metric read behind it.
-  if (signalType === 'metric') return 'metric';
-  if (signalType === 'log') return 'log';
-  if (signalType === 'kubernetes') return 'ops';
-  if (signalType === 'change') return 'change';
-  return null;
 }
 
 const READ_FAMILY_LABEL: Readonly<Record<ReadFamily, string>> = {

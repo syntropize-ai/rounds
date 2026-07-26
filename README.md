@@ -116,10 +116,12 @@ explanation was tested and recorded as ruled out, and a validation method is
 named. Otherwise the report ships as `unresolved` with the next check to run —
 and an unresolved investigation cannot back a remediation plan.
 
-The server enforces this, and it also enforces that the evidence is real: a
-recorded check must be backed by a read that actually executed, so an agent
-cannot satisfy the gate by describing work it did not do. What is not yet
-verified is whether the stated result matches what the query returned — see
+The server enforces this, and it also enforces that the evidence is real. The
+two signal types have to be two reads that actually executed — metrics, logs,
+Kubernetes state, change events — and the agent cannot make a third by labelling
+one of them differently, or by citing a trace or a runbook it only described.
+What is not yet verified is whether the stated result matches what the query
+returned — see
 [the risk model](./docs/reference/risk-model.md#what-the-evidence-gate-does-and-does-not-prove).
 
 **Every production change leaves a paper trail.** Plan → attributed approval →

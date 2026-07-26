@@ -123,6 +123,47 @@ describe('connector handlers', () => {
     await expect(handleConnectorApply(ctx, { draftId: 'draft-1' })).resolves.toContain('connectorId=conn-prom');
     await expect(handleConnectorTest(ctx, { connectorId: 'conn-prom' })).resolves.toContain('test OK');
   });
+
+  it('verifies the backend is reachable as part of applying', async () => {
+    // Creating the row proves nothing — the address can be unroutable from the
+    // server. Reporting success without checking leaves the user to discover it
+    // on their next question.
+    const configService = makeStubConfigService();
+    const ctx = makeFakeActionContext({ configService });
+
+    const result = await handleConnectorApply(ctx, { draftId: 'draft-1' });
+
+    expect(configService.testConnector).toHaveBeenCalledWith('conn-prom', expect.any(String));
+    expect(result).toContain('Connection verified');
+  });
+
+  it('warns instead of claiming success when the new connector is unreachable', async () => {
+    const configService = makeStubConfigService();
+    configService.testConnector = vi.fn().mockResolvedValue({
+      ok: false,
+      capabilities: [],
+      error: 'fetch failed',
+    });
+    const ctx = makeFakeActionContext({ configService });
+
+    const result = await handleConnectorApply(ctx, { draftId: 'draft-1' });
+
+    expect(result).toContain('WARNING');
+    expect(result).toContain('fetch failed');
+    // The row still exists — a failed check is information, not a failed apply.
+    expect(result).toContain('connectorId=conn-prom');
+  });
+
+  it('still reports the connector when the check itself throws', async () => {
+    const configService = makeStubConfigService();
+    configService.testConnector = vi.fn().mockRejectedValue(new Error('probe exploded'));
+    const ctx = makeFakeActionContext({ configService });
+
+    const result = await handleConnectorApply(ctx, { draftId: 'draft-1' });
+
+    expect(result).toContain('connectorId=conn-prom');
+    expect(result).toContain('probe exploded');
+  });
 });
 
 describe('setting handlers', () => {

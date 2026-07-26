@@ -123,6 +123,13 @@ export function buildBackgroundOrchestratorFactory(
       // here is the read-verb set.
       commandPolicy: { mode: 'read' },
       readOnlyAgentBypass: effectiveAgentType === 'background_orchestrator',
+      // Without this, `teamIds` is always empty and every connector policy
+      // written at team scope is unreachable — the route persists them and
+      // Settings displays them, so a team-level `block` was an advertised
+      // control that silently did nothing.
+      resolveUserTeams: async (who) =>
+        (await deps.persistence.rbacRepos.teamMembers.listTeamsForUser(who.userId, who.orgId))
+          .map((m: { teamId: string }) => m.teamId),
       ...(deps.audit ? { audit: deps.audit } : {}),
     });
 

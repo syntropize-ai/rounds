@@ -21,6 +21,8 @@ import {
   recordInvestigationCheck,
   type InvestigationCompletionClaim,
   type InvestigationSignalType,
+  type ReadFamily,
+  readFamilyForTool,
 } from '../investigation-state.js';
 import { evaluateInvestigationEvidenceGate, explainGateReasons } from '../evidence-gate.js';
 
@@ -140,6 +142,24 @@ export async function handleInvestigationRecordCheck(
   if (!scope) {
     return 'Error: "scope" must set scope.timeWindow (the time range this check covers) or scope.affected (the objects, namespace, or service it covers).';
   }
+
+  // A check has to be backed by a read that actually happened.
+  //
+  // Everything above validates shape: the fields are present and the enums are
+  // legal. None of it establishes that `tool` ran or that `result` came from
+  // anywhere — the agent writes all of it. Without this, the whole evidence
+  // gate downstream grades the model's prose rather than its work, and a run
+  // that queried nothing could still produce a "verified" root cause by
+  // describing checks it never performed.
+  //
+  // The counters incremented as read tools execute are the ground truth. Each
+  // recorded check consumes one real call from its family, so N checks citing
+  // metrics need N metric reads to have occurred. This does not prove the
+  // stated result matches what came back — that needs the raw output kept and
+  // compared, which is worth doing next — but it does close the path where
+  // nothing was read at all.
+  const backingErr = checkHasBackingRead(ctx, investigationId, tool, signalType, status);
+  if (backingErr) return backingErr;
 
   return withToolEventBoundary(
     ctx.sendEvent,
@@ -816,6 +836,70 @@ function parseCompletionClaim(args: Record<string, unknown>): InvestigationCompl
     nextAction: stringOrUndefined(args.nextAction),
     validationMethod: stringOrUndefined(args.validationMethod),
   };
+}
+
+const READ_FAMILY_LABEL: Readonly<Record<ReadFamily, string>> = {
+  metric: 'metrics_* query',
+  log: 'logs_* query',
+  ops: 'ops_run_command call',
+  change: 'changes_list_recent call',
+};
+
+function checkHasBackingRead(
+  ctx: ActionContext,
+  investigationId: string,
+  tool: string,
+  signalType: InvestigationSignalType,
+  status: HypothesisStatus,
+): string | null {
+  const family = readFamilyForTool(tool, signalType);
+  if (!family) return null;
+
+  // Prefer the ledger, which knows whether each source actually answered.
+  // Fall back to the counters when no ledger exists (older sessions, and
+  // harnesses that drive handlers directly).
+  const reads = ctx.investigationReads?.get(investigationId);
+  if (reads) {
+    const next = reads.find((r) => r.family === family && !r.consumed);
+    if (!next) {
+      const ran = reads.filter((r) => r.family === family).length;
+      return (
+        `Error: cannot record this check. It cites a ${READ_FAMILY_LABEL[family]}, and all ${ran} of those `
+        + 'this investigation has run are already accounted for by earlier checks. '
+        + 'Run the read first, then record what it returned.'
+      );
+    }
+    if (!next.sourceAnswered && status !== 'inconclusive') {
+      next.consumed = true;
+      return (
+        `Error: '${next.action}' could not consult its source, so this hypothesis is inconclusive rather than `
+        + `'${status}'. Not being able to look is not the same as having looked and found nothing — record it as `
+        + 'inconclusive, say which source is missing, and carry the gap into the report as an open question.'
+      );
+    }
+    next.consumed = true;
+    return null;
+  }
+
+  const prov = ctx.investigationProvenance.get(investigationId);
+  const performed =
+    family === 'metric' ? prov?.metricReadCalls ?? 0
+    : family === 'log' ? prov?.logReadCalls ?? 0
+    : family === 'ops' ? prov?.opsReadCalls ?? 0
+    : prov?.changeReadCalls ?? 0;
+
+  const state = ctx.investigationStates.get(investigationId);
+  const alreadyRecorded = (state?.checks ?? []).filter(
+    (c) => readFamilyForTool(c.tool, c.signalType) === family,
+  ).length;
+
+  if (performed > alreadyRecorded) return null;
+
+  return (
+    `Error: cannot record this check. It cites a ${READ_FAMILY_LABEL[family]}, but this investigation has run `
+    + `${performed} of those and already recorded ${alreadyRecorded} check(s) against them. `
+    + 'Run the read first, then record what it returned. Record only what you actually observed.'
+  );
 }
 
 function parseSignalType(value: unknown): InvestigationSignalType | null {

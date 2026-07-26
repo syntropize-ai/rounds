@@ -3,6 +3,7 @@ import type { Citation } from '@agentic-obs/common';
 import type { InvestigationReport, InvestigationReportSection } from '../hooks/useDashboardChat.js';
 import DashboardPanelCard from './DashboardPanelCard.js';
 import ProvenanceHeader from './provenance/ProvenanceHeader.js';
+import RootCauseVerdict from './provenance/RootCauseVerdict.js';
 import CitationChip from './provenance/CitationChip.js';
 import EvidenceDrawer from './provenance/EvidenceDrawer.js';
 import { parseCitations } from './provenance/citation-parser.js';
@@ -234,10 +235,21 @@ export default function InvestigationReportView({ report, title }: Props) {
               />
             )}
 
+            {/* Whether the product stands behind the conclusion. Above the
+                summary on purpose: it changes how the summary should be read,
+                so a reader who stops after the first paragraph has still seen
+                it. */}
+            {report.provenance && <RootCauseVerdict provenance={report.provenance} />}
+
             {/* Header */}
             <header className="space-y-4">
               <div className="flex items-center gap-3">
-                <span className="px-2 py-0.5 rounded bg-error/10 text-error text-[10px] font-bold tracking-widest uppercase">
+                {/* Primary, not error. The same flow labels its in-progress
+                    state `bg-primary/10`, so finishing an investigation used to
+                    turn the badge red — which reads as "something went wrong"
+                    when it means "this is done". It also fought the verdict
+                    banner above it: a verified conclusion under a red label. */}
+                <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold tracking-widest uppercase">
                   Investigation Report
                 </span>
               </div>

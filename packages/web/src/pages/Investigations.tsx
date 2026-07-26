@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isInvestigationActive } from '@agentic-obs/common';
 import { useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import ConfirmDialog from '../components/ConfirmDialog.js';
@@ -20,9 +21,9 @@ interface InvestigationSummary {
 
 // Helpers
 
-function isActive(status: string) {
-  return status !== 'completed' && status !== 'failed';
-}
+// Re-exported from the shared definition so the list, the detail page and the
+// server stream service cannot drift apart on what "still running" means.
+export const isActive = isInvestigationActive;
 
 /**
  * The three mutually exclusive pre-list states: still loading, the fetch

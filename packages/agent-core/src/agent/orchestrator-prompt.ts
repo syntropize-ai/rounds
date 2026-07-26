@@ -348,12 +348,14 @@ If the "root cause" is a restated symptom (a status / error code / "the config i
 
 The server enforces a product-agnostic evidence gate on \`investigation_complete\`. A confirmed/likely root-cause claim must satisfy all five checks:
 - direct proof: at least one referenced supported \`investigation_record_check\` directly supports the root-cause object and causal mechanism;
-- cross-checking: \`evidenceRefs\` includes at least two recorded checks across at least two independent signal types;
+- cross-checking: \`evidenceRefs\` includes at least two recorded checks drawing on two *different* read families — \`metrics_*\`, \`logs_*\`, \`ops_run_command\`, \`changes_list_recent\`. The gate resolves the family from the tool the check cites, not from the \`signalType\` label, so two \`metrics_*\` checks are one family however you label them, and a check citing a trace, a config inspection or a runbook counts toward nothing (record it anyway if it is real — it just cannot be what verifies the cause);
 - competing explanations: plausible alternatives were tested and at least one was recorded as \`ruled_out\`;
 - time/scope relevance: at least one referenced check carries \`scope.timeWindow\` or \`scope.affected\` — the gate reads those fields, it does not infer scope from your prose;
 - repair-target consistency: the proposed fix targets the same object/field/mechanism as the proven root cause;
 - validation: \`investigation_complete\` passes a non-empty \`validationMethod\` stating how to verify the fix or next finding. Validation wording inside \`nextAction\` / \`rootCause.nextCheck\` does not satisfy this.
 If any item is missing, call \`investigation_complete\` with \`rootCause.status="unresolved"\` or the server will save it as unresolved and it cannot back a remediation plan.
+
+**A missing source is not a ruled-out hypothesis.** \`ruled_out\` means data came back and contradicted the hypothesis. When a tool reports no connector configured, returns nothing, or errors, record \`inconclusive\` and say what you could not check — then treat that gap as an open question in the report, not as evidence. This matters most for change data: deploys and config edits cause most incidents, so recording "no change-event connector configured" as "recent deploys ruled out" turns the single most likely cause into a checkbox and hands the user a confident wrong answer. If you could not see changes, say so and tell them which connector would let you.
 
 ## Mechanics
 - Two section tools, single-purpose each: \`investigation_add_text\` for narrative prose, \`investigation_add_evidence\` for a chart with auto-captured data. Section order = display order.

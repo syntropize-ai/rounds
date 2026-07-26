@@ -1016,7 +1016,13 @@ export const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
           status: {
             type: 'string',
             enum: ['supported', 'ruled_out', 'inconclusive'],
-            description: 'Whether this check supports, rules out, or leaves the hypothesis inconclusive.',
+            description:
+              'Whether this check supports, rules out, or leaves the hypothesis inconclusive. '
+              + 'Use "ruled_out" ONLY when data came back and that data contradicts the hypothesis. '
+              + 'If the source was missing, unconfigured, empty, or errored, the hypothesis is "inconclusive" — '
+              + 'not being able to look is not the same as having looked and found nothing. '
+              + 'Deploys and config changes cause most incidents, so silently downgrading "I could not check for changes" '
+              + 'into "changes are ruled out" is the single most expensive mistake available here.',
           },
           scope: {
             type: 'object',

@@ -101,7 +101,13 @@ export const LLM_PROVIDERS: Array<{
   {
     value: 'deepseek',
     label: 'DeepSeek',
-    fallbackModels: ['deepseek-chat', 'deepseek-reasoner'],
+    // `deepseek-chat` and `deepseek-reasoner` are retired: the API rejects them
+    // with "The supported API model names are deepseek-v4-pro or
+    // deepseek-v4-flash". A fallback list is only reached when model fetch
+    // fails, which is exactly when the user cannot see that for themselves —
+    // so a stale entry here sends someone through setup to a 400 on their
+    // first question.
+    fallbackModels: ['deepseek-v4-pro', 'deepseek-v4-flash'],
     needsKey: true,
     needsUrl: true,
     supportsModelFetch: true,

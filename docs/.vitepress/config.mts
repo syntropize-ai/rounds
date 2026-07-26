@@ -47,6 +47,7 @@ export default defineConfig({
           { text: 'Alert rules', link: '/features/alerts' },
           { text: 'Datasources', link: '/features/datasources' },
           { text: 'Chat & agents', link: '/features/chat' },
+          { text: 'Configure by chat', link: '/features/configure-by-chat' },
         ],
       },
       {
@@ -56,6 +57,8 @@ export default defineConfig({
           { text: 'Permissions & RBAC', link: '/auth#built-in-roles-permission-summary' },
           { text: 'Service accounts & tokens', link: '/auth#service-accounts-and-api-tokens' },
           { text: 'Production checklist', link: '/auth#production-security-checklist' },
+          { text: 'Change control & audit', link: '/compliance/change-control' },
+          { text: 'Risk model', link: '/reference/risk-model' },
         ],
       },
       {
@@ -65,10 +68,16 @@ export default defineConfig({
         ],
       },
       {
+        text: 'In practice',
+        items: [
+          { text: 'A real investigation', link: '/investigations/bookinfo-reviews-v2' },
+        ],
+      },
+      {
         text: 'Reference',
         items: [
           { text: 'Configuration env vars', link: '/configuration' },
-          { text: 'REST API', link: '/api-reference' },
+          { text: 'REST API (auth & admin)', link: '/api-reference' },
           { text: 'Architecture', link: '/architecture' },
         ],
       },

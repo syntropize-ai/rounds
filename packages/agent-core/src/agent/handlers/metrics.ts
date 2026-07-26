@@ -1,4 +1,5 @@
 import type { ActionContext } from './_context.js';
+import { sourceUnavailable } from './_shared.js';
 
 // ---------------------------------------------------------------------------
 // Source-agnostic metrics primitives — each takes `sourceId` and resolves the
@@ -6,7 +7,11 @@ import type { ActionContext } from './_context.js';
 // ---------------------------------------------------------------------------
 
 function unknownMetricsSource(sourceId: string): string {
-  return `Error: unknown metrics connector '${sourceId}'. Call connectors_list to see available sources.`;
+  // Nothing was consulted, so downstream this must not be able to rule a
+  // hypothesis out — see `sourceUnavailable`.
+  return sourceUnavailable(
+    `Error: unknown metrics connector '${sourceId}'. Call connectors_list to see available sources.`,
+  );
 }
 
 // TODO: migrate to withToolEventBoundary
@@ -37,7 +42,7 @@ export async function handleMetricsQuery(ctx: ActionContext, args: Record<string
   } catch (err) {
     const msg = `Query failed: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics_query', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }
 
@@ -78,7 +83,7 @@ export async function handleMetricsRangeQuery(ctx: ActionContext, args: Record<s
   } catch (err) {
     const msg = `Range query failed: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics_range_query', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }
 
@@ -282,7 +287,7 @@ export async function handleMetricsDiscover(
   } catch (err) {
     const msg = `metrics_discover (${kind}) failed: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics_discover', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }
 
@@ -407,6 +412,6 @@ export async function handleMetricsValidate(ctx: ActionContext, args: Record<str
   } catch (err) {
     const msg = `Query failed to run: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'metrics_validate', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }

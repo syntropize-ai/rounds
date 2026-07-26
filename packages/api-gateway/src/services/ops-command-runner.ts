@@ -282,8 +282,21 @@ const KUBECTL_UNAMBIGUOUS_WRITE_RE =
  * cases; audit log captures everything for post-hoc review.
  */
 export function isAgentReadSafeCommand(command: string): boolean {
-  if (classifyShellCommandRisk(command) === 'critical') return false;
+  const risk = classifyShellCommandRisk(command);
+  if (risk === 'critical') return false;
   if (KUBECTL_UNAMBIGUOUS_WRITE_RE.test(command)) return false;
+  // `medium` means the classifier saw kubectl and did not recognise the verb.
+  // It assigns that level, in its own words, "so an unfamiliar kubectl
+  // subcommand still prompts" — and returning true here threw that away. The
+  // commands it covers are not obscure: `kubectl proxy --address=0.0.0.0`
+  // exposes the API server to the network unauthenticated, `certificate
+  // approve` issues cluster credentials, `debug node/...` is root on a node,
+  // and `port-forward` opens a tunnel to anything. All ran with no card shown.
+  //
+  // `exec` and `cp` stay eligible: they are `high` rather than `medium` and are
+  // deliberately absent from the unambiguous-write list, because inspecting a
+  // sidecar is the interactive path's whole purpose.
+  if (risk === 'medium') return false;
   return true;
 }
 

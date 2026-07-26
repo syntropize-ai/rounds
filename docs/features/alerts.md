@@ -8,8 +8,8 @@ Define, manage, and tune alert rules through chat — or click through the UI. R
 - **Modify existing rules** — "Change the threshold on the high-latency alert to 500ms"
 - **Investigate a firing alert** — start an evidence-backed investigation directly from the alert context
 - **Delete safely** — confirmation prompt before destructive changes; audit-logged
-- **List & filter** — `alert_rule.list` returns rules by folder, severity, state
-- **Inspect history** — `alert_rule.history` shows every state transition (firing / pending / resolved) with the values that triggered them
+- **List & filter** — `alert_rule_list` returns rules by folder, severity, state
+- **Inspect history** — `alert_rule_history` shows every state transition (firing / pending / resolved) with the values that triggered them
 
 ## How to use it
 
@@ -21,21 +21,21 @@ In chat:
 
 The alert agent runs:
 
-1. `metrics.metric_names` / `metrics.labels` to find the right metric + labels
-2. `metrics.validate` to confirm the rule expression is well-formed
+1. `metrics_list_names` / `metrics_get_labels` to find the right metric + labels
+2. `metrics_validate` to confirm the rule expression is well-formed
 3. `create_alert_rule` with: name, expression, threshold, evaluation interval, for-duration, severity, notification channels
 
 ### Modify a rule
 
 > Bump the threshold on `high-checkout-latency` to 800ms
 
-Agent calls `alert_rule.list` to find the rule by name, then `modify_alert_rule` with the new threshold. The change is immediate; next evaluation cycle uses the new value.
+Agent calls `alert_rule_list` to find the rule by name, then `modify_alert_rule` with the new threshold. The change is immediate; next evaluation cycle uses the new value.
 
 ### Inspect what fired
 
 > Show me the firing history for `high-error-rate` over the last 24h
 
-`alert_rule.history` returns the state transitions; the chat renders them as a timeline with the trigger values.
+`alert_rule_history` returns the state transitions; the chat renders them as a timeline with the trigger values.
 
 ### Silence a rule temporarily
 
@@ -46,13 +46,17 @@ Use the UI: Alerts → Silences → New. (Silences aren't currently exposed as a
 | Prompt | Resulting rule |
 |---|---|
 | `Alert me when disk usage on any host exceeds 90%` | `node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.10`, for 10m, severity=warning |
-| `Page on-call when the order pipeline error rate > 5%` | Custom expression scoped to the order datasource, severity=critical, routes to PagerDuty |
+| `Page on-call when the order pipeline error rate > 5%` | Custom expression scoped to the order datasource, severity=critical, routes to the on-call contact point |
 | `Warn if Redis memory > 80% for 15 min` | `redis_memory_used_bytes / redis_memory_max_bytes > 0.80`, for 15m |
 
 ## Limits
 
 - Alert rules need a metric expression. Log-based alerts (Loki ruler) are planned but not in the current release.
-- Notification channels (Slack, PagerDuty, email, webhook) configured separately under Admin → Notifications.
+- Notification channels are configured separately under Admin → Notifications.
+  **Slack, Microsoft Teams, Discord and generic webhooks deliver.** PagerDuty,
+  Opsgenie, email and Telegram can be configured but have no sender behind them
+  in this release — an alert routed to one is dropped, and the contact-point
+  Test button says so. Page through a webhook until they land.
 - Folder-scoped permissions apply: `alert.rules:write` on `folders:uid:<id>` controls who can create/modify rules in that folder.
 - Automatic investigation and automatic remediation requests are planned as the next step after one-click investigations.
 - The agent doesn't auto-silence on dependent failures; chain alerts via the notification dispatcher's `groupBy` + `inhibit` rules instead.

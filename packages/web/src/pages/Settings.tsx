@@ -403,6 +403,7 @@ function NotificationsTab({ canWrite }: { canWrite: boolean }) {
   const [slackWebhook, setSlackWebhook] = useState('');
   const [pagerDutyKey, setPagerDutyKey] = useState('');
   const [saving, setSaving] = useState(false);
+  const [notifyError, setNotifyError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   const handleSave = async () => {
@@ -411,8 +412,15 @@ function NotificationsTab({ canWrite }: { canWrite: boolean }) {
     if (slackWebhook) notifications['slack'] = { webhookUrl: slackWebhook };
     if (pagerDutyKey) notifications['pagerduty'] = { integrationKey: pagerDutyKey };
     // PUT /api/system/notifications replaces legacy POST /setup/notifications.
-    await apiClient.put('/system/notifications', notifications);
-    setSaving(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
+    const res = await apiClient.put('/system/notifications', notifications);
+    setSaving(false);
+    if (res.error) {
+      // "Saved" on a rejected write is the claim this whole sweep is about.
+      setNotifyError(res.error.message);
+      return;
+    }
+    setNotifyError(null);
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
   };
 
   return (
@@ -425,7 +433,10 @@ function NotificationsTab({ canWrite }: { canWrite: boolean }) {
         <label className="block text-sm font-medium text-[var(--color-on-surface)] mb-1.5">PagerDuty Integration Key</label>
         <input type="password" value={pagerDutyKey} onChange={(e) => setPagerDutyKey(e.target.value)} placeholder="your-integration-key" className={inputCls} />
       </div>
-      <div className="flex justify-end pt-2 border-t border-[var(--color-outline-variant)]/30">
+      <div className="flex justify-end items-center gap-3 pt-2 border-t border-[var(--color-outline-variant)]/30">
+        {notifyError && (
+          <span className="text-sm text-error" role="alert">Could not save: {notifyError}</span>
+        )}
         {canWrite && (
           <button type="button" onClick={() => void handleSave()} disabled={saving} className={btnPrimary}>
             {saving ? 'Saving...' : saved ? 'Saved' : 'Save'}

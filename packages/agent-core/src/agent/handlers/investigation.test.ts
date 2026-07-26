@@ -81,7 +81,30 @@ function completionArgs(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * Credit an investigation with read calls that actually ran.
+ *
+ * `recordInvestigationRead` in orchestrator-agent.ts does this for real as read
+ * tools execute. Tests drive handlers directly, so without this the ledger
+ * would be recording checks for reads that never happened — which the handler
+ * now refuses, correctly.
+ */
+function creditReads(
+  ctx: FakeActionContext,
+  investigationId: string,
+  counts: { metric?: number; log?: number; ops?: number; change?: number },
+) {
+  const prov = ctx.investigationProvenance.get(investigationId) ?? ({} as never);
+  const p = prov as Record<string, number>;
+  p.metricReadCalls = (p.metricReadCalls ?? 0) + (counts.metric ?? 0);
+  p.logReadCalls = (p.logReadCalls ?? 0) + (counts.log ?? 0);
+  p.opsReadCalls = (p.opsReadCalls ?? 0) + (counts.ops ?? 0);
+  p.changeReadCalls = (p.changeReadCalls ?? 0) + (counts.change ?? 0);
+  ctx.investigationProvenance.set(investigationId, prov);
+}
+
 async function seedReadyLedger(ctx: FakeActionContext) {
+  creditReads(ctx, ctx.activeInvestigationId ?? 'inv_1', { ops: 1, metric: 1 });
   await handleInvestigationRecordCheck(ctx, {
     hypothesis: 'reviews-v2 is OOMKilled',
     signalType: 'kubernetes',
@@ -108,6 +131,7 @@ async function seedReadyLedger(ctx: FakeActionContext) {
 describe('investigation handlers', () => {
   it('records diagnostic checks in the structured investigation ledger', async () => {
     const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+    creditReads(ctx, 'inv_1', { ops: 1 });
 
     const result = await handleInvestigationRecordCheck(ctx, {
       hypothesis: 'reviews-v2 is OOMKilled',
@@ -649,5 +673,156 @@ describe('investigation handlers', () => {
       );
       expect(saved.sections.some((s: { content: string }) => s.content.includes('## Unresolved'))).toBe(true);
     });
+  });
+});
+
+describe('recorded checks must be backed by reads that happened', () => {
+  // Everything the evidence gate reasons about is written by the agent. If a
+  // check can be recorded without a corresponding read, the gate grades prose:
+  // an investigation that queried nothing could still produce a "verified" root
+  // cause by describing work it never did.
+  const check = {
+    hypothesis: 'the service is returning errors',
+    signalType: 'metric' as const,
+    tool: 'metrics_query',
+    query: 'sum(rate(http_errors[5m]))',
+    result: 'error rate is 0.8/s',
+    interpretation: 'Supports an error-rate problem.',
+    status: 'supported' as const,
+    scope: { timeWindow: 'last 30m', affected: 'checkout' },
+  };
+
+  it('refuses a check citing a query that was never run', async () => {
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+
+    const result = await handleInvestigationRecordCheck(ctx, check);
+
+    expect(result).toMatch(/cannot record this check/);
+    expect(result).toMatch(/Run the read first/);
+    expect(ctx.investigationStates.get('inv_1')?.checks ?? []).toHaveLength(0);
+  });
+
+  it('accepts the check once the read has actually happened', async () => {
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+    creditReads(ctx, 'inv_1', { metric: 1 });
+
+    await expect(handleInvestigationRecordCheck(ctx, check)).resolves.toContain('Recorded check_1');
+  });
+
+  it('will not let one read back several checks', async () => {
+    // The cheapest way to satisfy the gate is to run a single query and then
+    // describe two checks across two signal types.
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+    creditReads(ctx, 'inv_1', { metric: 1 });
+
+    await expect(handleInvestigationRecordCheck(ctx, check)).resolves.toContain('Recorded check_1');
+    const second = await handleInvestigationRecordCheck(ctx, {
+      ...check,
+      hypothesis: 'a second thing is also true',
+    });
+
+    expect(second).toMatch(/cannot record this check/);
+    expect(ctx.investigationStates.get('inv_1')?.checks ?? []).toHaveLength(1);
+  });
+
+  it('holds a made-up tool name to the signal type it claims', async () => {
+    // Citing a tool that does not exist must not escape the rule.
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      ...check,
+      tool: 'i_looked_at_the_dashboard',
+    });
+
+    expect(result).toMatch(/cannot record this check/);
+  });
+
+  it('does not gate signal types that have no read counter', async () => {
+    // Knowledge-base and web lookups are not counted as investigation reads,
+    // so checks citing them must still be recordable.
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+
+    await expect(
+      handleInvestigationRecordCheck(ctx, {
+        ...check,
+        signalType: 'knowledge',
+        tool: 'kb_search',
+      }),
+    ).resolves.toContain('Recorded check_1');
+  });
+});
+
+describe('a source that could not be consulted rules nothing out', () => {
+  // Deploys and config edits trigger most incidents. An investigation with no
+  // change connector that records "no deploys found" as a ruled-out hypothesis
+  // retires the likeliest cause and satisfies the gate while doing it.
+  function ctxWithUnavailableChangeRead() {
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+    ctx.investigationReads.set('inv_1', [
+      { action: 'changes_list_recent', family: 'change', sourceAnswered: false, consumed: false },
+    ]);
+    return ctx;
+  }
+
+  const changeCheck = {
+    hypothesis: 'a recent deployment caused the regression',
+    signalType: 'change' as const,
+    tool: 'changes_list_recent',
+    query: 'api-gateway last 120m',
+    result: 'No change-event connector configured.',
+    interpretation: 'Rules out a recent rollout.',
+    status: 'ruled_out' as const,
+    scope: { timeWindow: 'last 120m', affected: 'api-gateway' },
+  };
+
+  it('refuses to rule a hypothesis out on a source that never answered', async () => {
+    const ctx = ctxWithUnavailableChangeRead();
+
+    const result = await handleInvestigationRecordCheck(ctx, changeCheck);
+
+    expect(result).toMatch(/inconclusive rather than/);
+    expect(result).toMatch(/Not being able to look/);
+    expect(ctx.investigationStates.get('inv_1')?.checks ?? []).toHaveLength(0);
+  });
+
+  it('refuses to call it supported either', async () => {
+    const ctx = ctxWithUnavailableChangeRead();
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      ...changeCheck,
+      status: 'supported',
+      interpretation: 'Confirms a rollout was involved.',
+    });
+
+    expect(result).toMatch(/inconclusive rather than/);
+  });
+
+  it('accepts inconclusive, so the gap can still be reported', async () => {
+    // The rule must not make an unavailable source unrecordable — the report
+    // should carry "I could not check this" as an open question.
+    const ctx = ctxWithUnavailableChangeRead();
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      ...changeCheck,
+      status: 'inconclusive',
+      interpretation: 'No change connector is configured, so deploys remain unchecked.',
+    });
+
+    expect(result).toContain('Recorded check_1');
+  });
+
+  it('leaves a source that answered with nothing alone', async () => {
+    // "I looked and there were no deploys" is real evidence and still rules out.
+    const ctx = makeFakeActionContext({ activeInvestigationId: 'inv_1' });
+    ctx.investigationReads.set('inv_1', [
+      { action: 'changes_list_recent', family: 'change', sourceAnswered: true, consumed: false },
+    ]);
+
+    const result = await handleInvestigationRecordCheck(ctx, {
+      ...changeCheck,
+      result: 'No changes in the last 120 minutes.',
+    });
+
+    expect(result).toContain('Recorded check_1');
   });
 });

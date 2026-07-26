@@ -1,5 +1,5 @@
 import type { ActionContext } from './_context.js';
-import { withToolEventBoundary } from './_shared.js';
+import { withToolEventBoundary, sourceUnavailable } from './_shared.js';
 
 export async function handleOpsRunCommand(
   ctx: ActionContext,
@@ -18,7 +18,8 @@ export async function handleOpsRunCommand(
     connectorId ? `Running ops command on ${connectorId}` : 'Running ops command',
     async () => {
       if (!ctx.opsCommandRunner) {
-        return 'Ops command runner is not configured. Connect a Kubernetes/Ops integration before querying cluster state.';
+        const msg = 'Ops command runner is not configured. Connect a Kubernetes/Ops integration before querying cluster state.';
+        return { observation: sourceUnavailable(msg), summary: msg };
       }
       if (!connectorId) {
         return 'ops_run_command requires connectorId. List configured Ops connectors in Settings and choose one before running a command.';
@@ -35,11 +36,13 @@ export async function handleOpsRunCommand(
           // user hasn't created one yet. Point them at Settings → Connectors
           // → Add Connector → kubernetes. Do NOT suggest "Mark as Ops"
           // toggles — those don't exist.
-          return "No Kubernetes connector configured. Go to Settings → Connectors → Add Connector and pick 'kubernetes'.";
+          const msg = "No Kubernetes connector configured. Go to Settings → Connectors → Add Connector and pick 'kubernetes'.";
+          return { observation: sourceUnavailable(msg), summary: msg };
         }
         const selected = connectorList.find((connector) => connector.id === connectorId);
         if (!selected) {
-          return `Kubernetes connector "${connectorId}" is not configured. Choose one of: ${connectorList.map((connector) => connector.id).join(', ')}.`;
+          const msg = `Kubernetes connector "${connectorId}" is not configured. Choose one of: ${connectorList.map((connector) => connector.id).join(', ')}.`;
+          return { observation: sourceUnavailable(msg), summary: msg };
         }
 
         // Connector exists; credential-missing case (kubeconfig) is detected
@@ -83,7 +86,8 @@ export async function handleOpsClusterShell(
     connectorId ? `Preparing cluster shell command on ${connectorId}` : 'Preparing cluster shell command',
     async () => {
       if (!ctx.opsCommandRunner?.runClusterShell) {
-        return 'Cluster shell runner is not configured. Connect a Kubernetes/Ops integration before running cluster shell operations.';
+        const msg = 'Cluster shell runner is not configured. Connect a Kubernetes/Ops integration before running cluster shell operations.';
+        return { observation: sourceUnavailable(msg), summary: msg };
       }
       if (!connectorId) {
         return 'ops_cluster_shell requires connectorId. List configured Ops connectors in Settings and choose one before running a command.';
@@ -99,11 +103,13 @@ export async function handleOpsClusterShell(
       const connectorList = Array.isArray(connectors) ? connectors : undefined;
       if (connectorList) {
         if (connectorList.length === 0) {
-          return "No Kubernetes connector configured. Go to Settings → Connectors → Add Connector and pick 'kubernetes'.";
+          const msg = "No Kubernetes connector configured. Go to Settings → Connectors → Add Connector and pick 'kubernetes'.";
+          return { observation: sourceUnavailable(msg), summary: msg };
         }
         const selected = connectorList.find((connector) => connector.id === connectorId);
         if (!selected) {
-          return `Kubernetes connector "${connectorId}" is not configured. Choose one of: ${connectorList.map((connector) => connector.id).join(', ')}.`;
+          const msg = `Kubernetes connector "${connectorId}" is not configured. Choose one of: ${connectorList.map((connector) => connector.id).join(', ')}.`;
+          return { observation: sourceUnavailable(msg), summary: msg };
         }
       }
 

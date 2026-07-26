@@ -105,3 +105,45 @@ flow.
 - `service.type`: set to `LoadBalancer` or `NodePort` when your cluster supports it
 
 LLM credentials are configured in the web setup flow after first login.
+
+## Health probes
+
+The chart wires three endpoints. They answer different questions, and only one
+of them can take a pod out of rotation.
+
+| Probe | Path | Asks | On failure |
+|---|---|---|---|
+| startup | `/api/health/startup` | has the process finished booting? | 30 × 5s before the pod is declared failed |
+| readiness | `/api/health/ready` | can this pod serve requests? | pod leaves the Service endpoints |
+| liveness | `/api/health/live` | is the process alive? | pod is restarted |
+
+Readiness runs a real query against the configured database and returns **503**
+when it does not answer within two seconds. Kubernetes then removes the pod
+from the Service until it recovers.
+
+This is worth knowing when upgrading: previously the endpoint reported the
+database as "not configured" and returned 200 unconditionally, so a pod with an
+unreachable database kept receiving traffic. If pods start leaving the Service
+after an upgrade, the probe is not the fault — it is reporting a database
+problem that was already there.
+
+`GET /api/health/ready` returns the detail:
+
+```json
+{
+  "status": "healthy",
+  "checks": {
+    "db": { "status": "ok" },
+    "redis": { "status": "skip", "message": "No Redis configured" },
+    "proactive": { "status": "ok" }
+  },
+  "timestamp": "2026-07-26T14:03:38.075Z"
+}
+```
+
+- `status: "unhealthy"` — the database check failed. HTTP 503.
+- `status: "degraded"` — the product still serves, but something is off: the
+  background pipeline is not running, or the database could not be checked at
+  all. HTTP 200, because taking the pod out of rotation would turn a
+  background-job problem into an outage.
+- `status: "healthy"` — everything checked passed. HTTP 200.

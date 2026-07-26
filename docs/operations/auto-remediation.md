@@ -276,8 +276,8 @@ project if you need any:
 - Multi-replica HA evaluator with a leader lock — current
   implementation runs in a single api-gateway process. (Tracked.)
 - Connectors other than Kubernetes.
-- Step kinds other than `ops.run_command` (no `alert_rule.write` /
-  `dashboard.update` inside a plan yet).
+- Step kinds other than `ops_run_command` (no `alert_rule_write` /
+  `dashboard_modify_panel` inside a plan yet).
 - Auto-rollback. Rescue plans exist and are operator-triggered; the
   executor does not unwind a failed plan automatically.
 - Cross-cluster fan-out — one connector per step.

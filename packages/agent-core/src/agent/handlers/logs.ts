@@ -1,4 +1,5 @@
 import type { ActionContext } from './_context.js';
+import { sourceUnavailable } from './_shared.js';
 
 // ---------------------------------------------------------------------------
 // Source-agnostic logs primitives — each takes `sourceId` and resolves the
@@ -8,7 +9,11 @@ import type { ActionContext } from './_context.js';
 const LOGS_QUERY_MAX_CHARS = 2000;
 
 function unknownLogsSource(sourceId: string): string {
-  return `Error: unknown logs connector '${sourceId}'. Call connectors_list to see available sources.`;
+  // Nothing was consulted, so downstream this must not be able to rule a
+  // hypothesis out — see `sourceUnavailable`.
+  return sourceUnavailable(
+    `Error: unknown logs connector '${sourceId}'. Call connectors_list to see available sources.`,
+  );
 }
 
 // TODO: migrate to withToolEventBoundary
@@ -36,9 +41,22 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
   try {
     const result = await adapter.query({ query, start, end, ...(limit !== undefined ? { limit } : {}) });
     if (result.entries.length === 0) {
-      const msg = 'Logs query returned no entries.';
+      // The backend's own caveats matter most here, and this path used to drop
+      // them: `partial` and `warnings` were rendered only when entries came
+      // back. A truncated or timed-out search that found nothing yet is not
+      // the same finding as a complete search that found nothing, and only the
+      // second one rules anything out.
+      const caveats = [
+        ...(result.partial ? ['the backend reported the search was incomplete'] : []),
+        ...(result.warnings ?? []),
+      ];
+      const msg = caveats.length > 0
+        ? `Logs query returned no entries, but ${caveats.join('; ')} — this is not evidence that nothing was logged.`
+        : 'Logs query returned no entries.';
       ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg });
-      return msg;
+      // An incomplete search did not consult the whole window, so it must not
+      // be able to rule a hypothesis out downstream.
+      return caveats.length > 0 ? sourceUnavailable(msg) : msg;
     }
     // Format: `[ts] {k=v, k=v} message` — truncate the whole blob to keep the
     // observation reasonable even when the backend returns many rows.
@@ -65,7 +83,7 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
   } catch (err) {
     const msg = `Logs query failed: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }
 
@@ -84,7 +102,7 @@ export async function handleLogsLabels(ctx: ActionContext, args: Record<string, 
   } catch (err) {
     const msg = `Failed to list log labels: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }
 
@@ -107,6 +125,6 @@ export async function handleLogsLabelValues(ctx: ActionContext, args: Record<str
   } catch (err) {
     const msg = `Failed to list log label values: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }

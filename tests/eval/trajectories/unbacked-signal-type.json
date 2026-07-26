@@ -1,0 +1,54 @@
+{
+  "id": "unbacked-signal-type",
+  "note": "Adversarial. Two checks, zero read calls, signal types chosen from the set the read ledger cannot vouch for. Before the fix this returned a passed gate with an empty reason list — the model declared 'config' and 'trace' and got a verified root cause without querying anything.",
+  "expect": "unresolved",
+  "reads": {},
+  "checks": [
+    {
+      "hypothesis": "the checkout memory limit is too low",
+      "signalType": "config",
+      "tool": "config_inspect",
+      "query": "deployment/checkout resources",
+      "result": "checkout memory limit is 128Mi and pods are being killed",
+      "interpretation": "The checkout memory limit is the cause.",
+      "status": "supported",
+      "scope": {
+        "timeWindow": "last 30m",
+        "affected": "checkout"
+      }
+    },
+    {
+      "hypothesis": "a traffic spike caused the failures",
+      "signalType": "trace",
+      "tool": "trace_search",
+      "query": "checkout p99",
+      "result": "request volume is flat across the window",
+      "interpretation": "Rules out a traffic spike.",
+      "status": "ruled_out",
+      "scope": {
+        "timeWindow": "last 30m",
+        "affected": "checkout"
+      }
+    }
+  ],
+  "claim": {
+    "summary": "the checkout memory limit is too low",
+    "rootCause": {
+      "status": "confirmed",
+      "object": "deployment/checkout",
+      "field": "memory limit",
+      "cause": "checkout memory limit too low, so pods are OOMKilled"
+    },
+    "confidence": 0.95,
+    "evidenceRefs": [
+      "check_1",
+      "check_2"
+    ],
+    "ruledOut": [
+      "traffic spike"
+    ],
+    "nextAction": "raise the memory limit",
+    "validationMethod": "watch for OOMKills after the change"
+  },
+  "why": "Five of the nine signal types have no read ledger behind them, so a check claiming one is only the model's word. If those count toward 'at least two independent signal types', the entire evidence gate is satisfiable by writing two paragraphs — and the failure is silent, because a passed gate looks identical whether it was earned or invented. Only ledger-backed types may make a root cause verified; the rest are still recorded, they just cannot be what verifies it."
+}

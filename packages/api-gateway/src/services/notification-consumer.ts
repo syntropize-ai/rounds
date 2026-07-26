@@ -327,9 +327,12 @@ export class NotificationConsumer {
     for (const integration of cp.integrations) {
       const sender = this.senders(integration.type);
       if (!sender) {
-        log.info(
+        // warn, not info: an operator configured this contact point and is
+        // expecting to hear from it. Silently dropping the notification at
+        // info level is how "we never got paged" becomes a surprise.
+        log.warn(
           { type: integration.type, contactPointId: cp.id },
-          'sender not implemented for type; skipping',
+          'no sender implemented for this integration type — notification dropped',
         );
         continue;
       }

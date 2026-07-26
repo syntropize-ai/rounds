@@ -426,6 +426,12 @@ export function mountDomainRoutes(deps: MountDomainRoutesDeps): void {
     // kubernetes connectors directly from the full data-layer repo (we want
     // `getSecret` here — the local `ConnectorRepository` view drops it).
     connectorRepo: repos.connectors,
+    // Connector policies written at team scope can only match if we know the
+    // caller's teams. Unwired, `teamIds` was always empty and a team-level
+    // `block` was stored, shown in Settings, and never enforced.
+    resolveUserTeams: async (who: { userId: string; orgId: string }) =>
+      (await rbacRepos.teamMembers.listTeamsForUser(who.userId, who.orgId))
+        .map((m: { teamId: string }) => m.teamId),
     // Backs the agent's `setting_*` tools. The service allowlists which keys
     // chat may write; the repo itself is the same one the settings UI uses.
     instanceConfigRepo: repos.instanceConfig,

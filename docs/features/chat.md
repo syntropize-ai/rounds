@@ -29,19 +29,33 @@ Because tool calls are native (not prompted JSON), the model picks tools more ac
 
 ### Available tools
 
+Every name below is the real tool name, checked against the registry by a test.
+
 | Category | Tools | Used for |
 |---|---|---|
-| Discovery | `datasources.list`, `dashboard.list`, `alert_rule.list`, `investigation.list` | Find what exists |
-| Metrics | `metrics.query`, `range_query`, `labels`, `label_values`, `series`, `metadata`, `metric_names`, `validate` | Discover + query metric backends |
-| Logs | `logs.query`, `logs.labels`, `logs.label_values` | Search log backends |
-| Kubernetes | `ops.run_command` | Inspect cluster state and prepare approval-gated remediation |
-| Changes | `changes.list_recent` | Correlate with deployments / config changes |
-| Web | `web.search` | External research (best practices, error codes) |
-| Dashboards | `dashboard.create`, `add_panels`, `modify_panel`, `remove_panels`, `add_variable`, `set_title`, `rearrange` | Build / edit dashboards |
-| Alerts | `create_alert_rule`, `modify_alert_rule`, `delete_alert_rule`, `alert_rule.history` | Manage alert lifecycle |
-| Investigations | `investigation.create`, `add_section`, `complete` | Structured incident analysis |
-| Navigation | `navigate` | Open a URL in the user's browser |
-| Conversation | `reply`, `finish`, `ask_user` | Terminal actions |
+| Discovery | `connectors_list`, `connector_list`, `dashboard_list`, `alert_rule_list`, `investigation_list` | Find what exists |
+| Metrics | `metrics_query`, `metrics_range_query`, `metrics_discover`, `metrics_list_names`, `metrics_get_labels`, `metrics_get_label_values`, `metrics_validate`, `metrics_find_related`, `metrics_get_cardinality`, `metrics_sample_series`, `metric_explore` | Discover and query metric backends |
+| Logs | `logs_query`, `logs_labels`, `logs_label_values` | Search log backends |
+| Kubernetes | `ops_run_command`, `ops_cluster_shell` | Inspect cluster state and prepare approval-gated remediation |
+| Changes | `changes_list_recent` | Correlate with deployments and config changes |
+| Version control | `github_list_repos`, `github_list_prs`, `github_get_pr`, `github_get_diff` | Read the change that may have caused it |
+| Knowledge base | `kb_search`, `kb_get`, `kb_recommend` | Reuse your own runbooks and past findings |
+| Web | `web_search` | External research (best practices, error codes) |
+| Dashboards | `dashboard_create`, `dashboard_clone`, `dashboard_add_panels`, `dashboard_modify_panel`, `dashboard_remove_panels`, `dashboard_add_variable`, `dashboard_set_title`, `dashboard_rearrange`, `dashboard_lint`, `panel_preview` | Build and edit dashboards |
+| Alerts | `alert_rule_write`, `alert_rule_history` | Manage alert lifecycle |
+| Investigations | `investigation_create`, `investigation_record_check`, `investigation_add_evidence`, `investigation_add_text`, `investigation_complete` | Structured incident analysis |
+| Remediation | `remediation_plan_create`, `remediation_plan_create_rescue` | Propose an approval-gated fix, and its rollback |
+| Configuration | `connector_propose`, `connector_apply`, `connector_test`, `connector_detect`, `connector_template_list`, `connectors_pin`, `connectors_unpin`, `connectors_suggest`, `setting_get`, `setting_set` | [Configure by chat](/features/configure-by-chat) |
+| Folders | `folder_create`, `folder_list` | Organise dashboards and alerts, and scope permissions |
+| Navigation | `navigate` | Open a URL in your browser |
+| Conversation | `ask_user` | Ask you something and wait |
+
+`investigation_record_check` is the one worth knowing about: it is what the
+[evidence gate](/features/investigations#verified-or-not) reads. Every check the
+agent records has to be backed by a read that actually ran.
+
+Two are internal and never worth asking for directly: `tool_search`, which the
+agent uses to pull in tool schemas on demand, and `load_task_context`.
 
 ## How to use it
 
@@ -87,7 +101,7 @@ Models without tool-use support are rejected at session start with an error poin
 The chat respects RBAC. The agent only sees tools the current user has permission to invoke:
 
 - `chat:use` — required to open a chat at all
-- Per-tool permissions — e.g. `dashboards:write` is required for `dashboard.create`; without it, the tool is removed from the agent's available set
+- Per-tool permissions — e.g. `dashboards:write` is required for `dashboard_create`; without it, the tool is removed from the agent's available set
 - Folder-scoped permissions cascade to the tools that touch that folder's resources
 
 So a `Viewer` can ask the agent to read dashboards but can't ask it to create one — the agent itself doesn't know about the missing tool, it just won't be in the prompt.

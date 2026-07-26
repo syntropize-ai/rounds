@@ -44,6 +44,15 @@ export interface OAuthUserInfo {
   login?: string;
   avatarUrl?: string;
   groups?: string[];
+  /**
+   * Whether the provider asserts it verified this address belongs to the
+   * person signing in.
+   *
+   * Load-bearing: an address the provider has not verified must never be used
+   * to claim an account that already exists. Providers that do not say set
+   * this false, and are treated as unverified — silence is not an assertion.
+   */
+  emailVerified: boolean;
 }
 
 export interface OAuthTokenSet {
@@ -186,8 +195,22 @@ export async function resolveIdentity(
   }
 
   // Email collision — link existing local user if present.
+  //
+  // This is the account-takeover path, and it is gated on the provider having
+  // actually verified the address. Without that check, any identity provider
+  // that lets a user choose or edit their own email claim hands over any
+  // existing account: sign up there as admin@company.com, sign in here, and
+  // this branch links you to the real admin and returns success — including
+  // when `allowSignup` is false, because that check is below this one.
+  //
+  // Creating a *new* account from an unverified address is a different and
+  // much smaller risk, so it is still allowed. Claiming one that exists is
+  // not.
   const byEmail = await deps.users.findByEmail(info.email);
   if (byEmail) {
+    if (!info.emailVerified) {
+      throw AuthError.invalidCredentials();
+    }
     const auth = await deps.userAuth.create({
       userId: byEmail.id,
       authModule: info.module,

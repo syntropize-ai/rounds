@@ -64,11 +64,20 @@ interface Props {
   hypothesis: Hypothesis;
   supportEvidence: Evidence[];
   counterEvidence: Evidence[];
+  /**
+   * Evidence the investigation gathered but has not yet decided for or
+   * against. Shown in its own neutral group: folding it into supporting
+   * evidence, as the page used to, inflates how well-backed a hypothesis
+   * looks and hides the fact that its direction is still open.
+   */
+  uncategorisedEvidence?: Evidence[];
 }
 
-export default function HypothesisEvidence({ hypothesis, supportEvidence, counterEvidence }: Props) {
+export default function HypothesisEvidence({
+  hypothesis, supportEvidence, counterEvidence, uncategorisedEvidence = [],
+}: Props) {
   const [expanded, setExpanded] = useState(false);
-  const total = supportEvidence.length + counterEvidence.length;
+  const total = supportEvidence.length + counterEvidence.length + uncategorisedEvidence.length;
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -110,6 +119,13 @@ export default function HypothesisEvidence({ hypothesis, supportEvidence, counte
             borderColor="border-red-300"
             labelColor="text-red-600"
             icon="-"
+          />
+          <EvidenceGroup
+            label="Not yet categorised"
+            items={uncategorisedEvidence}
+            borderColor="border-slate-300"
+            labelColor="text-slate-600"
+            icon="?"
           />
           {total === 0 && (
             <p className="text-sm text-slate-400 text-center py-6">No evidence collected yet.</p>

@@ -42,10 +42,16 @@ export class LintEngine {
         const out = await rule.check(spec, ctx);
         for (const issue of out) issues.push(issue);
       } catch (err) {
+        // `warn`, not `info`. Callers decide pass/fail with
+        // `every(i => i.severity !== 'error')`, so an `info` made a rule that
+        // crashed indistinguishable from a rule that ran and approved — the
+        // check silently stopped existing while the dashboard still reported
+        // as linted. `warn` is visible without failing the save, which is the
+        // honest position: we do not know whether this rule would have passed.
         issues.push({
-          severity: 'info',
+          severity: 'warn',
           ruleName: rule.name,
-          message: `rule failed: ${err instanceof Error ? err.message : String(err)}`,
+          message: `rule did not run: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
     }

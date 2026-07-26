@@ -128,6 +128,8 @@ export class GoogleProvider {
     return {
       module: 'oauth_google',
       authId: sub,
+      // Guaranteed by the check above, which rejects anything else.
+      emailVerified: true,
       email,
       name: (body['name'] as string) || email,
       login: (body['email'] as string).split('@')[0],

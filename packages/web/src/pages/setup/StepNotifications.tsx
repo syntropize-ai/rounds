@@ -14,6 +14,7 @@ export function StepNotifications({
   onBack: () => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleNext = async () => {
     setSaving(true);
@@ -33,7 +34,14 @@ export function StepNotifications({
     if (Object.keys(notifications).length > 0) {
       // PUT /api/system/notifications replaces the legacy POST /setup/notifications.
       // Bootstrap-aware middleware lets the wizard reach it pre-admin.
-      await apiClient.put('/system/notifications', notifications);
+      const res = await apiClient.put('/system/notifications', notifications);
+      if (res.error) {
+        // Same shape as the connector step: advancing on a failed save leaves
+        // the user believing alerts will reach them.
+        setSaveError(`Could not save notification settings: ${res.error.message}`);
+        setSaving(false);
+        return;
+      }
     }
     setSaving(false);
     onNext();
@@ -129,7 +137,10 @@ export function StepNotifications({
           <button type="button" onClick={onBack} className="px-5 py-2 text-sm font-medium text-[var(--color-on-surface-variant)] hover:text-[var(--color-on-surface)]">
             ← Back
           </button>
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
+            {saveError && (
+              <span className="text-sm text-error" role="alert">{saveError}</span>
+            )}
             <button type="button" onClick={onNext} className="px-5 py-2 text-sm text-[var(--color-on-surface-variant)] hover:text-[var(--color-on-surface)]">
               Skip for now
             </button>

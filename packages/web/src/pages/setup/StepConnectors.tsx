@@ -13,6 +13,35 @@ function newEntryId(): string {
   return `ds-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Say why the connector was not saved, and what to do about it.
+ *
+ * The raw API message is kept as the tail of the sentence rather than dropped:
+ * a validation error usually names the offending field, and someone
+ * troubleshooting their own Prometheus URL wants that. What it must not do is
+ * lead with an error code.
+ */
+export function describeSaveFailure(
+  error: { code: string; message: string },
+  editing: boolean,
+): string {
+  const verb = editing ? 'update' : 'save';
+  switch (error.code) {
+    case 'NETWORK_ERROR':
+    case 'REQUEST_TIMEOUT':
+      return `Couldn't reach the Rounds API, so this connector was not ${editing ? 'updated' : 'saved'}. ${error.message}`;
+    case 'FORBIDDEN':
+    case 'UNAUTHORIZED':
+      return `Your account is not allowed to ${verb} connectors. Ask an administrator to grant the connectors permission, or sign in as one.`;
+    case 'CONFLICT':
+      return 'A connector with this name already exists. Give this one a different name.';
+    case 'VALIDATION':
+      return `The server rejected these details: ${error.message}`;
+    default:
+      return `Couldn't ${verb} this connector: ${error.message}`;
+  }
+}
+
 function blankForm(): ConnectorEntry {
   // Default to a metrics connector; logs connectors can be selected below.
   return { id: newEntryId(), type: 'prometheus', name: '', url: '', apiKey: '', repository: '' };
@@ -25,14 +54,17 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
   const [form, setForm] = useState<ConnectorEntry>(blankForm);
   const [testResults, setTestResults] = useState<Record<number, { ok: boolean; message: string }>>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const openNewForm = () => {
+    setSaveError(null);
     setForm(blankForm());
     setEditingIdx(null);
     setAdding(true);
   };
 
   const resetForm = () => {
+    setSaveError(null);
     setForm(blankForm());
     setAdding(false);
     setEditingIdx(null);
@@ -41,6 +73,7 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
   const handleAdd = async () => {
     if (!form.url || saving || (form.type === 'humio' && !form.repository?.trim())) return;
     setSaving(true);
+    setSaveError(null);
     // Reuse the id minted when the form opened. Edits preserve the
     // existing entry's id; in edit mode we PUT, in create mode we POST.
     const payload: ConnectorEntry = {
@@ -60,8 +93,23 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
       },
       isDefault: entries.length === 0,
     };
+    // `apiClient` reports HTTP failures by returning an error rather than
+    // throwing, so an unchecked call looks exactly like a success. Adding the
+    // row regardless meant a rejected connector — bad URL, missing permission,
+    // duplicate id, API down — appeared in the list styled like a working one,
+    // and setup finished with the user believing Prometheus was connected.
+    // They found out later, on an empty dashboard, with no reason given.
+    const res = editingIdx !== null && form.id
+      ? await apiClient.put(`/connectors/${form.id}`, wire)
+      : await apiClient.post('/connectors', wire);
+
+    if (res.error) {
+      setSaveError(describeSaveFailure(res.error, editingIdx !== null));
+      setSaving(false);
+      return;
+    }
+
     if (editingIdx !== null && form.id) {
-      await apiClient.put(`/connectors/${form.id}`, wire);
       setEntries((prev) => prev.map((d, i) => (i === editingIdx ? payload : d)));
       setTestResults((prev) => {
         const next = { ...prev };
@@ -69,7 +117,6 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
         return next;
       });
     } else {
-      await apiClient.post('/connectors', wire);
       setEntries((prev) => [...prev, payload]);
     }
     resetForm();
@@ -249,6 +296,14 @@ export function StepConnectors({ onNext, onBack }: { onNext: () => void; onBack:
               />
             </div>
           </div>
+
+          {/* Inside the form, above the button that failed — the form stays
+              open with the entered values, so the fix is one edit away. */}
+          {saveError && (
+            <div className="mt-3 px-3 py-2 rounded-lg bg-error/10 text-error text-sm" role="alert">
+              {saveError}
+            </div>
+          )}
 
           <div className="flex gap-2 pt-1">
             <button

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { isAgentReadSafeCommand } from './ops-command-runner.js';
 import type {
   ConnectorPolicy,
   ListConnectorPoliciesOptions,
@@ -181,5 +182,51 @@ describe('templateDefaultPolicy', () => {
 
   it('returns null for non-kubernetes types', () => {
     expect(templateDefaultPolicy('prometheus', 'runtime.get')).toBeNull();
+  });
+});
+
+/**
+ * The read-only bypass skips the confirmation card. What it may skip is the
+ * question.
+ *
+ * `classifyShellCommandRisk` assigns `medium` to any kubectl invocation whose
+ * verb it does not recognise, and says why in a comment: "so an unfamiliar
+ * kubectl subcommand still prompts". `isAgentReadSafeCommand` then returned
+ * true for everything that was not critical or an unambiguous write — which
+ * included that entire bucket. Two comments in one file, contradicting each
+ * other, and the permissive one won.
+ *
+ * `readOnlyAgentBypass` is on for interactive chat and for background runs, so
+ * this was the live path in both.
+ */
+describe('read-only bypass covers reads, not unrecognised verbs', () => {
+  const bypassed = (c: string) => isAgentReadSafeCommand(c);
+
+  it('still auto-approves genuine reads', () => {
+    for (const c of ['kubectl get pods', 'kubectl describe pod x', 'kubectl logs -f pod/x', 'kubectl top nodes']) {
+      expect(bypassed(c), c).toBe(true);
+    }
+  });
+
+  it('still auto-approves exec and cp, which the interactive path is built on', () => {
+    // These are `high`, not `medium`, and are deliberately absent from the
+    // unambiguous-write list — inspecting a sidecar is the point.
+    expect(bypassed('kubectl exec mypod -- ps aux')).toBe(true);
+    expect(bypassed('kubectl cp ns/pod:/tmp/heap.out ./heap.out')).toBe(true);
+  });
+
+  it('stops silently running the verbs it does not recognise', () => {
+    // None of these are obscure, and none of them are reads.
+    expect(bypassed('kubectl proxy --address=0.0.0.0 --accept-hosts=.*'), 'unauthenticated API proxy').toBe(false);
+    expect(bypassed('kubectl certificate approve my-csr'), 'issues cluster credentials').toBe(false);
+    expect(bypassed('kubectl debug node/n1 -it --image=busybox'), 'root on a node').toBe(false);
+    expect(bypassed('kubectl port-forward svc/db 5432:5432'), 'tunnel to the database').toBe(false);
+    expect(bypassed('kubectl attach mypod -i'), 'interactive attach').toBe(false);
+  });
+
+  it('still refuses writes and destructive commands', () => {
+    for (const c of ['kubectl apply -f x.yaml', 'kubectl delete pod x', 'kubectl drain node-1', 'rm -rf /data']) {
+      expect(bypassed(c), c).toBe(false);
+    }
   });
 });

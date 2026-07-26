@@ -59,8 +59,27 @@ function humanizeName(name: string): string {
     .trim();
 }
 
-function nextEval(rule: AlertRule): string {
-  if (!rule.lastEvaluatedAt) return 'pending';
+/**
+ * A rule that has never run is not a healthy rule.
+ *
+ * Enabling a rule sets its state to `normal`, so one that has never actually
+ * been evaluated — because the evaluator is not running, or there is no
+ * metrics connector — showed a green NORMAL badge. On an alerting product
+ * "normal" means "I checked and everything is fine"; here it meant "I have
+ * never checked". Those cannot look the same, and the difference matters most
+ * in exactly the situation where nobody is watching.
+ *
+ * The expanded row already got this right ("Last check: Never"). The summary
+ * row, which is what people scan, is what lied.
+ */
+export function hasNeverRun(rule: AlertRule): boolean {
+  return rule.state !== 'disabled' && !rule.lastEvaluatedAt;
+}
+
+export function nextEval(rule: AlertRule): string {
+  // Not 'pending': that is also an alert state, displayed three columns to the
+  // left with an unrelated meaning (condition met, waiting out forDurationSec).
+  if (!rule.lastEvaluatedAt) return 'never run';
   const lastMs = new Date(rule.lastEvaluatedAt).getTime();
   const nextMs = lastMs + rule.evaluationIntervalSec * 1000;
   const diffSec = Math.max(0, Math.round((nextMs - Date.now()) / 1000));
@@ -213,6 +232,15 @@ function AlertRuleRow({
         {rule.state === 'disabled' ? (
           <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[var(--color-surface-high)] text-[var(--color-outline)] shrink-0">
             {STATE_LABEL.disabled}
+          </span>
+        ) : hasNeverRun(rule) ? (
+          // Neutral, not green. "I have not checked yet" is a different claim
+          // from "I checked and it is fine", and only one of them is reassuring.
+          <span
+            className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-[var(--color-surface-high)] text-[var(--color-on-surface-variant)] shrink-0"
+            title="This rule has been created but has not been evaluated yet."
+          >
+            Not yet run
           </span>
         ) : (
           <StatusPill

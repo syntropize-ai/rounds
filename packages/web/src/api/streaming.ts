@@ -2,6 +2,38 @@ import type { SSEMessage } from './types.js';
 import { authHeaders, csrfHeaders } from './headers.js';
 
 /**
+ * What the user reads when a chat turn fails.
+ *
+ * Whatever these throw is rendered verbatim in the transcript, in the place an
+ * answer would go — so `Stream request failed: 500 Internal Server Error` was
+ * the reply to "why is checkout latency high?", with the user's own message
+ * still sitting above it looking delivered.
+ *
+ * Every message answers the same two questions in order: did my message get
+ * through, and what do I do now. The 401 and 403 branches below were already
+ * written this way; these are the ones that were not.
+ */
+export function describeStreamFailure(status: number): string {
+  if (status === 404) {
+    return 'That conversation no longer exists. Start a new one to continue.';
+  }
+  if (status === 429) {
+    return 'Rounds is rate-limited right now and your message was not sent. Wait a moment and send it again.';
+  }
+  if (status >= 500) {
+    return 'The Rounds server hit an error and your message was not sent. Send it again; if it keeps failing, check the server logs.';
+  }
+  // Remaining 4xx are the client asking for something malformed, which the
+  // user cannot act on directly and support will want the number for.
+  return `Rounds rejected this request (HTTP ${status}) and your message was not sent. This is likely a bug — please report it.`;
+}
+
+/** Reconnect failures: the request did land, so the run may still be going. */
+export function describeSubscriptionLoss(): string {
+  return 'Lost the connection to Rounds. Any run already started may still be going — reload the page to catch up.';
+}
+
+/**
  * Open a long-lived GET SSE subscription. Unlike `postStream`, this is for
  * idempotent event subscriptions (no body, no side effects) — the kind of
  * stream you keep alive for a whole session's lifetime to tail live events.
@@ -40,9 +72,7 @@ export async function subscribeStream(
       // than reconnect-storming. Other failures still retry within budget.
       if (res.status === 404) return;
       if (attempt >= MAX_RECONNECTS) {
-        throw new Error(
-          `subscription failed: ${res.status} ${res.statusText} (max retries reached)`,
-        );
+        throw new Error(describeSubscriptionLoss());
       }
       attempt += 1;
       await backoff(attempt, signal);
@@ -99,9 +129,7 @@ export async function subscribeStream(
       // storm risk).
       attempt += 1;
       if (attempt > MAX_RECONNECTS) {
-        throw new Error(
-          `subscription closed by server too many times (${MAX_RECONNECTS}); giving up`,
-        );
+        throw new Error(describeSubscriptionLoss());
       }
       await backoff(attempt, signal);
       continue;
@@ -111,9 +139,7 @@ export async function subscribeStream(
       }
       attempt += 1;
       if (attempt > MAX_RECONNECTS) {
-        throw new Error(
-          `subscription lost: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        throw new Error(describeSubscriptionLoss());
       }
       await backoff(attempt, signal);
       continue;
@@ -207,7 +233,7 @@ export async function postStream(
           `Your role doesn't permit this action${detail}. Ask an administrator, or try a read-only question.`,
         );
       }
-      throw new Error(`Stream request failed: ${res.status} ${res.statusText}`);
+      throw new Error(describeStreamFailure(res.status));
     }
 
     const reader = res.body.getReader();

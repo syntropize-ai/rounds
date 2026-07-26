@@ -93,6 +93,7 @@ describe('resolveIdentity', () => {
         authId: '12345',
         email: 'new@x.com',
         name: 'New User',
+        emailVerified: true,
         login: 'newguy',
       },
       { ...CFG, allowSignup: true },
@@ -115,6 +116,7 @@ describe('resolveIdentity', () => {
           authId: '42',
           email: 'no@x.com',
           name: 'X',
+          emailVerified: true,
           login: 'x',
         },
         { ...CFG, allowSignup: false },
@@ -138,6 +140,7 @@ describe('resolveIdentity', () => {
         authId: '999',
         email: 'existing@x.com',
         name: 'E',
+        emailVerified: true,
       },
       { ...CFG, allowSignup: false },
       { accessToken: 't' },
@@ -167,6 +170,7 @@ describe('resolveIdentity', () => {
         authId: '777',
         email: 'linked@x.com',
         name: 'L',
+        emailVerified: true,
       },
       { ...CFG, allowSignup: false },
       { accessToken: 't' },
@@ -185,6 +189,7 @@ describe('resolveIdentity', () => {
         authId: '1',
         email: 'e@x.com',
         name: 'E',
+        emailVerified: true,
         login: 'e',
       },
       { ...CFG, allowSignup: true },
@@ -196,4 +201,91 @@ describe('resolveIdentity', () => {
     expect(stored).not.toBe('plaintext-access-token');
     expect(stored.split(':')).toHaveLength(3);
   });
+
+  /**
+   * The account-takeover path.
+   *
+   * `resolveIdentity` links an OAuth identity to an existing local user whose
+   * email matches. That is the right behaviour when the provider has verified
+   * the address and wrong when it has not: an identity provider that lets a user
+   * choose or edit their own email claim would otherwise hand over any account
+   * on this instance. Sign up there as the admin's address, sign in here, and
+   * the link branch returns their account with `linked: true` and a successful
+   * audit row.
+   *
+   * `allowSignup: false` does not help — the collision branch runs before it.
+   * The generic OIDC provider never checked `email_verified` at all; Google's
+   * did, which is how the gap was visible once the two were read side by side.
+   */
+  describe('unverified email cannot claim an existing account', () => {
+    const unverified = {
+      module: 'oauth_github' as const,
+      authId: 'attacker-999',
+      email: 'admin@company.com',
+      name: 'Not The Admin',
+      emailVerified: false,
+    };
+
+    it('refuses to link when the provider has not verified the address', async () => {
+      const d = await deps();
+      await d.users.create({
+        email: 'admin@company.com',
+        login: 'admin',
+        name: 'Real Admin',
+        orgId: 'org_main',
+      } as never);
+
+      await expect(
+        resolveIdentity(unverified, CFG, { accessToken: 't' }, d),
+      ).rejects.toMatchObject({ kind: 'invalid_credentials' });
+    });
+
+    it('still refuses when signup is disabled, since that check comes later', async () => {
+      const d = await deps();
+      await d.users.create({
+        email: 'admin@company.com',
+        login: 'admin',
+        name: 'Real Admin',
+        orgId: 'org_main',
+      } as never);
+
+      await expect(
+        resolveIdentity(unverified, { ...CFG, allowSignup: false }, { accessToken: 't' }, d),
+      ).rejects.toMatchObject({ kind: 'invalid_credentials' });
+    });
+
+    it('links when the provider did verify the address', async () => {
+      // The fix must not break the case it exists to allow.
+      const d = await deps();
+      const admin = await d.users.create({
+        email: 'admin@company.com',
+        login: 'admin',
+        name: 'Real Admin',
+        orgId: 'org_main',
+      } as never);
+
+      const out = await resolveIdentity(
+        { ...unverified, authId: 'real-1', emailVerified: true },
+        CFG,
+        { accessToken: 't' },
+        d,
+      );
+      expect(out.linked).toBe(true);
+      expect(out.user.id).toBe((admin as { id: string }).id);
+    });
+
+    it('lets an unverified address create a new account, which is a smaller risk', async () => {
+      // No existing user to claim, so nothing is taken over. Blocking this too
+      // would break every OIDC deployment that omits the claim entirely.
+      const d = await deps();
+      const out = await resolveIdentity(
+        { ...unverified, email: 'nobody@company.com' },
+        CFG,
+        { accessToken: 't' },
+        d,
+      );
+      expect(out.created).toBe(true);
+    });
+  });
+
 });

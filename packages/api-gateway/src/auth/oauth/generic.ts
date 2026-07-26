@@ -162,10 +162,22 @@ export class GenericOidcProvider {
     if (typeof sub !== 'string' || typeof email !== 'string') {
       throw AuthError.invalidCredentials();
     }
+    // A provider saying the address is unverified is telling us not to trust
+    // it, so refuse outright rather than continuing with a claim its own
+    // issuer disowns.
+    const claim = body['email_verified'];
+    if (claim === false || claim === 'false') {
+      throw AuthError.invalidCredentials();
+    }
+    // Absence is not an assertion. Many OIDC deployments simply omit the
+    // claim, and those still sign in and can create an account — they just
+    // cannot take over one that already exists (see `base.ts`).
+    const emailVerified = claim === true || claim === 'true';
     return {
       module: 'oauth_generic',
       authId: sub,
       email,
+      emailVerified,
       name: (body[this.cfg.nameAttribute] as string) || email,
       login:
         (body[this.cfg.loginAttribute] as string | undefined) ||

@@ -130,6 +130,10 @@ export class GitHubProvider {
       // GitHub id is numeric; store as string per schema.
       authId: String(profile['id'] ?? ''),
       email,
+      // Both sources above are verified addresses: the fallback filters on
+      // `verified`, and GitHub does not let an unverified address be the
+      // public profile email.
+      emailVerified: true,
       name:
         (profile['name'] as string | null) ||
         (profile['login'] as string) ||

@@ -1,4 +1,5 @@
 import type { ActionContext } from './_context.js';
+import { sourceUnavailable } from './_shared.js';
 
 // ---------------------------------------------------------------------------
 // Recent change events — deploys / config rollouts / incidents / feature flags
@@ -18,13 +19,15 @@ export async function handleChangesListRecent(
   if (!sourceId) {
     const msg = 'No change-event connector configured. Call connectors_list to see available sources.';
     ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
-    return msg;
+    // Not the same as "no deploys happened" — nothing was consulted, so this
+    // must not become a ruled-out hypothesis downstream.
+    return sourceUnavailable(msg);
   }
   const adapter = ctx.adapters.changes(sourceId);
   if (!adapter) {
     const msg = `Error: unknown changes connector '${sourceId}'. Call connectors_list to see available sources.`;
     ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 
   const service = typeof args.service === 'string' && args.service ? args.service : undefined;
@@ -60,6 +63,6 @@ export async function handleChangesListRecent(
   } catch (err) {
     const msg = `Failed to list recent changes: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { isInvestigationActive } from '@agentic-obs/common';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiClient } from '../api/client.js';
 import InvestigationReportView from '../components/InvestigationReportView.js';
@@ -44,8 +45,11 @@ interface FullInvestigation {
 
 // Helpers
 
+// Shared with the list page and the SSE stream service. Written as its own
+// denylist here, an unrecognised status counted as still running: polled every
+// three seconds forever, under the animated "in progress" chrome.
 function isTerminal(status: string) {
-  return status === 'completed' || status === 'failed';
+  return !isInvestigationActive(status);
 }
 
 import { getInvestigationStatusStyle } from '../constants/status-styles.js';

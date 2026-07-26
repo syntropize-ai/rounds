@@ -563,6 +563,19 @@ export async function handleDashboardAddPanels(
   // to be persisted. ON by default in production; toggle with
   // DASHBOARD_VERIFY_GATE=0. See handlers/verify-gate.ts.
   const verifyReport = await runDashboardVerifyGate(ctx, { panels: panelsForWrite });
+  // Say so when the queries were never run. `ok` on the skipped path is
+  // computed from an empty issue list, so it reads as "checked and fine" —
+  // and `formatVerifyReport` is only reached on the failing path, so nothing
+  // else on this route would ever mention it.
+  if (verifyReport.ok && verifyReport.previewSkippedPanels > 0) {
+    ctx.sendEvent({
+      type: 'tool_result',
+      tool: 'dashboard_add_panels',
+      summary:
+        `Saved without running the queries: ${verifyReport.previewSkippedPanels} panel(s) could not be `
+        + 'previewed because no metrics connector is configured. The panels may be blank until one is.',
+    });
+  }
   if (!verifyReport.ok) {
     if (isVerifyGateEnabled()) {
       const detail = formatVerifyReport(verifyReport);

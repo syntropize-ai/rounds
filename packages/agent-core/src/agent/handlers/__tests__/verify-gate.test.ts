@@ -171,6 +171,7 @@ describe('formatVerifyReport', () => {
   it('renders both preview and lint sections', () => {
     const out = formatVerifyReport({
       ok: false,
+      previewSkippedPanels: 0,
       previewIssues: [
         { panelIndex: 0, panelTitle: 'X', severity: 'error', message: 'no data', fixHint: 'check labels' },
       ],

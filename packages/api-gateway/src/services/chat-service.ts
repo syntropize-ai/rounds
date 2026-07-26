@@ -276,6 +276,12 @@ export interface ChatServiceDeps {
    * ops tool reports "no ops connectors configured".
    */
   connectorRepo?: IConnectorRepository;
+  /**
+   * Which teams the caller belongs to, for connector policies written at team
+   * scope. Without it those policies can never match, so a team-level `block`
+   * is stored and displayed while doing nothing.
+   */
+  resolveUserTeams?: (identity: Identity) => Promise<readonly string[]>;
   /** Instance settings store for the agent's `setting_*` tools. Optional:
    *  without it those tools report that settings are unavailable. */
   instanceConfigRepo?: { getSetting(key: string): Promise<string | null>; setSetting(key: string, value: string): Promise<void> };
@@ -552,6 +558,7 @@ export class ChatService {
           // policy and only fires for read-safe shapes — writes / critical /
           // explicitly-gated capabilities continue to raise a confirmation.
           readOnlyAgentBypass: true,
+          ...(this.deps.resolveUserTeams ? { resolveUserTeams: this.deps.resolveUserTeams } : {}),
           ...(this.deps.auditWriter ? { audit: this.deps.auditWriter } : {}),
         })
       : undefined;

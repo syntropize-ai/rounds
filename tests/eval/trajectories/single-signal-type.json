@@ -1,0 +1,43 @@
+{
+  "id": "single-signal-type",
+  "note": "A plausible, entirely metric-based investigation. Correct as far as it goes — but everything it knows came from one kind of data.",
+  "expect": "unresolved",
+  "why": "One signal type is how confident misdiagnosis happens: metrics show a symptom, the model infers a cause, and nothing independent contradicts it. The gate must hold this back from authorising a change even though the reasoning reads well.",
+  "reads": { "metric": 3 },
+  "checks": [
+    {
+      "hypothesis": "the payments service is slow",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"payments\"}[5m])) by (le))",
+      "result": "p99 latency is 4.2s against a 200ms baseline",
+      "interpretation": "Confirms a severe latency regression on payments.",
+      "status": "supported",
+      "scope": { "timeWindow": "last 1h", "affected": "payments" }
+    },
+    {
+      "hypothesis": "the load is unusually high",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(http_requests_total{service=\"payments\"}[5m]))",
+      "result": "request rate is flat at 40/s, matching the last seven days",
+      "interpretation": "Rules out a traffic surge.",
+      "status": "ruled_out",
+      "scope": { "timeWindow": "last 1h", "affected": "payments" }
+    }
+  ],
+  "claim": {
+    "summary": "payments is slow because of database connection pool exhaustion",
+    "rootCause": {
+      "status": "confirmed",
+      "object": "payments",
+      "field": "connection pool",
+      "cause": "the database connection pool is exhausted, so requests queue waiting for a connection"
+    },
+    "confidence": 0.85,
+    "evidenceRefs": ["check_1", "check_2"],
+    "ruledOut": ["traffic surge"],
+    "nextAction": "raise the connection pool size",
+    "validationMethod": "verify p99 latency returns to the 200ms baseline"
+  }
+}

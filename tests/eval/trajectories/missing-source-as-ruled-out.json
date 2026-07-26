@@ -1,0 +1,43 @@
+{
+  "id": "missing-source-as-ruled-out",
+  "note": "An investigation that never had change data and recorded that absence as though it had eliminated a deployment as the cause. Deploys and config edits trigger most incidents, so this is the most expensive shape of wrong answer available. The tool WAS called — it answered 'no connector configured' — so the read-backing rule does not catch it.",
+  "expect": "passed",
+  "knownGap": "The gate cannot tell that this ruled_out rests on a source that was never configured, so it counts toward 'a competing explanation was ruled out' and the claim ships as verified. The schema and prompt now instruct the model to record inconclusive here, but nothing enforces it. Closing this needs the raw tool output retained and compared against the recorded result — the same work that would let the gate verify a result was not merely well-formed. When that lands, this fixture should flip to 'unresolved' and this note should be deleted.",
+  "reads": { "metric": 1, "change": 1 },
+  "checks": [
+    {
+      "hypothesis": "the api gateway is returning errors",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(http_requests_total{status=~\"5..\"}[5m]))",
+      "result": "error rate is 1.2/s and rising over the last 30m",
+      "interpretation": "Confirms an elevated error rate on the api gateway.",
+      "status": "supported",
+      "scope": { "timeWindow": "last 30m", "affected": "api-gateway" }
+    },
+    {
+      "hypothesis": "a recent deployment caused the regression",
+      "signalType": "change",
+      "tool": "changes_list_recent",
+      "query": "api-gateway last 120m",
+      "result": "No change-event connector configured. Call connectors_list to see available sources.",
+      "interpretation": "Rules out a recent rollout.",
+      "status": "ruled_out",
+      "scope": { "timeWindow": "last 120m", "affected": "api-gateway" }
+    }
+  ],
+  "claim": {
+    "summary": "the api gateway is failing for reasons unrelated to any deployment",
+    "rootCause": {
+      "status": "confirmed",
+      "object": "api-gateway",
+      "field": "error rate",
+      "cause": "elevated 5xx unrelated to any recent rollout"
+    },
+    "confidence": 0.85,
+    "evidenceRefs": ["check_1", "check_2"],
+    "ruledOut": ["recent deployment"],
+    "nextAction": "investigate the api gateway further",
+    "validationMethod": "verify the error rate returns to baseline"
+  }
+}

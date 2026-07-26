@@ -1,0 +1,113 @@
+{
+  "id": "bookinfo-reviews-v2",
+  "note": "The real run documented in docs/investigations/bookinfo-reviews-v2.md, frozen. Every pod reported 2/2 Running while 47% of requests to one service failed. Numbers verified against Prometheus by hand. The report shipped as unresolved for exactly this reason, which is documented in the same file.",
+  "expect": "unresolved",
+  "why": "The real run reached the correct conclusion and still did not clear the gate, because all six checks were metric queries. That is the gate working as intended: a single-source investigation does not get to authorise a change, however good its reasoning. This fixture pins both halves — that a well-argued investigation records cleanly, and that one signal type is not enough.",
+  "reads": {
+    "metric": 6
+  },
+  "checks": [
+    {
+      "hypothesis": "services are returning HTTP errors",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(istio_requests_total{response_code=~\"5.*\"}[5m])) > 0",
+      "result": "reviews returns ~0.84 503/s, about 24% of its requests; productpage, details and ratings all return 200",
+      "interpretation": "Confirms a sustained error condition isolated to reviews.",
+      "status": "supported",
+      "scope": {
+        "timeWindow": "last 1h",
+        "affected": "reviews.default.svc.cluster.local"
+      }
+    },
+    {
+      "hypothesis": "one specific version of reviews is responsible",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(istio_requests_total{destination_service=\"reviews.default.svc.cluster.local\"}[5m])) by (destination_version, response_code)",
+      "result": "v2: 0.91 req/s OK plus 0.80 req/s 503 (~47% error). v3: 1.72 req/s OK with no errors.",
+      "interpretation": "The fault is specific to reviews-v2; v3 serving the same traffic is clean.",
+      "status": "supported",
+      "scope": {
+        "timeWindow": "last 1h",
+        "affected": "reviews-v2"
+      }
+    },
+    {
+      "hypothesis": "CPU saturation is causing the failures",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(container_cpu_usage_seconds_total[5m])) by (container, namespace) * 100",
+      "result": "total CPU around 0.66 cores across the cluster; every namespace is idle",
+      "interpretation": "Rules out CPU pressure.",
+      "status": "ruled_out",
+      "scope": {
+        "timeWindow": "last 1h",
+        "affected": "all namespaces"
+      }
+    },
+    {
+      "hypothesis": "network failure is making the service unreachable",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(container_network_receive_errors_total[5m])) by (namespace) > 0",
+      "result": "zero receive errors in any namespace",
+      "interpretation": "Rules out a network-layer fault.",
+      "status": "ruled_out",
+      "scope": {
+        "timeWindow": "last 1h",
+        "affected": "all namespaces"
+      }
+    },
+    {
+      "hypothesis": "latency is causing timeouts that surface as 503",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "histogram_quantile(0.99, sum(rate(istio_request_duration_milliseconds_bucket[5m])) by (le, destination_service))",
+      "result": "reviews p99 is 9.9ms and productpage p99 is 24.8ms; both well within normal",
+      "interpretation": "Rules out timeout-driven 503s.",
+      "status": "ruled_out",
+      "scope": {
+        "timeWindow": "last 1h",
+        "affected": "reviews, productpage"
+      }
+    },
+    {
+      "hypothesis": "reviews-v2 fails because its calls to ratings fail",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(istio_requests_total{source_workload=\"reviews-v2\",destination_service_name=\"ratings\"}[5m])) by (response_code)",
+      "result": "every reviews-v2 to ratings call returns 200 at 0.73/s, p99 5ms",
+      "interpretation": "Rules out the dependency: ratings is healthy, so reviews-v2 is generating the 503s itself.",
+      "status": "ruled_out",
+      "scope": {
+        "timeWindow": "last 1h",
+        "affected": "reviews-v2 to ratings"
+      }
+    }
+  ],
+  "claim": {
+    "summary": "reviews-v2 returns 503 on roughly half its requests from its own code path, not from a failing dependency",
+    "rootCause": {
+      "status": "confirmed",
+      "object": "reviews-v2",
+      "field": "application code",
+      "cause": "the v2 image returns 503 probabilistically while simulating a failed ratings call, even though ratings answers 200 at 5ms"
+    },
+    "confidence": 0.9,
+    "evidenceRefs": [
+      "check_1",
+      "check_2",
+      "check_3",
+      "check_6"
+    ],
+    "ruledOut": [
+      "CPU saturation",
+      "network failure",
+      "timeout-driven 503",
+      "ratings dependency failure"
+    ],
+    "nextAction": "Shift traffic to reviews-v3, then rebuild the v2 image without the injected failure",
+    "validationMethod": "confirm the 503 rate for destination_version=v2 drops to zero after the change"
+  }
+}

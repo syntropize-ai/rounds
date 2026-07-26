@@ -276,3 +276,33 @@ describe('the documented auto-approval table matches the classifier', () => {
     expect(page).not.toContain('Interactive chat always shows the confirmation card for anything');
   });
 });
+
+/**
+ * The documented readiness contract has to be the one the endpoint honours.
+ *
+ * Operators wire alerting and rollout gates to these values, and the endpoint
+ * just changed from "always 200" to "503 when the database does not answer".
+ * A doc that lags that is worse than none: it tells someone the pod leaving
+ * the Service is a probe bug rather than a database problem.
+ */
+describe('the documented health-probe contract is real', () => {
+  it('documents exactly the statuses the endpoint can return', async () => {
+    const page = readFileSync(join(ROOT, 'docs/install/kubernetes.md'), 'utf8');
+    const src = readFileSync(join(ROOT, 'packages/api-gateway/src/routes/health.ts'), 'utf8');
+
+    const union = src.match(/status:\s*'(healthy)'\s*\|\s*'(degraded)'\s*\|\s*'(unhealthy)'/);
+    expect(union, 'the ReadyResponse status union moved — update this guard').toBeTruthy();
+    for (const status of union!.slice(1)) {
+      expect(page, `${status} is not documented`).toContain(`"${status}"`);
+    }
+  });
+
+  it('documents the three probe paths the chart actually wires', () => {
+    const page = readFileSync(join(ROOT, 'docs/install/kubernetes.md'), 'utf8');
+    const chart = readFileSync(join(ROOT, 'helm/rounds/templates/deployment.yaml'), 'utf8');
+    for (const probe of ['startup', 'ready', 'live']) {
+      expect(chart, `chart no longer wires /api/health/${probe}`).toContain(`/api/health/${probe}`);
+      expect(page, `/api/health/${probe} is undocumented`).toContain(`/api/health/${probe}`);
+    }
+  });
+});

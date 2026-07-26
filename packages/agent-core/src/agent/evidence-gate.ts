@@ -1,4 +1,8 @@
 import type { SavedInvestigationReport } from '@agentic-obs/common';
+import { explainGateReasons, MIN_ROOT_CAUSE_CONFIDENCE } from '@agentic-obs/common';
+
+// Re-exported so agent-core callers keep one import site for gate concerns.
+export { explainGateReasons };
 import type {
   InvestigationCheck,
   InvestigationCompletionClaim,
@@ -28,8 +32,6 @@ export interface RemediationPlanEvidenceGateResult {
 type ProvenanceWithRootCauseGate = NonNullable<SavedInvestigationReport['provenance']> & {
   rootCauseGate?: RootCauseEvidenceGateResult;
 };
-
-const MIN_CONFIDENCE = 0.8;
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'because', 'by', 'caused', 'causing',
@@ -72,8 +74,8 @@ export function evaluateInvestigationEvidenceGate(
     .filter((check): check is InvestigationCheck => Boolean(check));
 
   const reasons: string[] = [];
-  if (claim.confidence < MIN_CONFIDENCE) {
-    reasons.push(`root-cause confidence must be at least ${MIN_CONFIDENCE}`);
+  if (claim.confidence < MIN_ROOT_CAUSE_CONFIDENCE) {
+    reasons.push(`root-cause confidence must be at least ${MIN_ROOT_CAUSE_CONFIDENCE}`);
   }
   if (!claim.rootCause.object) {
     reasons.push('rootCause.object must name the specific repair target');
@@ -234,44 +236,4 @@ function cjkTokens(value: string): string[] {
   return tokens;
 }
 
-/**
- * Translate gate reasons into something a reader who has never seen this
- * codebase can act on. The raw reasons name fields and thresholds because the
- * model consumes them as instructions; rendered verbatim in a report they read
- * as an internal rule dump ("referenced evidence must include at least two
- * independent signal types") next to a summary that confidently names a cause,
- * which looks like the report contradicting itself.
- *
- * Unmapped reasons pass through unchanged — a slightly technical sentence beats
- * dropping the explanation entirely.
- */
-export function explainGateReasons(reasons: readonly string[]): string[] {
-  return reasons.map((reason) => GATE_REASON_PLAIN[reason] ?? reason);
-}
 
-const GATE_REASON_PLAIN: Readonly<Record<string, string>> = {
-  'referenced evidence must include at least two independent signal types from metrics, logs, Kubernetes state or change events':
-    'the supporting evidence all came from one kind of data I can verify I actually queried — connecting logs or Kubernetes state would let me confirm it',
-  'at least two recorded checks must be referenced':
-    'only one check backs this conclusion, which is not enough to be sure',
-  'at least one referenced supported check must directly support the root-cause object and cause':
-    'no single check directly demonstrates the cause I suspect',
-  'ruledOut must include plausible competing explanations':
-    'I did not rule out other explanations for what you are seeing',
-  'at least one competing explanation must be recorded as ruled_out':
-    'I did not rule out other explanations for what you are seeing',
-  'at least one referenced check must record scope.timeWindow or scope.affected':
-    'the evidence does not pin down when this started or which parts are affected',
-  'validationMethod must state how to validate the fix or next finding':
-    'I could not state how you would confirm a fix actually worked',
-  'rootCause.object must name the specific repair target':
-    'I could not name the specific thing that needs changing',
-  'rootCause.cause must describe the causal mechanism':
-    'I could not explain the mechanism behind the failure',
-  'evidenceRefs must point to recorded investigation checks':
-    'the conclusion is not tied to any recorded check',
-  'all evidenceRefs must match recorded check ids':
-    'the conclusion cites checks that were not recorded',
-  [`root-cause confidence must be at least ${MIN_CONFIDENCE}`]:
-    'I am not confident enough in this conclusion to call it the root cause',
-};

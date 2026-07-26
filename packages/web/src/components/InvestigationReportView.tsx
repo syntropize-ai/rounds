@@ -3,6 +3,7 @@ import type { Citation } from '@agentic-obs/common';
 import type { InvestigationReport, InvestigationReportSection } from '../hooks/useDashboardChat.js';
 import DashboardPanelCard from './DashboardPanelCard.js';
 import ProvenanceHeader from './provenance/ProvenanceHeader.js';
+import RootCauseVerdict from './provenance/RootCauseVerdict.js';
 import CitationChip from './provenance/CitationChip.js';
 import EvidenceDrawer from './provenance/EvidenceDrawer.js';
 import { parseCitations } from './provenance/citation-parser.js';
@@ -233,6 +234,12 @@ export default function InvestigationReportView({ report, title }: Props) {
                 {...(citations.length > 0 ? { onViewRunLog } : {})}
               />
             )}
+
+            {/* Whether the product stands behind the conclusion. Above the
+                summary on purpose: it changes how the summary should be read,
+                so a reader who stops after the first paragraph has still seen
+                it. */}
+            {report.provenance && <RootCauseVerdict provenance={report.provenance} />}
 
             {/* Header */}
             <header className="space-y-4">

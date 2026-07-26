@@ -130,9 +130,17 @@ against the alert that triggered it. If your auditor asks who authorised a
 change an AI made, at 3am, and how you knew it worked, that question has an
 answer. See [change control](./docs/compliance/change-control.md).
 
-**Nothing leaves your perimeter.** Your cluster, your Prometheus, your LLM key.
-Works with Anthropic, OpenAI, Gemini, DeepSeek, Azure OpenAI, or a local Ollama
-endpoint — including air-gapped.
+**No SaaS in the middle.** Your cluster, your Prometheus, your LLM key. There is
+no Rounds-operated service between you and your data, and no telemetry is sent
+to us — there is nowhere for it to go.
+
+Two things do leave, and you should know about both. Everything the agent reads
+— metric values, log lines, command output — goes to whichever LLM endpoint you
+configure; only a local one (Ollama, vLLM) keeps that inside your network.
+Separately, the `web_search` tool queries DuckDuckGo, and those queries carry
+your own service and metric names. Set `ROUNDS_DISABLE_WEB_SEARCH=true` to
+remove it from the agent entirely. With that set and a local model, nothing
+leaves.
 
 Kubernetes is the first deep production workflow. Planned integrations include Prometheus alerting rules, Loki log routing, GitHub deploys, Jira / PagerDuty incident sync, CI/CD systems, and database read connectors — these are clearly marked as PLANNED in the docs and not promised by the current release.
 

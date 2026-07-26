@@ -41,6 +41,28 @@ variable for them.
 | Variable | Required | Description |
 | --- | --- | --- |
 | `OPENOBS_ALLOW_PRIVATE_URLS` | No | Set to `true` to allow outbound requests to private, loopback and link-local addresses. Blocked by default. |
+| `ROUNDS_DISABLE_WEB_SEARCH` | No | Set to `true` to remove the `web_search` tool from the agent. On by default. |
+
+### What leaves your network
+
+Rounds is self-hosted and there is no Rounds-operated service in the middle.
+Two paths still reach outside, and neither is obvious from the outside, so they
+are worth stating plainly.
+
+**The model.** Every metric value, log line and command output the agent reads
+is sent to whichever LLM endpoint you configure. If that is Anthropic, OpenAI,
+Gemini, DeepSeek or Azure, your telemetry goes there. Only a local endpoint
+(Ollama, vLLM) keeps it inside your network. No setting changes this — it is
+what running an LLM agent means.
+
+**Web search.** The `web_search` tool queries DuckDuckGo, and the prompt tells
+the agent to use it when the knowledge base has no entry for a named system
+(Redis, Kafka, Istio…). Those queries carry your own service names, metric
+names and error strings. `ROUNDS_DISABLE_WEB_SEARCH=true` removes the tool from
+the agent's tool set entirely, rather than letting it be called and fail — the
+agent is never told the capability exists.
+
+Set both — the flag and a local model — and nothing leaves.
 
 Every URL Rounds fetches on the server's behalf — connectors, webhook
 subscriptions, notification senders, OAuth endpoints, self-hosted LLM endpoints —

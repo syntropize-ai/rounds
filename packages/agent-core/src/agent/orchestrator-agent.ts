@@ -40,6 +40,7 @@ import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
 import { createInvestigationWorkingState, type InvestigationWorkingState, type InvestigationRead } from './investigation-state.js'
 import { getStructuredAlertRuleContext } from './orchestrator-alert-helpers.js'
 import { buildSystemPrompt } from './orchestrator-prompt.js'
+import { applyEgressPolicy } from './egress-policy.js'
 import { buildActionContext } from './orchestrator-action-context.js'
 import { isSourceUnavailable, stripSourceMark } from './handlers/_shared.js'
 import { ToolAuditReporter } from './orchestrator-audit-reporter.js'
@@ -244,7 +245,7 @@ export class OrchestratorAgent {
       sendEvent: deps.sendEvent,
       identity: deps.identity,
       accessControl: deps.accessControl,
-      allowedTools: this.agentDef.allowedTools,
+      allowedTools: applyEgressPolicy(this.agentDef.allowedTools),
       maxIterations: this.agentDef.maxIterations,
       maxTokenBudget: deps.maxTokenBudget,
       conversationSummary: deps.conversationSummary,
@@ -373,7 +374,7 @@ export class OrchestratorAgent {
       identity: this.deps.identity,
       permissionEscalationContact: this.deps.permissionEscalationContact,
       opsConnectors: this.deps.opsConnectors,
-      allowedTools: this.agentDef.allowedTools,
+      allowedTools: applyEgressPolicy(this.agentDef.allowedTools),
       agentType: this.agentDef.type,
       pageContext: this.deps.pageContext,
     })

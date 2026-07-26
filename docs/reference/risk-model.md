@@ -82,6 +82,34 @@ rely on are the connector capability policy, the namespace allowlist, and the
 approval step — all of which operate on structure rather than on text. The
 classifier is defence in depth.
 
+## What the evidence gate does and does not prove
+
+The evidence gate decides whether an investigation may call a root cause
+verified, and whether that investigation can back a remediation plan. It is
+worth being precise about what it establishes.
+
+**It proves the reads happened.** Every recorded check must be backed by a read
+tool that actually executed in that investigation, and one execution backs one
+check. An agent cannot satisfy the gate by describing queries it never ran, and
+cannot run one query and write up five findings from it.
+
+**It proves the shape of the reasoning.** At least two independent signal
+types, at least one competing explanation recorded as ruled out, an explicit
+time window or affected scope, a named validation method, and a repair target
+consistent with the proven cause.
+
+**It does not prove the stated result is what came back.** The check records
+what the agent says the query returned. That text is not currently compared
+against the raw tool output. An agent that ran a real query and then
+mis-summarised it would pass.
+
+Closing that gap means retaining raw tool output and diffing it against the
+recorded result, which is the next piece of work here. Until then: the gate is
+a strong filter against unfounded conclusions and fabricated work, and a weak
+one against honest misreading. Treat a `passed` gate as "this was investigated
+properly", not as "this conclusion is certainly true" — which is also why a
+plan derived from it still requires human approval.
+
 ## Auto-approval, and how to turn it off
 
 Background agents have `readOnlyAgentBypass`, which skips the confirmation card

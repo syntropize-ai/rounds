@@ -141,6 +141,24 @@ export async function handleInvestigationRecordCheck(
     return 'Error: "scope" must set scope.timeWindow (the time range this check covers) or scope.affected (the objects, namespace, or service it covers).';
   }
 
+  // A check has to be backed by a read that actually happened.
+  //
+  // Everything above validates shape: the fields are present and the enums are
+  // legal. None of it establishes that `tool` ran or that `result` came from
+  // anywhere — the agent writes all of it. Without this, the whole evidence
+  // gate downstream grades the model's prose rather than its work, and a run
+  // that queried nothing could still produce a "verified" root cause by
+  // describing checks it never performed.
+  //
+  // The counters incremented as read tools execute are the ground truth. Each
+  // recorded check consumes one real call from its family, so N checks citing
+  // metrics need N metric reads to have occurred. This does not prove the
+  // stated result matches what came back — that needs the raw output kept and
+  // compared, which is worth doing next — but it does close the path where
+  // nothing was read at all.
+  const backingErr = checkHasBackingRead(ctx, investigationId, tool, signalType);
+  if (backingErr) return backingErr;
+
   return withToolEventBoundary(
     ctx.sendEvent,
     'investigation_record_check',
@@ -816,6 +834,68 @@ function parseCompletionClaim(args: Record<string, unknown>): InvestigationCompl
     nextAction: stringOrUndefined(args.nextAction),
     validationMethod: stringOrUndefined(args.validationMethod),
   };
+}
+
+/**
+ * Which provenance counter a cited tool draws from. Families mirror the
+ * increments in `recordInvestigationRead` (orchestrator-agent.ts): metrics_*,
+ * logs_*, ops_run_command, changes_list_recent. Tools outside those families
+ * (web search, knowledge base) are not counted there, so checks citing them
+ * are not held to this rule.
+ */
+type ReadFamily = 'metric' | 'log' | 'ops' | 'change';
+
+function readFamilyForTool(tool: string, signalType: InvestigationSignalType): ReadFamily | null {
+  const t = tool.trim().toLowerCase();
+  if (t.startsWith('metrics_')) return 'metric';
+  if (t.startsWith('logs_')) return 'log';
+  if (t === 'ops_run_command' || t === 'ops_cluster_shell') return 'ops';
+  if (t === 'changes_list_recent') return 'change';
+  // A tool name the agent invented rather than called. Fall back to the
+  // declared signal type so a check claiming metric evidence still needs a
+  // metric read behind it.
+  if (signalType === 'metric') return 'metric';
+  if (signalType === 'log') return 'log';
+  if (signalType === 'kubernetes') return 'ops';
+  if (signalType === 'change') return 'change';
+  return null;
+}
+
+const READ_FAMILY_LABEL: Readonly<Record<ReadFamily, string>> = {
+  metric: 'metrics_* query',
+  log: 'logs_* query',
+  ops: 'ops_run_command call',
+  change: 'changes_list_recent call',
+};
+
+function checkHasBackingRead(
+  ctx: ActionContext,
+  investigationId: string,
+  tool: string,
+  signalType: InvestigationSignalType,
+): string | null {
+  const family = readFamilyForTool(tool, signalType);
+  if (!family) return null;
+
+  const prov = ctx.investigationProvenance.get(investigationId);
+  const performed =
+    family === 'metric' ? prov?.metricReadCalls ?? 0
+    : family === 'log' ? prov?.logReadCalls ?? 0
+    : family === 'ops' ? prov?.opsReadCalls ?? 0
+    : prov?.changeReadCalls ?? 0;
+
+  const state = ctx.investigationStates.get(investigationId);
+  const alreadyRecorded = (state?.checks ?? []).filter(
+    (c) => readFamilyForTool(c.tool, c.signalType) === family,
+  ).length;
+
+  if (performed > alreadyRecorded) return null;
+
+  return (
+    `Error: cannot record this check — it cites a ${READ_FAMILY_LABEL[family]}, but this investigation has run `
+    + `${performed} of those and already recorded ${alreadyRecorded} check(s) against them. `
+    + 'Run the read first, then record what it returned. Record only what you actually observed.'
+  );
 }
 
 function parseSignalType(value: unknown): InvestigationSignalType | null {

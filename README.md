@@ -114,8 +114,13 @@ harder to find.
 least two independent signal types support it, at least one competing
 explanation was tested and recorded as ruled out, and a validation method is
 named. Otherwise the report ships as `unresolved` with the next check to run —
-and an unresolved investigation cannot back a remediation plan. The agent does
-not get to talk its way past this; the server enforces it.
+and an unresolved investigation cannot back a remediation plan.
+
+The server enforces this, and it also enforces that the evidence is real: a
+recorded check must be backed by a read that actually executed, so an agent
+cannot satisfy the gate by describing work it did not do. What is not yet
+verified is whether the stated result matches what the query returned — see
+[the risk model](./docs/reference/risk-model.md#what-the-evidence-gate-does-and-does-not-prove).
 
 **Every production change leaves a paper trail.** Plan → attributed approval →
 one audit row per step → paired rollback plan → post-execution verification

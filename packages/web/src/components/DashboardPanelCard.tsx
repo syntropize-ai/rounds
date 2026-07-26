@@ -4,6 +4,7 @@ import { apiClient } from '../api/client.js';
 import { queryScheduler } from '../api/query-scheduler.js';
 import { useMeasure } from '../hooks/useMeasure.js';
 import { relativeTimeFromElapsed } from '../utils/time.js';
+import { explainPanelError } from './panel-error-copy.js';
 import { useDatasourceLookup, type InstanceDatasource } from '../hooks/useDatasourceLookup.js';
 import TimeSeriesViz from './viz/TimeSeriesViz.js';
 import StatViz from './viz/StatViz.js';
@@ -282,7 +283,6 @@ export default function DashboardPanelCard({
   const [instantData, setInstantData] = useState<InstantResponse | null>(null);
   const [sparklineData, setSparklineData] = useState<{ timestamps: number[]; values: number[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isTransientError, setIsTransientError] = useState(false);
   /** Set when a transient refresh failed but we already have data on screen.
    *  We keep showing the stale data (good UX) but flag it visually so users
    *  know what they see is no longer fresh. Cleared on next successful fetch. */
@@ -369,7 +369,6 @@ export default function DashboardPanelCard({
 
       if (isRetry) {
         setError(null);
-        setIsTransientError(false);
       }
 
       const hasExistingData = hasRangeDataRef.current || hasInstantDataRef.current;
@@ -393,7 +392,6 @@ export default function DashboardPanelCard({
           return;
         }
         retryCountRef.current = 0;
-        setIsTransientError(transient);
         setError(msg);
         setLoading(false);
       };
@@ -629,7 +627,6 @@ export default function DashboardPanelCard({
     }
 
     setError(null);
-    setIsTransientError(false);
     setStaleSinceMs(null);
     setMultiRangeData([]);
     setInstantData(null);
@@ -708,24 +705,35 @@ export default function DashboardPanelCard({
     }
 
     if (error) {
+      const explained = explainPanelError(error);
       return (
         <div className="px-4 py-4 text-[11px] rounded-lg mx-3 my-2 flex flex-col gap-2 bg-error/10">
-          <div className="text-error">{error}</div>
-          {isTransientError && (
-            <button
-              type="button"
-              onClick={() => {
-                retryCountRef.current = 0;
-                setError(null);
-                setIsTransientError(false);
-                setLoading(true);
-                void fetchData();
-              }}
-              className="self-start text-[11px] text-primary hover:text-primary-container underline transition-colors"
-            >
-              Retry
-            </button>
+          <div className="text-error">{explained.summary}</div>
+          {explained.detail && (
+            // The raw text still matters to whoever is debugging their own
+            // Prometheus, it just should not be the first thing a reader meets.
+            <details className="text-on-surface-variant">
+              <summary className="cursor-pointer select-none">Details</summary>
+              <div className="mt-1 font-mono break-all">{explained.detail}</div>
+            </details>
           )}
+          {/* Always offered. It used to render only for errors matching a
+              transient-looking regex, which excluded the most common case by
+              far — a panel pointing at a connector that was renamed or
+              deleted. Someone who has just fixed that in Settings had no way
+              to re-run the panel short of reloading the whole page. */}
+          <button
+            type="button"
+            onClick={() => {
+              retryCountRef.current = 0;
+              setError(null);
+              setLoading(true);
+              void fetchData();
+            }}
+            className="self-start text-[11px] text-primary hover:text-primary-container underline transition-colors"
+          >
+            Retry
+          </button>
         </div>
       );
     }

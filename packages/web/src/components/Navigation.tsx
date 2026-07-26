@@ -368,10 +368,16 @@ export default function Navigation() {
     let cancelled = false;
     const fetchOnce = () => {
       void plansApi.list({ status: 'pending_approval' })
-        .then(({ data }) => {
-          if (!cancelled) setPendingPlans(data?.length ?? 0);
-        })
-        .catch(() => { /* non-fatal — leave previous count */ });
+        .then(({ data, error }) => {
+          // `plansApi` reports failures by returning an error, never by
+          // throwing, so the `.catch` that used to sit here was dead code and
+          // `data?.length ?? 0` cleared the badge instead. An approval waiting
+          // while the badge reads zero is the worst direction for this number
+          // to be wrong in — keep the last known count, as the original
+          // comment intended.
+          if (cancelled || error) return;
+          setPendingPlans(data?.length ?? 0);
+        });
     };
     fetchOnce();
     const timer = setInterval(fetchOnce, 30_000);

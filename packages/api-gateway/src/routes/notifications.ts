@@ -14,7 +14,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { createRequirePermission } from '../middleware/require-permission.js';
 import type { AccessControlSurface } from '../services/accesscontrol-holder.js';
-import { postWebhook, buildTestWebhookBody } from '../services/notification-senders/index.js';
+import { postWebhook, buildTestWebhookBody, senderFor } from '../services/notification-senders/index.js';
 import { asyncHandler } from '../middleware/async-handler.js';
 
 export interface NotificationsRouterDeps {
@@ -121,12 +121,20 @@ export function createNotificationsRouter(deps: NotificationsRouterDeps): Router
             success: result.ok,
             message: result.ok ? 'Test notification sent successfully' : result.message,
           });
-        } else if (integration.type === 'email' || integration.type === 'pagerduty' || integration.type === 'opsgenie' || integration.type === 'telegram') {
+        } else if (senderFor(integration.type) === null) {
+          // These types have no sender at all: `senderFor` returns null and the
+          // consumer logs "sender not implemented; skipping" when an alert
+          // fires. Reporting the test as a success — with a message implying
+          // credentials were the only thing missing — meant someone could
+          // verify their PagerDuty path before going on call, see green, and
+          // never be paged. A test that cannot fail is not a test.
           results.push({
             integrationUid: integration.id,
             type: integration.type,
-            success: true,
-            message: `Mock test for ${integration.type} - configure credentials for live testing`,
+            success: false,
+            message:
+              `${integration.type} delivery is not implemented in this build, so alerts routed here `
+              + 'will be dropped. Use Slack, Teams, Discord or a generic webhook until it lands.',
           });
         } else {
           results.push({

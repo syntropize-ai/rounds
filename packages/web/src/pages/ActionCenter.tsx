@@ -453,9 +453,14 @@ export default function ActionCenter() {
       const responses = await Promise.all(
         ACTIONABLE_PLAN_STATUSES.map((status) => plansApi.list({ status })),
       );
+      // A failed page must not silently shrink the list into "nothing needs
+      // attention". `plansApi` returns errors rather than throwing, so an
+      // unchecked response contributes zero plans and reads as all-clear.
+      const failed = responses.find((r) => r.error);
+      if (failed) throw new Error(failed.error?.message ?? 'Could not load remediation plans');
       const byId = new Map<string, RemediationPlan>();
       for (const { data: page } of responses) {
-        for (const plan of page) byId.set(plan.id, plan);
+        for (const plan of page ?? []) byId.set(plan.id, plan);
       }
       const data = [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setPlans(data);
@@ -476,9 +481,11 @@ export default function ActionCenter() {
         }
         setAlertsByInvestigation(map);
       }
-    } catch {
-      // Plans endpoint failures shouldn't crash the legacy view; surface
-      // through the existing `error` slot only if approvals also failed.
+    } catch (err) {
+      // Surfaced rather than swallowed: an empty Action Center is indis-
+      // tinguishable from a healthy one, and this is the page an operator
+      // checks to find out whether anything is waiting on them.
+      setError(err instanceof Error ? err.message : 'Could not load remediation plans');
     }
   }, []);
 

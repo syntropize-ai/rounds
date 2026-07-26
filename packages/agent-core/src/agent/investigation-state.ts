@@ -50,6 +50,28 @@ export function readFamilyForTool(
   return null;
 }
 
+/**
+ * One read that actually executed, in the order it ran.
+ *
+ * `record_check` consumes one of these per recorded check, which is what stops
+ * the ledger filling up with checks describing work that never happened.
+ *
+ * Declared once and shared. This shape was written out longhand in three
+ * places, and adding a field to one of them was how the drift showed up — the
+ * same failure that let the gate and the record-time check disagree about what
+ * counted as an independent signal.
+ */
+export interface InvestigationRead {
+  action: string;
+  family: ReadFamily;
+  /**
+   * Whether the source answered at all. A source that could not be consulted
+   * reports nothing, which is not the same as reporting nothing found.
+   */
+  sourceAnswered: boolean;
+  consumed: boolean;
+}
+
 export type HypothesisStatus = 'supported' | 'ruled_out' | 'inconclusive';
 
 /**

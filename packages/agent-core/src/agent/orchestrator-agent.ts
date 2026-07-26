@@ -37,7 +37,7 @@ import type {
   IAuditWriter,
 } from './types-permissions.js'
 import type { AlertRuleSummary } from './orchestrator-alert-helpers.js'
-import { createInvestigationWorkingState, type InvestigationWorkingState } from './investigation-state.js'
+import { createInvestigationWorkingState, type InvestigationWorkingState, type InvestigationRead } from './investigation-state.js'
 import { getStructuredAlertRuleContext } from './orchestrator-alert-helpers.js'
 import { buildSystemPrompt } from './orchestrator-prompt.js'
 import { buildActionContext } from './orchestrator-action-context.js'
@@ -188,7 +188,7 @@ export class OrchestratorAgent {
   }>()
   private readonly investigationStates = new Map<string, InvestigationWorkingState>()
   /** Reads that actually ran, per investigation. See ActionContext.investigationReads. */
-  private readonly investigationReads = new Map<string, Array<{ action: string; family: 'metric' | 'log' | 'ops' | 'change'; sourceAnswered: boolean; consumed: boolean }>>()
+  private readonly investigationReads = new Map<string, InvestigationRead[]>()
   private readonly pendingDashboardCreates = new Map<string, import('./handlers/_context.js').PendingDashboardCreate>()
   private readonly pendingInvestigationCreates = new Map<string, import('./handlers/_context.js').PendingInvestigationCreate>()
   private readonly completedInvestigationAliases = new Map<string, string>()

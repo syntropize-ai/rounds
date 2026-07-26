@@ -36,7 +36,7 @@ import type { GithubToolRunner } from '../agent-types.js';
 import type { IAccessControlService } from '../types-permissions.js';
 import type { IPanelEventRepository } from '../panel-event-recorder.js';
 import type { IPendingChangeRepository } from '@agentic-obs/data-layer';
-import type { InvestigationWorkingState } from '../investigation-state.js';
+import type { InvestigationWorkingState, InvestigationRead } from '../investigation-state.js';
 
 export interface PendingDashboardCreate {
   title: string;
@@ -224,12 +224,7 @@ export interface ActionContext {
    * from one that could not be consulted at all — only the former can rule a
    * hypothesis out.
    */
-  investigationReads: Map<string, Array<{
-    action: string;
-    family: 'metric' | 'log' | 'ops' | 'change';
-    sourceAnswered: boolean;
-    consumed: boolean;
-  }>>;
+  investigationReads: Map<string, InvestigationRead[]>;
   /**
    * Dashboard create requests held in memory until the first panel write.
    * This avoids showing an empty dashboard shell while the agent is still

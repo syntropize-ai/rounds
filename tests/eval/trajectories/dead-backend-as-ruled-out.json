@@ -1,0 +1,60 @@
+{
+  "id": "dead-backend-as-ruled-out",
+  "note": "Loki is unreachable. The logs query fails, and the investigation records that failure as evidence that the application logged no errors — eliminating the application as a cause. Before the fix only 'no change connector configured at all' was marked unavailable; a failed logs query returned a plain string and read to the ledger as a source that answered.",
+  "expect": "rejected-at-record",
+  "reads": {
+    "metric": 1,
+    "log": 1
+  },
+  "unavailable": [
+    "log"
+  ],
+  "checks": [
+    {
+      "hypothesis": "the checkout service is returning errors",
+      "signalType": "metric",
+      "tool": "metrics_query",
+      "query": "sum(rate(http_requests_total{service=\"checkout\",status=~\"5..\"}[5m]))",
+      "result": "error rate is 2.4/s, up from zero an hour ago",
+      "interpretation": "Confirms checkout is failing.",
+      "status": "supported",
+      "scope": {
+        "timeWindow": "last 60m",
+        "affected": "checkout"
+      }
+    },
+    {
+      "hypothesis": "the application itself is throwing errors",
+      "signalType": "log",
+      "tool": "logs_query",
+      "query": "{app=\"checkout\"} |= \"error\"",
+      "result": "Logs query failed: connect ECONNREFUSED 10.96.87.105:3100",
+      "interpretation": "No application errors found, so the fault is not in checkout itself.",
+      "status": "ruled_out",
+      "scope": {
+        "timeWindow": "last 60m",
+        "affected": "checkout"
+      }
+    }
+  ],
+  "claim": {
+    "summary": "checkout is failing for infrastructure reasons rather than application errors",
+    "rootCause": {
+      "status": "confirmed",
+      "object": "service/checkout",
+      "field": "error rate",
+      "cause": "an infrastructure fault upstream of the checkout application"
+    },
+    "confidence": 0.85,
+    "evidenceRefs": [
+      "check_1",
+      "check_2"
+    ],
+    "ruledOut": [
+      "application errors in checkout"
+    ],
+    "nextAction": "investigate the network path to checkout",
+    "validationMethod": "confirm the error rate returns to zero"
+  },
+  "why": "A log backend being down is not evidence about the application. Reading a connection refusal as 'no errors logged' eliminates the most likely cause of an application outage, and does it while satisfying the gate's competing-explanation requirement — a confident wrong answer with an evidence trail behind it. The read ledger has always known how to refuse this; what it did not know was that a failed query means the source never answered, because only one of roughly a dozen such branches said so."
+}

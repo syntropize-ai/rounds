@@ -1,4 +1,5 @@
 import type { ActionContext } from './_context.js';
+import { sourceUnavailable } from './_shared.js';
 
 // ---------------------------------------------------------------------------
 // Source-agnostic logs primitives — each takes `sourceId` and resolves the
@@ -8,7 +9,11 @@ import type { ActionContext } from './_context.js';
 const LOGS_QUERY_MAX_CHARS = 2000;
 
 function unknownLogsSource(sourceId: string): string {
-  return `Error: unknown logs connector '${sourceId}'. Call connectors_list to see available sources.`;
+  // Nothing was consulted, so downstream this must not be able to rule a
+  // hypothesis out — see `sourceUnavailable`.
+  return sourceUnavailable(
+    `Error: unknown logs connector '${sourceId}'. Call connectors_list to see available sources.`,
+  );
 }
 
 // TODO: migrate to withToolEventBoundary
@@ -65,7 +70,7 @@ export async function handleLogsQuery(ctx: ActionContext, args: Record<string, u
   } catch (err) {
     const msg = `Logs query failed: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'logs_query', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }
 
@@ -84,7 +89,7 @@ export async function handleLogsLabels(ctx: ActionContext, args: Record<string, 
   } catch (err) {
     const msg = `Failed to list log labels: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'logs_labels', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }
 
@@ -107,6 +112,6 @@ export async function handleLogsLabelValues(ctx: ActionContext, args: Record<str
   } catch (err) {
     const msg = `Failed to list log label values: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'logs_label_values', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }

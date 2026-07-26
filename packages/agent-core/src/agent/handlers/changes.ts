@@ -27,7 +27,7 @@ export async function handleChangesListRecent(
   if (!adapter) {
     const msg = `Error: unknown changes connector '${sourceId}'. Call connectors_list to see available sources.`;
     ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 
   const service = typeof args.service === 'string' && args.service ? args.service : undefined;
@@ -63,6 +63,6 @@ export async function handleChangesListRecent(
   } catch (err) {
     const msg = `Failed to list recent changes: ${err instanceof Error ? err.message : String(err)}`;
     ctx.sendEvent({ type: 'tool_result', tool: 'changes_list_recent', summary: msg });
-    return msg;
+    return sourceUnavailable(msg);
   }
 }

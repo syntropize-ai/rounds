@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { isSourceUnavailable, stripSourceMark } from '../_shared.js';
 import {
   handleMetricsQuery,
   handleMetricsRangeQuery,
@@ -73,7 +74,10 @@ describe('metrics handlers', () => {
       });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
       const observation = await handleMetricsQuery(ctx, { sourceId: 'prom', query: 'up' });
-      expect(observation).toBe('Query failed: 500: backend down');
+      // Marked unavailable: a query that never reached Prometheus has not
+      // established anything, so it must not be able to rule a hypothesis out.
+      expect(isSourceUnavailable(observation)).toBe(true);
+      expect(stripSourceMark(observation)).toBe('Query failed: 500: backend down');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'tool_result', tool: 'metrics_query' }),
       );
@@ -111,7 +115,8 @@ describe('metrics handlers', () => {
       });
       const ctx = makeFakeActionContext({ adapters: makeAdaptersWithMetrics(adapter) });
       const observation = await handleMetricsRangeQuery(ctx, { sourceId: 'prom', query: 'cpu' });
-      expect(observation).toBe('Range query failed: timeout');
+      expect(isSourceUnavailable(observation)).toBe(true);
+      expect(stripSourceMark(observation)).toBe('Range query failed: timeout');
       expect(ctx.sendEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'tool_result', tool: 'metrics_range_query' }),
       );

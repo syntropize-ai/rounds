@@ -244,7 +244,12 @@ export default function InvestigationReportView({ report, title }: Props) {
             {/* Header */}
             <header className="space-y-4">
               <div className="flex items-center gap-3">
-                <span className="px-2 py-0.5 rounded bg-error/10 text-error text-[10px] font-bold tracking-widest uppercase">
+                {/* Primary, not error. The same flow labels its in-progress
+                    state `bg-primary/10`, so finishing an investigation used to
+                    turn the badge red — which reads as "something went wrong"
+                    when it means "this is done". It also fought the verdict
+                    banner above it: a verified conclusion under a red label. */}
+                <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-bold tracking-widest uppercase">
                   Investigation Report
                 </span>
               </div>

@@ -135,3 +135,62 @@ describe('documented environment variables are read by the code', () => {
     expectAllReferenced(names);
   });
 });
+
+/**
+ * Tool names in the docs have to be tool names.
+ *
+ * The investigations page documented `investigation.create`, `metrics.range_query`
+ * and four more that have never existed — the real tools use underscores. Anyone
+ * following that page to script against the agent would have failed on every
+ * call, and the page had read plausibly for months because nothing compared it
+ * to the registry.
+ *
+ * Hand-checking does not work: fixing that page, I introduced two new wrong
+ * names (`metrics_label_values`, `investigation_add_section`) by copying from
+ * the very text I was correcting. This test caught both.
+ */
+describe('documented tool names exist', () => {
+  // Two shapes, kept apart on purpose.
+  //
+  // A dotted name is unambiguously wrong: no tool has ever had a dot, so any
+  // `something.something` in backticks is a name that cannot be called.
+  //
+  // Underscored names are only checked for prefixes that belong exclusively to
+  // tools. `dashboard_` and `connector_` are excluded because the docs also use
+  // them for tables and permissions — `dashboard_acl` is a real thing that is
+  // not a tool, and flagging it would train people to ignore this test.
+  const DOTTED = /`([a-z_]+\.[a-z_.]+)`/g;
+  const UNDERSCORED = /`((?:metrics|logs|changes|investigation|ops)_[a-z_]+)`/g;
+
+  function registeredToolNames(): Set<string> {
+    const registry = read('packages/agent-core/src/agent/tool-schema-registry.ts');
+    const names = new Set<string>();
+    for (const m of registry.matchAll(/name:\s*'([a-z][a-z0-9_]*)'/g)) names.add(m[1]!);
+    return names;
+  }
+
+  it('finds the registry, so an empty match set cannot pass this silently', () => {
+    expect(registeredToolNames().size).toBeGreaterThan(20);
+  });
+
+  it('every tool-shaped name in docs/ is a real tool', () => {
+    const known = registeredToolNames();
+    const wrong: string[] = [];
+    for (const file of walk(join(ROOT, 'docs'), (n) => n.endsWith('.md'))) {
+      const text = readFileSync(file, 'utf8');
+      const where = file.replace(ROOT + '/', '');
+      for (const m of text.matchAll(UNDERSCORED)) {
+        if (!known.has(m[1]!)) wrong.push(`${where}: ${m[1]}`);
+      }
+      for (const m of text.matchAll(DOTTED)) {
+        const dotted = m[1]!;
+        // Only complain when the underscored form is a tool — otherwise this is
+        // ordinary prose like `package.json` or `spec.replicas`.
+        if (known.has(dotted.replace(/\./g, '_'))) {
+          wrong.push(`${where}: ${dotted} (tools use underscores)`);
+        }
+      }
+    }
+    expect(wrong, `these are written as tools but are not in the registry:\n${wrong.join('\n')}`).toEqual([]);
+  });
+});

@@ -31,15 +31,15 @@ Because tool calls are native (not prompted JSON), the model picks tools more ac
 
 | Category | Tools | Used for |
 |---|---|---|
-| Discovery | `datasources.list`, `dashboard.list`, `alert_rule.list`, `investigation.list` | Find what exists |
-| Metrics | `metrics.query`, `range_query`, `labels`, `label_values`, `series`, `metadata`, `metric_names`, `validate` | Discover + query metric backends |
-| Logs | `logs.query`, `logs.labels`, `logs.label_values` | Search log backends |
-| Kubernetes | `ops.run_command` | Inspect cluster state and prepare approval-gated remediation |
-| Changes | `changes.list_recent` | Correlate with deployments / config changes |
-| Web | `web.search` | External research (best practices, error codes) |
-| Dashboards | `dashboard.create`, `add_panels`, `modify_panel`, `remove_panels`, `add_variable`, `set_title`, `rearrange` | Build / edit dashboards |
-| Alerts | `create_alert_rule`, `modify_alert_rule`, `delete_alert_rule`, `alert_rule.history` | Manage alert lifecycle |
-| Investigations | `investigation.create`, `add_section`, `complete` | Structured incident analysis |
+| Discovery | `datasources.list`, `dashboard_list`, `alert_rule_list`, `investigation_list` | Find what exists |
+| Metrics | `metrics_query`, `range_query`, `labels`, `label_values`, `series`, `metadata`, `metric_names`, `validate` | Discover + query metric backends |
+| Logs | `logs_query`, `logs_labels`, `logs_label_values` | Search log backends |
+| Kubernetes | `ops_run_command` | Inspect cluster state and prepare approval-gated remediation |
+| Changes | `changes_list_recent` | Correlate with deployments / config changes |
+| Web | `web_search` | External research (best practices, error codes) |
+| Dashboards | `dashboard_create`, `add_panels`, `modify_panel`, `remove_panels`, `add_variable`, `set_title`, `rearrange` | Build / edit dashboards |
+| Alerts | `create_alert_rule`, `modify_alert_rule`, `delete_alert_rule`, `alert_rule_history` | Manage alert lifecycle |
+| Investigations | `investigation_create`, `add_section`, `complete` | Structured incident analysis |
 | Navigation | `navigate` | Open a URL in the user's browser |
 | Conversation | `reply`, `finish`, `ask_user` | Terminal actions |
 
@@ -87,7 +87,7 @@ Models without tool-use support are rejected at session start with an error poin
 The chat respects RBAC. The agent only sees tools the current user has permission to invoke:
 
 - `chat:use` — required to open a chat at all
-- Per-tool permissions — e.g. `dashboards:write` is required for `dashboard.create`; without it, the tool is removed from the agent's available set
+- Per-tool permissions — e.g. `dashboards:write` is required for `dashboard_create`; without it, the tool is removed from the agent's available set
 - Folder-scoped permissions cascade to the tools that touch that folder's resources
 
 So a `Viewer` can ask the agent to read dashboards but can't ask it to create one — the agent itself doesn't know about the missing tool, it just won't be in the prompt.

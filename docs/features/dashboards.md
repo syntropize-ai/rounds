@@ -8,7 +8,7 @@ Build observability dashboards by describing what you want in plain language. Ro
 - **Iterate by chat** — "add a panel showing 5xx errors by handler", "split the latency panel by method", "remove the request-rate panel".
 - **Manage layout** — rearrange, resize, retitle panels via chat or drag-and-drop.
 - **Add variables** — "add a `service` dropdown" creates a template variable backed by a label query.
-- **List & open** — `dashboard.list` returns dashboards filtered by folder/tag; click-through to open in the workspace.
+- **List & open** — `dashboard_list` returns dashboards filtered by folder/tag; click-through to open in the workspace.
 
 ## How to use it
 
@@ -21,11 +21,11 @@ In the chat panel:
 Rounds runs the orchestrator agent through a multi-step plan:
 
 1. `datasources.list` — find available metrics backends
-2. `metrics.metric_names` + `web.search` — discover relevant metric names + best practices
-3. `metrics.metadata` / `metrics.labels` — understand the schema
-4. `metrics.query` (parallel) — sample real values for grounding
-5. `metrics.validate` — confirm each query parses and returns data
-6. `dashboard.create` + `dashboard.add_panels` — build it
+2. `metrics_list_names` + `web_search` — discover relevant metric names + best practices
+3. `metrics_discover` / `metrics_get_labels` — understand the schema
+4. `metrics_query` (parallel) — sample real values for grounding
+5. `metrics_validate` — confirm each query parses and returns data
+6. `dashboard_create` + `dashboard_add_panels` — build it
 7. `navigate` — open the new dashboard for you
 
 You'll see the streaming step trace as it runs.
@@ -36,13 +36,13 @@ Open a dashboard, then in the chat:
 
 > Add a panel showing the 5xx error rate per handler
 
-Or use direct UI controls — click the panel menu to edit/duplicate/remove. Both paths use the same underlying tools (`dashboard.add_panels`, `dashboard.modify_panel`, `dashboard.remove_panels`).
+Or use direct UI controls — click the panel menu to edit/duplicate/remove. Both paths use the same underlying tools (`dashboard_add_panels`, `dashboard_modify_panel`, `dashboard_remove_panels`).
 
 ### Add a template variable
 
 > Add a `service` variable populated from the `service` label
 
-Generates a `metrics.label_values` query and wires the variable into all panel queries that use that label.
+Generates a `metrics_get_label_values` query and wires the variable into all panel queries that use that label.
 
 ## Examples
 

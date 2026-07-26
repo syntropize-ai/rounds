@@ -129,14 +129,29 @@ plan derived from it still requires human approval.
 
 ## Auto-approval, and how to turn it off
 
-Background agents have `readOnlyAgentBypass`, which skips the confirmation card
-for commands classified read-safe. It never applies to `critical` commands, and
-it respects explicit `ask`/`block` policy.
+`readOnlyAgentBypass` skips the confirmation card for commands classified
+read-safe. It respects explicit `ask`/`block` policy, and it is on for
+background agents **and for interactive chat**.
+
+Exactly what it does and does not skip:
+
+| Classification | Card shown? |
+|---|---|
+| `low` — known read verbs | skipped |
+| `high`, but `exec` or `cp` | skipped — inspecting a sidecar is what the interactive path is for |
+| `medium` — kubectl with an unrecognised verb | shown |
+| `high` — `apply`, `patch`, `scale`, and the rest | shown |
+| `critical` — `delete`, `drain`, `rm`, … | shown, and never skippable |
+
+The `exec` row is the one to weigh. `kubectl exec` can run anything inside a
+container, and the surface check only reads the outer command — a destructive
+inner script is caught only when its text matches the shell patterns above.
+An earlier version of this page said interactive chat always confirms anything
+mutating; that was not true, and this table replaces it.
 
 It still relies on the same text-based classification. **If your control
 environment requires a human decision for every agent-initiated command,
-disable it.** Interactive chat always shows the confirmation card for anything
-mutating regardless of this setting.
+disable it.**
 
 ## Prompt injection is an open surface
 

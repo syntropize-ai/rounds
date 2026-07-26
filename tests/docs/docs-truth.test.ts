@@ -194,3 +194,85 @@ describe('documented tool names exist', () => {
     expect(wrong, `these are written as tools but are not in the registry:\n${wrong.join('\n')}`).toEqual([]);
   });
 });
+
+/**
+ * A notification channel the docs present as available has to have a sender.
+ *
+ * `docs/features/alerts.md` listed "Slack, PagerDuty, email, webhook" as the
+ * notification channels, while `senderFor` returns null for PagerDuty and
+ * email — alerts routed there are dropped by the consumer. Two other pages in
+ * the same docs set correctly marked PagerDuty as planned, so the docs
+ * contradicted each other and the wrong one was on the alerts page, which is
+ * exactly where someone setting up paging looks.
+ *
+ * This reads the registry rather than a second list, so it stays true when a
+ * sender is implemented.
+ */
+describe('documented notification channels can actually deliver', () => {
+  const SENDERS = join(ROOT, 'packages/api-gateway/src/services/notification-senders/index.ts');
+
+  /** Types `senderFor` explicitly returns null for. */
+  function unimplementedChannels(): string[] {
+    const src = readFileSync(SENDERS, 'utf8');
+    const body = src.slice(src.indexOf('export function senderFor'));
+    // The null arm is a run of `case 'x':` labels ending in `return null;`.
+    const nullArm = body.slice(0, body.indexOf('return null;'));
+    const lastReturn = nullArm.lastIndexOf('return ');
+    return [...nullArm.slice(lastReturn).matchAll(/case '([a-z]+)'/g)].map((m) => m[1]!);
+  }
+
+  it('finds the registry, so an empty set cannot pass this silently', () => {
+    expect(existsSync(SENDERS)).toBe(true);
+    expect(unimplementedChannels().length).toBeGreaterThan(0);
+  });
+
+  it('never presents an undeliverable channel as a working notification channel', () => {
+    const unimplemented = unimplementedChannels();
+    const alerts = readFileSync(join(ROOT, 'docs/features/alerts.md'), 'utf8');
+    // The sentence that enumerates what is available. Naming an unimplemented
+    // channel there is the specific lie; naming it elsewhere as planned, or in
+    // the caveat that says it does not deliver, is fine.
+    const claim = alerts.split('\n').find((l) => l.includes('Notification channels'));
+    expect(claim, 'the channel list moved — update this guard').toBeTruthy();
+    for (const channel of unimplemented) {
+      expect(claim!.toLowerCase(), `${channel} is advertised but has no sender`).not.toContain(channel);
+    }
+  });
+});
+
+/**
+ * The risk-model table has to match what the code actually skips.
+ *
+ * This page is what a security reviewer reads to decide whether to enable the
+ * agent, so a row that overstates the controls is worse than no page. It
+ * previously claimed interactive chat always confirms anything mutating, while
+ * `readOnlyAgentBypass` was on for chat and `kubectl exec` skipped the card.
+ */
+describe('the documented auto-approval table matches the classifier', () => {
+  it('agrees with isAgentReadSafeCommand on every documented example', async () => {
+    const { isAgentReadSafeCommand } = await import(
+      '../../packages/api-gateway/src/services/ops-command-runner.js'
+    );
+    const documented: Array<[string, boolean]> = [
+      ['kubectl get pods', true],
+      ['kubectl describe pod x', true],
+      ['kubectl exec mypod -- ps aux', true],
+      ['kubectl cp ns/pod:/tmp/f ./f', true],
+      ['kubectl proxy --address=0.0.0.0', false],
+      ['kubectl certificate approve csr-1', false],
+      ['kubectl apply -f x.yaml', false],
+      ['kubectl patch deploy/x -p {}', false],
+      ['kubectl delete pod x', false],
+      ['kubectl drain node-1', false],
+      ['rm -rf /data', false],
+    ];
+    for (const [command, skipped] of documented) {
+      expect(isAgentReadSafeCommand(command), command).toBe(skipped);
+    }
+  });
+
+  it('no longer claims interactive chat confirms everything mutating', () => {
+    const page = readFileSync(join(ROOT, 'docs/reference/risk-model.md'), 'utf8');
+    expect(page).not.toContain('Interactive chat always shows the confirmation card for anything');
+  });
+});

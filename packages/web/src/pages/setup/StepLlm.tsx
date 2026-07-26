@@ -105,7 +105,11 @@ export function StepLlm({
     // PUT /api/system/llm is the authed save endpoint. The bootstrap-aware
     // middleware on the server lets the wizard reach it without auth until
     // the first admin is created.
-    await apiClient.put('/system/llm', {
+    // `apiClient` reports HTTP failures by returning an error rather than
+    // throwing, so an unchecked call advances the wizard on a rejected save.
+    // The user finishes setup believing the model is configured and meets the
+    // failure on their first question instead.
+    const res = await apiClient.put('/system/llm', {
       provider: config.provider,
       apiKey: config.apiKey || undefined,
       model: config.model,
@@ -115,6 +119,10 @@ export function StepLlm({
       apiKeyHelper: config.apiKeyHelper || undefined,
       apiFormat: config.provider === 'corporate-gateway' ? config.apiFormat : undefined,
     });
+    if (res.error) {
+      setTestResult({ ok: false, message: `Could not save: ${res.error.message}` });
+      return;
+    }
     onNext();
   };
 

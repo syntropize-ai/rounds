@@ -121,7 +121,9 @@ export default function EvidencePage() {
                 const counterIds = new Set(hyp.counterEvidenceIds);
                 const supportEvidence = evs.filter((ev) => supportIds.has(ev.id));
                 const counterEvidence = evs.filter((ev) => counterIds.has(ev.id));
-                // evidence not categorised yet - fall back to all as support
+                // Not folded into supporting evidence: "we have not decided
+                // yet" is not "this backs the hypothesis", and merging them
+                // made every hypothesis look better supported than it was.
                 const uncategorised = evs.filter(
                   (ev) => !supportIds.has(ev.id) && !counterIds.has(ev.id)
                 );
@@ -130,8 +132,9 @@ export default function EvidencePage() {
                   <HypothesisEvidence
                     key={hyp.id}
                     hypothesis={hyp}
-                    supportEvidence={[...supportEvidence, ...uncategorised]}
+                    supportEvidence={supportEvidence}
                     counterEvidence={counterEvidence}
+                    uncategorisedEvidence={uncategorised}
                   />
                 );
               })}

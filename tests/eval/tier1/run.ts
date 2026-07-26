@@ -97,12 +97,20 @@ async function runOnce(s: Scenario, attempt: number): Promise<RunRecord> {
     if (!(await s.confirmInjected())) return invalid('fault never became observable');
 
     const before = await listInvestigationIds();
-    await ask(s.question, `eval_${s.id}_${attempt}`);
+    const { openedInvestigation } = await ask(s.question);
     const id = await findNewInvestigation(before, s.question);
     if (!id) {
-      // The product's decision, not the harness's failure: it was told about a
-      // broken system and did not investigate.
-      return { ...base, outcome: 'UNRESOLVED', reason: 'no investigation was opened', confidentlyWrong: false };
+      // The product's decision, not the harness's failure. Which decision it
+      // was depends on whether it started at all: a draft is only persisted by
+      // `investigation_complete`, so an abandoned investigation leaves no row.
+      return {
+        ...base,
+        outcome: 'UNRESOLVED',
+        reason: openedInvestigation
+          ? 'opened an investigation but never completed it, so nothing was saved'
+          : 'did not open an investigation',
+        confidentlyWrong: false,
+      };
     }
 
     const { report } = await awaitReport(id, INVESTIGATION_BUDGET_MS);
@@ -151,16 +159,16 @@ async function runOnce(s: Scenario, attempt: number): Promise<RunRecord> {
 
 const pct = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(0)}%`);
 
-function render(records: RunRecord[], repeats: number): string {
+function render(records: RunRecord[], repeats: number, scenarios: Scenario[]): string {
   const s = summarize(records);
-  const injected = SCENARIOS.filter((x) => x.kind === 'injected');
+  const injected = scenarios.filter((x) => x.kind === 'injected');
   const notK8s = injected.filter((x) => x.rootCauseIsNotK8sObject);
 
   const lines: string[] = [
     '# Tier-1 live-fault results',
     '',
     `Model under test: \`${MODEL}\` · judge: \`${JUDGE_MODEL}\``,
-    `${SCENARIOS.length} scenarios × ${repeats} runs · ` +
+    `${scenarios.length} scenarios × ${repeats} runs · ` +
       `${s.injected.graded} graded on real faults, ${s.control.graded} on a healthy cluster, ` +
       `${s.injected.invalid + s.control.invalid} excluded`,
     '',
@@ -218,15 +226,26 @@ function render(records: RunRecord[], repeats: number): string {
   return lines.join('\n');
 }
 
+/** `--only <id>` runs one scenario. For debugging a scenario, never for a number. */
+function selectedScenarios(): Scenario[] {
+  const at = process.argv.indexOf('--only');
+  if (at < 0) return SCENARIOS;
+  const wanted = new Set(process.argv[at + 1]?.split(',') ?? []);
+  const picked = SCENARIOS.filter((s) => wanted.has(s.id));
+  if (picked.length === 0) throw new Error(`--only matched nothing. Known: ${SCENARIOS.map((s) => s.id).join(', ')}`);
+  return picked;
+}
+
 async function main(): Promise<void> {
   const repeatsArg = process.argv.indexOf('--repeats');
   const repeats = repeatsArg > 0 ? Number(process.argv[repeatsArg + 1]) : 1;
   if (!MODEL || !JUDGE_MODEL) throw new Error('ROUNDS_EVAL_MODEL and ROUNDS_EVAL_JUDGE_MODEL are required');
   assertDifferentVendors(MODEL, JUDGE_MODEL);
 
+  const scenarios = selectedScenarios();
   const records: RunRecord[] = [];
   for (let attempt = 1; attempt <= repeats; attempt++) {
-    for (const s of SCENARIOS) {
+    for (const s of scenarios) {
       process.stderr.write(`[${s.id}] run ${attempt}/${repeats}\n`);
       const r = await runOnce(s, attempt);
       process.stderr.write(`  -> ${r.outcome}: ${r.reason}\n`);
@@ -237,7 +256,7 @@ async function main(): Promise<void> {
   const out = join(dirname(fileURLToPath(import.meta.url)), 'results');
   mkdirSync(out, { recursive: true });
   const path = join(out, 'latest.md');
-  writeFileSync(path, render(records, repeats));
+  writeFileSync(path, render(records, repeats, scenarios));
   process.stderr.write(`\nwrote ${path}\n`);
 }
 

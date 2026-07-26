@@ -8,9 +8,29 @@ That distinction matters because the product is the investigation. A prompt
 edit, a change to the evidence gate, or swapping the default model can all make
 the answers worse while every other test stays green.
 
-**There are no accuracy numbers yet.** Tier 1 has been built but not run at a
-size that supports a percentage. Anything in this repo that quotes one is
-wrong; see [What we refuse to print](#what-we-refuse-to-print).
+**There are no accuracy numbers yet.** Tier 1 has been built and run end to
+end, but not at a size that supports a percentage. Anything in this repo that
+quotes one is wrong; see [What we refuse to print](#what-we-refuse-to-print).
+
+What the first live run did show, on one injected fault (`deepseek-v4-pro`
+against the mesh-latency scenario), is worth recording even though one run is
+not a measurement:
+
+- **The gate held.** It returned `unresolved` on an answer the model was
+  otherwise ready to give, citing exactly two things: one signal type, and no
+  competing explanation recorded as `ruled_out`.
+- **The answer underneath it was wrong**, and wrong in the way the scenario was
+  designed to catch. The model reached the right pair and the right shape —
+  only reviews-v2 slow, reviews-v3 fine, ratings itself fast — and then
+  invented a mechanism, "a degraded TCP connection between the sidecar and the
+  ratings pod", rather than finding the injected routing rule.
+- **It eliminated five hypotheses in prose and recorded none of them.** The
+  narrative and the ledger disagreed, and the gate reads the ledger.
+
+That is the product's central claim working: a confident wrong answer did not
+reach the user as verified. It is also the reason `answerRate` and `precision`
+are reported separately — this run contributes to neither, and a single
+accuracy number would have hidden which one it belonged to.
 
 ## Tier 0 — frozen trajectories (runs on every PR)
 
@@ -175,3 +195,22 @@ what is easy to grade, and what is easy to grade is a resource name. That drift
 silently excludes the class of incident where the evidence gate itself
 struggles, and the numbers never show it. `library.test.ts` fails if the count
 reaches zero.
+
+### Running it against a cluster with long-lived sidecars
+
+Injecting and reverting Istio faults on a mesh whose sidecars have been running
+for weeks can leave proxies in a state that a config delete does not clear —
+after an interrupted run, calls between services failed with `URX,UF` while
+every pod stayed Ready, every endpoint read `HEALTHY`, and the route config
+contained no fault at all. Restarting istiod did not fix it; restarting the
+workloads did.
+
+Two consequences for whoever runs this:
+
+- Do not kill a run mid-scenario. `revert` and `confirmReverted` live in a
+  `finally`, and a signal that skips them leaves the mesh dirty in a way the
+  next scenario will silently be graded against.
+- Prefer a cluster whose workloads are recreated per run. The scenarios are
+  reversible by construction, but "the manifest is gone" and "the dataplane
+  agrees" are not the same claim, which is the whole reason `confirmReverted`
+  asks Prometheus rather than kubectl.

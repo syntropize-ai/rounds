@@ -37,6 +37,8 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
   } catch (err) {
     throw new ApiUnreachable(`${method} ${path}: ${(err as Error).message}`);
   }
+  // Same split as `ask`: 5xx and network failures are the product being
+  // unavailable and excuse the run; 4xx is us asking wrongly and must not.
   if (res.status >= 500) throw new ApiUnreachable(`${method} ${path} -> ${res.status}`);
   if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const text = await res.text();
@@ -51,28 +53,52 @@ export async function listInvestigationIds(): Promise<Set<string>> {
 }
 
 /**
- * Ask the question and drain the stream.
+ * Ask the question, drain the stream, and report whether an investigation was
+ * ever started.
  *
  * The response body must be read to completion, not just opened: the agent
  * runs while the stream is open, and abandoning it mid-flight can cut the run
  * short and score the product for work it was interrupted doing.
+ *
+ * The `investigation_create` sighting matters because a draft investigation
+ * lives in memory until `investigation_complete` persists it. Without watching
+ * the stream, an investigation that started and ran out of steam is
+ * indistinguishable from one that was never opened — the row is absent either
+ * way. Both grade as UNRESOLVED, but for working out *why* the answer rate is
+ * low they are opposite findings: one is a model that did not engage, the
+ * other is a model that engaged and could not finish.
  */
-export async function ask(question: string, sessionId: string): Promise<void> {
+export async function ask(question: string): Promise<{ openedInvestigation: boolean }> {
   let res: Response;
   try {
+    // No sessionId. The server mints one, which is both what a new
+    // conversation does and what keeps runs isolated — a session carried
+    // across runs would let one scenario's history inform the next one's
+    // answer. Passing an invented id gets a 404: sessions must already exist.
     res = await fetch(`${BASE_URL}/api/chat`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ message: question, sessionId }),
+      body: JSON.stringify({ message: question }),
     });
   } catch (err) {
     throw new ApiUnreachable(`POST /api/chat: ${(err as Error).message}`);
   }
+  // A 4xx is the harness asking wrongly, not the product being down. Excluding
+  // those runs would delete our own bugs from the denominator and report the
+  // remainder as a measurement.
+  if (res.status >= 400 && res.status < 500) {
+    throw new Error(`POST /api/chat -> ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
   if (!res.ok || !res.body) throw new ApiUnreachable(`POST /api/chat -> ${res.status}`);
   const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let openedInvestigation = false;
   for (;;) {
-    const { done } = await reader.read();
-    if (done) return;
+    const { done, value } = await reader.read();
+    if (value && decoder.decode(value, { stream: true }).includes('"investigation_create"')) {
+      openedInvestigation = true;
+    }
+    if (done) return { openedInvestigation };
   }
 }
 
